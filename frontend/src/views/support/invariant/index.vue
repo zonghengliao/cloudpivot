@@ -13,7 +13,7 @@
           </p>
         </div>
         <t-space>
-          <t-button theme="default" :loading="loading" @click="loadAll">
+          <t-button theme="default" :loading="loading" data-testid="btn-invariant-refresh" @click="handleRefresh">
             <template #icon><t-icon name="refresh" /></template>
             刷新
           </t-button>
@@ -21,6 +21,7 @@
             v-privilege="['support:invariant:run']"
             theme="primary"
             :loading="running"
+            data-testid="btn-invariant-run"
             @click="handleRun"
           >
             <template #icon><t-icon name="play-circle" /></template>
@@ -108,7 +109,7 @@
         <EChart v-else :option="trendOption" :height="300" />
       </t-card>
 
-      <!-- 当前失败项 -->
+      <!-- 当前失败项（整表就几条：最近一次运行的失败项，无分页） -->
       <t-card :bordered="false" title="当前失败项" class="invariant-page__card">
         <template #subtitle>
           <span class="invariant-page__hint">取最近一次运行的失败项；最近一次全绿时这里为空</span>
@@ -126,6 +127,7 @@
           :columns="failureColumns"
           :hover="true"
           size="small"
+          data-testid="invariant-failure-table"
         >
           <template #level="{ row }">
             <t-tag :theme="row.level === 'BLOCKER' ? 'danger' : 'warning'" variant="light">
@@ -137,40 +139,48 @@
           </template>
         </t-table>
       </t-card>
-
-      <!-- 运行历史 -->
-      <t-card :bordered="false" title="运行历史" class="invariant-page__card">
-        <div class="invariant-page__toolbar">
-          <t-select v-model="historyFilter" placeholder="全部结论" clearable style="width: 160px" @change="handleFilter">
-            <t-option value="OK" label="全绿（OK）" />
-            <t-option value="FAIL" label="有失败项（FAIL）" />
-            <t-option value="ERROR" label="未跑成（ERROR）" />
-          </t-select>
-          <span class="invariant-page__hint">共 {{ historyTotal }} 条 · 点行看全量明细</span>
-        </div>
-        <t-table
-          row-key="id"
-          :data="historyRows"
-          :columns="historyColumns"
-          :pagination="pagination"
-          :hover="true"
-          size="small"
-          @page-change="handlePageChange"
-          @row-click="openDetail"
-        >
-          <template #run_at="{ row }">{{ formatDateTime(row.run_at) }}</template>
-          <template #status="{ row }">
-            <t-tag :theme="statusTheme(row.status)" variant="light">{{ statusText(row.status) }}</t-tag>
-          </template>
-          <template #trigger_type="{ row }">{{ triggerText(row.trigger_type) }}</template>
-          <template #counts="{ row }">{{ row.passed }} / {{ row.total }}</template>
-          <template #duration="{ row }">{{ row.duration_ms }} ms</template>
-        </t-table>
-      </t-card>
     </t-loading>
 
+    <!--
+      运行历史：服务端分页 + 只读行（点行开明细抽屉）→ 进 ListPage（P3-13）。
+      它是本页唯一的「列表」，其余三块（指标卡 / 趋势图 / 当前失败项）是看板，不迁。
+    -->
+    <ListPage
+      ref="historyRef"
+      title="运行历史"
+      testid="invariant-history"
+      table-testid="invariant-history-table"
+      meta-testid="invariant-history-meta"
+      btn-prefix="btn-invariant-history"
+      :page-size="HISTORY_PAGE_SIZE"
+      :columns="historyColumns"
+      :filters="historyFilters"
+      :filter-state="historyFilter"
+      :fetcher="historyFetcher"
+      :query-builder="historyQueryBuilder"
+      @row-click="openDetail"
+    >
+      <template #head-extra>
+        <span class="invariant-page__hint">点行看全量明细</span>
+      </template>
+
+      <template #run_at="{ row }">{{ formatDateTime(row.run_at) }}</template>
+      <template #status="{ row }">
+        <t-tag :theme="statusTheme(row.status)" variant="light">{{ statusText(row.status) }}</t-tag>
+      </template>
+      <template #trigger_type="{ row }">{{ triggerText(row.trigger_type) }}</template>
+      <template #counts="{ row }">{{ row.passed }} / {{ row.total }}</template>
+      <template #duration="{ row }">{{ row.duration_ms }} ms</template>
+    </ListPage>
+
     <!-- 明细抽屉 -->
-    <t-drawer v-model:visible="detailVisible" header="巡检明细" size="720px" :footer="false">
+    <t-drawer
+      v-model:visible="detailVisible"
+      header="巡检明细"
+      size="720px"
+      :footer="false"
+      data-testid="invariant-detail-drawer"
+    >
       <t-loading :loading="detailLoading" size="small" style="width: 100%">
         <template v-if="detail">
           <t-descriptions :column="2" size="small" class="invariant-page__desc">
@@ -197,6 +207,7 @@
             :columns="detailColumns"
             :hover="true"
             size="small"
+            data-testid="invariant-detail-table"
           >
             <template #ok="{ row }">
               <t-tag :theme="row.ok ? 'success' : row.level === 'BLOCKER' ? 'danger' : 'warning'" variant="light">
@@ -215,7 +226,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { MessagePlugin } from 'tdesign-vue-next';
 import {
   getInvariantOverview,
   getInvariantResult,
@@ -229,14 +240,17 @@ import {
 import { ApiError } from '@/api/request';
 import { formatDateTime } from '@/utils/format';
 import EChart from '@/components/EChart.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQuery,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
+/** 运行历史每页条数（改造前是 10，保持手感一致） */
+const HISTORY_PAGE_SIZE = 10;
 
 /** 看板数据 */
 const overview = ref<InvariantOverviewRes | null>(null);
@@ -253,14 +267,12 @@ const running = ref(false);
 /** 接口错误提示 */
 const errorMessage = ref('');
 
-/** 运行历史 */
-const historyRows = ref<InvariantResultRes[]>([]);
-/** 历史总条数 */
-const historyTotal = ref(0);
+// ==================== 运行历史（交给 ListPage） ====================
+
 /** 结论过滤（空串 = 全部） */
-const historyFilter = ref<string>('');
-/** 分页状态 */
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+const historyFilter = reactive<{ status: string }>({ status: '' });
+/** ListPage 实例（刷新按钮同时刷历史） */
+const historyRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 明细抽屉 */
 const detailVisible = ref(false);
@@ -269,8 +281,8 @@ const detailLoading = ref(false);
 /** 明细内容 */
 const detail = ref<InvariantResultDetailRes | null>(null);
 
-/** 当前失败项表格列 */
-const failureColumns: PrimaryTableCol[] = [
+/** 当前失败项表格列（不迁：整表只有最近一次的失败项，无分页） */
+const failureColumns: ColumnDef[] = [
   { colKey: 'group', title: '分组', width: 90 },
   { colKey: 'name', title: '检查项', width: 260, ellipsis: true },
   { colKey: 'level', title: '级别', width: 100 },
@@ -278,7 +290,7 @@ const failureColumns: PrimaryTableCol[] = [
 ];
 
 /** 运行历史表格列 */
-const historyColumns: PrimaryTableCol[] = [
+const historyColumns: ColumnDef[] = [
   { colKey: 'run_at', title: '运行时间', width: 170 },
   { colKey: 'status', title: '结论', width: 110 },
   { colKey: 'trigger_type', title: '触发', width: 90 },
@@ -288,14 +300,45 @@ const historyColumns: PrimaryTableCol[] = [
   { colKey: 'duration', title: '耗时', width: 100 },
 ];
 
-/** 明细表格列 */
-const detailColumns: PrimaryTableCol[] = [
+/** 明细表格列（抽屉内，无分页） */
+const detailColumns: ColumnDef[] = [
   { colKey: 'group', title: '分组', width: 90 },
   { colKey: 'name', title: '检查项', width: 240, ellipsis: true },
   { colKey: 'level', title: '级别', width: 100 },
   { colKey: 'ok', title: '结果', width: 90 },
   { colKey: 'detail', title: '说明', ellipsis: true },
 ];
+
+/** 历史筛选行：结论下拉（值一变就查，与原页 `@change="handleFilter"` 一致） */
+const historyFilters: FilterDef[] = [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部结论',
+    width: 160,
+    options: [
+      { label: '全绿（OK）', value: 'OK' },
+      { label: '有失败项（FAIL）', value: 'FAIL' },
+      { label: '未跑成（ERROR）', value: 'ERROR' },
+    ],
+    searchOnChange: true,
+    testid: 'invariant-filter-status',
+  },
+];
+
+/** 拉一页运行历史 */
+const historyFetcher: ListFetcher<InvariantResultRes> = (query) =>
+  pageInvariantResults(query as Parameters<typeof pageInvariantResults>[0]);
+
+/** 入参拼装（键名与改造前逐字一致；空结论整键缺席） */
+const historyQueryBuilder: ListQueryBuilder = (state, page, pageSize): ListQuery => {
+  const status = String((state as { status: string }).status ?? '').trim();
+  return {
+    page,
+    page_size: pageSize,
+    ...(status ? { status } : {}),
+  };
+};
 
 /** 结论 → 主题色 */
 function statusTheme(status: string): 'success' | 'danger' | 'warning' | 'default' {
@@ -364,13 +407,12 @@ const trendOption = computed(() => {
   };
 });
 
-/** 加载看板（overview + 运行历史第一页） */
-async function loadAll(): Promise<void> {
+/** 加载看板（overview） */
+async function loadOverview(): Promise<void> {
   loading.value = true;
   errorMessage.value = '';
   try {
     overview.value = await getInvariantOverview(30);
-    await loadHistory();
   } catch (error) {
     errorMessage.value = error instanceof ApiError ? error.message : '加载巡检看板失败';
   } finally {
@@ -378,39 +420,19 @@ async function loadAll(): Promise<void> {
   }
 }
 
-/** 加载运行历史当前页 */
-async function loadHistory(): Promise<void> {
-  const data = await pageInvariantResults({
-    page: pagination.current,
-    page_size: pagination.pageSize,
-    status: historyFilter.value || undefined,
-  });
-  historyRows.value = data.list;
-  historyTotal.value = data.total;
-  pagination.total = data.total;
-}
-
-/** 结论过滤变化 → 回到第一页重查 */
-async function handleFilter(): Promise<void> {
-  pagination.current = 1;
-  await loadHistory();
-}
-
-/** 翻页 */
-async function handlePageChange(pageInfo: TablePageInfo): Promise<void> {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  await loadHistory();
+/** 「刷新」：看板 + 运行历史一起刷（历史由 ListPage 自己持页，不回头一页） */
+async function handleRefresh(): Promise<void> {
+  await loadOverview();
+  await historyRef.value?.reload();
 }
 
 /** 打开某次运行的明细 */
-async function openDetail(ctx: { row: Record<string, unknown> }): Promise<void> {
-  const row = ctx.row as unknown as InvariantResultRes;
+async function openDetail(payload: { row: InvariantResultRes }): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   detail.value = null;
   try {
-    detail.value = await getInvariantResult(row.id);
+    detail.value = await getInvariantResult(payload.row.id);
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '加载明细失败');
   } finally {
@@ -432,7 +454,9 @@ async function handleRun(): Promise<void> {
         `巡检完成：${result.passed}/${result.total} 通过，BLOCKER ${result.blockers}，WARN ${result.warns}`,
       );
     }
-    await loadAll();
+    // 新跑的一次排在最前：回第 1 页 + 刷新看板
+    historyRef.value?.search();
+    await loadOverview();
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '执行巡检失败');
   } finally {
@@ -441,7 +465,7 @@ async function handleRun(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadAll();
+  void loadOverview();
 });
 </script>
 
@@ -483,7 +507,7 @@ onMounted(() => {
 }
 
 .invariant-page__metrics {
-  margin-bottom: 0;
+  margin-bottom: 16px;
 }
 
 .invariant-metric {
@@ -534,11 +558,8 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.invariant-page__toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+.invariant-page__card {
+  margin-bottom: 16px;
 }
 
 .invariant-page__detail {

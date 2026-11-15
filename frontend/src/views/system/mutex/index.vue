@@ -1,118 +1,114 @@
+<!--
+  互斥规则 / 职责分离 SoD（system/mutex）：规则列表 + 冲突查询 + 存量扫描（P3-13）。
+
+  # 只有主表进 ListPage
+  「冲突查询结果」与「存量扫描结果」是**一次查询的返回体**（几条、无分页、无翻页语义），
+  按决策 §6 第 ① 问判为不进；主表是标准服务端分页只读行列表，进。
+
+  # 删除入口只对「生效中」开放
+  后端把「停用」当软删（`enabled=false` 即视为已删除），此后再 DELETE 返回 10002
+  「互斥关系不存在或已停用」。所以停用行显示一个置灰 + tooltip 的假按钮，
+  而不是留一个点了必然报错的入口（后端已验收，不改后端）。
+-->
 <template>
   <div class="mutex-page">
-    <!-- ========== 筛选 + 列表 ========== -->
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="16">
-        <t-col :span="6">
-          <t-input v-model="query.keyword" placeholder="角色编码 / 名称 / 理由（模糊）" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.status" placeholder="状态" clearable>
-            <t-option :value="1" label="生效中" />
-            <t-option :value="0" label="已停用" />
-          </t-select>
-        </t-col>
-        <t-col :span="7">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-            <t-button theme="default" :loading="loading" @click="loadList">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <ListPage
+      ref="listRef"
+      title="互斥规则"
+      meta-unit="条规则"
+      testid="mutex"
+      table-testid="mutex-table"
+      meta-testid="mutex-meta"
+      btn-prefix="btn-mutex"
+      :page-size="MUTEX_PAGE_SIZE"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+    >
+      <template #toolbar>
+        <t-button
+          v-privilege="[PERM.mutexCreate]"
+          theme="primary"
+          data-testid="btn-mutex-new"
+          @click="openCreate"
+        >
+          <template #icon><t-icon name="add" /></template>
+          新增互斥规则
+        </t-button>
+        <t-button
+          v-privilege="[PERM.mutexConflict]"
+          theme="default"
+          :loading="scanLoading"
+          data-testid="btn-mutex-scan"
+          @click="runScan"
+        >
+          <template #icon><t-icon name="search" /></template>
+          存量扫描
+        </t-button>
+      </template>
 
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <t-button v-privilege="[PERM.mutexCreate]" theme="primary" @click="openCreate">
-            <template #icon><t-icon name="add" /></template>
-            新增互斥规则
-          </t-button>
-          <t-button
-            v-privilege="[PERM.mutexConflict]"
-            theme="default"
-            :loading="scanLoading"
-            @click="runScan"
+      <template #role_a="{ row }">
+        <span class="cell-role">{{ row.role_a_name }}</span>
+        <span class="cell-sub">{{ row.role_a_code }}</span>
+      </template>
+      <template #pair="{ row }">
+        <t-icon class="pair-icon" name="swap" />
+        <span class="pair-hint">{{ row.role_a_code }} &lt; {{ row.role_b_code }}</span>
+      </template>
+      <template #role_b="{ row }">
+        <span class="cell-role">{{ row.role_b_name }}</span>
+        <span class="cell-sub">{{ row.role_b_code }}</span>
+      </template>
+      <template #enabled="{ row }">
+        <t-tag :theme="row.enabled ? 'success' : 'default'" variant="light" size="small">
+          {{ row.enabled ? '生效中' : '已停用' }}
+        </t-tag>
+      </template>
+      <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link
+            v-privilege="[PERM.mutexCreate]"
+            theme="primary"
+            data-testid="btn-mutex-edit"
+            @click.stop="openEdit(row)"
           >
-            <template #icon><t-icon name="search" /></template>
-            存量扫描
-          </t-button>
+            编辑
+          </t-link>
+          <t-link
+            v-privilege="[PERM.mutexCreate]"
+            :theme="row.enabled ? 'warning' : 'success'"
+            data-testid="btn-mutex-toggle"
+            @click.stop="onToggleEnabled(row, !row.enabled)"
+          >
+            {{ row.enabled ? '停用' : '启用' }}
+          </t-link>
+          <t-link
+            v-if="row.enabled"
+            v-privilege="[PERM.mutexDelete]"
+            theme="danger"
+            data-testid="btn-mutex-delete"
+            @click.stop="confirmRemove(row)"
+          >
+            删除
+          </t-link>
+          <t-tooltip v-else v-privilege="[PERM.mutexDelete]" content="已停用规则在后端视为已删除，无需再次删除">
+            <t-link theme="default" :disabled="true">删除</t-link>
+          </t-tooltip>
         </t-space>
-        <span class="toolbar__count">共 {{ pagination.total }} 条规则</span>
-      </div>
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        stripe
-        @page-change="handlePageChange"
-      >
-        <template #role_a="{ row }">
-          <span class="cell-role">{{ row.role_a_name }}</span>
-          <span class="cell-sub">{{ row.role_a_code }}</span>
-        </template>
-        <template #pair="{ row }">
-          <t-icon class="pair-icon" name="swap" />
-          <span class="pair-hint">{{ row.role_a_code }} &lt; {{ row.role_b_code }}</span>
-        </template>
-        <template #role_b="{ row }">
-          <span class="cell-role">{{ row.role_b_name }}</span>
-          <span class="cell-sub">{{ row.role_b_code }}</span>
-        </template>
-        <template #enabled="{ row }">
-          <t-tag :theme="row.enabled ? 'success' : 'default'" variant="light" size="small">
-            {{ row.enabled ? '生效中' : '已停用' }}
-          </t-tag>
-        </template>
-        <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link v-privilege="[PERM.mutexCreate]" theme="primary" @click="openEdit(row)">编辑</t-link>
-            <t-link
-              v-privilege="[PERM.mutexCreate]"
-              :theme="row.enabled ? 'warning' : 'success'"
-              @click="onToggleEnabled(row, !row.enabled)"
-            >
-              {{ row.enabled ? '停用' : '启用' }}
-            </t-link>
-            <!--
-              「停用」在后端是软删（enabled=false 即视为已删除），此后再 DELETE 会返回
-              10002「互斥关系不存在或已停用」。所以删除入口只对生效中的规则开放，
-              否则就是个点了必然报错的假按钮（后端已验收，不改后端，改为前端不提供该路径）。
-            -->
-            <t-link
-              v-if="row.enabled"
-              v-privilege="[PERM.mutexDelete]"
-              theme="danger"
-              @click="confirmRemove(row)"
-            >
-              删除
-            </t-link>
-            <t-tooltip v-else v-privilege="[PERM.mutexDelete]" content="已停用规则在后端视为已删除，无需再次删除">
-              <t-link theme="default" :disabled="true">删除</t-link>
-            </t-tooltip>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-state">
-            <t-icon class="empty-state__icon" name="swap" />
-            <p class="empty-state__title">还没有互斥规则</p>
-            <p class="empty-state__desc">互斥 = 同一个人不能同时持有两个角色（职责分离 SoD）</p>
-            <t-button v-privilege="[PERM.mutexCreate]" theme="primary" @click="openCreate">新增互斥规则</t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty>
+        <div class="empty-state" data-testid="mutex-empty">
+          <t-icon class="empty-state__icon" name="swap" />
+          <p class="empty-state__title">还没有互斥规则</p>
+          <p class="empty-state__desc">互斥 = 同一个人不能同时持有两个角色（职责分离 SoD）</p>
+          <t-button v-privilege="[PERM.mutexCreate]" theme="primary" @click="openCreate">新增互斥规则</t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ========== 冲突查询（单用户体检） ========== -->
     <t-card v-if="canConflict" :bordered="false" class="conflict-card">
@@ -135,12 +131,14 @@
           clearable
           :loading="userLoading"
           :options="userOptions"
+          data-testid="mutex-conflict-user"
           @search="onUserSearch"
         />
         <t-button
           theme="primary"
           :loading="conflictLoading"
           :disabled="!conflictUserId"
+          data-testid="btn-mutex-conflict-query"
           @click="loadConflict"
         >
           查询冲突
@@ -167,6 +165,7 @@
           :data="conflictResult.conflicts"
           :columns="conflictColumns"
           :bordered="false"
+          data-testid="mutex-conflict-table"
         >
           <template #pair="{ row }">
             <t-tag theme="danger" variant="light" size="small">{{ row.role_a_name }}</t-tag>
@@ -217,6 +216,7 @@
         size="small"
         :bordered="false"
         :empty="scanResult.items.length === 0 ? '本次扫描未发现违规组合' : ''"
+        data-testid="mutex-scan-table"
       >
         <template #roles="{ row }">
           <t-tag size="small" variant="light" theme="default">{{ row.role_a_name }}</t-tag>
@@ -247,6 +247,7 @@
       :confirm-btn="{ content: isEdit ? '保存' : '创建', theme: 'primary', loading: submitting }"
       :cancel-btn="{ content: '取消' }"
       destroy-on-close
+      data-testid="mutex-form-dialog"
       @confirm="handleSubmit"
     >
       <t-form :data="form" label-width="90px">
@@ -257,6 +258,7 @@
             :options="roleSelectOptions"
             placeholder="选择第一个角色"
             filterable
+            data-testid="mutex-form-role-a"
           />
         </t-form-item>
         <t-form-item label="角色 B" required>
@@ -266,6 +268,7 @@
             :options="roleSelectOptions"
             placeholder="选择第二个角色"
             filterable
+            data-testid="mutex-form-role-b"
           />
           <div v-if="samePair" class="field-hint field-hint--error">
             A 与 B 不能是同一个角色（后端也会以 61012 拒绝）
@@ -278,6 +281,7 @@
             :autosize="{ minRows: 3 }"
             :maxlength="200"
             placeholder="写清为什么这两个角色不能并存（如：制单与审核必须分离）"
+            data-testid="mutex-form-reason"
           />
         </t-form-item>
       </t-form>
@@ -288,7 +292,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
-import type { PrimaryTableCol, SelectOption } from 'tdesign-vue-next';
+import type { SelectOption } from 'tdesign-vue-next';
 import {
   createMutex,
   deleteMutex,
@@ -306,34 +310,54 @@ import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import { useUserStore } from '@/stores/user';
 import { formatDateTime } from '@/utils/format';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQuery,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
+
+/** 每页条数（改造前是 10，保持手感一致） */
+const MUTEX_PAGE_SIZE = 10;
 
 const userStore = useUserStore();
 /** 冲突查询 / 存量扫描 */
 const canConflict = computed<boolean>(() => userStore.hasPermission(PERM.mutexConflict));
 
 // ===== 列表 =====
-const loading = ref(false);
-const rows = ref<MutexRes[]>([]);
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
-const query = reactive<{ keyword: string; status: number | undefined }>({ keyword: '', status: undefined });
+/** 筛选状态（`status` 用 `''` 表示「全部」，1/0 才是真条件） */
+interface MutexFilterState {
+  /** 角色编码 / 名称 / 理由（模糊） */
+  keyword: string;
+  /** 1 生效中 / 0 已停用 / '' 全部 */
+  status: number | '';
+}
+
+const filter = reactive<MutexFilterState>({ keyword: '', status: '' });
+/** ListPage 实例（保存 / 启停 / 删除后重拉当前页） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 const statusLoading = ref('');
 
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'role_a', title: '角色 A', width: 170 },
   { colKey: 'pair', title: '规范化', width: 170 },
   { colKey: 'role_b', title: '角色 B', width: 170 },
   { colKey: 'reason', title: '说明', ellipsis: true },
   { colKey: 'enabled', title: '状态', width: 90 },
   { colKey: 'created_at', title: '创建时间', width: 170 },
-  { colKey: 'op', title: '操作', width: 180, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 180, fixed: 'right', exportable: false },
 ];
 
-const conflictColumns: PrimaryTableCol[] = [
+/** 冲突查询结果表（一次查询的返回体，无分页） */
+const conflictColumns: ColumnDef[] = [
   { colKey: 'pair', title: '违规组合', width: 260 },
   { colKey: 'reason', title: '互斥说明', ellipsis: true },
 ];
 
-const scanColumns: PrimaryTableCol[] = [
+/** 存量扫描结果表（同上，无分页） */
+const scanColumns: ColumnDef[] = [
   { colKey: 'roles', title: '互斥组合', width: 260 },
   { colKey: 'reason', title: '说明', ellipsis: true },
   { colKey: 'total', title: '违规人数', width: 100 },
@@ -342,36 +366,44 @@ const scanColumns: PrimaryTableCol[] = [
 
 const roleSelectOptions = ref<SelectOption[]>([]);
 
-/** 表格分页回调参数（TDesign 未导出该类型，与项目其它页面同一口径） */
-interface TablePageInfo {
-  /** 当前页 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
+/** 筛选行：关键词 + 状态 */
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '角色编码 / 名称 / 理由（模糊）', width: 300, testid: 'mutex-filter-keyword' },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 130,
+    options: [
+      { label: '生效中', value: 1 },
+      { label: '已停用', value: 0 },
+    ],
+    testid: 'mutex-filter-status',
+  },
+];
+
+/** 拉一页 */
+const fetcher: ListFetcher<MutexRes> = (query) => pageMutexes(query as Parameters<typeof pageMutexes>[0]);
+
+/** 入参拼装（键名与改造前逐字一致；`status = 0` 是真条件，必须发出去） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize): ListQuery => {
+  const { keyword, status } = state as MutexFilterState;
+  const text = String(keyword ?? '').trim();
+  return {
+    page,
+    page_size: pageSize,
+    ...(text ? { keyword: text } : {}),
+    ...(status === 0 || status === 1 ? { status } : {}),
+  };
+};
 
 function showError(error: unknown, fallback: string): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message || fallback : fallback);
 }
 
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageMutexes({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      keyword: query.keyword || undefined,
-      status: query.status,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    rows.value = [];
-    pagination.total = 0;
-    showError(error, '互斥规则加载失败');
-  } finally {
-    loading.value = false;
-  }
+/** 重拉当前页 */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
 }
 
 async function loadRoles(): Promise<void> {
@@ -384,23 +416,6 @@ async function loadRoles(): Promise<void> {
   } catch {
     roleSelectOptions.value = [];
   }
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.keyword = '';
-  query.status = undefined;
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
 }
 
 // ===== 新增 / 编辑 =====
@@ -448,7 +463,7 @@ async function handleSubmit(): Promise<void> {
       await updateMutex(editingId.value, { reason: form.reason.trim() });
       void MessagePlugin.success('互斥规则已更新');
       formVisible.value = false;
-      await loadList();
+      await reloadList();
     } catch (error) {
       showError(error, '保存互斥规则失败');
     } finally {
@@ -486,7 +501,7 @@ async function submitCreate(force: boolean): Promise<void> {
     );
     void MessagePlugin.success(force ? '规则已强制创建（存量违规需另行清理）' : '互斥规则已创建');
     formVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     if (error instanceof ApiError && error.code === 61010) {
       // 存量冲突：把后端点名的人数摆出来，由人决定是否强制
@@ -538,11 +553,11 @@ async function applyEnabled(row: MutexRes, enabled: boolean): Promise<void> {
     row.enabled = enabled;
     void MessagePlugin.success(enabled ? '规则已启用' : '规则已停用');
     // 以库为准重新拉取（启用会触发存量扫描，列表状态可能与本地不一致）
-    await loadList();
+    await reloadList();
   } catch (error) {
     // 恢复启用时若有存量双持 → 409 + 61010，消息里有人数
     showError(error, '状态修改失败');
-    await loadList();
+    await reloadList();
   } finally {
     statusLoading.value = '';
   }
@@ -561,7 +576,7 @@ function confirmRemove(row: MutexRes): void {
       try {
         await deleteMutex(row.id);
         void MessagePlugin.success('互斥规则已删除');
-        await loadList();
+        await reloadList();
       } catch (error) {
         showError(error, '删除失败');
       }
@@ -633,7 +648,6 @@ async function runScan(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadList();
   void loadRoles();
   void onUserSearch('');
 });
@@ -646,24 +660,10 @@ onMounted(() => {
   gap: 12px;
 }
 
-.filter-card,
-.table-card,
 .conflict-card,
 .scan-card {
   :deep(.t-card__body) {
     padding: 16px;
-  }
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-
-  &__count {
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
   }
 }
 

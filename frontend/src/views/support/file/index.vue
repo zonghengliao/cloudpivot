@@ -1,79 +1,72 @@
+<!--
+  文件管理（support/file）：上传 + 列表 + 预览（P3-13）。
+
+  注意与 `views/business/storage/file` 不是同一页：这一页是**平台自带文件服务**的文件库
+  （`/api/support/file/*`），那一页是业务域的存储桶文件。两页各自的权限码也不同。
+
+  # 预览要用「当前页的行」
+  预览面板支持左右切换，切换范围就是列表当前页 —— 所以页面仍要镜像一份行（`@loaded`），
+  这不是把 ListPage 的状态抄回来，是预览组件需要 `items` 数组。
+-->
 <template>
   <div class="file-page">
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="16">
-        <t-col :span="2.4">
-          <t-input v-model="query.original_name" placeholder="文件名称" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="2.4">
-          <t-input v-model="query.category" placeholder="分类" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="2.4">
-          <t-input v-model="query.mime_type" placeholder="文件类型" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="2.4">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <ListPage
+      ref="listRef"
+      title="文件"
+      testid="file"
+      table-testid="file-table"
+      meta-testid="file-meta"
+      btn-prefix="btn-file"
+      :page-size="FILE_PAGE_SIZE"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
+        <t-input
+          v-model="uploadCategory"
+          v-privilege="[PERM.upload]"
+          class="file-page__category"
+          placeholder="上传分类（可选）"
+          clearable
+          data-testid="file-upload-category"
+        />
+        <file-uploader
+          v-privilege="[PERM.upload]"
+          :category="uploadCategory"
+          @uploaded="onUploaded"
+          @error="showError"
+        />
+      </template>
 
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <t-input
-            v-model="uploadCategory"
-            v-privilege="['support:file:upload']"
-            class="file-page__category"
-            placeholder="上传分类（可选）"
-            clearable
-          />
-          <file-uploader
-            v-privilege="['support:file:upload']"
-            :category="uploadCategory"
-            @uploaded="onUploaded"
-            @error="showError"
-          />
-          <t-button theme="default" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
+      <template #category="{ row }">{{ categoryLabel(row.category) }}</template>
+      <template #uploader_name="{ row }">
+        <span data-testid="file-uploader-name">{{ uploaderLabel(row) }}</span>
+      </template>
+      <template #file_size="{ row }">{{ formatFileSize(row.file_size) }}</template>
+      <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link theme="primary" data-testid="file-row-preview" @click.stop="openPreview(row)">
+            预览
+          </t-link>
+          <t-link theme="primary" data-testid="file-row-download" @click.stop="handleDownload(row)">
+            下载
+          </t-link>
+          <t-link
+            v-privilege="[PERM.delete]"
+            theme="danger"
+            data-testid="file-row-delete"
+            @click.stop="confirmRemove(row)"
+          >
+            删除
+          </t-link>
         </t-space>
-        <span class="file-page__count">共 {{ pagination.total }} 条</span>
-      </div>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        :stripe="true"
-        @page-change="handlePageChange"
-      >
-        <template #category="{ row }">{{ categoryLabel(row.category) }}</template>
-        <template #uploader_name="{ row }">
-          <span data-testid="file-uploader-name">{{ uploaderLabel(row) }}</span>
-        </template>
-        <template #file_size="{ row }">{{ formatFileSize(row.file_size) }}</template>
-        <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link theme="primary" data-testid="file-row-preview" @click="openPreview(row)">预览</t-link>
-            <t-link theme="primary" @click="handleDownload(row)">下载</t-link>
-            <t-link v-privilege="['support:file:delete']" theme="danger" @click="confirmRemove(row)">
-              删除
-            </t-link>
-          </t-space>
-        </template>
-      </t-table>
-    </t-card>
+      </template>
+    </ListPage>
 
     <!-- ATT-01：统一附件预览（同页文件一起进列表，支持左右切换） -->
     <attachment-preview
@@ -86,35 +79,40 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import {
-  DialogPlugin,
-  MessagePlugin,
-  type PrimaryTableCol,
-} from 'tdesign-vue-next';
+import { computed, reactive, ref } from 'vue';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import FileUploader from '@/components/FileUploader.vue';
 import AttachmentPreview from '@/components/AttachmentPreview.vue';
 import type { PreviewItem } from '@/components/attachment-preview-pure';
-import {
-  deleteFile,
-  downloadFileBlob,
-  pageFiles,
-  type FileRes,
-} from '@/api/support/file-api';
+import { deleteFile, downloadFileBlob, pageFiles, type FileRes } from '@/api/support/file-api';
 import { ApiError } from '@/api/request';
 import { formatDateTime, formatFileSize } from '@/utils/format';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQuery,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import { uploaderLabel } from './uploader-label';
 
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
+/**
+ * 本页权限码（与 `sys_menu.auth_code` 一致）。
+ *
+ * 就近放在页面里（不改 `src/constants/permissions.ts`）：那个文件是全站单点，
+ * 多张卡会同时往它里面加码，谁后提交谁撞冲突。
+ */
+const PERM = {
+  upload: 'support:file:upload',
+  delete: 'support:file:delete',
+} as const;
 
-/** 查询条件 */
-interface FileQuery {
+/** 每页条数（改造前是 10，保持手感一致） */
+const FILE_PAGE_SIZE = 10;
+
+/** 查询条件（`''` = 不过滤） */
+interface FileFilterState {
   /** 原始文件名 */
   original_name: string;
   /** 文件分类 */
@@ -123,12 +121,52 @@ interface FileQuery {
   mime_type: string;
 }
 
-const query = reactive<FileQuery>({ original_name: '', category: '', mime_type: '' });
-const rows = ref<FileRes[]>([]);
-const loading = ref(false);
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+const filter = reactive<FileFilterState>({ original_name: '', category: '', mime_type: '' });
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 /** 上传时携带的分类 */
 const uploadCategory = ref('');
+/** 当前页的行（预览面板的 items 来源） */
+const currentRows = ref<FileRes[]>([]);
+
+const columns: ColumnDef[] = [
+  { colKey: 'original_name', title: '文件名称', ellipsis: true },
+  { colKey: 'category', title: '分类', width: 120 },
+  { colKey: 'mime_type', title: '文件类型', width: 180, ellipsis: true },
+  { colKey: 'file_size', title: '大小', width: 110 },
+  { colKey: 'uploader_name', title: '上传人', width: 140, cell: 'uploader_name' },
+  { colKey: 'created_at', title: '上传时间', width: 180 },
+  { colKey: 'op', title: '操作', width: 170, fixed: 'right', exportable: false },
+];
+
+/** 筛选行：三个关键词（回车 / 点查询生效，与原页一致） */
+const filters: FilterDef[] = [
+  { key: 'original_name', type: 'keyword', placeholder: '文件名称', width: 220, testid: 'file-filter-name' },
+  { key: 'category', type: 'keyword', placeholder: '分类', width: 180, testid: 'file-filter-category' },
+  { key: 'mime_type', type: 'keyword', placeholder: '文件类型', width: 180, testid: 'file-filter-mime' },
+];
+
+/** 拉一页 */
+const fetcher: ListFetcher<FileRes> = (query) => pageFiles(query as Parameters<typeof pageFiles>[0]);
+
+/** 入参拼装（键名与改造前逐字一致；空值整键缺席） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize): ListQuery => {
+  const { original_name: name, category, mime_type: mime } = state as FileFilterState;
+  const keyword = String(name ?? '').trim();
+  const categoryText = String(category ?? '').trim();
+  const mimeText = String(mime ?? '').trim();
+  return {
+    page,
+    page_size: pageSize,
+    ...(keyword ? { original_name: keyword } : {}),
+    ...(categoryText ? { category: categoryText } : {}),
+    ...(mimeText ? { mime_type: mimeText } : {}),
+  };
+};
+
+/** 一页拉完：镜像行（预览面板按当前页左右切换） */
+function onLoaded(payload: { rows: FileRes[] }): void {
+  currentRows.value = payload.rows;
+}
 
 /** 预览弹窗是否显示 */
 const previewVisible = ref(false);
@@ -142,7 +180,7 @@ const previewIndex = ref(0);
  * `uploader` 用显示名（ATT-03：不再把 UUID 递给预览面板）。
  */
 const previewItems = computed<PreviewItem[]>(() =>
-  rows.value.map((row) => ({
+  currentRows.value.map((row) => ({
     key: row.id,
     fileId: row.id,
     name: row.original_name || row.file_name,
@@ -155,7 +193,7 @@ const previewItems = computed<PreviewItem[]>(() =>
 
 /** 打开预览（越界/找不到时退化成第 0 个，不让组件收到 -1） */
 function openPreview(row: FileRes): void {
-  const index = rows.value.findIndex((item) => item.id === row.id);
+  const index = currentRows.value.findIndex((item) => item.id === row.id);
   previewIndex.value = index >= 0 ? index : 0;
   previewVisible.value = true;
 }
@@ -175,62 +213,20 @@ function categoryLabel(category: string | null | undefined): string {
   return CATEGORY_LABELS[category] ?? category;
 }
 
-const columns: PrimaryTableCol[] = [
-  { colKey: 'original_name', title: '文件名称', ellipsis: true },
-  { colKey: 'category', title: '分类', width: 120, cell: 'category' },
-  { colKey: 'mime_type', title: '文件类型', width: 180, ellipsis: true },
-  { colKey: 'file_size', title: '大小', width: 110, cell: 'file_size' },
-  { colKey: 'uploader_name', title: '上传人', width: 140, cell: 'uploader_name' },
-  { colKey: 'created_at', title: '上传时间', width: 180, cell: 'created_at' },
-  { colKey: 'op', title: '操作', width: 170, fixed: 'right' },
-];
-
 /** 统一展示接口错误 */
 function showError(message: string): void {
   void MessagePlugin.error(message);
 }
 
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageFiles({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      original_name: query.original_name || undefined,
-      category: query.category || undefined,
-      mime_type: query.mime_type || undefined,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    showError(error instanceof ApiError ? error.message : '文件列表加载失败');
-  } finally {
-    loading.value = false;
-  }
+/** 重新拉列表（上传 / 删除后） */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
 }
 
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.original_name = '';
-  query.category = '';
-  query.mime_type = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
-}
-
+/** 上传成功：回第 1 页（新文件按时间倒序在最前） */
 function onUploaded(file: FileRes): void {
   void MessagePlugin.success(`「${file.original_name}」上传成功`);
-  pagination.current = 1;
-  void loadList();
+  listRef.value?.search();
 }
 
 /** 通过 blob 下载，保证请求携带鉴权头 */
@@ -262,7 +258,7 @@ function confirmRemove(row: FileRes): void {
         try {
           await deleteFile(row.id);
           void MessagePlugin.success('文件已删除');
-          await loadList();
+          await reloadList();
         } catch (error) {
           showError(error instanceof ApiError ? error.message : '删除失败');
         }
@@ -270,34 +266,14 @@ function confirmRemove(row: FileRes): void {
     },
   });
 }
-
-onMounted(() => {
-  void loadList();
-});
 </script>
 
 <style scoped lang="less">
 .file-page {
   padding: 16px;
 
-  .filter-card {
-    margin-bottom: 12px;
-  }
-
-  .toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-  }
-
   &__category {
     width: 180px;
-  }
-
-  &__count {
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
   }
 }
 </style>

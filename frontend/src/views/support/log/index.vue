@@ -1,120 +1,122 @@
+<!--
+  日志（support/log）：五个 tab（操作 / 登录 / 审计 / 安全 / 改密），一个 ListPage（P3-13）。
+
+  # 为什么只用一个 ListPage 而不是五个
+  五个 tab 的筛选条件完全一样（用户名 + 时间区间），差别只有「列」和「拉哪个接口」。
+  tab 切换 = 换列 + 换 fetcher，然后 `search()` 回第 1 页重拉；换五个实例要复制五份筛选状态，
+  用户切回来还得靠列表记忆找回页码。
+
+  # 单元格槽按 colKey 命中
+  `operation` 这一列在两个 tab 里含义不同（操作日志=原样文本，审计日志=字典中文），
+  两个 tab 的列 colKey 同名，所以槽里按 `activeTab` 分叉 —— 这是本页唯一的分叉点。
+-->
 <template>
   <div class="log-page">
-    <!-- 筛选区：tabs 切换日志类型 + 通用查询条件 -->
-    <t-card :bordered="false" class="filter-card">
-      <t-tabs v-model="activeTab" @change="handleTabChange">
-        <t-tab-panel v-for="tab in logTabs" :key="tab.value" :value="tab.value" :label="tab.label" />
-      </t-tabs>
+    <t-tabs v-model="activeTab" class="page-tabs" data-testid="log-tabs" @change="handleTabChange">
+      <t-tab-panel v-for="tab in logTabs" :key="tab.value" :value="tab.value" :label="tab.label" />
+    </t-tabs>
 
-      <t-row :gutter="16" class="filter-row">
-        <t-col :span="2.4">
-          <t-input v-model="query.username" placeholder="用户名" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="2.4">
-          <t-date-range-picker
-            :value="timeRange"
-            allow-input
-            clearable
-            :placeholder="['开始时间', '结束时间']"
-            @change="handleTimeChange"
-          />
-        </t-col>
-        <t-col :span="2.4">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <ListPage
+      ref="listRef"
+      title="日志"
+      testid="log"
+      table-testid="log-table"
+      meta-testid="log-meta"
+      btn-prefix="btn-log"
+      :page-size="LOG_PAGE_SIZE"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+    >
+      <template #filter-time_range="{ value, set }">
+        <t-date-range-picker
+          :value="rangeValueOf(value)"
+          allow-input
+          clearable
+          :placeholder="['开始时间', '结束时间']"
+          data-testid="log-filter-time-range"
+          @change="(next: unknown) => set(normalizeRange(next))"
+        />
+      </template>
 
-    <!-- 表格区：toolbar + 分页表格 -->
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <!-- 清理仅操作日志 tab 可用 -->
-          <t-button
-            v-if="activeTab === 'operation'"
-            v-privilege="['support:log:clean']"
-            theme="danger"
-            variant="outline"
-            @click="openClean"
-          >
-            <template #icon><t-icon name="clear" /></template>
-            清理日志
-          </t-button>
-          <t-button theme="default" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
-        </t-space>
-        <span class="log-page__count">共 {{ pagination.total }} 条</span>
-      </div>
+      <!-- 清理仅操作日志 tab 可用 -->
+      <template #toolbar>
+        <t-button
+          v-if="activeTab === 'operation'"
+          v-privilege="['support:log:clean']"
+          theme="danger"
+          variant="outline"
+          data-testid="btn-log-clean"
+          @click="openClean"
+        >
+          <template #icon><t-icon name="clear" /></template>
+          清理日志
+        </t-button>
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        :stripe="true"
-        cell-empty-content="-"
-        @page-change="handlePageChange"
-      >
-        <!-- 操作日志专用单元格 -->
-        <template #request_method="{ row }">
-          <t-tag :theme="methodTheme(toText(row.request_method))" variant="light">
-            {{ toText(row.request_method) }}
-          </t-tag>
-        </template>
-        <template #status_code="{ row }">
-          <t-tag :theme="statusCodeTheme(Number(row.status_code))" variant="light">
-            {{ toText(row.status_code) }}
-          </t-tag>
-        </template>
-        <template #op="{ row }">
-          <t-link theme="primary" @click="openDetail(row)">详情</t-link>
-        </template>
+      <!-- 操作日志专用单元格 -->
+      <template #request_method="{ row }">
+        <t-tag :theme="methodTheme(toText(row.request_method))" variant="light">
+          {{ toText(row.request_method) }}
+        </t-tag>
+      </template>
+      <template #status_code="{ row }">
+        <t-tag :theme="statusCodeTheme(Number(row.status_code))" variant="light">
+          {{ toText(row.status_code) }}
+        </t-tag>
+      </template>
 
-        <!-- 通用单元格：时间 / IP / 状态 / 文本 -->
-        <template #created_at="{ row }">{{ formatDateTime(toText(row.created_at)) }}</template>
-        <template #ip="{ row }">{{ orDash(toText(row.ip)) }}</template>
-        <template #text="{ row, col }">{{ cellText(row, col) }}</template>
+      <!-- 通用单元格：时间 / IP / 文本 -->
+      <template #created_at="{ row }">{{ formatDateTime(toText(row.created_at)) }}</template>
+      <template #ip="{ row }">{{ orDash(toText(row.ip)) }}</template>
+      <template #username="{ row }">{{ textDash(row, 'username') }}</template>
+      <template #request_path="{ row }">{{ textDash(row, 'request_path') }}</template>
+      <template #duration_ms="{ row }">{{ textDash(row, 'duration_ms') }}</template>
+      <template #user_agent="{ row }">{{ textDash(row, 'user_agent') }}</template>
+      <template #error_message="{ row }">{{ textDash(row, 'error_message') }}</template>
+      <template #target_id="{ row }">{{ textDash(row, 'target_id') }}</template>
+      <template #request_id="{ row }">{{ textDash(row, 'request_id') }}</template>
+      <template #detail="{ row }">{{ textDash(row, 'detail') }}</template>
 
-        <!-- 字典映射单元格：编码 -> 中文 -->
-        <template #dict_auth_type="{ row }">
-          {{ dictLabel(DICT_LOG_AUTH_TYPE, toText(row.auth_type)) }}
-        </template>
-        <template #dict_operation="{ row }">
-          {{ dictLabel(DICT_LOG_OPERATION, toText(row.operation)) }}
-        </template>
-        <template #dict_target_type="{ row }">
-          {{ dictLabel(DICT_LOG_TARGET_TYPE, toText(row.target_type)) }}
-        </template>
-        <template #dict_event_type="{ row }">
-          {{ dictLabel(DICT_LOG_SECURITY_EVENT, toText(row.event_type)) }}
-        </template>
-        <template #dict_change_type="{ row }">
-          {{ dictLabel(DICT_LOG_PASSWORD_CHANGE_TYPE, toText(row.change_type)) }}
-        </template>
-        <template #auth_status="{ row }">
-          <t-tag v-if="isBlank(row.auth_status)" variant="light">-</t-tag>
-          <t-tag v-else :theme="isSuccessStatus(row.auth_status) ? 'success' : 'danger'" variant="light">
-            {{ isSuccessStatus(row.auth_status) ? '成功' : '失败' }}
-          </t-tag>
-        </template>
-        <template #change_status="{ row }">
-          <t-tag v-if="isBlank(row.change_status)" variant="light">-</t-tag>
-          <t-tag v-else :theme="isSuccessStatus(row.change_status) ? 'success' : 'danger'" variant="light">
-            {{ isSuccessStatus(row.change_status) ? '成功' : '失败' }}
-          </t-tag>
-        </template>
-      </t-table>
-    </t-card>
+      <!-- 操作列（`operation`）在两个 tab 语义不同：操作日志原样、审计日志译字典 -->
+      <template #operation="{ row }">
+        <span v-if="activeTab === 'audit'">{{ dictLabel(DICT_LOG_OPERATION, toText(row.operation)) }}</span>
+        <span v-else>{{ textDash(row, 'operation') }}</span>
+      </template>
+
+      <!-- 字典映射单元格：编码 -> 中文 -->
+      <template #auth_type="{ row }">
+        {{ dictLabel(DICT_LOG_AUTH_TYPE, toText(row.auth_type)) }}
+      </template>
+      <template #target_type="{ row }">
+        {{ dictLabel(DICT_LOG_TARGET_TYPE, toText(row.target_type)) }}
+      </template>
+      <template #event_type="{ row }">
+        {{ dictLabel(DICT_LOG_SECURITY_EVENT, toText(row.event_type)) }}
+      </template>
+      <template #change_type="{ row }">
+        {{ dictLabel(DICT_LOG_PASSWORD_CHANGE_TYPE, toText(row.change_type)) }}
+      </template>
+
+      <template #auth_status="{ row }">
+        <t-tag v-if="isBlank(row.auth_status)" variant="light">-</t-tag>
+        <t-tag v-else :theme="isSuccessStatus(row.auth_status) ? 'success' : 'danger'" variant="light">
+          {{ isSuccessStatus(row.auth_status) ? '成功' : '失败' }}
+        </t-tag>
+      </template>
+      <template #change_status="{ row }">
+        <t-tag v-if="isBlank(row.change_status)" variant="light">-</t-tag>
+        <t-tag v-else :theme="isSuccessStatus(row.change_status) ? 'success' : 'danger'" variant="light">
+          {{ isSuccessStatus(row.change_status) ? '成功' : '失败' }}
+        </t-tag>
+      </template>
+
+      <template #op="{ row }">
+        <t-link theme="primary" data-testid="btn-log-detail" @click.stop="openDetail(row)">详情</t-link>
+      </template>
+    </ListPage>
 
     <!-- 详情抽屉：仅操作日志存在详情接口 -->
     <t-drawer
@@ -123,6 +125,7 @@
       size="640px"
       :footer="false"
       destroy-on-close
+      data-testid="log-detail-drawer"
     >
       <t-loading :loading="detailLoading">
         <t-descriptions v-if="detail" :column="1" bordered>
@@ -161,6 +164,7 @@
       :confirm-btn="{ content: '确定清理', theme: 'danger', loading: cleaning }"
       width="440px"
       destroy-on-close
+      data-testid="log-clean-dialog"
       @confirm="submitClean"
     >
       <t-form :data="cleanForm" label-width="110px">
@@ -177,7 +181,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { MessagePlugin } from 'tdesign-vue-next';
 import {
   cleanLogs,
   getLog,
@@ -194,6 +198,14 @@ import {
 import { ApiError, type PageData } from '@/api/request';
 import { formatDateTime } from '@/utils/format';
 import { useDictStore } from '@/stores/dict';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQuery,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 
 /** 日志字段对应的字典编码 */
 const DICT_LOG_AUTH_TYPE = 'log_auth_type';
@@ -210,6 +222,9 @@ const LOG_DICT_CODES = [
   DICT_LOG_SECURITY_EVENT,
   DICT_LOG_PASSWORD_CHANGE_TYPE,
 ];
+
+/** 每页条数（改造前是 10，保持手感一致） */
+const LOG_PAGE_SIZE = 10;
 
 /** 日志类型 tab 枚举值 */
 type LogTab = 'operation' | 'login' | 'audit' | 'security' | 'password';
@@ -234,70 +249,62 @@ const rawFetchers: Record<
   password: pagePasswordLogs,
 };
 
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
-
 /** 操作日志列 */
-const OPERATION_COLUMNS: PrimaryTableCol[] = [
-  { colKey: 'created_at', title: '发生时间', width: 180, cell: 'created_at' },
-  { colKey: 'username', title: '操作人', width: 130, cell: 'text' },
-  { colKey: 'operation', title: '操作', ellipsis: true, cell: 'text' },
-  { colKey: 'request_method', title: '方法', width: 90, cell: 'request_method' },
-  { colKey: 'request_path', title: '请求路径', width: 220, ellipsis: true, cell: 'text' },
-  { colKey: 'status_code', title: '状态码', width: 90, cell: 'status_code' },
-  { colKey: 'ip', title: '客户端 IP', width: 140, cell: 'ip' },
-  { colKey: 'duration_ms', title: '耗时(ms)', width: 100, cell: 'text' },
-  { colKey: 'op', title: '操作', width: 80, fixed: 'right', cell: 'op' },
+const OPERATION_COLUMNS: ColumnDef[] = [
+  { colKey: 'created_at', title: '发生时间', width: 180 },
+  { colKey: 'username', title: '操作人', width: 130 },
+  { colKey: 'operation', title: '操作', ellipsis: true },
+  { colKey: 'request_method', title: '方法', width: 90 },
+  { colKey: 'request_path', title: '请求路径', width: 220, ellipsis: true },
+  { colKey: 'status_code', title: '状态码', width: 90 },
+  { colKey: 'ip', title: '客户端 IP', width: 140 },
+  { colKey: 'duration_ms', title: '耗时(ms)', width: 100 },
+  { colKey: 'op', title: '操作', width: 80, fixed: 'right', exportable: false },
 ];
 
 /** 登录（认证）日志列 */
-const LOGIN_COLUMNS: PrimaryTableCol[] = [
-  { colKey: 'created_at', title: '时间', width: 180, cell: 'created_at' },
-  { colKey: 'username', title: '用户名', width: 130, cell: 'text' },
-  { colKey: 'auth_type', title: '认证类型', width: 110, cell: 'dict_auth_type' },
-  { colKey: 'auth_status', title: '状态', width: 100, cell: 'auth_status' },
-  { colKey: 'ip', title: 'IP 地址', width: 140, cell: 'ip' },
-  { colKey: 'user_agent', title: 'User-Agent', width: 260, ellipsis: true, cell: 'text' },
-  { colKey: 'error_message', title: '失败原因', width: 180, ellipsis: true, cell: 'text' },
+const LOGIN_COLUMNS: ColumnDef[] = [
+  { colKey: 'created_at', title: '时间', width: 180 },
+  { colKey: 'username', title: '用户名', width: 130 },
+  { colKey: 'auth_type', title: '认证类型', width: 110 },
+  { colKey: 'auth_status', title: '状态', width: 100 },
+  { colKey: 'ip', title: 'IP 地址', width: 140 },
+  { colKey: 'user_agent', title: 'User-Agent', width: 260, ellipsis: true },
+  { colKey: 'error_message', title: '失败原因', width: 180, ellipsis: true },
 ];
 
 /** 审计日志列 */
-const AUDIT_COLUMNS: PrimaryTableCol[] = [
-  { colKey: 'created_at', title: '时间', width: 180, cell: 'created_at' },
-  { colKey: 'username', title: '用户名', width: 130, cell: 'text' },
-  { colKey: 'operation', title: '操作', width: 180, ellipsis: true, cell: 'dict_operation' },
-  { colKey: 'target_type', title: '目标类型', width: 140, cell: 'dict_target_type' },
-  { colKey: 'target_id', title: '目标 ID', width: 180, ellipsis: true, cell: 'text' },
-  { colKey: 'ip', title: 'IP 地址', width: 140, cell: 'ip' },
-  { colKey: 'request_id', title: '请求链路', width: 200, ellipsis: true, cell: 'text' },
+const AUDIT_COLUMNS: ColumnDef[] = [
+  { colKey: 'created_at', title: '时间', width: 180 },
+  { colKey: 'username', title: '用户名', width: 130 },
+  { colKey: 'operation', title: '操作', width: 180, ellipsis: true },
+  { colKey: 'target_type', title: '目标类型', width: 140 },
+  { colKey: 'target_id', title: '目标 ID', width: 180, ellipsis: true },
+  { colKey: 'ip', title: 'IP 地址', width: 140 },
+  { colKey: 'request_id', title: '请求链路', width: 200, ellipsis: true },
 ];
 
 /** 安全日志列 */
-const SECURITY_COLUMNS: PrimaryTableCol[] = [
-  { colKey: 'created_at', title: '时间', width: 180, cell: 'created_at' },
-  { colKey: 'username', title: '用户名', width: 130, cell: 'text' },
-  { colKey: 'event_type', title: '事件类型', width: 160, cell: 'dict_event_type' },
-  { colKey: 'ip', title: 'IP 地址', width: 140, cell: 'ip' },
-  { colKey: 'detail', title: '详情', ellipsis: true, cell: 'text' },
+const SECURITY_COLUMNS: ColumnDef[] = [
+  { colKey: 'created_at', title: '时间', width: 180 },
+  { colKey: 'username', title: '用户名', width: 130 },
+  { colKey: 'event_type', title: '事件类型', width: 160 },
+  { colKey: 'ip', title: 'IP 地址', width: 140 },
+  { colKey: 'detail', title: '详情', ellipsis: true },
 ];
 
 /** 改密日志列 */
-const PASSWORD_COLUMNS: PrimaryTableCol[] = [
-  { colKey: 'created_at', title: '时间', width: 180, cell: 'created_at' },
-  { colKey: 'username', title: '用户名', width: 130, cell: 'text' },
-  { colKey: 'change_type', title: '变更类型', width: 140, cell: 'dict_change_type' },
-  { colKey: 'change_status', title: '状态', width: 100, cell: 'change_status' },
-  { colKey: 'ip', title: 'IP 地址', width: 140, cell: 'ip' },
-  { colKey: 'error_message', title: '说明', width: 180, ellipsis: true, cell: 'text' },
+const PASSWORD_COLUMNS: ColumnDef[] = [
+  { colKey: 'created_at', title: '时间', width: 180 },
+  { colKey: 'username', title: '用户名', width: 130 },
+  { colKey: 'change_type', title: '变更类型', width: 140 },
+  { colKey: 'change_status', title: '状态', width: 100 },
+  { colKey: 'ip', title: 'IP 地址', width: 140 },
+  { colKey: 'error_message', title: '说明', width: 180, ellipsis: true },
 ];
 
 /** tab 与列配置映射 */
-const tabColumns: Record<LogTab, PrimaryTableCol[]> = {
+const tabColumns: Record<LogTab, ColumnDef[]> = {
   operation: OPERATION_COLUMNS,
   login: LOGIN_COLUMNS,
   audit: AUDIT_COLUMNS,
@@ -305,16 +312,75 @@ const tabColumns: Record<LogTab, PrimaryTableCol[]> = {
   password: PASSWORD_COLUMNS,
 };
 
+/** 筛选状态：用户名 + 时间区间（`time_range` 走 `#filter-time_range` 自绘） */
+interface LogFilterState {
+  /** 用户名（模糊） */
+  username: string;
+  /** 时间区间 `[start, end]`（空数组 = 不限） */
+  time_range: string[];
+}
+
 const activeTab = ref<LogTab>('operation');
 const dictStore = useDictStore();
-const query = reactive({ username: '' });
-const timeRange = ref<string[]>([]);
-const rows = ref<RawLogRow[]>([]);
-const loading = ref(false);
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+const filter = reactive<LogFilterState>({ username: '', time_range: [] });
+/** ListPage 实例（tab 切换 / 清理后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 当前 tab 对应的表格列 */
-const columns = computed<PrimaryTableCol[]>(() => tabColumns[activeTab.value]);
+const columns = computed<ColumnDef[]>(() => tabColumns[activeTab.value]);
+
+/** 筛选行：用户名（回车生效）+ 时间区间（值一变就查，与原页一致） */
+const filters: FilterDef[] = [
+  { key: 'username', type: 'keyword', placeholder: '用户名', width: 220, testid: 'log-filter-username' },
+  { key: 'time_range', type: 'custom', defaultValue: [], testid: 'log-filter-time-range' },
+];
+
+/** 拉一页：tab 决定接口（入参键名与改造前逐字一致） */
+const fetcher: ListFetcher<RawLogRow> = async (query) => {
+  const params = query as RawLogPageQuery;
+  if (activeTab.value === 'operation') {
+    const data = await pageLogs(params as LogPageQuery);
+    // 操作日志行字段是 `LogRes`，展示侧统一按整行 JSON 读（`RawLogRow`）
+    return { ...data, list: data.list as unknown as RawLogRow[] };
+  }
+  return rawFetchers[activeTab.value](params);
+};
+
+/**
+ * 入参拼装。
+ *
+ * 空用户名 / 空时间整键缺席（`?username=` 会被后端当「等于空串」过滤，查出 0 行）。
+ */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize): ListQuery => {
+  const { username, time_range: range } = state as LogFilterState;
+  const keyword = String(username ?? '').trim();
+  const [start, end] = normalizeRange(range);
+  return {
+    page,
+    page_size: pageSize,
+    ...(keyword ? { username: keyword } : {}),
+    ...(start ? { start_time: start } : {}),
+    ...(end ? { end_time: end } : {}),
+  };
+};
+
+/** 区间值规整成 `[start, end]`（控件给什么形状都吃） */
+function normalizeRange(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item) => item !== null && item !== undefined && item !== '').map(String);
+}
+
+/** 日期区间控件的受控值 */
+function rangeValueOf(value: unknown): string[] {
+  return normalizeRange(value);
+}
+
+/** 切 tab：回第 1 页重拉（列已经跟着 activeTab 换掉） */
+function handleTabChange(): void {
+  listRef.value?.search();
+}
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);
@@ -357,7 +423,7 @@ async function preloadLogDicts(): Promise<void> {
   );
 }
 
-/** 未知字段安全转字符串，空值返回空串（由表格占位符兜底） */
+/** 未知字段安全转字符串，空值返回空串（由单元格占位符兜底） */
 function toText(value: unknown): string {
   if (isBlank(value)) {
     return '';
@@ -365,17 +431,18 @@ function toText(value: unknown): string {
   return typeof value === 'string' ? value : String(value);
 }
 
-/** 通用单元格文本：支持任意 JSON 行字段 */
-function cellText(row: RawLogRow, col: { colKey?: string }): string {
-  const key = col?.colKey;
-  if (!key) {
-    return '';
-  }
+/** 通用单元格文本：支持任意 JSON 行字段（对象走 JSON.stringify） */
+function cellText(row: RawLogRow, key: string): string {
   const value = row[key];
   if (isBlank(value)) {
     return '';
   }
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+/** 通用文本单元格：空值显示 `-`（与改造前 `cell-empty-content="-"` 同观感） */
+function textDash(row: RawLogRow, key: string): string {
+  return cellText(row, key) || '-';
 }
 
 /** 判定状态是否为成功（兼容数字 / 字符串 / 布尔） */
@@ -416,61 +483,6 @@ function showError(message: string): void {
   void MessagePlugin.error(message);
 }
 
-function handleTimeChange(value: unknown): void {
-  timeRange.value = Array.isArray(value) ? value.map((item) => String(item)) : [];
-}
-
-async function loadList(): Promise<void> {
-  loading.value = true;
-  const tab = activeTab.value;
-  const params: RawLogPageQuery = {
-    page: pagination.current,
-    page_size: pagination.pageSize,
-    username: query.username || undefined,
-    start_time: timeRange.value[0] || undefined,
-    end_time: timeRange.value[1] || undefined,
-  };
-  try {
-    if (tab === 'operation') {
-      const data = await pageLogs(params as LogPageQuery);
-      rows.value = data.list as unknown as RawLogRow[];
-      pagination.total = data.total;
-    } else {
-      const data = await rawFetchers[tab](params);
-      rows.value = data.list ?? [];
-      pagination.total = data.total ?? 0;
-    }
-  } catch (error) {
-    showError(error instanceof ApiError ? error.message : '日志列表加载失败');
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.username = '';
-  timeRange.value = [];
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleTabChange(): void {
-  pagination.current = 1;
-  rows.value = [];
-  void loadList();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
-}
-
 async function openDetail(row: RawLogRow): Promise<void> {
   detail.value = null;
   detailVisible.value = true;
@@ -495,8 +507,7 @@ async function submitClean(): Promise<void> {
     const result = await cleanLogs(cleanForm.days);
     void MessagePlugin.success(`已清理 ${result.removed} 条日志`);
     cleanVisible.value = false;
-    pagination.current = 1;
-    await loadList();
+    listRef.value?.search();
   } catch (error) {
     showError(error instanceof ApiError ? error.message : '日志清理失败');
   } finally {
@@ -506,7 +517,6 @@ async function submitClean(): Promise<void> {
 
 onMounted(() => {
   void preloadLogDicts();
-  void loadList();
 });
 </script>
 
@@ -514,18 +524,7 @@ onMounted(() => {
 .log-page {
   padding: 16px;
 
-  .filter-card {
-    margin-bottom: 12px;
-  }
-
-  .filter-row {
-    margin-top: 12px;
-  }
-
-  .toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  .page-tabs {
     margin-bottom: 12px;
   }
 

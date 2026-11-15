@@ -1,116 +1,103 @@
+<!--
+  字段脱敏（system/masking）：规则列表 + 新增/编辑抽屉（P3-13）。
+
+  # 列表进 ListPage，抽屉原样保留
+  抽屉里是「表单 + 实时脱敏预览 + 规则提示」，与本组件无关；列表面向的是
+  「服务端分页 + 只读行（启停/编辑/删除都在操作列）」，正好是 ListPage 的唯一形态。
+
+  # `status` 下拉的 `0` 是有效值
+  「停用」= 0，不是「未选」。`queryBuilder` 用 `status === 0 || status === 1` 判，
+  写成 `if (status)` 会把「只查停用」这个条件静默丢掉（查成全量）。
+-->
 <template>
   <div class="masking-page">
-    <!-- ========== 筛选 ========== -->
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="16">
-        <t-col :span="4">
-          <t-select
-            v-model="query.table_name"
-            placeholder="表名（精确）"
-            clearable
-            filterable
-            creatable
-            :options="tableOptions"
-            @change="handleSearch"
-          />
-        </t-col>
-        <t-col :span="3">
-          <t-input v-model="query.column_name" placeholder="字段名（精确）" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.scope" placeholder="作用域" clearable>
-            <t-option value="global" label="全局规则" />
-            <t-option value="role" label="角色规则" />
-          </t-select>
-        </t-col>
-        <t-col :span="2">
-          <t-select v-model="query.status" placeholder="状态" clearable>
-            <t-option :value="1" label="启用" />
-            <t-option :value="0" label="停用" />
-          </t-select>
-        </t-col>
-        <t-col :span="4">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-            <t-button theme="default" :loading="loading" @click="loadList">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <ListPage
+      ref="listRef"
+      title="字段脱敏规则"
+      meta-unit="条规则"
+      testid="masking"
+      table-testid="masking-table"
+      meta-testid="masking-meta"
+      btn-prefix="btn-masking"
+      :page-size="MASKING_PAGE_SIZE"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+    >
+      <template #toolbar>
+        <t-button
+          v-privilege="[PERM.fieldMaskCreate]"
+          theme="primary"
+          data-testid="btn-masking-new"
+          @click="openCreate"
+        >
+          <template #icon><t-icon name="add" /></template>
+          新增规则
+        </t-button>
+      </template>
 
-    <!-- ========== 列表 ========== -->
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
+      <template #table_name="{ row }">
+        <span class="cell-mono">{{ row.table_name }}</span>
+      </template>
+      <template #column_name="{ row }">
+        <span class="cell-mono cell-strong">{{ row.column_name }}</span>
+      </template>
+      <template #mask_type="{ row }">
+        <t-tag theme="primary" variant="light" size="small">{{ row.mask_type_label }}</t-tag>
+        <span v-if="row.mask_param" class="cell-sub">{{ row.mask_param }}</span>
+      </template>
+      <template #role="{ row }">
+        <t-tag v-if="row.scope === 'GLOBAL'" theme="warning" variant="light" size="small">全局</t-tag>
+        <t-tag v-else theme="success" variant="light" size="small">{{ row.role_name || '角色已删除' }}</t-tag>
+      </template>
+      <template #status="{ row }">
+        <t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small">
+          {{ row.status === 1 ? '启用' : '停用' }}
+        </t-tag>
+      </template>
+      <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link
+            v-privilege="[PERM.fieldMaskUpdate]"
+            theme="primary"
+            data-testid="btn-masking-edit"
+            @click.stop="openEdit(row)"
+          >
+            编辑
+          </t-link>
+          <t-link
+            v-privilege="[PERM.fieldMaskUpdate]"
+            :theme="row.status === 1 ? 'warning' : 'success'"
+            data-testid="btn-masking-toggle"
+            @click.stop="onToggleStatus(row, row.status !== 1)"
+          >
+            {{ row.status === 1 ? '停用' : '启用' }}
+          </t-link>
+          <t-link
+            v-privilege="[PERM.fieldMaskDelete]"
+            theme="danger"
+            data-testid="btn-masking-delete"
+            @click.stop="confirmRemove(row)"
+          >
+            删除
+          </t-link>
+        </t-space>
+      </template>
+
+      <template #empty>
+        <div class="empty-state" data-testid="masking-empty">
+          <t-icon class="empty-state__icon" name="mask" />
+          <p class="empty-state__title">还没有脱敏规则</p>
+          <p class="empty-state__desc">一条规则 = 一张表的某个字段 + 一种脱敏类型 + 生效角色</p>
           <t-button v-privilege="[PERM.fieldMaskCreate]" theme="primary" @click="openCreate">
-            <template #icon><t-icon name="add" /></template>
             新增规则
           </t-button>
-        </t-space>
-        <span class="toolbar__count">共 {{ pagination.total }} 条规则</span>
-      </div>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        stripe
-        @page-change="handlePageChange"
-      >
-        <template #table_name="{ row }">
-          <span class="cell-mono">{{ row.table_name }}</span>
-        </template>
-        <template #column_name="{ row }">
-          <span class="cell-mono cell-strong">{{ row.column_name }}</span>
-        </template>
-        <template #mask_type="{ row }">
-          <t-tag theme="primary" variant="light" size="small">{{ row.mask_type_label }}</t-tag>
-          <span v-if="row.mask_param" class="cell-sub">{{ row.mask_param }}</span>
-        </template>
-        <template #role="{ row }">
-          <t-tag v-if="row.scope === 'GLOBAL'" theme="warning" variant="light" size="small">全局</t-tag>
-          <t-tag v-else theme="success" variant="light" size="small">{{ row.role_name || '角色已删除' }}</t-tag>
-        </template>
-        <template #status="{ row }">
-          <t-tag :theme="row.status === 1 ? 'success' : 'default'" variant="light" size="small">
-            {{ row.status === 1 ? '启用' : '停用' }}
-          </t-tag>
-        </template>
-        <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link v-privilege="[PERM.fieldMaskUpdate]" theme="primary" @click="openEdit(row)">编辑</t-link>
-            <t-link
-              v-privilege="[PERM.fieldMaskUpdate]"
-              :theme="row.status === 1 ? 'warning' : 'success'"
-              @click="onToggleStatus(row, row.status !== 1)"
-            >
-              {{ row.status === 1 ? '停用' : '启用' }}
-            </t-link>
-            <t-link v-privilege="[PERM.fieldMaskDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-state">
-            <t-icon class="empty-state__icon" name="mask" />
-            <p class="empty-state__title">还没有脱敏规则</p>
-            <p class="empty-state__desc">一条规则 = 一张表的某个字段 + 一种脱敏类型 + 生效角色</p>
-            <t-button v-privilege="[PERM.fieldMaskCreate]" theme="primary" @click="openCreate">
-              新增规则
-            </t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ========== 新增 / 编辑 ========== -->
     <t-drawer
@@ -119,6 +106,7 @@
       size="760px"
       :footer="false"
       destroy-on-close
+      data-testid="masking-form-drawer"
     >
       <div class="mask-editor">
         <div class="mask-editor__main">
@@ -131,6 +119,7 @@
                 filterable
                 creatable
                 placeholder="选表或直接输入表名（如 sys_user）"
+                data-testid="masking-form-table"
                 @change="onTableChange"
               />
               <div class="field-hint">
@@ -146,11 +135,12 @@
                 filterable
                 creatable
                 placeholder="选字段或直接输入列名（如 mobile）"
+                data-testid="masking-form-column"
               />
             </t-form-item>
 
             <t-form-item label="脱敏类型" required>
-              <t-select v-model="form.mask_type" :options="typeOptions" @change="onTypeChange" />
+              <t-select v-model="form.mask_type" :options="typeOptions" data-testid="masking-form-type" @change="onTypeChange" />
               <div class="field-hint">{{ currentTypeHint }}</div>
             </t-form-item>
 
@@ -159,6 +149,7 @@
                 v-model="form.mask_param"
                 :disabled="form.mask_type === 3"
                 :placeholder="form.mask_type === 3 ? '邮箱类型无参数' : currentTypeParamHint"
+                data-testid="masking-form-param"
               />
               <div class="field-hint" :class="{ 'field-hint--error': !!paramError }">
                 <template v-if="paramError">{{ paramError }}</template>
@@ -167,7 +158,7 @@
             </t-form-item>
 
             <t-form-item label="适用角色">
-              <t-select v-model="form.role_id" :disabled="isEdit" placeholder="不选 = 全局规则（对所有未豁免人生效）" clearable>
+              <t-select v-model="form.role_id" :disabled="isEdit" placeholder="不选 = 全局规则（对所有未豁免人生效）" clearable data-testid="masking-form-role">
                 <t-option value="" label="全局（所有未豁免用户）" />
                 <t-option v-for="role in roleOptions" :key="role.id" :value="role.id" :label="role.role_name" />
               </t-select>
@@ -179,6 +170,7 @@
                 :autosize="{ minRows: 2 }"
                 placeholder="合规留痕：写清为什么要脱这一列（审计要能回答这个问题）"
                 :maxlength="200"
+                data-testid="masking-form-reason"
               />
             </t-form-item>
 
@@ -192,7 +184,7 @@
 
           <div class="mask-editor__footer">
             <t-space>
-              <t-button theme="primary" :loading="submitting" @click="handleSubmit">
+              <t-button theme="primary" :loading="submitting" data-testid="btn-masking-submit" @click="handleSubmit">
                 {{ isEdit ? '保存' : '创建' }}
               </t-button>
               <t-button theme="default" @click="formVisible = false">取消</t-button>
@@ -208,6 +200,7 @@
               v-model="previewInput"
               placeholder="输入一段样例值，实时看脱敏结果"
               clearable
+              data-testid="masking-preview-input"
             />
             <div class="preview-actions">
               <t-link theme="primary" size="small" @click="previewInput = currentSample">用该类型样例值</t-link>
@@ -220,7 +213,9 @@
                 </div>
                 <div class="preview-card__row">
                   <span class="preview-card__label">脱敏后</span>
-                  <span class="preview-card__value preview-card__value--out">{{ previewOutput || '—' }}</span>
+                  <span class="preview-card__value preview-card__value--out" data-testid="masking-preview-output">
+                    {{ previewOutput || '—' }}
+                  </span>
                 </div>
               </div>
             </t-loading>
@@ -250,7 +245,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
-import type { PrimaryTableCol, SelectOption } from 'tdesign-vue-next';
+import type { SelectOption } from 'tdesign-vue-next';
 import {
   FIELD_SUGGESTIONS,
   MASK_TYPE_OPTIONS,
@@ -267,28 +262,50 @@ import { listRoles, type RoleRes } from '@/api/system/role-api';
 import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import { formatDateTime } from '@/utils/format';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQuery,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
+
+/** 每页条数（改造前是 10，保持手感一致） */
+const MASKING_PAGE_SIZE = 10;
 
 // ===== 列表 =====
-const loading = ref(false);
-const rows = ref<FieldMaskRes[]>([]);
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
-const query = reactive<{
+/** 筛选状态（`status` 用 `''` 表示「全部」，0/1 才是真条件） */
+interface MaskingFilterState {
+  /** 表名（精确） */
   table_name: string;
+  /** 字段名（精确） */
   column_name: string;
+  /** 作用域：global / role / '' */
   scope: 'global' | 'role' | '';
-  status: number | undefined;
-}>({ table_name: '', column_name: '', scope: '', status: undefined });
+  /** 状态：1 启用 / 0 停用 / '' 全部 */
+  status: number | '';
+}
 
+const filter = reactive<MaskingFilterState>({
+  table_name: '',
+  column_name: '',
+  scope: '',
+  status: '',
+});
+/** ListPage 实例（保存 / 启停 / 删除后重拉当前页） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+/** 启停进行中的行 id（防连点） */
 const statusLoading = ref('');
 
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'table_name', title: '表名', width: 170 },
   { colKey: 'column_name', title: '字段', width: 150 },
   { colKey: 'mask_type', title: '脱敏类型', width: 190 },
   { colKey: 'role', title: '适用角色', width: 160 },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'op', title: '操作', width: 180, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 180, fixed: 'right', exportable: false },
 ];
 
 /** 表名下拉项（建议清单；允许自由输入） */
@@ -301,39 +318,78 @@ const typeOptions: SelectOption[] = MASK_TYPE_OPTIONS.map((item) => ({
 
 const roleOptions = ref<RoleRes[]>([]);
 
-/** 表格分页回调参数（TDesign 未导出该类型，与项目其它页面同一口径） */
-interface TablePageInfo {
-  /** 当前页 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
+/**
+ * 筛选行：表名 + 字段名 + 作用域 + 状态。
+ *
+ * **表名用关键词而不是下拉**：`TABLE_SUGGESTIONS` 只是建议清单（`FIELD_SUGGESTIONS` 的键），
+ * 而新建抽屉允许自由输入表名 —— 用下拉筛就永远筛不出清单外的表。后端这条是精确匹配，
+ * 输入表名回车即可。
+ */
+const filters: FilterDef[] = [
+  {
+    key: 'table_name',
+    type: 'keyword',
+    placeholder: '表名（精确，回车查询）',
+    width: 220,
+    testid: 'masking-filter-table',
+  },
+  { key: 'column_name', type: 'keyword', placeholder: '字段名（精确）', width: 180, testid: 'masking-filter-column' },
+  {
+    key: 'scope',
+    type: 'select',
+    placeholder: '作用域',
+    width: 140,
+    options: [
+      { label: '全局规则', value: 'global' },
+      { label: '角色规则', value: 'role' },
+    ],
+    testid: 'masking-filter-scope',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 120,
+    options: [
+      { label: '启用', value: 1 },
+      { label: '停用', value: 0 },
+    ],
+    testid: 'masking-filter-status',
+  },
+];
+
+/** 拉一页 */
+const fetcher: ListFetcher<FieldMaskRes> = (query) =>
+  pageFieldMasks(query as Parameters<typeof pageFieldMasks>[0]);
+
+/**
+ * 入参拼装（键名与改造前逐字一致）。
+ *
+ * `status` 的 `0` 是「只查停用」这个真条件，必须发出去 —— 别写成 `if (status)`。
+ */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize): ListQuery => {
+  const { table_name: table, column_name: column, scope, status } = state as MaskingFilterState;
+  const tableText = String(table ?? '').trim();
+  const columnText = String(column ?? '').trim();
+  const scopeText = String(scope ?? '').trim();
+  return {
+    page,
+    page_size: pageSize,
+    ...(tableText ? { table_name: tableText } : {}),
+    ...(columnText ? { column_name: columnText } : {}),
+    ...(scopeText ? { scope: scopeText } : {}),
+    ...(status === 0 || status === 1 ? { status } : {}),
+  };
+};
 
 /** 统一错误提示：保留后端原文（61005/61006/61007 的文案必须露出来） */
 function showError(error: unknown, fallback: string): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message || fallback : fallback);
 }
 
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageFieldMasks({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      table_name: query.table_name || undefined,
-      column_name: query.column_name || undefined,
-      scope: query.scope || undefined,
-      status: query.status,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    rows.value = [];
-    pagination.total = 0;
-    showError(error, '脱敏规则加载失败');
-  } finally {
-    loading.value = false;
-  }
+/** 重拉当前页 */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
 }
 
 async function loadRoles(): Promise<void> {
@@ -343,25 +399,6 @@ async function loadRoles(): Promise<void> {
     // 角色列表拿不到不影响列表页，只是表单里选不了角色规则
     roleOptions.value = [];
   }
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.table_name = '';
-  query.column_name = '';
-  query.scope = '';
-  query.status = undefined;
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
 }
 
 // ===== 表单 =====
@@ -606,7 +643,7 @@ async function handleSubmit(): Promise<void> {
       void MessagePlugin.success('规则已创建');
     }
     formVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     // 61005 参数非法 / 61006 表或列不存在 / 61007 正则非法 / 409 重复规则
     showError(error, '保存规则失败');
@@ -652,11 +689,11 @@ async function applyStatus(row: FieldMaskRes, enabled: boolean): Promise<void> {
     row.status = enabled ? 1 : 0;
     void MessagePlugin.success(enabled ? '规则已启用' : '规则已停用');
     // 以库为准重新拉取（避免本地行状态与后端漂移）
-    await loadList();
+    await reloadList();
   } catch (error) {
     showError(error, '状态修改失败');
-    // 失败时用后端数据回正（switch 是受控的，重载列表最稳）
-    await loadList();
+    // 失败时用后端数据回正（状态列是受控的，重载列表最稳）
+    await reloadList();
   } finally {
     statusLoading.value = '';
   }
@@ -675,7 +712,7 @@ function confirmRemove(row: FieldMaskRes): void {
       try {
         await deleteFieldMask(row.id);
         void MessagePlugin.success('规则已删除');
-        await loadList();
+        await reloadList();
       } catch (error) {
         showError(error, '删除失败');
       }
@@ -685,7 +722,6 @@ function confirmRemove(row: FieldMaskRes): void {
 }
 
 onMounted(() => {
-  void loadList();
   void loadRoles();
 });
 </script>
@@ -695,25 +731,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.filter-card,
-.table-card {
-  :deep(.t-card__body) {
-    padding: 16px;
-  }
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-
-  &__count {
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
-  }
 }
 
 .cell-mono {
