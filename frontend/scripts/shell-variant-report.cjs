@@ -318,8 +318,8 @@ if (opt.json) {
   if (!opt.quiet) console.log('json → ' + opt.json);
 }
 
-// --strict：未来做门禁用（B1–B4 落地后，非白名单变体即失败）
+// --strict：未来做门禁用（B1–B6 落地后，除 B0 组件自持外任何页面壳类声明即失败）
 if (opt.strict) {
-  const debt = blocks.filter((b) => ['B1', 'B2', 'B3', 'B4', 'B5'].includes(b.batch)).length;
-  if (debt) { console.error(`\n--strict：仍有 ${debt} 处非白名单变体`); process.exit(1); }
+  const debt = blocks.filter((b) => b.batch !== 'B0').length;
+  if (debt) { console.error(`\n--strict：仍有 ${debt} 处非白名单变体（B0 组件自持 ${groups.B0 ? groups.B0.blocks.length : 0} 块不计）`); process.exit(1); }
 }
