@@ -26,6 +26,7 @@
     <!-- ==================== ①② 筛选 / 分页 / 勾选 / 行操作交给 ListPage（P3-09） ==================== -->
     <ListPage
       ref="listRef"
+      class="tool-row--dense"
       title="分摊规则"
       testid="car"
       table-testid="car-table"
@@ -848,10 +849,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.tool-row__period {
-  width: 140px;
 }
 
 .list-alert,

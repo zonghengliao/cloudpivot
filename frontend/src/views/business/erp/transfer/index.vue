@@ -1876,10 +1876,6 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.tool-row__status {
-  width: 140px;
-}
-
 /* 超期在途开关：和状态下拉一个视觉分量，别让文案跟输入框粘在一起 */
 .tool-row__overdue {
   margin-right: -2px;

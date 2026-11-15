@@ -462,10 +462,6 @@ onMounted(() => {
   width: 160px;
 }
 
-.tool-row__keyword {
-  width: 200px;
-}
-
 .list-alert {
   margin-bottom: 12px;
 }

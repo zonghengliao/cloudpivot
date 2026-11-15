@@ -411,14 +411,6 @@ onMounted(async () => {
   color: var(--td-text-color-secondary);
 }
 
-.tool-row__period {
-  width: 200px;
-}
-
-.tool-row__date {
-  width: 180px;
-}
-
 .pa-alert {
   margin-bottom: 12px;
 }

@@ -36,21 +36,28 @@
   margin-bottom: 10px;
 }
 
+// `min-width:0`：`__main` 是 `.panel-head` 的 flex 项，默认 `min-width:auto` 会按 min-content 撑住，
+// 长标题 + 长 tip 并存时把右侧内容挤出卡片。允许收缩是**结构守卫**，与 ListPage 组件自持的同名规则一致。
 .panel-head__main {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  min-width: 0;
 }
 
+// `white-space:nowrap`：卡片标题/计数是单行信息，换行只会在窄窗里把「库位列表」挤成两行。
+// 同理与 ListPage 自持规则一致（那条一直是 nowrap）。
 .panel-head__title {
   font-size: 14px;
   font-weight: 600;
   color: var(--td-text-color-primary);
+  white-space: nowrap;
 }
 
 .panel-head__meta {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+  white-space: nowrap;
 }
 
 .panel-head__tip {
@@ -151,6 +158,19 @@
   gap: 8px;
 }
 
+// 紧凑工具行里的两个「期间/日期」控件收窄到 140：成本/预算这一族页面的工具行要一行塞下。
+// 注意这是**后代选择器**（0,2,0）：ListPage 系页面的筛选行是组件自持的 `.lp__filter-row`
+// （没有 `.tool-row`），所以那几页把 `--dense` 挂在 `<ListPage>` 根节点上 —— 只有收窄生效，`gap` 不受影响。
+.tool-row--dense .tool-row__period,
+.tool-row--dense .tool-row__date {
+  width: 140px;
+}
+
+// 大卡片标题（字号两档制的上档；下档 = 基线 14px）。15px 那种中间值不存在。
+.panel-head__title--lg {
+  font-size: 16px;
+}
+
 .panel-head__tip--end {
   margin-left: auto;
 }
@@ -161,6 +181,12 @@
 
 .panel-head__hint--end {
   margin-left: auto;
+}
+
+// 与 `--end` 正交（照 `tip--right` 的口径）：只右对齐，不推位。
+// hr/employee 的「无建档权限」说明是该页卡片头右侧的长句说明，换行后要右对齐。
+.panel-head__hint--right {
+  text-align: right;
 }
 
 // 卡片头主槽整体防断行：`__main` 没有 min-width:0，失去 nowrap 后缩到单字宽会把标题挤成竖排。

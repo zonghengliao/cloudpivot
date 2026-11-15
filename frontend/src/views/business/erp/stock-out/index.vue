@@ -1401,10 +1401,6 @@ function applyOutNoDeepLink(): boolean {
   gap: 12px;
 }
 
-.tool-row__range {
-  width: 240px;
-}
-
 .list-alert {
   margin-bottom: 10px;
 }

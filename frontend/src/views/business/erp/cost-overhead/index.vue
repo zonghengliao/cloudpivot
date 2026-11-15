@@ -20,6 +20,7 @@
     <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-09） ==================== -->
     <ListPage
       ref="listRef"
+      class="tool-row--dense"
       title="手工费用台账"
       meta-unit="行"
       testid="co"
@@ -517,10 +518,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.tool-row__period {
-  width: 132px;
 }
 
 .tool-row__item {

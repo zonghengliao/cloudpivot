@@ -9,6 +9,7 @@
       <t-tab-panel value="ledger" label="总账（流水）">
           <ListPage
             ref="listRef"
+            class="tool-row--dense"
             title="科目流水"
             testid="ledger"
             table-testid="ledger-table"
@@ -146,7 +147,7 @@
       <!-- ==================== Tab 2：科目余额表 ==================== -->
       <t-tab-panel value="trial" label="科目余额表">
         <t-card :bordered="false" class="list-card">
-          <div class="tool-row">
+          <div class="tool-row tool-row--dense">
             <t-button variant="outline" data-testid="btn-trial-refresh" @click="refreshTrial">
               <template #icon><t-icon name="refresh" /></template>
               刷新
@@ -573,10 +574,6 @@ watch(activeTab, (tab) => {
   align-items: baseline;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.tool-row__period {
-  width: 140px;
 }
 
 .panel-head__account {

@@ -589,26 +589,6 @@ defineExpose({ toggleNode });
   flex: 0 0 340px;
 }
 
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-  white-space: nowrap;
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  white-space: nowrap;
-}
-
 .panel-head__sub {
   font-size: 12px;
   color: var(--td-text-color-secondary);

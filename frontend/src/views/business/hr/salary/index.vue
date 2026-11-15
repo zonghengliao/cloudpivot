@@ -983,11 +983,6 @@ watch(
   font-weight: 600;
 }
 
-.panel-head__meta {
-  color: var(--td-text-color-placeholder, #0000004d);
-  font-size: 13px;
-}
-
 .mono {
   font-family: var(--td-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }

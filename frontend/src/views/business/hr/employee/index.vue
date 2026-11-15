@@ -88,7 +88,7 @@
         <span class="filter-row__hint">默认不含离职（勾「含离职」才查得到）</span>
         <span
           v-if="!canCreate"
-          class="panel-head__hint"
+          class="panel-head__hint panel-head__hint--end panel-head__hint--right"
           title="所需权限码：business:hr:employee:create"
           data-testid="hr-emp-create-denied"
         >
@@ -2626,15 +2626,6 @@ async function handleDownloadErrors(): Promise<void> {
   &__note {
     color: var(--td-text-color-placeholder);
   }
-}
-
-/* 无建档权限时的说明（不是 disabled 按钮，是明说为什么没有这个入口） */
-.panel-head__hint {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  max-width: 460px;
-  text-align: right;
-  line-height: 18px;
 }
 
 /* 详情抽屉底部操作条：sticky 贴底，滚不滚到最后都能点到 */

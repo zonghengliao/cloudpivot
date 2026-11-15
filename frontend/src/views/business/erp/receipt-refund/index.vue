@@ -3,6 +3,7 @@
     <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
     <ListPage
       ref="listRef"
+      class="tool-row--dense"
       title="收款退款单"
       testid="rf"
       table-testid="rf-table"
@@ -1409,10 +1410,6 @@ async function submitAllocation(): Promise<void> {
   align-items: center;
   gap: 8px;
   white-space: nowrap;
-}
-
-.tool-row__date {
-  width: 140px;
 }
 
 .op-wrap {

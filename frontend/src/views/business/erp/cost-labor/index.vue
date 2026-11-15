@@ -24,6 +24,7 @@
     <!-- ==================== ①② 筛选 / 分页 / 批量 / 行操作交给 ListPage（P3-09） ==================== -->
     <ListPage
       ref="listRef"
+      class="tool-row--dense"
       title="工时台账"
       meta-unit="行"
       testid="cl"
@@ -1064,10 +1065,6 @@ onMounted(() => {
 .tool-row__label {
   color: var(--td-text-color-secondary);
   font-size: 12px;
-}
-
-.tool-row__period {
-  width: 132px;
 }
 
 .panel-foot {

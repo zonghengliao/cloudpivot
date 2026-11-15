@@ -610,10 +610,6 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row__type {
-  width: 150px;
-}
-
 .tool-row__dept {
   width: 180px;
 }
