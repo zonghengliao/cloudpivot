@@ -685,7 +685,7 @@ mod tests {
         // 差额 0.004（逐行五入残差）⇒ 低于容差，不出行
         assert!(dec("0.004") < tolerance());
         // 差额 0.01 正好到容差 ⇒ 要调（不小于容差）
-        assert!(!(dec("0.01") < tolerance()));
+        assert!(dec("0.01") >= tolerance());
     }
 
     #[test]
