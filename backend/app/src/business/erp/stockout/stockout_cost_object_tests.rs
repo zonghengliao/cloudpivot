@@ -77,10 +77,9 @@ async fn ensure_db() -> bool {
             if try_db().is_some() {
                 return true;
             }
-            let mut config = DatabaseConfig::from_url(&url);
-            config.pool.max_lifetime = Some(std::time::Duration::ZERO);
-            config.pool.idle_timeout = Some(std::time::Duration::ZERO);
-            match Db::connect_with(&url, config).await {
+            // 池参数 / 建池 runtime 由夹具复用模板统一提供（P2-60）：旧写法把 `max_lifetime`
+            // 与 `idle_timeout` 压成 ZERO ⇒ **每条语句**新建连接（99→145 每次 1~3 ms 握手）。
+            match cloudpivot_kernel::shared::test_fixture::connect(&url).await {
                 Ok(connection) => set_db(connection).is_ok(),
                 Err(err) => {
                     println!("SKIP: ERP_DB_URL 连接失败（{err}）");

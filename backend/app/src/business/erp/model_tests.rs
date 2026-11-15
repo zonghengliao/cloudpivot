@@ -196,16 +196,9 @@ async fn ensure_db() -> bool {
             if try_db().is_some() {
                 return true;
             }
-            // 每个 `#[tokio::test]` 都是**独立的 tokio runtime**，而 `db()` 是进程级全局池：
-            // 池里空闲的连接是绑在「上一个 runtime」上的（`tokio::spawn(connection)`），
-            // runtime 一结束那条连接就死了，但 `client.is_closed()` 不会立刻变 true
-            // ⇒ 下一次借出会拿到死连接，报 `query failed … : connection closed`（实测 36 条里挂 5–7 条）。
-            // 对策：把 `max_lifetime` 设成 0，让池每次都丢掉空闲连接、按需新建
-            // （`PostgresPool::get` 的 `pop_available` 只认 is_available → 只剩新建一条路）。
-            let mut config = DatabaseConfig::from_url(&url);
-            config.pool.max_lifetime = Some(std::time::Duration::ZERO);
-            config.pool.idle_timeout = Some(std::time::Duration::ZERO);
-            match Db::connect_with(&url, config).await {
+            // 池参数 / 建池 runtime 由夹具复用模板统一提供（P2-60）：旧写法把 `max_lifetime`
+            // 与 `idle_timeout` 压成 ZERO ⇒ **每条语句**新建连接（99→145 每次 1~3 ms 握手）。
+            match cloudpivot_kernel::shared::test_fixture::connect(&url).await {
                 Ok(connection) => match set_db(connection) {
                     Ok(()) => true,
                     Err(err) => {

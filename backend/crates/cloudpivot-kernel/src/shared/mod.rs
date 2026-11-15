@@ -33,6 +33,8 @@ pub mod config_port;
 pub mod master_key;
 /// 会话安全字段读取接缝（P2-59 · C1 解环）：实现在 `system::user::model`，启动期安装。
 pub mod session_flags_port;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 /// 真库用例的前置体检（TST-02）：`require_seed_data()` —— 空库缺种子时点名缺什么、怎么补。
 ///
 /// **条件编译（P2-59 · C1）**：本模块一旦随基座抽成 crate，作为**依赖**被编译时
