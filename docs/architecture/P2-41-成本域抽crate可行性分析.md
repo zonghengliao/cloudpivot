@@ -213,3 +213,39 @@ python3 scripts/verify/crate_split_readiness.py --scope erp-sub --json   # 机�
 而包边界对增量编译的主要收益来自「内核 / 装配层 / erp」这一级的分离（`erp` 占全仓 50%）——
 **`erp` 一个包，内部继续用目录分层**，是投入产出比的选择，不是「不可能」。
 
+## 8. 本卡（P2-41）收口（2026-11-15 · `t_67fb7f7c`）
+
+**处置：作废。** 不建 `backend/crates/cloudpivot-erp-cost/`，不搬 67 个文件 / 50 676 行，
+不改任何 `crate::business::cost` import，不动生产代码。`cost` 此后随 **C13 `cloudpivot-erp`**
+（整域一个包，内部目录分层）一起搬，见 `docs/planning/20261113-新卡清单.md` §P2-C。
+
+为什么不能降级成「本卡自己切 14 行回边、把 `cost` 做成小包」：按 §7 定稿的**出边判据**重新体检，
+`cost` 自身要切的是 **15 个目标 / 49 行**（不只是 14 行入边）：
+
+```bash
+$ python3 scripts/verify/crate_split_readiness.py --domain cost --scope erp-sub --layer-check
+  出边（本域 → 其它）：15 个目标
+    ext:impexp 7 · voucher 7 · erp#root:ledger 5 · ext:flow 5 · stockin 4 · erp#root:model_base 3
+    erp#root:model_master 3 · ext:hr 3 · ext:changelog 3 · erp#root:inventory_writer 3
+    erp#root:model 2 · erp#root:fixture_hygiene 1 · erp#root:doc_reader_impl 1 · payable 1 · report 1
+  层次判据：本步要切 15 条 / 49 行 —— 出边指向更下层以外：…
+  结论：不可抽（14 处代码级回边，4 个来源）
+exit=1
+```
+
+也就是说：`cost` 的 49 行接缝不可能在任何早于 C13 的卡上被合法切掉（`voucher`/`ledger`/`stockin`/
+`payable`/`report` 都是 C13 的**包内**兄弟），孤零零抽出来只会得到反向依赖单体的空壳包。
+另外 `--plan-order` 复核过新卡序本身是自洽的（全序 66 行 / 退 0）：
+
+```bash
+$ python3 scripts/verify/crate_split_readiness.py --plan-order docs/planning/20261113-新卡清单.md
+全序累计要切：66 行
+判定：绿 —— 卡序与实测边一致，每一步抽包后包图无环
+exit=0
+```
+
+**保留**：`scripts/verify/crate_split_readiness.py`（体检工具，含 §7 的口径修复与
+`--layer-check` / `--plan-order`）与本文，作为 P2-C 重切的证据基础。
+**后继**：C1..C15 由总管按 §P2-C 建卡派发；本卡与 P2-42..P2-58 整链作废。
+
+
