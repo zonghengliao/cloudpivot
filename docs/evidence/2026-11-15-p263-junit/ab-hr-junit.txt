@@ -1,0 +1,10 @@
+=== B) hr 域，带 --junit（3 轮）===
+  [1/1] hr             rc=101   694 passed / 1 failed    10.0s
+==> JUnit XML：docs/evidence/2026-11-15-p263-junit/ab-hr-junit-run1/junit/junit.xml（1 个 suite / 695 条用例 / 1 红；逐条耗时 695 条已量）
+real	0m10.558s
+  [1/1] hr             rc=101   694 passed / 1 failed     8.3s
+==> JUnit XML：docs/evidence/2026-11-15-p263-junit/ab-hr-junit-run2/junit/junit.xml（1 个 suite / 695 条用例 / 1 红；逐条耗时 695 条已量）
+real	0m8.997s
+  [1/1] hr             rc=101   694 passed / 1 failed     7.6s
+==> JUnit XML：docs/evidence/2026-11-15-p263-junit/ab-hr-junit-run3/junit/junit.xml（1 个 suite / 695 条用例 / 1 红；逐条耗时 695 条已量）
+real	0m8.190s

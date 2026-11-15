@@ -1,0 +1,4 @@
+== ② 真实产物结构校验：python3 scripts/junit_report.py check docs/evidence/2026-11-15-p263-junit/junit/junit.xml ==
+✓ docs/evidence/2026-11-15-p263-junit/junit/junit.xml：5712 条用例 / 12 红 / 1 跳过 / 36.022s（19 个 suite）
+✓ 合计 5712 条用例，结构自洽
+rc=0

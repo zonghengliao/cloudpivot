@@ -21,6 +21,7 @@
 #   list    列出登记表里的域（不编译、不连库）
 #   check   门禁用：用例↔域**恰好一一对应**（无遗漏/无重复/域非空/crate 真实存在）
 #   run     真跑：克隆库 → 编译热身 → 并行跑 → 汇总失败名到 failures.txt
+#           （加 `--junit [DIR]` 时同时产出 JUnit XML 报告，见 scripts/junit_report.py）
 #
 # 用法：
 #   python3 scripts/test_domain.py list
@@ -51,6 +52,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import junit_report  # noqa: E402  （同目录；libtest → JUnit XML，P2-63）
 
 REPO = Path(__file__).resolve().parent.parent
 BACKEND = REPO / "backend"
@@ -250,20 +254,31 @@ def run_cmd(d: Domain, tests: list[str]) -> list[str]:
     return cmd
 
 
-def run_one(d: Domain, tests: list[str], url: str | None, out: Path, idx: int, total: int) -> dict:
+def run_one(d: Domain, tests: list[str], url: str | None, out: Path, idx: int, total: int,
+            junit_dir: Path | None = None) -> dict:
     cmd = run_cmd(d, tests)
     log = out / f"{d.name}.log"
     t0 = time.monotonic()
-    with open(log, "w", encoding="utf-8") as fh:
-        rc = subprocess.run(cmd, cwd=APP_DIR, stdout=fh, stderr=subprocess.STDOUT,
-                            env=build_env(url)).returncode
+    suite = None
+    if junit_dir is not None:
+        # P2-63：逐行读 stdout 并打时间戳 ⇒ 每条用例的真实耗时（stable libtest 没有
+        # 机器可读格式，见 scripts/junit_report.py 头注）。日志仍是同一份，口径不变。
+        suite = junit_report.run_capture(cmd, APP_DIR, build_env(url), log)
+        rc = suite.rc
+        suite.name, suite.package = d.name, d.crate
+        junit_report.write_xml([suite], junit_dir / f"{d.name}.xml")
+    else:
+        with open(log, "w", encoding="utf-8") as fh:
+            rc = subprocess.run(cmd, cwd=APP_DIR, stdout=fh, stderr=subprocess.STDOUT,
+                                env=build_env(url)).returncode
     wall = time.monotonic() - t0
     passed, failed, ignored, fails = parse_log(log)
     print(f"  [{idx}/{total}] {d.name:<14} rc={rc} {passed:>5} passed / {failed} failed  {wall:6.1f}s",
           flush=True)
     return {"domain": d.name, "crate": d.crate, "rc": rc, "passed": passed, "failed": failed,
             "ignored": ignored, "tests": passed + failed + ignored, "fails": fails, "wall": wall,
-            "log": str(log)}
+            "log": str(log), "suite": suite,
+            "junit": str(junit_dir / f"{d.name}.xml") if junit_dir is not None else ""}
 
 
 def parse_log(path: Path) -> tuple[int, int, int, list[str]]:
@@ -357,12 +372,17 @@ def cmd_run(args) -> int:
 
     out = Path(args.out) if args.out else Path(tempfile.mkdtemp(prefix="p261-test-domain-"))
     out.mkdir(parents=True, exist_ok=True)
+    junit_dir: Path | None = None
+    if args.junit is not None:
+        junit_dir = Path(args.junit) if args.junit else out / "junit"
+        junit_dir.mkdir(parents=True, exist_ok=True)
 
     order = sorted(selected, key=lambda d: len(picked[d.name]), reverse=True)  # 最长优先（LPT）
     print(f"==> 开始跑（最长优先）：{' → '.join(d.name for d in order)}")
     t_start = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as ex:
-        futures = [ex.submit(run_one, d, picked[d.name], urls.get(d.name), out, i + 1, len(order))
+        futures = [ex.submit(run_one, d, picked[d.name], urls.get(d.name), out, i + 1, len(order),
+                             junit_dir)
                    for i, d in enumerate(order)]
         results = [f.result() for f in futures]
     wall = time.monotonic() - t_start
@@ -389,6 +409,24 @@ def cmd_run(args) -> int:
         for r in results:
             fh.write(f"{r['domain']}\t{r['crate']}\t{r['tests']}\t{r['passed']}\t{r['failed']}\t"
                      f"{r['ignored']}\t{r['wall']:.1f}\t{'OK' if r['rc'] == 0 else 'FAIL'}\n")
+
+    report_ok = True
+    if junit_dir is not None:
+        suites = [r["suite"] for r in sorted(results, key=lambda r: r["domain"]) if r["suite"]]
+        merged = junit_dir / "junit.xml"
+        # root 的 time 用**本次并行跑的墙钟**（各域 suite time 并行相加会大于墙钟，CI 上别误解）
+        junit_report.write_xml(suites, merged, total_wall=wall)
+        problems = junit_report.check_xml_text(merged.read_bytes(), label=str(merged))
+        report_ok = not problems
+        per_case = sum(1 for s in suites for c in s.cases if c.duration is not None)
+        print(f"\n==> JUnit XML：{merged}（{len(suites)} 个 suite / "
+              f"{sum(s.tests for s in suites)} 条用例 / {sum(s.failures for s in suites)} 红；"
+              f"逐条耗时 {per_case} 条已量）")
+        print(f"    校验：{'✓ 结构自洽' if report_ok else '✗ ' + str(len(problems)) + ' 个问题'}"
+              f"　（CI 里配 `artifacts:reports:junit: <dir>/junit.xml` 即可）")
+        for p in problems:
+            print(f"    - {p}", file=sys.stderr)
+
     print(f"\n==> 日志与汇总：{out}\n==> 失败用例名：{out / 'failures.txt'}（{'空' if not fails else str(len(fails)) + ' 条'}）")
 
     if urls and (args.keep or total_fail):
@@ -398,6 +436,8 @@ def cmd_run(args) -> int:
         drop_dbs([Path(u).name for u in urls.values()], host)
         print(f"==> 已删除 {len(urls)} 份克隆库：{time.monotonic() - t0:.1f}s")
 
+    if not report_ok:
+        return 2  # 用例结果另说；报告本身坏了 CI 会静默当绿，必须红
     return 0 if total_fail == 0 else 1
 
 
@@ -509,6 +549,9 @@ def main(argv: list[str]) -> int:
     p_run.add_argument("--keep", action="store_true", help="跑完保留克隆库（排障）")
     p_run.add_argument("--no-db", action="store_true", help="不建库（沿用环境变量里的 *_DB_URL）")
     p_run.add_argument("--out", default="", help="产物目录（默认 mktemp -d）")
+    p_run.add_argument("--junit", nargs="?", const="", default=None,
+                       help="产出 JUnit XML（CI 报告，P2-63）：不给该开关=不生成；"
+                            "`--junit` 写到 <out>/junit/；`--junit DIR` 写到指定目录")
     p_run.set_defaults(func=cmd_run)
 
     args = ap.parse_args(argv)

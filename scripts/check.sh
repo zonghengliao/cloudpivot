@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
-#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽 / 统一测试夹具（P2-62）
+#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽 / 统一测试夹具（P2-62）/ CI 报告 JUnit XML（P2-63）
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
 #                                       / cargo check（三条都在 workspace 根，P2-40 起覆盖 app + crates/*）
@@ -109,6 +109,7 @@ plan_all() {
         plan L0 "kanban assignee 必须是真实 profile" "python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）"
         plan L0 "测试分域登记表自洽（域↔crate、前缀尾 ::）" "python3 scripts/test_domain.py check --manifest-only（完整性另跑 scripts/verify/test_domains_gate.sh）"
         plan L0 "数据准备统一夹具（uniq/ensure_* 只有一份）" "scripts/verify/test_seed_gate.sh（① 转发 ② 导出 ③ 主数据 INSERT 预算；反证 --selftest）"
+        plan L0 "CI 报告 JUnit XML（解析器 + 4 类畸变反证 + 接线）" "scripts/verify/junit_report_gate.sh（python3 scripts/junit_report.py selftest）"
     fi
     if want L2; then
         plan L2 "闸③ ERP 账务不变量" "python3 scripts/verify/erp_invariants.py"
@@ -1131,6 +1132,28 @@ echo "==> 数据准备统一夹具（crate::test_seed）"
 if ! bash "$ROOT/scripts/verify/test_seed_gate.sh"; then
     echo "==> 门禁未通过：又有人手写主数据 INSERT / 自己实现 uniq 了" >&2
     echo "    新用例请用 crate::test_seed::ensure_*（见 docs/architecture/P2-62-数据准备脚本化.md）" >&2
+    exit 1
+fi
+fi
+
+# ======================================================================
+# L0 · CI 报告 JUnit XML（P2-63）
+#
+# 为什么进 L0：JUnit XML 是 CI 上唯一能看出「哪条红了、为什么红、哪条变慢」的机器可读产物，
+# 而 stable libtest **不吐**这条信息（`--format=junit` / `--report-time` 都是 nightly-only）。
+# 于是本项目用 `scripts/junit_report.py` 自己解析。它有个致命的失败形态 —— **静默降级**：
+# 少几条用例、红线被吞、计数与内容对不上，CI 界面照样全绿。本档只跑纯 stdlib 的固定夹具：
+#   ① 解析器能把 ok/FAILED/ignored/失败块/汇总行逐条还原（含逐条耗时）；
+#   ② 4 类畸变（计数造假 / 失败元素被删 / 用例重复 / XML 截断）必须被抓；
+#   ③ 进程被杀（无 `test result:` 行）必须落成 <error>，不能当 0 红；
+#   ④ `test_domain.py --junit` 的接线不能被悄悄摘掉。
+# 反证内建在自检里（`python3 scripts/junit_report.py selftest`），不需要额外开关。
+# ======================================================================
+if want L0; then
+echo "==> CI 报告 JUnit XML（scripts/junit_report.py）"
+if ! bash "$ROOT/scripts/verify/junit_report_gate.sh"; then
+    echo "==> 门禁未通过：JUnit 报告生成链路坏了（解析/计数/失败原因/接线）" >&2
+    echo "    见 docs/architecture/P2-63-CI报告-JUnit.md；真实产物用 scripts/junit_report.py check <xml> 复核" >&2
     exit 1
 fi
 fi

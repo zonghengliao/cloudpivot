@@ -1,0 +1,9 @@
+已生成畸变产物：/root/.hermes/profiles/test-enginner/cache/scratch/tampered-junit.xml
+  删掉的用例行：<testcase classname="business::attachment::rule::tests" name="condition_sql_guar
+  同时把 suite 与 root 的 tests 各减 1（计数自洽）
+== ③ 反证：对**真实产物**删一条用例并把计数改自洽 ==
+✗ /root/.hermes/profiles/test-enginner/cache/scratch/tampered-junit.xml: <testsuite name='attachment'> running 174 tests 但只有 173 条真用例（解析少算 ⇒ CI 上会静默漏报）
+✗ /root/.hermes/profiles/test-enginner/cache/scratch/tampered-junit.xml: <testsuites> tests=5712 与各 suite 合计 5711 不符
+
+✗ JUnit XML 校验未通过：2 个问题
+rc=1（期望 1）

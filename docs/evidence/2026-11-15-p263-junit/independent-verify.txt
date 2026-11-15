@@ -1,0 +1,7 @@
+== ④ 独立解析器（xml.dom.minidom）交叉验证 ==
+xmllint 未安装 —— 用 python minidom 解析
+✓ minidom 解析成功：root=<testsuites> tests=5712 failures=12 skipped=1 errors=0 time=36.022s
+✓ 逐域计数与 summary.tsv 对齐：19 个域 / 5712 条 / 12 红 / 1 跳过
+✓ 失败用例名单与 failures.txt 逐条一致（12 条）
+✓ 独立解析器交叉验证通过
+rc=0

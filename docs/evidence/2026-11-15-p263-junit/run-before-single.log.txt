@@ -1,0 +1,20 @@
+==> 域 1 套 | PG 172.18.10.145:5432 | 模板 cloudpivot_test_full | jobs=8
+==> 编译热身 1 个 crate：0.1s（串行做，避免并行跑时抢 target 锁）
+==> 用例清单 0.1s：cloudpivot=5453
+==> 克隆库 1 份：0.2s
+==> 开始跑（最长优先）：cloudpivot
+  [1/1] cloudpivot     rc=101  5439 passed / 13 failed   162.9s
+
+DOMAIN        CRATE                TESTS   PASS  FAIL  WALL(s)  RESULT
+----------------------------------------------------------------------
+cloudpivot    cloudpivot            5453   5439    13    162.9  FAIL
+----------------------------------------------------------------------
+合计                                  5452   5439    13    162.9  有红
+
+==> 日志与汇总：docs/evidence/2026-11-15-p263-junit/run-before-single
+==> 失败用例名：docs/evidence/2026-11-15-p263-junit/run-before-single/failures.txt（13 条）
+==> 保留 1 份克隆库（--keep 或 有红）：cloudpivot_test_p261_cloudpivot
+
+real	2m43.479s
+user	1m38.532s
+sys	0m5.370s

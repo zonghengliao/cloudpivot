@@ -1,0 +1,9 @@
+== 命令：ERP_DB_URL=…/cloudpivot_test_p263_baseline cargo test -p cloudpivot --lib -- --test-threads=1（cwd=backend/app）==
+== 树：8f292ee3 feat(test): P2-62 数据准备脚本化 —— 统一 ensure_* ==
+== 库：cloudpivot_test_p263_baseline（模板 cloudpivot_test_full 克隆；库名含 cloudpivot_test 是闸的要求）==
+cargo rc=101
+test result: FAILED. 5440 passed; 12 failed; 1 ignored; 0 measured; 0 filtered out; finished in 162.20s
+失败条数：11
+real	2m42.342s
+user	1m38.308s
+sys	0m5.118s

@@ -1,0 +1,7 @@
+=== A) hr 域，不带 --junit（3 轮）===
+  [1/1] hr             rc=101   694 passed / 1 failed     8.6s
+real	1m59.843s
+  [1/1] hr             rc=101   694 passed / 1 failed     8.7s
+real	0m9.223s
+  [1/1] hr             rc=101   694 passed / 1 failed     8.6s
+real	0m9.196s

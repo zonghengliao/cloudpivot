@@ -1,0 +1,2 @@
+domain	crate	tests	passed	failed	ignored	wall_s	result
+cloudpivot	cloudpivot	5453	5439	13	1	162.9	FAIL

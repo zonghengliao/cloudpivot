@@ -484,15 +484,22 @@ mod tests {
     }
 
     /// 年度序号：从 base 起递增，绕回 span（每个夹具独占一个年度，不与真实数据撞）。
+    ///
+    /// ⚠ `SEQ` 是**进程全局**计数器（所有 base 共用，见 `year_seq`），所以这条用例**不许断言
+    /// 起始偏移**——它是不是 0 取决于本进程此前调用过几次 `year_seq`。P2-63 实测：单进程全量
+    /// 跑（此前已调过奇数次）必红「left: 900001, right: 900000」，而分域 `platform` 跑碰巧绿。
+    /// 断言契约本身：相邻两次递增 1、满 span 绕回（与起始偏移无关）。
     #[test]
     fn year_seq_walks_from_base_and_wraps() {
         let base = 900_000; // 远离真实年度，测试内自证
-        let a = year_seq(base, 2);
-        let b = year_seq(base, 2);
-        let c = year_seq(base, 2);
-        assert_eq!(a, base);
-        assert_eq!(b, base + 1);
-        assert_eq!(c, base, "span 到顶必须绕回 base");
+        let span = 2u64;
+        let off = |v: i32| (v - base).rem_euclid(span as i32) as u64;
+        let a = off(year_seq(base, span));
+        let b = off(year_seq(base, span));
+        let c = off(year_seq(base, span));
+        assert_eq!(b, (a + 1) % span, "每次调用 +1");
+        assert_eq!(c, (a + 2) % span, "span 到顶必须绕回（间隔 span 次回到同一位）");
+        assert_eq!(c, a, "span=2 时第 3 次必然绕回起始位");
         assert_eq!(period_code(2026, 3), "2026-03");
     }
 

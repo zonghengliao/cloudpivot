@@ -1,0 +1,122 @@
+# 单进程全量（cargo test -p cloudpivot --lib）日志尾 120 行：失败块 + test result + time
+# 完整日志 5783 行，未入库（重跑命令见 README）
+test task::metrics_sampler::tests::pool_metric_names_are_registered ... ok
+test task::metrics_sampler::tests::summary_never_hides_unknown ... ok
+test task::metrics_sampler::tests::unknown_query_reports_minus_one_not_zero ... ok
+test task::tests::dynamic_registration_overwrites_builtin_of_same_name ... [2m2026-11-15T08:06:41.194990Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::worker[0m[2m:[0m 已注册内置定时任务（导入导出 worker） [3mtask[0m[2m=[0m"impexp_export_worker" [3mcron[0m[2m=[0m"*/5 * * * * *"
+[2m2026-11-15T08:06:41.195007Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::cleanup[0m[2m:[0m 已注册内置定时任务（导入导出清理） [3mtask[0m[2m=[0m"impexp_task_cleanup" [3mcron[0m[2m=[0m"0 40 4 * * *"
+[2m2026-11-15T08:06:41.195039Z[0m [32m INFO[0m [2mcloudpivot::task[0m[2m:[0m 变更日志分区运维任务已注册（C6 真实现） [3minvoke_target[0m[2m=[0m"changelog_partition_maintain" [3mcron[0m[2m=[0m"0 20 1 1 * *"
+[2m2026-11-15T08:06:41.195057Z[0m [32m INFO[0m [2mcloudpivot::business::task::hermes_sync[0m[2m:[0m AI 任务状态同步任务已注册（T5b） [3mtask[0m[2m=[0m"task_hermes_sync" [3mcron[0m[2m=[0m"*/30 * * * * *"
+[2m2026-11-15T08:06:41.195070Z[0m [32m INFO[0m [2mcloudpivot::business::erp::transfer::transfer_overdue[0m[2m:[0m 在途调拨超期扫描任务已注册 [3minvoke_target[0m[2m=[0m"transfer_overdue_scan" [3mcron[0m[2m=[0m"0 5 * * * *"
+[2m2026-11-15T08:06:41.195089Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_payable_due_scan" [3mcron[0m[2m=[0m"0 10 7 * * *"
+[2m2026-11-15T08:06:41.195097Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_po_overdue_scan" [3mcron[0m[2m=[0m"0 20 7 * * *"
+[2m2026-11-15T08:06:41.195105Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_contract_expire_scan" [3mcron[0m[2m=[0m"0 30 7 * * *"
+[2m2026-11-15T08:06:41.195113Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_low_stock_scan" [3mcron[0m[2m=[0m"0 40 7 * * *"
+[2m2026-11-15T08:06:41.195131Z[0m [32m INFO[0m [2mcloudpivot::business::erp::depreciation::depreciation_model[0m[2m:[0m 折旧计提任务已注册 [3minvoke_target[0m[2m=[0m"erp_depreciation_run" [3mcron[0m[2m=[0m"0 30 1 1 * *"
+[2m2026-11-15T08:06:41.195159Z[0m [32m INFO[0m [2mcloudpivot::business::erp::credit[0m[2m:[0m 客户信用额度兜底重算任务已注册 [3minvoke_target[0m[2m=[0m"erp_credit_recompute" [3mcron[0m[2m=[0m"0 10 2 * * *"
+[2m2026-11-15T08:06:41.195172Z[0m [32m INFO[0m [2mcloudpivot::business::task::recurring[0m[2m:[0m 周期任务生成任务已注册（E11） [3minvoke_target[0m[2m=[0m"business_task_recurring" [3mcron[0m[2m=[0m"0 */5 * * * *"
+[2m2026-11-15T08:06:41.195191Z[0m [32m INFO[0m [2mcloudpivot::task[0m[2m:[0m 账务不变量巡检任务已注册（P2-7） [3minvoke_target[0m[2m=[0m"invariant_audit" [3mcron[0m[2m=[0m"0 20 2 * * *"
+[2m2026-11-15T08:06:41.195201Z[0m [32m INFO[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样任务已注册（NEAR-FIX-3 · 告警指标） [3minvoke_target[0m[2m=[0m"metrics_snapshot" [3mcron[0m[2m=[0m"0 * * * * *"
+ok
+test task::tests::registered_targets_cover_reminder_jobs ... ok
+test test_seed::tests::bench_fixture_data_preparation ... ignored, 耗时基准：要真库（ERP_DB_URL），只在 P2-62 取证时手动跑
+test test_seed::tests::ensure_ids_are_derived_not_random ... ok
+test test_seed::tests::tail_code_keeps_only_digits_and_respects_limit ... ok
+test test_seed::tests::uniq_suffix_is_unique_and_numeric ... ok
+test test_seed::tests::year_seq_walks_from_base_and_wraps ... ok
+
+failures:
+
+---- business::erp::contract::contract_handler::tests::detail_fills_person_names_and_follows_rename stdout ----
+
+thread 'business::erp::contract::contract_handler::tests::detail_fills_person_names_and_follows_rename' (2024916) panicked at app/src/business/erp/contract/contract_handler.rs:1834:9:
+assertion `left == right` failed: 一次详情只允许 1 条取名字 SQL（实测 0）
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces' (2025570) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:356:9:
+assertion `left == right` failed
+  left: 3
+ right: 1
+
+---- business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch' (2025572) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:330:9:
+assertion `left == right` failed: 第一级只该有一条待办：[(01a1de3c-376d-714c-86c5-fe557a37655f, 01a1ddfd-d0f9-7624-a875-424bdaf5c924), (01a1de3c-376e-73f4-afd6-3775ebc8a714, 01a1ddfd-d0f9-7624-a875-424c08fc6010), (01a1de3c-376f-71b1-996a-1ec34412fa3f, b3a30002-0000-4000-8000-000000000002)]
+  left: 3
+ right: 1
+
+---- business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch' (2025573) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:441:9:
+assertion `left == right` failed
+  left: 3
+ right: 1
+
+---- business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed' (2025574) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:524:9:
+assertion `left == right` failed
+  left: ""
+ right: "REJECTED"
+
+---- business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft' (2025575) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:157:14:
+清夹具账号: ForeignKeyViolation { constraint: Some("biz_flow_instance_initiator_id_fkey"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23503), message: "update or delete on table \"sys_user\" violates foreign key constraint \"biz_flow_instance_initiator_id_fkey\" on table \"biz_flow_instance\"", detail: Some("Key (id)=(b3a30001-0000-4000-8000-000000000001) is still referenced from table \"biz_flow_instance\"."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("biz_flow_instance"), column: None, datatype: None, constraint: Some("biz_flow_instance_initiator_id_fkey"), file: Some("ri_triggers.c"), line: Some(2799), routine: Some("ri_ReportViolation") }) }) }
+
+---- business::erp::stockin::stockin_handler::stockin_handler_tests_pflow3a::bug02_repost_blocked_by_separation_of_duties stdout ----
+
+thread 'business::erp::stockin::stockin_handler::stockin_handler_tests_pflow3a::bug02_repost_blocked_by_separation_of_duties' (2027404) panicked at app/src/business/erp/stockin/stockin_handler_tests_pflow3a.rs:890:23:
+内控开关打开时制单人不能自己过账: ()
+
+---- business::hr::no_erp_edge_tests::the_neutral_homes_still_exist stdout ----
+
+thread 'business::hr::no_erp_edge_tests::the_neutral_homes_still_exist' (2028649) panicked at app/src/business/hr/no_erp_edge_tests.rs:119:9:
+中立落点不见了：business/shared/voucher_port.rs（hr 靠它解掉对 erp 的依赖）
+
+---- business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source stdout ----
+
+thread 'business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source' (2029623) panicked at app/src/business/permission/scope_model.rs:1299:13:
+biz_commission_settlement 登记为 wired，但 src/ 里没有含 scope:: 调用的文件出现 ScopeTarget::BIZ_COMMISSION_SETTLEMENT（登记表已与代码漂移）
+
+---- system::session_tests::s02_assign_roles_invalidates_old_token stdout ----
+
+thread 'system::session_tests::s02_assign_roles_invalidates_old_token' (2030223) panicked at app/src/system/session_tests.rs:273:10:
+读会话字段失败: InvalidValue("读取会话安全字段失败：会话字段读取接缝未安装实现。这是启动链漏了一步（编程错误）—— 生产环境应由 bootstrap 的 register_kernel_ports 在启动期安装，装不上就直接退出。")
+
+---- system::session_tests::s06_degrades_to_db_without_cache stdout ----
+
+thread 'system::session_tests::s06_degrades_to_db_without_cache' (2030227) panicked at app/src/system/session_tests.rs:442:10:
+读会话字段失败: InvalidValue("读取会话安全字段失败：会话字段读取接缝未安装实现。这是启动链漏了一步（编程错误）—— 生产环境应由 bootstrap 的 register_kernel_ports 在启动期安装，装不上就直接退出。")
+
+---- system::session_tests::s07_deleted_user_has_no_session stdout ----
+
+thread 'system::session_tests::s07_deleted_user_has_no_session' (2030228) panicked at app/src/system/session_tests.rs:481:10:
+读会话字段失败: InvalidValue("读取会话安全字段失败：会话字段读取接缝未安装实现。这是启动链漏了一步（编程错误）—— 生产环境应由 bootstrap 的 register_kernel_ports 在启动期安装，装不上就直接退出。")
+
+
+failures:
+    business::erp::contract::contract_handler::tests::detail_fills_person_names_and_follows_rename
+    business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces
+    business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch
+    business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch
+    business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed
+    business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft
+    business::erp::stockin::stockin_handler::stockin_handler_tests_pflow3a::bug02_repost_blocked_by_separation_of_duties
+    business::hr::no_erp_edge_tests::the_neutral_homes_still_exist
+    business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source
+    system::session_tests::s02_assign_roles_invalidates_old_token
+    system::session_tests::s06_degrades_to_db_without_cache
+    system::session_tests::s07_deleted_user_has_no_session
+
+test result: FAILED. 5440 passed; 12 failed; 1 ignored; 0 measured; 0 filtered out; finished in 162.20s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+
+real	2m42.342s
+user	1m38.308s
+sys	0m5.118s
