@@ -49,7 +49,3 @@ pub use super::flow_model_stats::*;
 #[cfg(test)]
 #[path = "flow_model_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "flow_model_delete_tests.rs"]
-mod t12_delete_flow_tests;

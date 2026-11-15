@@ -41,6 +41,7 @@ use cloudpivot::business::flow::graph::{self, AssigneeKind, AssigneeRef, EdgeSpe
 use cloudpivot::business::flow::task_node::{self, SpawnOutcome};
 use cloudpivot::business::flow::{dto as flow_dto, handler as flow_handler, model as flow_model};
 use cloudpivot::business::task::{dto as task_dto, handler as task_handler};
+use cloudpivot::business::taskflow::spawn as taskflow_spawn;
 use cloudpivot::shared::error_code;
 
 // ==================== 连库 ====================
@@ -255,7 +256,7 @@ async fn create_and_publish(f: &Fixture, tag: &str, graph: FlowGraph) -> (Uuid, 
 }
 
 /// 同 [`create_and_publish`]，但可指定 `biz_type` 与 `is_default`
-/// （「节点审批」要有**已发布且默认**的目标流程，见 `task_bridge::start_task_node_approval` 的 ②）。
+/// （「节点审批」要有**已发布且默认**的目标流程，见 `taskflow::bridge::start_task_node_approval` 的 ②）。
 async fn create_and_publish_as(
     f: &Fixture,
     tag: &str,
@@ -694,7 +695,7 @@ async fn task_node_generation_is_idempotent() {
     assert!(duplicate.is_err(), "唯一索引必须挡住同一节点同一轮的第二行");
     let error = duplicate.expect_err("必须报错");
     assert!(
-        task_node::is_flow_node_duplicate(&error),
+        taskflow_spawn::is_flow_node_duplicate(&error),
         "必须是 uk_biz_task_flow_node 冲突（23505），实际：{error}"
     );
     assert_eq!(count_flow_tasks(instance_id).await, 1);

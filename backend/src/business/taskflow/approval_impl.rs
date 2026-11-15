@@ -1,32 +1,33 @@
-//! 任务侧审批接缝的**唯一实现**（P2-37 · P2-B 解环）。
+//! 任务侧审批接缝的**唯一实现**（P2-37 建、P2-38 迁入接线域）。
 //!
 //! # 这个文件解决什么
 //!
 //! `task::approval_port` 定义了「任务需要审批引擎做什么」（trait + 注册表），
-//! 本文件把它落到 `flow::task_bridge` 上并**在启动期注入**。依赖方向因此变成：
+//! 本文件把它落到同域的 `taskflow::bridge` 上并**在启动期注入**。依赖方向：
 //!
 //! ```text
-//! task ──trait/注册表──→ (抽象) ←──实现 + 启动期注册── flow::task_approval_impl
+//! task ──trait/注册表──→ (抽象) ←──实现 + 启动期注册── taskflow::approval_impl
 //! ```
 //!
-//! `task` 一行都不 import `flow`（闸门 `task::approval_port_tests` 基线 0），
-//! 而 `flow → task` 维持原样（`task_bridge` 要写 `biz_task`，那半边是 P2-38 的活）。
+//! `task` 一行都不 import `flow`，`flow` 也一行都不 import `task`
+//! （闸门：`task::approval_port_tests` / `flow::task_independence_tests`，基线都是 0）。
 //!
-//! # 为什么实现放这儿而不是放 `task_bridge.rs`
+//! # 为什么实现在 `taskflow` 而不在 `flow`
 //!
-//! 与 `erp/doc_reader_impl.rs`、`hr/employee_reader_impl.rs` 同一形态：
-//! 接缝的**实现在能力属主的域**、单独一个文件，一眼能看出「谁实现了谁」。
-//! `task_bridge.rs` 已经 2800 行，再塞适配层会把「桥本身」和「桥的注册适配」搅在一起。
+//! P2-37 时它放在审批域（`flow/task_approval_impl.rs`），那意味着 `flow` 必须
+//! `use` 任务域的 trait 与枚举 —— `flow → task` 的边还在。P2-38 把写 `biz_task` 的
+//! 桥整体搬进中立接线域 `business::taskflow`，这个适配层跟着搬：现在它只依赖
+//! 「两边都允许它依赖」的两个域，`flow` 与 `task` 互不相识。
 //!
 //! # 本文件只做**搬运**，不改语义
 //!
-//! 每个方法都是一次直接委派（`pub async fn start_in_tx(..)` → `task_bridge::start_in_tx(..)`），
+//! 每个方法都是一次直接委派（`pub async fn start_in_tx(..)` → `bridge::start_in_tx(..)`），
 //! 唯一的加工是把审批域的枚举翻成任务侧的枚举（[`ApprovalOutcome`] / [`CancelledCounts`]）。
-//! **没有**新增查询、没有改事务边界、没有改错误口径 —— P2-37 是搬家卡。
+//! **没有**新增查询、没有改事务边界、没有改错误口径。
 //!
 //! # 一处必须留意的等价性
 //!
-//! `CancelCause::Deleted` 与 `Cancelled` 走的是 `task_bridge` 的两个不同入口
+//! `CancelCause::Deleted` 与 `Cancelled` 走的是 `bridge` 的两个不同入口
 //! （文案不同：`任务已删除…` / `任务已取消…`），**不许合并**：审批中心里这两句话
 //! 是不同的动作证据（T12 / P11 的 e2e 按文案做精确断言）。
 
@@ -38,15 +39,15 @@ use nik::uuid::Uuid;
 
 use crate::business::flow::engine;
 use crate::business::flow::model;
-use crate::business::flow::task_bridge::{
-    self, AcceptStart, FlowTaskOutcome, TASK_CANCEL_COMMENT, TASK_DELETE_CANCEL_COMMENT,
-};
 use crate::business::task::approval_port::{
     self, AcceptRequest, ApprovalOutcome, CancelCause, CancelledCounts, PreparedAccept, TaskApprovalPort,
     TaskStatusChange,
 };
+use crate::business::taskflow::bridge::{
+    self as task_bridge, AcceptStart, FlowTaskOutcome, TASK_CANCEL_COMMENT, TASK_DELETE_CANCEL_COMMENT,
+};
 
-/// 任务侧审批接缝的实现（委派给 `flow::task_bridge`）。
+/// 任务侧审批接缝的实现（委派给同域的 `taskflow::bridge`）。
 #[derive(Debug, Default)]
 pub struct TaskApprovalBridge;
 
@@ -62,11 +63,12 @@ pub fn install() -> std::result::Result<(), String> {
 #[async_trait]
 impl TaskApprovalPort for TaskApprovalBridge {
     fn name(&self) -> &'static str {
-        "flow::task_bridge"
+        "taskflow::bridge"
     }
 
     async fn instance_status_of(&self, approval_instance_id: Option<Uuid>) -> DbResult<Option<String>> {
-        task_bridge::instance_status_of(approval_instance_id).await
+        // 唯一还留在审批域的口（只读 `biz_flow_instance`，不碰任务表）。
+        crate::business::flow::task_bridge::instance_status_of(approval_instance_id).await
     }
 
     async fn prepare_accept(&self, req: AcceptRequest) -> DbResult<Option<PreparedAccept>> {
@@ -269,7 +271,7 @@ mod tests {
     /// `name()` 是排障锚点（启动摘要里给运维看），改名会让「装了谁」查不到。
     #[test]
     fn name_is_stable() {
-        assert_eq!(TaskApprovalBridge.name(), "flow::task_bridge");
+        assert_eq!(TaskApprovalBridge.name(), "taskflow::bridge");
     }
 
     /// `source='FLOW'` 的**值**在两个域各有一份常量（任务侧读、审批侧写）。

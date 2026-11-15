@@ -398,7 +398,7 @@ pub async fn page_my_tasks(params: MyTaskQueryParams<'_>) -> DbResult<MyTaskPage
         .collect::<Vec<_>>()
         .join(",");
     // P11：「我的待办」只认**实例还在跑**的待办。
-    // 后端已经在「任务取消/删除」两条路径上撤审批（`task_bridge::cancel_on_task_cancelled`
+    // 后端已经在「任务取消/删除」两条路径上撤审批（`taskflow::bridge::cancel_on_task_cancelled`
     // / `cancel_on_task_deleted`），这里再按实例状态兜一层：历史脏数据（实例已终态、
     // 待办还 PENDING）不该出现在审批人的待办里 —— 那是一条点不动的孤儿（老板报的 TSK-149）。
     // 列表与计数用**同一个**谓词，否则会出现「显示 3 条、total 说 5 条」。

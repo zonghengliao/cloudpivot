@@ -33,10 +33,10 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use cloudpivot::business::flow::graph::{self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType};
-use cloudpivot::business::flow::task_bridge::{self, FlowTaskOutcome, TaskStatusChanged};
 use cloudpivot::business::flow::{dto as flow_dto, handler as flow_handler, model as flow_model};
 use cloudpivot::business::task::state::TaskStatus;
 use cloudpivot::business::task::{dto as task_dto, handler as task_handler};
+use cloudpivot::business::taskflow::bridge::{self as task_bridge, FlowTaskOutcome, TaskStatusChanged};
 use cloudpivot::shared::error_code;
 
 // ==================== 连库 ====================

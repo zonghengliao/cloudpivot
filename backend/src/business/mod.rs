@@ -46,6 +46,9 @@ pub mod project;
 pub mod shared;
 pub mod storage;
 pub mod task;
+/// 任务 ⇄ 审批流 的**接线域**（P2-38 · P2-B 解环）：两边都认识、两边都不认识它，
+/// 由 `bootstrap` 在启动期把它的实现装进 `flow::task_port` 与 `task::approval_port`。
+pub mod taskflow;
 
 /// 编译期契约示例：**外部模块可以直接调用 `notice::dispatch`**（架构文档 §4.7 接口预留）。
 ///

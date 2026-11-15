@@ -88,7 +88,7 @@
 //! |------|------|----------|------|
 //! | GET | `/business/task/admin/repair-parent-status` | `business:task:update` | 扫「子任务全终态、父任务非 `REVIEW`」并修（`dry_run` 缺省只报不修；仅超管） |
 //!
-//! 为什么需要它：审批通过的 `REVIEW → DONE` 由 `flow::task_bridge::settle` 写，
+//! 为什么需要它：审批通过的 `REVIEW → DONE` 由 `flow::taskflow::bridge::settle` 写，
 //! 而 settle 跑在审批事务提交之后 ⇒ 级联只能开独立事务，极端失败会留下
 //! 「子任务全终态、父任务停在 DOING」。本接口是那条链路的巡检兜底。
 

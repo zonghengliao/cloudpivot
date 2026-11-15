@@ -52,9 +52,10 @@
 //!
 //! # 与其它模块的边界
 //!
-//! - **不碰 `business/task/`**（除 [`task_bridge`]）：任务侧的 `approval_instance_id` 与
-//!   `REVIEW→DONE` 闸门由 D3a 的门闸 + D3b 的 [`task_bridge`] 负责；本模块其余部分对任务表
-//!   零依赖，任务 ↔ 流程的全部耦合都收在那一个文件里。
+//! - **不碰 `business/task/`**（P2-38 起是**零引用**）：任务表的读写全部搬到了中立接线域
+//!   `business::taskflow`，本域只经 `flow::task_port` 的注册表请求它；[`task_bridge`]
+//!   现在只剩「读自己的实例状态」一个函数。两边的模块边都由闸门钉在 0
+//!   （`flow::task_independence_tests` / `task::approval_port_tests`）。
 //! - **不碰 `business/aiagent/`**：AI 审批人是 D4 的解析逻辑（D18）。
 //! - **不碰 `shared/scope.rs`**：流程定义是全局配置，走权限码而不是数据范围（见 `model.rs` 的 SCOPE-EXEMPT）。
 
@@ -109,9 +110,11 @@ pub mod self_approval;
 pub mod settle_guard;
 pub mod sign_freeze;
 pub mod subprocess;
-pub mod task_approval_impl;
 pub mod task_bridge;
+#[cfg(test)]
+pub mod task_independence_tests; // P2-38：`flow` 侧零任务域引用的闸门（基线 0）
 pub mod task_node;
+pub mod task_port;
 pub mod template_vars;
 #[cfg(test)]
 pub mod terminate_db_tests; // 管理员人工终止（E2E01-FIX-3）的真库用例

@@ -83,7 +83,7 @@ pub async fn create_task(ex: &Transaction, new: &NewTask, operator: Uuid, month:
 
 /// 生成下一个任务编号（**必须在事务内调用**：依赖 `pg_advisory_xact_lock`）。
 ///
-/// `pub(crate)`：流程引擎的 `flow::task_node::spawn` 要用同一套取号逻辑
+/// `pub(crate)`：流程引擎的 `taskflow::spawn` 要用同一套取号逻辑
 /// （`uk_biz_task_task_no` 撞库重试也复用同一个口径），不许在流程侧另写一份 MAX+1。
 // SCOPE-EXEMPT: 取号必须跨**全表** MAX+1（表上有唯一索引 uk_biz_task_task_no），注入数据范围会让不同部门算出同一个号 → 撞唯一索引/串号，这是取号语义本身的硬要求；返回一个编号字符串、不产出行集；调用 create_task（task_model_write.rs:41）← handler.rs:314（business:task:create）与流程引擎 flow/task_node.rs:221（无操作人）。
 pub(crate) async fn next_task_no(ex: &Transaction, month: &str) -> DbResult<String> {

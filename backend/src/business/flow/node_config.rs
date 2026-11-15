@@ -32,7 +32,7 @@
 //! `on_complete=APPROVE` 在 1A 的 R18 里**直接拒绝**（引擎没有那条分支）。这不是降级：
 //! 静默把 APPROVE 当 DIRECT 跑 = 用户以为配了审批、实际没审 = 内控事故。
 //! **P-FLOW-1B 已放开**：任务 `DOING→DONE` 时节点保持 `ACTIVE`，同事务发起
-//! `approve_biz_type` 审批单（`task_bridge::on_task_status_changed`），审批通过才推进下游。
+//! `approve_biz_type` 审批单（`taskflow::bridge::on_task_status_changed`），审批通过才推进下游。
 //! 唯一保留的 APPROVE 约束是 `APPROVE + need_review=true` 仍然拒绝（R18 的「点两次」）。
 
 use serde_json::{Map, Value};

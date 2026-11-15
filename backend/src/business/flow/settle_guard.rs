@@ -33,9 +33,11 @@
 //! 「当前状态 → 目标状态」是否合法一律问状态机（卡面明令禁止硬编码流程）：
 //!
 //! - 业务单据：[`crate::business::shared::state_machine::effective_edges`]
-//!   （`BASE_EDGES ∩ biz_flow_state_edge 配置`，读配置失败自动退化到 BASE_EDGES）；
-//! - 任务：[`crate::business::task::state::callback_transition`]
-//!   （`FlowCallback` 身份只开 `REVIEW → DONE|DOING`，`TRANSITIONS` 一行没动）。
+//!   （`BASE_EDGES ∩ biz_flow_state_edge` 配置，读配置失败自动退化到 BASE_EDGES）。
+//!
+//! 任务侧的判定（`REVIEW → DONE|DOING`）**不在本文件**：那张表要用任务状态机的类型，
+//! 放在审批域就等于让 `flow` 认识 `task`。P2-38 把它搬到了 `business::taskflow`，
+//! 留痕与日志仍走本文件的 `apply`（同一套口径，不分叉）。
 //!
 //! 这里额外声明的只有一件事：**这张单据「等这个审批」时应该是哪个状态**（`awaiting`）——
 //! 那本来就是各调用点里已有的 `if row.status != STATUS_XXX` 常量，本模块把它收成显式参数，
@@ -61,13 +63,6 @@ use nik::uuid::Uuid;
 use crate::business::flow::model as flow_model;
 use crate::business::flow::model::InstanceRow;
 use crate::business::shared::state_machine::{self, Entity};
-use crate::business::task::state::{self as task_state, TaskStatus};
-
-/// 任务在「等验收审批」时的状态（`TASK_ACCEPT` 的 awaiting 口径）。
-///
-/// 由 `task::state::callback_transition` 自己钉住（它只认 `REVIEW`），这里只是日志 / 留痕
-/// 展示用的一份字面量，**不参与判定**。
-pub const TASK_AWAITING: &str = "REVIEW";
 
 /// 留痕行的 `comment` 前缀（同时充当「这个实例已留过痕」的幂等判据）。
 pub const SKIP_TRACE_PREFIX: &str = "审批结论未落单据";
@@ -163,38 +158,6 @@ pub async fn check(ex: &impl SqlExecutor, entity: Entity, current: &str, awaitin
     }
 }
 
-/// 任务的判定：复用 [`task_state::callback_transition`]（`FlowCallback` 身份的状态机分支）。
-///
-/// | 当前 | 目标 | 结果 |
-/// |---|---|---|
-/// | `REVIEW` | `DONE` / `DOING` | [`SettleCheck::Apply`] |
-/// | `DONE` / `DOING` / …（== 目标） | 同左 | [`SettleCheck::AlreadySettled`] |
-/// | `CANCELLED` / `TODO` / `DOING`（≠ 目标） | — | [`SettleCheck::Moved`] |
-///
-/// 最后一行就是本卡要修的形态：**`CANCELLED` 的任务不会被一条审批通过改回 `DONE`**。
-/// 同时也**不放宽** `callback_transition` 的 `from = REVIEW` 约束：审批结论只对
-/// 「等待验收」有意义，放开 `from` 就等于让一条审批通过把任意任务跳级推到 `DONE`
-/// （见该函数的文档）。
-pub fn check_task(current: &str, target: &str) -> SettleCheck {
-    let cur = norm(current);
-    let tgt = norm(target);
-    if cur == tgt {
-        return SettleCheck::AlreadySettled;
-    }
-    let (Some(from), Some(to)) = (TaskStatus::parse(&cur), TaskStatus::parse(&tgt)) else {
-        // 库里的状态不在任务 5 态之内：数据异常，走「不可改」通道留痕（不 panic）
-        return SettleCheck::Moved {
-            reason: format!("任务状态不在 5 态之内（{cur} → {tgt}）"),
-        };
-    };
-    match task_state::callback_transition(from, to) {
-        Ok(_) => SettleCheck::Apply,
-        Err(_) => SettleCheck::Moved {
-            reason: format!("任务的 {cur} → {tgt} 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）"),
-        },
-    }
-}
-
 /// 业务单据的统一入口：判定 + （不合法时）`WARN` + 留痕。返回 `true` = 调用方继续落状态。
 ///
 /// 调用点写法（每个审批回调各一处，4 行）：
@@ -217,14 +180,11 @@ pub async fn gate(
     apply(instance, entity.as_str(), biz_no, current, awaiting, target, verdict).await
 }
 
-/// 任务侧的统一入口（`awaiting` 固定 `REVIEW`，判定走任务状态机）。
-pub async fn gate_task(instance: &InstanceRow, biz_no: &str, current: &str, target: &str) -> bool {
-    let verdict = check_task(current, target);
-    apply(instance, "biz_task", biz_no, current, TASK_AWAITING, target, verdict).await
-}
-
 /// 判定结果 → 日志 + 留痕（三个出口唯一的落地处）。
-async fn apply(
+///
+/// `pub(crate)`：调用方除了本文件的 [`gate`]，还有 `business::taskflow`（任务侧的判定
+/// 与留痕走同一套通道，`P2-38` 从本文件搬过去时保留的唯一出口）。
+pub(crate) async fn apply(
     instance: &InstanceRow,
     entity_label: &str,
     biz_no: &str,
@@ -394,51 +354,6 @@ fn norm(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 卡面头号形态：任务已取消 + 审批通过 → **不许**改回 DONE。
-    #[test]
-    fn cancelled_task_cannot_be_revived_by_approval() {
-        assert_eq!(
-            check_task("CANCELLED", "DONE"),
-            SettleCheck::Moved {
-                reason: "任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）".to_string()
-            }
-        );
-    }
-
-    /// 正常路径不误伤：任务在等验收（REVIEW）+ 审批通过 → 落 DONE。
-    #[test]
-    fn review_task_accepts_approval() {
-        assert!(check_task("REVIEW", "DONE").is_apply());
-        assert!(check_task("review", "done").is_apply());
-    }
-
-    /// 驳回同理：REVIEW → DOING 可以，CANCELLED → DOING 不行。
-    #[test]
-    fn cancelled_task_cannot_be_revived_by_rejection() {
-        assert!(check_task("REVIEW", "DOING").is_apply());
-        assert!(!check_task("CANCELLED", "DOING").is_apply());
-    }
-
-    /// 重复回调（已在目标状态）是幂等，不是异常：只 debug，不写痕迹。
-    #[test]
-    fn already_settled_is_idempotent() {
-        assert_eq!(check_task("DONE", "DONE"), SettleCheck::AlreadySettled);
-        assert_eq!(check_task("DOING", "DOING"), SettleCheck::AlreadySettled);
-    }
-
-    /// 跳级不落：审批回调只认 REVIEW（`callback_transition` 的红线一行没动）。
-    #[test]
-    fn approval_does_not_jump_from_doing_to_done() {
-        assert!(!check_task("DOING", "DONE").is_apply());
-        assert!(!check_task("TODO", "DONE").is_apply());
-    }
-
-    /// 库里的脏状态不 panic，走「不可改」通道。
-    #[test]
-    fn unknown_status_is_moved_not_panic() {
-        assert!(!check_task("SOMETHING_ELSE", "DONE").is_apply());
-    }
 
     /// 留痕正文的四个要素必须在（单据号 / 当前状态 / 目标状态 / 时间）。
     #[test]

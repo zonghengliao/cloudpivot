@@ -164,8 +164,8 @@ business/erp/year/year_end_remind_tests.rs
 business/erp/year/year_end_test_support.rs
 business/flow/doc_reader_tests.rs
 business/flow/edge_admin_tests.rs
-business/flow/flow_model_delete_tests.rs
 business/flow/flow_model_tests.rs
+business/flow/task_independence_tests.rs
 business/erp/linkage/flow_instance_trigger_db_tests.rs
 business/erp/linkage/tests.rs
 business/erp/linkage/tests_presets.rs
@@ -212,6 +212,7 @@ business/masking/tests.rs
 business/permission/tests.rs
 business/shared/doc_kind_entity_tests.rs
 business/shared/layering_tests.rs
+business/taskflow/delete_cancel_tests.rs
 business/task/approval_port_tests.rs
 business/task/task_attachment_snapshot_tests.rs
 business/task/task_doc_link_tests.rs

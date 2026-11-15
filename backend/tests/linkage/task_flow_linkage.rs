@@ -16,9 +16,9 @@ use axum::extract::Path;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::flow::task_bridge;
 use cloudpivot::business::flow::{dto as flow_dto, handler as flow_handler, model as flow_model};
 use cloudpivot::business::task::{dto as task_dto, handler as task_handler};
+use cloudpivot::business::taskflow::bridge as task_bridge;
 
 use crate::linkage::common::{self, Ctx};
 

@@ -1438,8 +1438,8 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
         .find("instance_hooks::fire_after_commit(")
         .expect("approve_task 必须在审批事务提交之后调 hook");
     let first_bridge = approve
-        .find("task_bridge::on_instance_settled(")
-        .expect("approve_task 必须调 task_bridge");
+        .find("task_port::on_instance_settled(")
+        .expect("approve_task 必须经 `flow::task_port` 回调任务（P2-38：接缝名从 task_bridge 换成 task_port）");
     // P2-34：ERP 的 16 条终态回调不再逐条出现，收敛成一次 `dispatch_settled` ——
     // 对照物换成它：顺序判据（实例先、单据后）一个字没放宽。
     let doc_dispatch = approve

@@ -368,7 +368,7 @@ pub async fn cascade_parent_status(ex: &impl SqlExecutor, start: Uuid, operator:
 //
 // 为什么已经有 `settle` 里的级联，还要一段巡检：
 //
-// `flow::task_bridge::settle` 跑在**审批事务提交之后**（红线：审批结论已落库，
+// `flow::taskflow::bridge::settle` 跑在**审批事务提交之后**（红线：审批结论已落库，
 // 不许因任务侧失败而回滚），所以它里面的父任务级联只能开**独立事务**，与
 // 「任务状态」不是同一个事务。极端情况（那一刻库故障 / 进程被杀 / 并发冲突）
 // 仍会留下「子任务全终态、父任务还停在 DOING」的不一致 —— 这段巡检把它找出来

@@ -44,7 +44,7 @@
 //!
 //! # 身份维度（批次 D · D3b）
 //!
-//! 门闸上线后还差两件事，都在本文件里补齐（接线在 `task::handler` 与 `flow::task_bridge`）：
+//! 门闸上线后还差两件事，都在本文件里补齐（接线在 `task::handler` 与 `taskflow::bridge`）：
 //!
 //! 1. **人工路径要知道实例状态**：[`check_transition`] 的第一个参数是 [`ActorKind`]，
 //!    调用方（handler）负责查库拿到 `biz_flow_instance.status` 再传进来 —— 本文件仍是纯逻辑。
@@ -172,7 +172,7 @@ impl Actor {
 /// 但它**仍然只能在 `REVIEW` 态**里推（见 [`callback_transition`]）—— 否则「审批通过」
 /// 会变成一把能跨状态跳级的万能钥匙。
 ///
-/// **红线**：`FlowCallback` 只能由流程回调（`flow::task_bridge::on_instance_settled`）使用。
+/// **红线**：`FlowCallback` 只能由流程回调（`flow::task_port::on_instance_settled`）使用。
 /// HTTP handler 一律传 [`ActorKind::User`]，**不许从请求体 / 请求头里读这个值**。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorKind {

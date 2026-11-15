@@ -1145,7 +1145,7 @@ pub async fn withdraw(ex: &Transaction, instance_id: Uuid, operator: Uuid) -> Db
 
 // ==================== 任务节点（TASK_NODE）的三条流程侧动作（P-FLOW-1B） ====================
 //
-// 这三个函数是 **`flow` 侧唯一「由任务状态驱动」的写入口**，只由 `flow::task_bridge` 调用。
+// 这三个函数是 **`flow` 侧唯一「由任务状态驱动」的写入口**，只由 `taskflow::bridge` 调用。
 // HTTP 层没有它们的路由 —— 任务状态只能通过 `PATCH /business/task/{id}/status` 改，
 // 那条路径上的人一定是 `ActorKind::User`（红线）。
 //

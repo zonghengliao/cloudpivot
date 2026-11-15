@@ -1,7 +1,11 @@
 //! `TASK_NODE` 生成工作任务（P-FLOW-1A · 设计 §7.1 的「生成任务的核心实现框架」）。
 //!
-//! **本文件是 `biz_task` 在流程侧唯一的写入口**（与 `task_bridge.rs` 对称）：
-//! 引擎 `step()` 的 `NodeType::Task` 分支只调 [`spawn`]，别处不许再出现对 `biz_task` 的写入。
+//! **本文件负责「造什么」，不负责落库**（P2-38）：负责人解析、模板渲染、截止日与优先级
+//! 全在这里算；`biz_task` 的写入走 `flow::task_port` 的接缝，实现在中立接线域
+//! `business::taskflow`（原「`biz_task` 在流程侧唯一写入口」已随之搬走）。
+//!
+//! 引擎 `step()` 的 `NodeType::Task` 分支只调 [`spawn`]，`flow` 里不许再出现对 `biz_task`
+//! 的写入（闸门 `flow::task_independence_tests` 基线 0）。
 //!
 //! # 六条纪律（设计 §7.1 逐条落地）
 //!
@@ -28,20 +32,19 @@
 //! `flow_instance_id` / `flow_node_key` / `flow_round` 三个专用列 + `source='FLOW'`。
 
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
-use serde_json::{Value as Json, json};
+use serde_json::Value as Json;
 
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
 use crate::business::flow::assignee::{self, InstanceCtx, Resolution};
 use crate::business::flow::graph::{EvalContext, SnapshotNode};
 use crate::business::flow::model;
 use crate::business::flow::node_config::{self, DueConfig, DueMode, DueUnit, TaskNodeConfig};
+use crate::business::flow::task_port::{self, SpawnTaskSpec};
 use crate::business::flow::template_vars;
 use crate::business::notice::dto::ContentFormat;
 use crate::business::notice::render;
-use crate::business::task::model as task_model;
 use crate::shared::error_code;
 
 /// `biz_task.source` 的流程值（`V0177` 扩的第 5 个值）。
@@ -118,7 +121,8 @@ pub async fn spawn(
 ) -> DbResult<SpawnOutcome> {
     // ① 幂等前置查询：同一实例 + 同一节点 + 同一轮已经有任务 → 直接返回。
     //    唯一索引仍是最终依据（并发下靠 23505 兜底），这里只是省掉一次无效渲染。
-    if let Some(existing) = find_existing(ex, instance.id, &spec.key, round).await? {
+    //    P2-38：查询走 `task_port` 的接缝（`flow` 不再直接读 `biz_task`）。
+    if let Some(existing) = task_port::task_of_node(ex, instance.id, &spec.key, round).await? {
         tracing::info!(
             instance_id = %instance.id,
             node_key = %spec.key,
@@ -207,134 +211,58 @@ pub async fn spawn(
     let members = approvers;
 
     // ⑤ 截止日 / 优先级 / 预估工时（`config.task.due` + `form_mapping`）。
+    //
+    // P2-38：到这里为止全部是**流程侧的计算**（负责人解析 / 模板渲染 / 日期与优先级），
+    // 下面把算好的字面量交给 `task_port` 去落库 —— `flow` 不再出现 `biz_task` 的读写，
+    // 也不会 `import task::model`（闸门 `task_independence_tests` 基线 0）。
     let due_date = resolve_due_date(instance, cfg);
     let priority = resolve_priority(&vars.dotted, cfg);
     let estimate_hours = resolve_estimate_hours(&vars.dotted, cfg);
-    let dept_id = owner_dept(ex, owner.user_id).await?;
 
-    // ⑥ 取号 + 落库（撞任务号重试一次）。
-    let task_id = Uuid::now_v7();
-    let month = task_model::month_key(cst_today(Utc::now()));
-    let mut inserted = None;
-    let mut last_error: Option<DbError> = None;
-    for attempt in 0..2 {
-        let task_no = task_model::next_task_no(ex, &month).await?;
-        match insert_task(
-            ex,
-            &FlowTaskInsert {
-                id: task_id,
-                task_no: &task_no,
-                title: &title,
-                description: description.as_deref(),
-                priority: &priority,
-                need_review: cfg.need_review,
-                owner_id: owner.user_id,
-                creator_id: instance.initiator_id,
-                dept_id,
-                due_date,
-                estimate_hours,
-                flow_instance_id: instance.id,
-                flow_node_key: &spec.key,
-                flow_round: round,
-            },
-        )
-        .await
-        {
-            Ok(()) => {
-                inserted = Some(task_no);
-                break;
-            }
-            Err(error) if is_flow_node_duplicate(&error) => {
-                // 并发下另一条路径先落了同一行（`uk_biz_task_flow_node`）→ 幂等成功。
-                tracing::info!(
-                    instance_id = %instance.id,
-                    node_key = %spec.key,
-                    round,
-                    "任务已由并发路径生成（23505 当幂等成功）"
-                );
-                return Ok(SpawnOutcome::AlreadyExists {
-                    task_id: find_existing(ex, instance.id, &spec.key, round).await?,
-                });
-            }
-            Err(error) if is_task_no_duplicate(&error) && attempt == 0 => {
-                // §8.11：`next_task_no` 是 MAX+1（虽然已按月加咨询锁，但换月份边界仍有窗口）。
-                tracing::warn!(
-                    month = %month,
-                    "任务号撞唯一约束，重试一次取号"
-                );
-                last_error = Some(error);
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    let Some(task_no) = inserted else {
-        // 两次都撞任务号：这是真正的异常（`next_task_no` 有按月咨询锁，只在换月边界有窗口），
-        // 原样上抛让整笔事务回滚，而不是吞掉。
-        return match last_error {
-            Some(error) => Err(error),
-            None => Ok(SpawnOutcome::Failed(ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                "生成任务编号失败（重试后仍冲突）",
-            ))),
-        };
-    };
-
-    // ⑦ 协作人（其余解析出来的人）：`biz_task_member` 已存在且 `ON CONFLICT DO NOTHING`。
-    let mut member_count = 0usize;
-    for candidate in &members {
-        task_model::add_member(ex, task_id, candidate.user_id, "COLLABORATOR", instance.initiator_id).await?;
-        member_count += 1;
-    }
-
-    // ⑧ changelog（谁在什么时候因为哪个流程节点创建了这张任务）。
-    let after = json!({
-        "status": "TODO",
-        "progress": 0,
-        "owner_id": owner.user_id.to_string(),
-        "source": FLOW_SOURCE,
-        "due_date": due_date.map(|date| date.format("%Y-%m-%d").to_string()),
-        "flow_instance_id": instance.id.to_string(),
-        "flow_node_key": spec.key,
-        "flow_round": round,
-    });
-    let record = changelog::record(
+    // ⑥ 落库：取号 + 插任务 + 挂协作人 + 变更日志（全在接线域，同一个事务）。
+    let outcome = task_port::spawn_task(
         ex,
-        &ChangeCtx::api(Some(instance.initiator_id), instance.initiator_name.as_deref()),
-        ChangeTarget::of(
-            "biz_task",
-            task_id.to_string(),
-            Action::Create,
-            &format!("流程节点「{}」生成任务", spec.name),
-        ),
-        DiffInput::create(&after),
+        SpawnTaskSpec {
+            instance_id: instance.id,
+            node_key: spec.key.clone(),
+            node_name: spec.name.clone(),
+            round,
+            title,
+            description,
+            priority,
+            need_review: cfg.need_review,
+            owner_id: owner.user_id,
+            member_ids: members.iter().map(|candidate| candidate.user_id).collect(),
+            creator_id: instance.initiator_id,
+            creator_name: instance.initiator_name.clone(),
+            due_date,
+            estimate_hours,
+        },
     )
-    .await;
-    if let Err(error) = record {
-        // 审计写不进去就让整笔回滚（与 `changelog::record` 的设计立场一致：
-        // 业务回滚而日志留下的「假日志」比没有日志更糟）。
-        return Ok(SpawnOutcome::Failed(error));
-    }
+    .await?;
 
-    tracing::info!(
-        instance_id = %instance.id,
-        node_key = %spec.key,
-        round,
-        task_id = %task_id,
-        task_no = %task_no,
-        owner_id = %owner.user_id,
-        members = member_count,
-        due_date = ?due_date,
-        trace = ?trace,
-        "任务节点已生成工作任务"
-    );
-    Ok(SpawnOutcome::Created {
+    if let SpawnOutcome::Created {
         task_id,
-        task_no,
-        owner_id: owner.user_id,
-        members: member_count,
+        ref task_no,
+        owner_id,
+        members,
         due_date,
-    })
+    } = outcome
+    {
+        tracing::info!(
+            instance_id = %instance.id,
+            node_key = %spec.key,
+            round,
+            task_id = %task_id,
+            task_no = %task_no,
+            owner_id = %owner_id,
+            members,
+            due_date = ?due_date,
+            trace = ?trace,
+            "任务节点已生成工作任务"
+        );
+    }
+    Ok(outcome)
 }
 
 /// 渲染标题（**严格模式**：缺变量即失败，不静默留空）。
@@ -529,124 +457,6 @@ fn parse_date_value(raw: &str) -> Option<NaiveDate> {
 /// CST 的「今天」。
 pub fn cst_today(now: chrono::DateTime<Utc>) -> NaiveDate {
     (now + Duration::hours(CST_OFFSET_HOURS)).date_naive()
-}
-
-/// 幂等前置查询：同一实例 + 同一节点 + 同一轮是否已有未软删的任务。
-// SCOPE-EXEMPT: 事务内幂等判重（按 flow_instance_id + node_key + round 取已有任务 id，LIMIT 1）；任务由流程引擎在审批节点上生成，没有请求操作人可注入数据范围；调用 task_node.rs:121 / :256，均在同一事务 ex 上。
-async fn find_existing(ex: &Transaction, instance_id: Uuid, node_key: &str, round: i32) -> DbResult<Option<Uuid>> {
-    let rows = ex
-        .find_with_params(
-            "SELECT id FROM biz_task \
-              WHERE flow_instance_id = ?::uuid AND flow_node_key = ? AND flow_round = ? \
-                AND deleted_at IS NULL \
-              LIMIT 1",
-            vec![
-                Value::from(&instance_id),
-                Value::Text(node_key.to_string()),
-                Value::from(round),
-            ],
-        )
-        .await?;
-    match rows.first() {
-        Some(row) => Ok(Some(row.get_typed("id")?)),
-        None => Ok(None),
-    }
-}
-
-/// 负责人的部门快照（任务看板按 `dept_id` 分组，与手工建任务同一口径）。
-// SCOPE-EXEMPT: 按 user_id 单条取负责人部门快照（写入 biz_task.dept_id 供看板分组），返回单列、不产出行集；输入是流程已选定的负责人；调用 task_node.rs:213（流程引擎事务内，无操作人）。
-async fn owner_dept(ex: &Transaction, owner_id: Uuid) -> DbResult<Option<Uuid>> {
-    let rows = ex
-        .find_with_params(
-            "SELECT dept_id FROM sys_user WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![Value::from(&owner_id)],
-        )
-        .await?;
-    match rows.first() {
-        Some(row) => Ok(row.get_typed::<Option<Uuid>>("dept_id").ok().flatten()),
-        None => Ok(None),
-    }
-}
-
-/// 流程任务的落库入参（字段集中在一处，避免 `too_many_arguments`）。
-struct FlowTaskInsert<'a> {
-    id: Uuid,
-    task_no: &'a str,
-    title: &'a str,
-    description: Option<&'a str>,
-    priority: &'a str,
-    need_review: bool,
-    owner_id: Uuid,
-    creator_id: Uuid,
-    dept_id: Option<Uuid>,
-    due_date: Option<NaiveDate>,
-    estimate_hours: Option<f64>,
-    flow_instance_id: Uuid,
-    flow_node_key: &'a str,
-    flow_round: i32,
-}
-
-/// 落一行 `biz_task`（**含 `flow_*` 三列**；`task::model::create_task` 不含这三列，
-/// 而设计红线要求 `biz_task` 的流程侧写入全部收在本文件）。
-async fn insert_task(ex: &Transaction, row: &FlowTaskInsert<'_>) -> DbResult<()> {
-    ex.execute_with_params(
-        "INSERT INTO biz_task \
-                 (id, task_no, title, description, status, priority, progress, need_review, \
-                  owner_id, creator_id, assigner_id, dept_id, parent_id, project_id, \
-                  start_date, due_date, done_at, estimate_hours, actual_hours, source, \
-                  cancel_reason, reject_reason, approval_instance_id, \
-                  created_at, updated_at, create_by, update_by, \
-                  flow_instance_id, flow_node_key, flow_round) \
-             VALUES (?::uuid, ?, ?, ?, 'TODO', ?, 0, ?, \
-                     ?::uuid, ?::uuid, NULL, ?::uuid, NULL, NULL, \
-                     NULL, ?::date, NULL, ?::numeric, NULL, ?, \
-                     NULL, NULL, NULL, \
-                     now(), now(), ?::uuid, ?::uuid, \
-                     ?::uuid, ?, ?)",
-        vec![
-            Value::from(&row.id),
-            Value::Text(row.task_no.to_string()),
-            Value::Text(row.title.to_string()),
-            Value::from(row.description),
-            Value::Text(row.priority.to_string()),
-            Value::Bool(row.need_review),
-            Value::from(&row.owner_id),
-            Value::from(&row.creator_id),
-            Value::from(row.dept_id.as_ref()),
-            Value::from(row.due_date),
-            Value::from(row.estimate_hours),
-            Value::Text(FLOW_SOURCE.to_string()),
-            Value::from(&row.creator_id),
-            Value::from(&row.creator_id),
-            Value::from(&row.flow_instance_id),
-            Value::Text(row.flow_node_key.to_string()),
-            Value::from(row.flow_round),
-        ],
-    )
-    .await?;
-    Ok(())
-}
-
-/// 是否「同一实例同一节点同一轮」的唯一约束冲突（`uk_biz_task_flow_node`）。
-pub fn is_flow_node_duplicate(error: &DbError) -> bool {
-    match error {
-        DbError::UniqueViolation { constraint, .. } => constraint
-            .as_deref()
-            .map(|name| name.contains("uk_biz_task_flow_node"))
-            .unwrap_or(false),
-        other => other.to_string().contains("uk_biz_task_flow_node"),
-    }
-}
-
-/// 是否任务号唯一约束冲突（`uk_biz_task_task_no`）。
-pub fn is_task_no_duplicate(error: &DbError) -> bool {
-    match error {
-        DbError::UniqueViolation { constraint, .. } => constraint
-            .as_deref()
-            .map(|name| name.contains("uk_biz_task_task_no"))
-            .unwrap_or(false),
-        other => other.to_string().contains("uk_biz_task_task_no"),
-    }
 }
 
 #[cfg(test)]

@@ -86,7 +86,7 @@ pub(super) fn switch_field<T>(
 ///
 /// 卡片建议写的是「节点本轮的 `approval_instance_id`（`biz_flow_instance_node` 行）」，
 /// 但**那张表没有这一列** —— P-FLOW-1B 写入并复用的一直是 `biz_task.approval_instance_id`
-/// （`task_bridge::start_task_node_approval` / `prepare_accept` 都 `UPDATE biz_task`）。
+/// （`taskflow::bridge::start_task_node_approval` / `prepare_accept` 都 `UPDATE biz_task`）。
 /// 所以这里顺着任务行的指针查：`LEFT JOIN biz_flow_instance ai` 取单号与状态，再用
 /// 相关子查询聚合 `biz_flow_task` 里 `status='PENDING'` 的待办人姓名。
 ///

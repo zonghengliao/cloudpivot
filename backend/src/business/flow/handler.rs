@@ -43,7 +43,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::flow::graph::{self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType};
-use crate::business::flow::task_bridge;
+use crate::business::flow::task_port;
 use crate::business::flow::{
     assignee, config_check, doc_reader, dto, instance_hooks, model, node_config, self_approval, task_node,
     template_vars,
@@ -99,7 +99,7 @@ fn parse_since_field(raw: &str, label: &str) -> std::result::Result<chrono::Date
 ///
 /// 调 `model::default_def_of_biz_type`：`deleted_at IS NULL`、`status = 'PUBLISHED'`、
 /// `current_version_id IS NOT NULL`，按 `is_default` 优先取第一条。运行期
-/// `task_bridge::start_task_node_approval` 用的是同一个函数；两处口径必须一样，
+/// `taskflow::bridge::start_task_node_approval` 用的是同一个函数；两处口径必须一样，
 /// 否则会出现「发布时通过、跑起来 500」。
 ///
 /// # 异常情况
@@ -1894,7 +1894,7 @@ pub async fn terminate_instance(
     crate::business::flow::subprocess::on_instance_settled(Some(instance_id), "CANCELLED").await;
     // 任务验收类审批单被终止 → 任务侧不做状态推进（settle_target 不认 CANCELLED），
     // 但 `biz_flow_task` / 节点已由引擎的 `cancel_flow_tasks` 收尾，这里只对齐留痕。
-    task_bridge::on_instance_settled(Some(instance_id), "CANCELLED").await;
+    task_port::on_instance_settled(Some(instance_id), "CANCELLED").await;
 
     tracing::info!(
         %instance_id,
@@ -1951,7 +1951,7 @@ pub async fn approve_task(
     instance_hooks::fire_after_commit(out.instance_id, &out.instance_status, Some(operator)).await;
     // D3b：审批单可能已落终态（APPROVED）→ 以 FlowCallback 身份推进任务
     // （**事务已提交**：回调失败只记日志，不回滚审批单）
-    task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
+    task_port::on_instance_settled(out.instance_id, &out.instance_status).await;
     // ★ P3-08：这单也可能是**子流程实例** —— 结算了就回调父流程的 SUBPROCESS 节点
     //   （幂等：父实例已终结 / 父节点已是终态 → 静默跳过；失败只 warn）
     crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status).await;
@@ -2018,7 +2018,7 @@ pub async fn reject_task(
     instance_hooks::fire_after_commit(out.instance_id, &out.instance_status, Some(operator)).await;
     // D3b：驳回并终止（REJECTED）→ 以 FlowCallback 身份把任务打回 DOING
     // （「退回上一节点」仍是 PENDING，回调不推进；落到 REJECTED 才动任务）
-    task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
+    task_port::on_instance_settled(out.instance_id, &out.instance_status).await;
     // ★ P3-08：子流程实例被驳回并终止 → 按 fail_action 回调父节点（ABORT 会让父实例终止）
     crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status).await;
     // P2-34：ERP 侧终态回调交给注册表扇出（见 approve 处同款说明；

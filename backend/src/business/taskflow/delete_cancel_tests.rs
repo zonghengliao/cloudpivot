@@ -6,11 +6,12 @@
 // `model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
-use super::*;
-use crate::business::flow::task_bridge;
-use crate::business::task::model as task_model;
 use nik::prelude::*;
 use nik::uuid::Uuid;
+
+use crate::business::flow::model::CancelledOfBiz;
+use crate::business::task::model as task_model;
+use crate::business::taskflow::bridge as task_bridge;
 
 /// 夹具操作人 / 审批人（`biz_task.owner_id` / `biz_flow_task.assignee_id` 都是硬 FK）。
 const U_ID: &str = "7a9e0000-0000-4000-8000-0000000000c1";
@@ -515,10 +516,10 @@ async fn cancel_through_approval_port_is_equivalent_to_direct_call() {
     // 注册表是进程级单例：与 `task::approval_port_tests` 共用同一把锁。
     let _port_guard = approval_port::GLOBAL_LOCK.lock().await;
     approval_port::reset_for_tests();
-    crate::business::flow::task_approval_impl::install().expect("装上真实实现");
+    crate::business::taskflow::approval_impl::install().expect("装上真实实现");
     assert_eq!(
         approval_port::port_name(),
-        Some("flow::task_bridge"),
+        Some("taskflow::bridge"),
         "启动期装的必须是审批域那一个实现"
     );
 

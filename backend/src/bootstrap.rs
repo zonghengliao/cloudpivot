@@ -118,26 +118,30 @@ fn register_hr_employee_reader() {
     }
 }
 
-/// P2-37（P2-B 解环）：把审批域的实现装进 `task::approval_port` 的注册表。
+/// P2-37 / P2-38（P2-B 解环）：把接线域的实现装进 `task::approval_port` 与 `flow::task_port`。
 ///
 /// # 为什么在启动期同步做、失败了为什么不能继续
 ///
-/// `task` 侧对审批的四条硬连接（发起 / 推进节点 / 撤审批 / 门闸读状态）**只认这个注册表**
-/// （P2-37 之前是直调 `flow::task_bridge`）。漏安装的后果是**静默的**：
-/// 见 `task::approval_port` 模块注释的降级表 —— 提交验收不再自动发起审批、
-/// 流程任务完成后不再推进流程节点、取消任务不再撤在跑待办，
-/// 而任务侧状态**照样落库**（不会报错）。这类「半接线」正是 AGENTS 约定 11 说的死单温床。
+/// 两条边各有一张注册表，**全部只认注册表**（P2-37 之前 `task` 直调 `flow::task_bridge`，
+/// P2-38 之前 `flow` 直调 `task::model`）。漏安装的后果是**静默的**：
 ///
-/// 所以口径与 [`register_doc_readers`] / [`register_hr_employee_reader`] 一致：
-/// prod `exit(1)`、其它 profile `panic`（重复安装是纯编程错误，不依赖任何数据）。
+/// - `task` 侧：见 `task::approval_port` 的降级表 —— 提交验收不再自动发起审批、
+///   流程任务完成后不再推进流程节点、取消任务不再撤在跑待办，而任务侧状态**照样落库**；
+/// - `flow` 侧：`TASK_NODE` 造不出任务（`flow::task_port` 未装时返回 `Failed(500)`，
+///   引擎整笔回滚），审批结论也不再推进任务。
+///
+/// 这类「半接线」正是 AGENTS 约定 11 说的死单温床，所以口径与 [`register_doc_readers`] /
+/// [`register_hr_employee_reader`] 一致：prod `exit(1)`、其它 profile `panic`
+/// （重复安装是纯编程错误，不依赖任何数据）。
 fn register_task_approval_port() {
-    match crate::business::flow::task_approval_impl::install() {
+    match crate::business::taskflow::install_ports() {
         Ok(()) => tracing::info!(
-            port = crate::business::task::approval_port::port_name().unwrap_or(""),
-            "任务审批接缝安装完成（P2-37）：task 侧对审批的调用改走 approval_port 注册表"
+            approval_port = crate::business::task::approval_port::port_name().unwrap_or(""),
+            flow_task_port = crate::business::flow::task_port::port_name().unwrap_or(""),
+            "任务 ⇄ 审批流 接缝安装完成（P2-37/P2-38）：两边都只认注册表，接线实现在 taskflow"
         ),
         Err(error) => {
-            let message = format!("任务审批接缝安装失败（注册表不完整）：{error}");
+            let message = format!("任务 ⇄ 审批流 接缝安装失败（注册表不完整）：{error}");
             tracing::error!("{message}");
             if is_prod_profile() {
                 eprintln!("FATAL: {message}");
