@@ -58,7 +58,13 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--strict') opt.strict = true;
   else if (a === '--quiet') opt.quiet = true;
   else if (a === '--help' || a === '-h') {
-    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 32).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    const lines = fs.readFileSync(__filename, 'utf8').split('\n');
+    const out = [];
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].startsWith('//')) break; // 文件头注释结束（第一行非注释）
+      out.push(lines[i].replace(/^\/\/ ?/, ''));
+    }
+    console.log(out.join('\n'));
     process.exit(0);
   } else { console.error('未知参数：' + a); process.exit(2); }
 }
