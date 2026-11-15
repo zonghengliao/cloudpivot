@@ -29,6 +29,7 @@
 | [architecture/P0-V0397-迁移号段撞车-决策.md](./architecture/P0-V0397-迁移号段撞车-决策.md) | 架构 / 后端 / AI | **HR-40 的 `business/V0397` 与主题配色 `system/V0397` 同号**的处置：改哪条（配色改 V0399、HR 不动）、已应用库要不要指纹处置、生产 144 为何「一发布就炸」，以及新增门禁 `migration_version_unique.py`（判据 A–E + 红绿自测语料）挂 `check.sh` L0 |
 | [architecture/P2-61-按域拆分测试套件.md](./architecture/P2-61-按域拆分测试套件.md) | 后端 / AI | **按域跑后端 lib 测试**：`backend/test-domains.tsv` 19 个域 + `scripts/test_domain.py run --package <域>`（可并行、每域一份库克隆），全量 5707 条从 2m50s → 42s；为什么必须 `--exact`（libtest 过滤器是子串，实测多跑 252 条）、门禁 `test_domains_gate.sh` 的红绿反证、与 P2-C 域包落地的衔接条款 |
 | [architecture/流程画布-VueFlow迁移与清理计划.md](./architecture/流程画布-VueFlow迁移与清理计划.md) | 前端 / 架构 / 运维 / AI | 流程画布为什么换成 Vue Flow、引擎开关与三条回退方法、双引擎回归证据指针、老画布清理计划 |
+| **[architecture/P3-ListPage-页面边界-决策.md](./architecture/P3-ListPage-页面边界-决策.md)** | 前端 / 架构 / AI | **什么页面该进 `components/ListPage`、什么页面坚决不进**：三问判定表（后端分页 / 只读行 / 无整表顺序语义）、财务 4 页（会计科目树 / 期初台账 / 年结面板 / 报表项全表排序）逐页实测依据、为什么不做 `paginated=false` 与 `tree` 透传（23 props 的加法 vs 分支乘法，7 处贯穿式判据）、为什么树页要另立 `TreeListPage` 兄弟组件而不是给 ListPage 加模式、壳样式下沉（529 块 / 2335 行 / 76 个完全重复块可删 1712 行 / `.panel-head` 10 个变体）的落点与排序。**迁任何列表页前先读它** |
 | [测试卫生-真库单测分库跑法.md](./测试卫生-真库单测分库跑法.md) | 后端 / AI | 真库 lib 单测**为什么必须按模块分库+分进程**跑（同库串跑会 60+ 条假红）、`scripts/verify/run_lib_tests_by_module.sh` 用法、`RUNS=2` 幂等性守门、写"全库口径"断言前的自查清单 |
 | [测试卫生-真库连库入口清单.md](./测试卫生-真库连库入口清单.md) | 后端 / AI | 全仓 43 处「读 `xxx_DB_URL` + `try_db().is_some()` 就复用全局 `db()`」的入口逐处判定：哪处可复用、哪处必须独占进程、统一收口建议与迁移顺序 |
 | [会话吊销的耐久性边界.md](./会话吊销的耐久性边界.md) | 后端 / 运维 | 令牌吊销状态存哪、缓存丢失时退化到什么程度、Redis 水位与淘汰策略要求 |
