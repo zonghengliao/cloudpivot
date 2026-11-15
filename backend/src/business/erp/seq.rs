@@ -1,4 +1,23 @@
-//! 主数据编码取号器（卡 **CODE-01**）：`biz_seq` 里的**纯流水**号段。
+//! ERP 侧的**主数据编码取号入口**（卡 **CODE-01**）：`biz_seq` 里的**纯流水**号段。
+//!
+//! # 本文件现在的分工（P2-B 解环 · 卡 `t_3442b4fb`）
+//!
+//! 取号**引擎**（读规则 / `UPDATE … RETURNING` 推进 / 撞号顺延 / 预览 / 手工编码解析）
+//! 已下移到跨域基座 `business/shared/seq.rs` —— 它是纯 `biz_seq` 读写，与任何业务表无关，
+//! 而 HR 的工号（`EMP`）也要用它。原先引擎长在 ERP 里，HR 为了取一个工号就得
+//! `use crate::business::erp::seq::…`，这就是 `hr → erp` 那条代码回边。
+//!
+//! ```text
+//! 改前：hr ──取号──→ erp::seq   ┐
+//! 改后：hr ──取号──→ shared::seq ┘  ERP 侧 `erp::seq` 变成「引擎再导出 + 本域查重表」
+//! ```
+//!
+//! 本文件**只保留 ERP 自己的东西**（其余符号都是 `pub use` 再导出，40 余处调用点不用改）：
+//!
+//! | 留在本文件 | 为什么 |
+//! |---|---|
+//! | [`master_code_exists_sql`] | 六张 ERP 主档的**表名 / 列名 / 软删口径**归本域 |
+//! | [`master_code_taken`] / [`next_master_code_free`] / [`peek_master_code`] 及其 `_global` 变体 | 用上面那张表的便捷入口（自动选表） |
 //!
 //! # 与单据号的区别（别混用）
 //!
@@ -11,15 +30,15 @@
 //!
 //! # 七个主数据号段（前六类由用户拍板不许改；`EMP` 由 HR-14 按 ARCH-9-2 D-15 加入）
 //!
-//! | 主数据 | `seq_type` | 前缀 | 位数 | 示例 | 落库表.列 |
-//! |---|---|---|---|---|---|
-//! | 供应商 | `SUP` | `SUP` | 4 | `SUP-0001` | `biz_supplier.supplier_code` |
-//! | 客户 | `CUS` | `CUS` | 4 | `CUS-0001` | `biz_customer.code` |
-//! | 物料 | `MAT` | `MAT` | 4 | `MAT-0001` | `biz_material.material_code` |
-//! | 仓库 | `WH` | `WH` | 2 | `WH-01` | `biz_warehouse.warehouse_code` |
-//! | 资产分类 | `AC` | `AC` | 2 | `AC-01` | `biz_asset_category.category_code` |
-//! | 费用类型 | `ET` | `ET` | 2 | `ET-01` | `biz_expense_type.type_code` |
-//! | 员工工号 | `EMP` | `EMP` | 4 | `EMP-0001` | HR 员工主档（**表名不归本模块管**，见下） |
+//! | 主数据 | `seq_type` | 前缀 | 位数 | 示例 | 落库表.列 | 查重表在哪 |
+//! |---|---|---|---|---|---|---|
+//! | 供应商 | `SUP` | `SUP` | 4 | `SUP-0001` | `biz_supplier.supplier_code` | [`master_code_exists_sql`] |
+//! | 客户 | `CUS` | `CUS` | 4 | `CUS-0001` | `biz_customer.code` | 同上 |
+//! | 物料 | `MAT` | `MAT` | 4 | `MAT-0001` | `biz_material.material_code` | 同上 |
+//! | 仓库 | `WH` | `WH` | 2 | `WH-01` | `biz_warehouse.warehouse_code` | 同上 |
+//! | 资产分类 | `AC` | `AC` | 2 | `AC-01` | `biz_asset_category.category_code` | 同上 |
+//! | 费用类型 | `ET` | `ET` | 2 | `ET-01` | `biz_expense_type.type_code` | 同上 |
+//! | 员工工号 | `EMP` | `EMP` | 4 | `EMP-0001` | HR 员工主档（**表名不归本域**） | **HR 自带**（`business/hr/employee_no.rs` 的 `EMP_EXISTS_SQL`） |
 //!
 //! `EMP` 是**人事档案码**（ARCH-9-2 D-15）：`date_pattern='none'`、`period_key='GLOBAL'`
 //! ⇒ 流水**永久不重置**（按日/按月重置会让工号每天从 0001 重发，必然撞员工主档的
@@ -28,23 +47,23 @@
 //!
 //! **计量单位不自动**（用户明确）：`PCS/KG/M` 是行业标准码，自动生成反而看不懂。
 //!
-//! # 三个入口
+//! # 四个入口（引擎在 `business/shared/seq.rs`，这里只做「自动选表」那一层）
 //!
 //! 1. [`next_master_code`] —— 纯取号（**不查重**）。调用方自己保证编码没被占用时用。
 //! 2. [`next_master_code_free`] —— 取号并**跳过已占用的号**（主数据推荐用这个）。
 //!    例：老库已有 `SUP-0001`（V0137 种子）⇒ 第一次自动编码给 `SUP-0002`。
-//! 3. [`next_master_code_free_with`] —— 同上，但占位检查 SQL 由调用方给（非标准表/特殊软删口径）。
+//! 3. `next_master_code_free_with` —— 同上，但占位检查 SQL 由调用方给（非标准表 / 特殊软删口径；
+//!    HR 的 `EMP` 走这条）。实现在基座，本文件再导出。
 //! 4. [`peek_master_code`] —— **只看不动**：预览下一个可用编码，不推进 `current_no`
 //!    （前端「生成编码」按钮用；不是占号）。
 //!
-//! 每个入口都有 `_in` 变体区别只在**执行器**：接受 `&impl SqlExecutor` 的版本可以在
-//! **调用方的事务里**取号（建单/建档案与取号同一事务，回滚时号一起回滚，不留空号）；
-//! `next_master_code_global` / `next_master_code_free_global` 走全局 `db()`（自动提交）。
+//! 每个入口都接受 `&impl SqlExecutor`，所以可以在**调用方的事务里**取号（建单 / 建档案与
+//! 取号同一事务，回滚时号一起回滚，不留空号）；`*_global` 变体走全局 `db()`（自动提交）。
 //!
 //! # 并发安全
 //!
 //! 发号是单语句 `UPDATE biz_seq … RETURNING current_no`：PG 对该行加行锁，两个并发事务
-//! 先后拿到 `n` 与 `n+1`，**天然不重号**（与 [`crate::business::erp::contract::contract_model`] 同款）。
+//! 先后拿到 `n` 与 `n+1`，**天然不重号**（实现见基座 `business/shared/seq.rs`）。
 //! 注意持锁到事务提交：同一事务里取完号尽快落库，别在长事务里连续取多个号。
 //!
 //! # 手工覆盖
@@ -67,25 +86,16 @@
 
 use nik::prelude::*;
 
-/// 默认补零位数（`biz_seq.pad_width` 的列默认值，也是找不到规则时的兜底）。
-pub const DEFAULT_PAD_WIDTH: i32 = 4;
-
-/// `pad_width` 的合法区间（与 `ck_biz_seq_pad_width` 完全一致）。
-pub const MIN_PAD_WIDTH: i32 = 1;
-/// `pad_width` 的合法区间上界（与 `ck_biz_seq_pad_width` 完全一致）。
-pub const MAX_PAD_WIDTH: i32 = 12;
-
-/// 「跳过已占用号」的最大尝试次数：20 个连号都被占 ⇒ 报错让人看数据，
-/// 不做无限重试（无限重试会把 `current_no` 推到没有意义的远处）。
-pub const FREE_CODE_MAX_ATTEMPTS: u32 = 20;
-
-/// 主数据号段（顺序与用户拍板的表格一致，`EMP` 由 HR-14 追加在末尾）。
-pub const MASTER_CODE_TYPES: [&str; 7] = ["SUP", "CUS", "MAT", "WH", "AC", "ET", "EMP"];
-
-/// 是否是主数据号段。
-pub fn is_master_code_type(seq_type: &str) -> bool {
-    MASTER_CODE_TYPES.contains(&seq_type)
-}
+// ==================== 引擎（真源在 `business/shared/seq.rs`） ====================
+//
+// P2-B 解环（卡 `t_3442b4fb`）：取号引擎是**纯 `biz_seq` 读写**，与业务表无关，
+// 已下移到跨域基座。这里再导出，ERP 侧 40 余处 `seq::xxx` 调用点一行都不用改。
+// 本文件**只保留 ERP 自己的东西**：六张主档的查重 SQL + 用它们的四个便捷入口。
+pub use crate::business::shared::seq::{
+    DEFAULT_PAD_WIDTH, FREE_CODE_MAX_ATTEMPTS, MASTER_CODE_TYPES, MAX_MANUAL_CODE_LEN, MAX_PAD_WIDTH, MIN_PAD_WIDTH,
+    code_taken, format_master_code, is_master_code_type, manual_code, next_master_code, next_master_code_free_with,
+    next_master_code_global, peek_master_code_with, resolve_manual_code, validate_manual_code,
+};
 
 /// 主数据编码 → 「该编码是否已被占用」的常量 SQL（只有一个 `?` 占位，绑定编码本身）。
 ///
@@ -122,167 +132,6 @@ pub fn master_code_exists_sql(seq_type: &str) -> Option<&'static str> {
     }
 }
 
-/// 手工指定编码的最大长度（与 `biz_supplier.supplier_code` / `biz_customer.code`
-/// 等主数据编码列的 `VARCHAR(40)` 逐字同口径）。
-pub const MAX_MANUAL_CODE_LEN: usize = 40;
-
-/// 手工编码允许的字符集：ASCII 字母、数字，以及 `-` `_` `.` 三个分隔符。
-///
-/// **不强制 `SUP-0001` 这种形态**（用户已拍板）：企业自有编码体系（`GYS-001` / `S.001.A`）
-/// 必须能共存，这里只挡掉真正没法用的输入 —— 空白、控制字符、中文标点、`/`、`#` 等。
-fn is_manual_code_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
-}
-
-/// 归一化用户传来的编码：`None` / `""` / 纯空白 ⇒ `None`（= 交给取号器自动生成）。
-///
-/// 前端三种「没填」的形态（`null` 反序列化成 `None`、空串、空格）在这里统一收口，
-/// 调用方不必各自判断。
-pub fn manual_code(input: Option<&str>) -> Option<String> {
-    input.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
-}
-
-/// 手工编码格式校验（**只校验可用性，不校验编码规则**）：
-///
-/// - 长度：去空白后 `1..=max_len`（`chars().count()`，与 `VARCHAR(n)` 同口径）；
-/// - 字符集：见 [`is_manual_code_char`]。
-///
-/// 返回 `Err(人话原因)`，由调用方翻译成自己的错误码（供应商 / 客户各自 `400 + 10001`）。
-pub fn validate_manual_code(code: &str, max_len: usize) -> std::result::Result<(), String> {
-    let text = code.trim();
-    if text.is_empty() {
-        return Err("编码不能为空（留空则由系统自动生成）".to_string());
-    }
-    let len = text.chars().count();
-    if len > max_len {
-        return Err(format!("编码最长 {max_len} 个字符（当前 {len} 个）"));
-    }
-    if let Some(bad) = text.chars().find(|ch| !is_manual_code_char(*ch)) {
-        return Err(format!(
-            "编码里不能出现 `{}`：只允许字母、数字与 `-` `_` `.`（企业自有编码可直接沿用）",
-            bad.escape_debug()
-        ));
-    }
-    Ok(())
-}
-
-/// 一次搞定「有没有手工指定编码」：`Ok(None)` = 留空（交给取号器），
-/// `Ok(Some(code))` = 合法的手工编码（已去首尾空白），`Err(原因)` = 格式不合法。
-///
-/// 供应商 / 客户的建单路径都走这一个入口，保证两边口径一致。
-pub fn resolve_manual_code(input: Option<&str>, max_len: usize) -> std::result::Result<Option<String>, String> {
-    let Some(code) = manual_code(input) else {
-        return Ok(None);
-    };
-    validate_manual_code(&code, max_len)?;
-    Ok(Some(code))
-}
-
-/// 纯函数：按「前缀 + 分隔符 + 流水」拼编码（位数不足左补 0，超过位数按实际输出）。
-///
-/// ```ignore
-/// assert_eq!(format_master_code("SUP", "-", 4, 1), "SUP-0001");
-/// assert_eq!(format_master_code("WH", "-", 2, 1), "WH-01");
-/// assert_eq!(format_master_code("WH", "-", 2, 123), "WH-123"); // 不截断
-/// ```
-pub fn format_master_code(prefix: &str, separator: &str, pad_width: i32, no: i64) -> String {
-    let width = pad_width.clamp(MIN_PAD_WIDTH, MAX_PAD_WIDTH) as usize;
-    let body = format!("{:0width$}", no.max(0), width = width);
-    if separator.is_empty() {
-        format!("{prefix}{body}")
-    } else {
-        format!("{prefix}{separator}{body}")
-    }
-}
-
-/// 一条取号规则（`biz_seq` 里那一行里取号需要的列）。
-///
-/// `current_no` / `step` 只有**预览**（[`peek_master_code`]）会用到：真实取号走
-/// `UPDATE … RETURNING`，不让「读出来的旧值 + 加法」参与发号，避免并发下算重。
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SeqRule {
-    prefix: String,
-    separator: String,
-    pad_width: i32,
-    current_no: i64,
-    step: i64,
-}
-
-/// 读规则（**必须**是启用中的存活行；停用 = 不参与取号）。
-async fn load_rule(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<SeqRule> {
-    // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
-    let row = ex
-        .query_first_sql(
-            "SELECT prefix, separator, pad_width::int AS pad_width, \
-                    current_no, step::bigint AS step \
-               FROM biz_seq \
-              WHERE seq_type = ? AND deleted_at IS NULL AND status = 1"
-                .to_string(),
-            vec![Value::from(seq_type)],
-        )
-        .await?;
-    let Some(row) = row else {
-        return Err(DbError::InvalidValue(format!(
-            "取号失败：biz_seq 里没有可用（未删除且启用中）的取号规则（seq_type='{seq_type}'）。\
-             主数据号段由 V0337__master_data_seq 种入；单据号段见各自的 V01xx 迁移。"
-        )));
-    };
-    Ok(SeqRule {
-        prefix: row.get_typed::<String>("prefix")?,
-        separator: row.get_typed::<String>("separator")?,
-        pad_width: row.get_typed::<i32>("pad_width")?,
-        current_no: row.get_typed::<i64>("current_no")?,
-        step: row.get_typed::<i64>("step")?,
-    })
-}
-
-/// 原子推进一个号并返回新流水（单语句 `UPDATE … RETURNING`，行锁保证并发不重号）。
-///
-/// 纯流水号段**不看 `period_key`**：`GLOBAL` 只是「永不清零」的标记，
-/// 推进逻辑与期间无关（对照单据号段的 [`crate::business::erp::serial_model`] 三分支）。
-async fn bump_master_no(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<i64> {
-    // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
-    let row = ex
-        .query_first_sql(
-            "UPDATE biz_seq \
-                SET current_no = current_no + step, \
-                    updated_at = now() \
-              WHERE seq_type = ? AND deleted_at IS NULL AND status = 1 \
-             RETURNING current_no"
-                .to_string(),
-            vec![Value::from(seq_type)],
-        )
-        .await?;
-    match row {
-        Some(row) => Ok(row.get_typed::<i64>("current_no")?),
-        None => Err(DbError::InvalidValue(format!(
-            "取号失败：biz_seq(seq_type='{seq_type}') 行不存在或已停用（status <> 1）"
-        ))),
-    }
-}
-
-/// 取一个主数据编码（**不查重**）。在调用方的事务里执行时，事务回滚则号一起回滚。
-///
-/// `SUP-0001` / `WH-01`：前缀、分隔符、位数都来自 `biz_seq` 那一行。
-pub async fn next_master_code(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<String> {
-    let rule = load_rule(ex, seq_type).await?;
-    let no = bump_master_no(ex, seq_type).await?;
-    Ok(format_master_code(&rule.prefix, &rule.separator, rule.pad_width, no))
-}
-
-/// 同 [`next_master_code`]，但走全局 `db()`（自动提交；无法参与调用方事务）。
-pub async fn next_master_code_global(seq_type: &str) -> DbResult<String> {
-    next_master_code(db(), seq_type).await
-}
-
-/// 编码是否已被占用（`exists_sql` 是 [`master_code_exists_sql`] 这类常量 SQL，只绑一个参数）。
-async fn code_taken(ex: &impl SqlExecutor, exists_sql: &str, code: &str) -> DbResult<bool> {
-    Ok(ex
-        .query_first_sql(exists_sql.to_string(), vec![Value::from(code)])
-        .await?
-        .is_some())
-}
-
 /// 某个主数据编码是否已被占用（按 `seq_type` 自动选表，表名/列名来自常量表）。
 ///
 /// 建档案时用它做**手工编码的预检**：撞了就返回「编码 `XXX` 已存在」的人话错误，
@@ -294,38 +143,6 @@ pub async fn master_code_taken(ex: &impl SqlExecutor, seq_type: &str, code: &str
         )));
     };
     code_taken(ex, exists_sql, code).await
-}
-
-/// 取一个**未被占用**的主数据编码：撞了就继续取下一个号，最多 `max_attempts` 次。
-///
-/// 这是卡 CODE-01 ③「序列号不重复的保护」的落点：
-/// 主数据表的编码列是「未删除内唯一」，而老库里的编码可能早于取号器存在
-/// （例：V0137 种了 `SUP-0001`）。撞号时**不报错**，直接顺延到下一个号。
-///
-/// `exists_sql` 必须是一条**常量** SQL（一个 `?` 占位，绑定候选编码），
-/// 不允许把用户输入拼进去。
-pub async fn next_master_code_free_with(
-    ex: &impl SqlExecutor,
-    seq_type: &str,
-    exists_sql: &str,
-    max_attempts: u32,
-) -> DbResult<String> {
-    let attempts = max_attempts.max(1);
-    let rule = load_rule(ex, seq_type).await?;
-    let mut last: Option<String> = None;
-    for _ in 0..attempts {
-        let no = bump_master_no(ex, seq_type).await?;
-        let code = format_master_code(&rule.prefix, &rule.separator, rule.pad_width, no);
-        if !code_taken(ex, exists_sql, &code).await? {
-            return Ok(code);
-        }
-        last = Some(code);
-    }
-    Err(DbError::InvalidValue(format!(
-        "取号失败：seq_type='{seq_type}' 连续 {attempts} 个号都已被占用（最后一次尝试 = {}）。\
-         请核对主数据表里的历史编码，或把 biz_seq.current_no 抬到已有最大流水之上。",
-        last.as_deref().unwrap_or("<无>")
-    )))
 }
 
 /// 同 [`next_master_code_free_with`]，用内置的主数据占位表（推荐入口）。
@@ -368,33 +185,6 @@ pub async fn peek_master_code(ex: &impl SqlExecutor, seq_type: &str) -> DbResult
         )));
     };
     peek_master_code_with(ex, seq_type, exists_sql, FREE_CODE_MAX_ATTEMPTS).await
-}
-
-/// 同 [`peek_master_code`]，但占位检查 SQL 由调用方给（非标准表 / 特殊软删口径）。
-///
-/// `exists_sql` 必须是**常量** SQL（一个 `?` 占位，绑定候选编码），不接受拼接。
-pub async fn peek_master_code_with(
-    ex: &impl SqlExecutor,
-    seq_type: &str,
-    exists_sql: &str,
-    max_attempts: u32,
-) -> DbResult<String> {
-    let rule = load_rule(ex, seq_type).await?;
-    let attempts = max_attempts.max(1);
-    // 步长兜底 ≥1：即使有脏数据把 step 写成 0，也不会原地打转出重复号。
-    let step = rule.step.max(1);
-    let mut no = rule.current_no;
-    for _ in 0..attempts {
-        no += step;
-        let code = format_master_code(&rule.prefix, &rule.separator, rule.pad_width, no);
-        if !code_taken(ex, exists_sql, &code).await? {
-            return Ok(code);
-        }
-    }
-    Err(DbError::InvalidValue(format!(
-        "预览编码失败：seq_type='{seq_type}' 连续 {attempts} 个号都已被占用。\
-         请核对主数据表里的历史编码，或把 biz_seq.current_no 抬到已有最大流水之上。"
-    )))
 }
 
 /// 同 [`peek_master_code`]，但走全局 `db()`（只读，不参与调用方事务）。
@@ -493,21 +283,6 @@ mod tests {
     // ---------- ① 纯函数：位数 / 分隔符 / 不截断 ----------
 
     #[test]
-    fn t01_format_master_code_pads_by_width() {
-        assert_eq!(format_master_code("SUP", "-", 4, 1), "SUP-0001");
-        assert_eq!(format_master_code("MAT", "-", 4, 42), "MAT-0042");
-        assert_eq!(format_master_code("WH", "-", 2, 1), "WH-01");
-        assert_eq!(format_master_code("ET", "-", 2, 9), "ET-09");
-        // 超过位数不截断（否则 100 号会变成 HH-00 撞回 1 号）
-        assert_eq!(format_master_code("WH", "-", 2, 100), "WH-100");
-        // 分隔符为空 ⇒ 直接相连（企业自定义规则时可能有这种号段）
-        assert_eq!(format_master_code("PCS", "", 4, 7), "PCS0007");
-        // 非法位数按合法区间收敛，不 panic
-        assert_eq!(format_master_code("X", "-", 0, 1), "X-1");
-        assert_eq!(format_master_code("X", "-", 99, 1), "X-000000000001");
-    }
-
-    #[test]
     fn t02_exists_sql_covers_every_erp_owned_master_type() {
         // 内置查重表 = **本域持有**的 6 类主档（员工主档不在此列，见下）
         for seq_type in ["SUP", "CUS", "MAT", "WH", "AC", "ET"] {
@@ -541,55 +316,6 @@ mod tests {
     }
 
     // ---------- ①b 手工编码：空 → 自动；有值 → 保留；非法 → 报错 ----------
-
-    /// 三种「没填」都归一到 `None`；有值只去空白，**不校验 `SUP-xxx` 形态**。
-    #[test]
-    fn t02b_manual_code_resolution() {
-        assert_eq!(manual_code(None), None, "null ⇒ 自动生成");
-        assert_eq!(manual_code(Some("")), None, "空串 ⇒ 自动生成");
-        assert_eq!(manual_code(Some("   ")), None, "纯空白 ⇒ 自动生成");
-
-        assert_eq!(
-            manual_code(Some("  GYS-001 ")),
-            Some("GYS-001".to_string()),
-            "手工编码只 trim，不改大小写与分隔符"
-        );
-        assert_eq!(
-            resolve_manual_code(Some("S.001_A"), MAX_MANUAL_CODE_LEN),
-            Ok(Some("S.001_A".to_string())),
-            "企业自有编码体系要能共存"
-        );
-        assert_eq!(
-            resolve_manual_code(Some("SUP-9999"), MAX_MANUAL_CODE_LEN),
-            Ok(Some("SUP-9999".to_string()))
-        );
-        assert_eq!(
-            resolve_manual_code(Some("  "), MAX_MANUAL_CODE_LEN),
-            Ok(None),
-            "空白仍是自动生成"
-        );
-    }
-
-    /// 手工编码格式校验：超长 / 含非法字符 → 人话错误（不静默截断或吞掉）。
-    #[test]
-    fn t02c_manual_code_validation_rejects_unusable_input() {
-        let long = "A".repeat(MAX_MANUAL_CODE_LEN + 1);
-        let err = resolve_manual_code(Some(&long), MAX_MANUAL_CODE_LEN).expect_err("超长必须被拒");
-        assert!(err.contains("最长"), "超长文案：{err}");
-
-        let exact = "A".repeat(MAX_MANUAL_CODE_LEN);
-        assert!(
-            resolve_manual_code(Some(&exact), MAX_MANUAL_CODE_LEN).is_ok(),
-            "恰好 {MAX_MANUAL_CODE_LEN} 个字符是合法的（与 VARCHAR(40) 同口径）"
-        );
-
-        for bad in ["GYS 001", "供应商001", "GYS/001", "GYS#001", "GYS\t001"] {
-            match resolve_manual_code(Some(bad), MAX_MANUAL_CODE_LEN) {
-                Ok(got) => panic!("`{bad}` 应被拒，却通过：{got:?}"),
-                Err(msg) => assert!(msg.contains("只允许"), "`{bad}` 的错误文案应说明字符集：{msg}"),
-            }
-        }
-    }
 
     // ---------- ② 迁移落地：六条规则就是拍板的那六条 ----------
 

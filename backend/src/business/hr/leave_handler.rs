@@ -72,7 +72,7 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::approval_gate::{self, ApprovalGate};
+use crate::business::flow::approval_gate::{self, ApprovalGate};
 use crate::business::flow::{engine, instance_pdf, model as flow_model};
 use crate::business::hr::employee_dto::timestamp_cst;
 use crate::business::hr::employee_model;

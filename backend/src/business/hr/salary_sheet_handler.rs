@@ -53,7 +53,7 @@ use axum::extract::{Extension, Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::approval_gate::{self, ApprovalGate};
+use crate::business::flow::approval_gate::{self, ApprovalGate};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::hr::salary_bridge;
 use crate::business::hr::salary_compute::{self as compute, CalcRequest};

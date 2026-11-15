@@ -495,7 +495,7 @@ pub fn format_leave_no(period_key: &str, no: i64) -> String {
 /// 号段行由 `V0386` 种下；缺失时报「号段不存在」而不是编一个号 —— 编出来的号会撞唯一键，
 /// 用户看到的会是「单号重复」这种完全指错方向的报错。
 pub async fn next_leave_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbResult<String> {
-    let period_key = crate::business::erp::serial_model::period_key_of(now);
+    let period_key = crate::business::shared::period_key::period_key_of(now);
     // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有部门 / 归属列。
     let rows = ex
         .query_sql(

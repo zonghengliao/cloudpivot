@@ -94,7 +94,7 @@
 //! **`deleted_at IS NULL` 必须写在查询里**：部分索引的可命中性依赖它，
 //! 少了这一句 planner 就不能用该索引（会退化成 Seq Scan + Filter）。
 
-use nik::prelude::chrono::{DateTime, Duration, Utc};
+use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::rust_decimal::RoundingStrategy;
 use nik::prelude::*;
@@ -151,7 +151,10 @@ pub const SN_SEQ_WIDTH: usize = 6;
 pub const MAX_BATCH_COUNT: i64 = 1000;
 
 /// 北京时间相对 UTC 的偏移（号按天重置用的是 **CST** 的「天」，不是 UTC 的天）。
-pub const CST_OFFSET_HOURS: i64 = 8;
+///
+/// 真源在 `business/shared/period_key.rs`（P2-B 解环：周期键算法是**纯函数**，
+/// 不是 ERP 的私有口径）。这里保留同名常量只为不改动本文件既有调用点的可读性。
+pub const CST_OFFSET_HOURS: i64 = crate::business::shared::period_key::CST_OFFSET_HOURS;
 
 /// 来源单据类型白名单（V0138 列注释：PURCHASE / TRANSFER / PRODUCE / RETURN）。
 pub const SOURCE_TYPES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
@@ -430,12 +433,12 @@ pub enum TransitionOutcome {
 /// 号按天重置必须用 **CST 的天**：用 UTC 会让「北京时间 00:00–08:00」这段算成前一天，
 /// 跨天那一刻的号段会跟白天重叠。
 pub fn period_key_of(now: DateTime<Utc>) -> String {
-    (now + Duration::hours(CST_OFFSET_HOURS)).format("%Y%m%d").to_string()
+    crate::business::shared::period_key::period_key_of(now)
 }
 
 /// 当前周期键（北京时间今天）。
 pub fn today_period_key() -> String {
-    period_key_of(Utc::now())
+    crate::business::shared::period_key::today_period_key()
 }
 
 /// 拼序列号：`SN-yyyyMMdd-XXXXXX`。
@@ -614,7 +617,7 @@ pub const TXN_REMARK_MAX: usize = 255;
 
 /// 「某一刻」的会计期间码 `yyyy-MM`（同样用 **CST**：月末 23:30 的流水不该记到上个月）。
 pub fn period_code_of(now: DateTime<Utc>) -> String {
-    (now + Duration::hours(CST_OFFSET_HOURS)).format("%Y-%m").to_string()
+    crate::business::shared::period_key::period_code_of(now)
 }
 
 /// 库存快照（流水的前后六列里，变动前的三项）。

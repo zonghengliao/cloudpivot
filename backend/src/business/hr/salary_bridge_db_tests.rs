@@ -64,7 +64,14 @@ mod db {
     }
 
     /// 连库（进程内只做一次初始化）。`false` = 没配库地址或连不上，用例直接跳过。
+    ///
+    /// 顺手装上**凭证写入接缝**（P2-B 解环 · 卡 `t_3442b4fb`）：过账 / 红冲走
+    /// `shared::voucher_port`，单测没有启动链，实现只能显式装。
+    /// 接线入口放在 `bootstrap`（它同时看得到消费者 HR 与实现者 ERP）——
+    /// 若在这里直接 `use` 凭证域的实现，就会在 `hr/` 里留下一条 erp 引用，
+    /// 正是本卡要摘的东西（`module_cycle_report` 连测试文件一起扫）。
     async fn ensure_db() -> bool {
+        crate::bootstrap::install_voucher_port_for_tests();
         static READY: OnceCell<bool> = OnceCell::const_new();
         *READY
             .get_or_init(|| async {

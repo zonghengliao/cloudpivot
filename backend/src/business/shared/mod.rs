@@ -62,14 +62,23 @@ pub mod guard;
 /// （`erp` 的两条历史回边已清零：词表进 `cloudpivot-doc` crate、凭证只读用例搬回 ERP 侧）。
 #[cfg(test)]
 mod layering_tests;
+/// 「北京时间周期键 / 会计期间码 / CST 日期」的唯一实现（P2-B 解环：从 `erp::serial_model`
+/// 下移到基座）—— 纯函数、无表访问，单据号段与会计期间共用同一份口径。
+pub mod period_key;
 pub mod principal;
 pub mod scope;
 /// 内控开关（制单 ≠ 审批 / 过账 / 付款）：P2-34 从 `erp` 搬来 —— 它是**跨域可用的配置读取**，
 /// `flow` 的内控排除与 `erp` 的三个职责闸读同一份键；留在业务域里会让 `flow → erp` 的依赖
 /// 永远摘不掉（配置不是单据查询，塞不进 `DocReader` 接缝）。
 pub mod separation;
+/// 主数据编码取号**引擎**（P2-B 解环：从 `erp::seq` 下移到基座）—— 纯 `biz_seq` 读写，
+/// 只发号、不认任何业务表：各主档的查重 SQL 由表属主用 `*_with` 入口自带。
+pub mod seq;
 pub mod state_machine;
 /// 任务节点「走向」字面量（`on_complete` / `on_reject` / `on_cancel`）的唯一真源（P2-37）：
 /// `flow` 校验发布配置、`task` 回显节点走向，两个域共用同一份 `as_str` / `parse`。
 pub mod task_node_switch;
 pub mod user_name;
+/// 「记一张会计分录凭证」的能力接缝（P2-B 解环：摘掉 `hr → erp` 的凭证直连）。
+/// 实现在凭证域（`business/erp/voucher/voucher_port_impl.rs`），启动期注册。
+pub mod voucher_port;

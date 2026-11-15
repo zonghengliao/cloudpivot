@@ -193,6 +193,7 @@ business/hr/hr_invariants_tests.rs
 business/hr/leave_bridge_db_tests.rs
 business/hr/leave_db_tests.rs
 business/hr/leave_handler_db_tests.rs
+business/hr/no_erp_edge_tests.rs
 business/hr/perm_matrix_tests.rs
 business/hr/release_drill_contract_tests.rs
 business/hr/salary_bridge_db_tests.rs

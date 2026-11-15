@@ -130,6 +130,9 @@ use crate::business::shared::state_machine;
 pub mod voucher_bridge;
 pub(crate) mod voucher_linkage;
 pub mod voucher_multi;
+/// 「记一张会计分录凭证」的能力接缝**实现**（P2-B 解环 · 卡 `t_3442b4fb`）：
+/// HR 的工资过账 / 红冲改走 `shared::voucher_port`，本文件是它的唯一实现（纯委派）。
+pub mod voucher_port_impl;
 pub mod voucher_query;
 pub mod voucher_write;
 
@@ -461,9 +464,11 @@ pub async fn is_period_closed(ex: &impl SqlExecutor, period_code: &str) -> DbRes
 ///
 /// 红字凭证的日期用「作废当天」，**必须按 CST 算**：`Utc::now().date_naive()` 在凌晨
 /// （北京 00:00–08:00）还是前一天，会把凭证记到错误的期间。
+///
+/// 实现已下移到 `business/shared/period_key.rs`（P2-B 解环：凭证日期与单据号段的日期段
+/// 必须是同一天，而那个换算是纯函数 —— 留在 ERP 里会让别的域为了一个 `format` 依赖整个 ERP）。
 pub fn today_cst(now: DateTime<Utc>) -> NaiveDate {
-    let key = serial_model::period_key_of(now);
-    NaiveDate::parse_from_str(&key, "%Y%m%d").unwrap_or_else(|_| now.date_naive())
+    crate::business::shared::period_key::today_cst(now)
 }
 
 // ==================== 科目解析 ====================

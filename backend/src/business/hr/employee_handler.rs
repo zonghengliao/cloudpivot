@@ -594,7 +594,7 @@ pub(crate) fn filter_of(query: &EmployeePageQuery) -> std::result::Result<Employ
 /// 空串落库会被 `NOT NULL` 之外的 CHECK/唯一键当普通值收下 —— 所以那里有一句
 /// `debug_assert` 兜住「有人绕过 create 直接调 insert」。
 pub(crate) fn build_write(req: &EmployeeCreateReq) -> std::result::Result<EmployeeWrite, ApiError> {
-    // 有值则原样保留（企业自有工号体系），留空交给取号器 —— 口径与 `erp::seq::manual_code` 一致。
+    // 有值则原样保留（企业自有工号体系），留空交给取号器 —— 口径与 `shared::seq::manual_code` 一致。
     let emp_no = match req.emp_no.as_deref().map(str::trim) {
         None | Some("") => String::new(),
         Some(raw) => require_text(raw, "emp_no", MAX_EMP_NO)?,

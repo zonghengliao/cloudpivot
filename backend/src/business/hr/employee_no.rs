@@ -10,23 +10,35 @@
 //!
 //! | # | 事 | 谁是唯一真源 |
 //! |:--:|---|---|
-//! | 1 | 把 `EMP` 登记成主数据号段 | `erp::seq::MASTER_CODE_TYPES`（**号段**归取号器） |
+//! | 1 | 把 `EMP` 登记成主数据号段 | `shared::seq::MASTER_CODE_TYPES`（**号段**归取号引擎） |
 //! | 2 | 工号的**查重口径**（读员工主档） | 本文件 [`EMP_EXISTS_SQL`]（**表**归本域，P2-36） |
-//! | 3 | 取号（新建员工时，**与 INSERT 同事务**） | [`generate_emp_no`] → `erp::seq::next_master_code_free_with` |
-//! | 4 | 预览（前端「生成工号」按钮，**不耗号**） | [`preview_emp_no`] → `erp::seq::peek_master_code_with` |
+//! | 3 | 取号（新建员工时，**与 INSERT 同事务**） | [`generate_emp_no`] → `shared::seq::next_master_code_free_with` |
+//! | 4 | 预览（前端「生成工号」按钮，**不耗号**） | [`preview_emp_no`] → `shared::seq::peek_master_code_with` |
 //!
-//! 三处都复用 `erp::seq`，**不重写发号逻辑**（卡面要求）：发号是单语句
+//! 三处都复用**取号引擎**，**不重写发号逻辑**（卡面要求）：发号是单语句
 //! `UPDATE biz_seq … RETURNING current_no`，PG 对 `biz_seq(seq_type='EMP')` 那行加行锁，
 //! 并发事务先后拿到 `n` / `n+1`，天然不重号；「撞号顺延」靠本域自带的
 //! [`EMP_EXISTS_SQL`]（员工主档里工号未删除即跳过）。
 //!
-//! # 为什么查重 SQL 在本域，而不在取号器里（P2-36 · erp→hr 解环）
+//! # 取号引擎在哪（P2-B 解环 · 卡 `t_3442b4fb`）
 //!
-//! `erp::seq` 是 ERP 的取号器，只该认识**自己域内**的表。员工主档是 HR 的表：
+//! 引擎在**跨域基座** `business/shared/seq.rs`，不在 ERP：`biz_seq` 里的主数据号段
+//! （`date_pattern='none'`、`period_key='GLOBAL'`）是**全公司口径的档案码**，ERP 用它发
+//! 供应商 / 物料编码，HR 用它发工号。原先引擎长在 ERP（`erp::seq`），HR 为了取一个工号
+//! 就得 `use` 一条指向 ERP 的路径（`erp` 域名 + `::seq`）—— 那就是 `hr → erp` 的一条代码回边。
+//!
+//! ```text
+//! 改前：hr ──取号──→ erp::seq          （HR 为了一个 UPDATE…RETURNING 依赖整个 ERP）
+//! 改后：hr ──取号──→ shared::seq       （ERP 侧 `erp::seq` 变成「引擎再导出 + 本域查重表」）
+//! ```
+//!
+//! # 为什么查重 SQL 在本域，而不在取号引擎里（P2-36 · erp→hr 解环）
+//!
+//! 取号引擎只该认识 **`biz_seq`**，不该认识任何业务表。员工主档是 HR 的表：
 //! 表名、工号列名（`emp_no` 不是 `employee_no` —— 这个坑 erp 侧真踩过）、软删口径
-//! 都归本域。原先 `EMP` 的查重 SQL 写在 `erp::seq::master_code_exists_sql` 里，
+//! 都归本域。原先 `EMP` 的查重 SQL 写在 ERP 的 `master_code_exists_sql` 里，
 //! 等于让 erp 认 HR 的表；现在从那张常量表里摘掉，由本文件通过 `*_with` 入口自带
-//! （取号器的通用扩展点，本来就是为了「非标准表 / 特殊软删口径」设计的）。
+//! （取号引擎的通用扩展点，本来就是为了「非标准表 / 特殊软删口径」设计的）。
 //!
 //! # 为什么取号必须在调用方的事务里（本卡验收「不跳号」）
 //!
@@ -54,7 +66,7 @@
 //!
 //! # `emp_no` 何时取号、何时保留手工值
 //!
-//! 与主数据口径一致（`erp::seq` 模块文档「手工覆盖」）：`emp_no` 有值（非空白）⇒
+//! 与主数据口径一致（`shared::seq` 模块文档「手工覆盖」）：`emp_no` 有值（非空白）⇒
 //! **原样保留**（企业已有工号体系要能对接，老员工的 `E2003` / `HR12-xxx` 也能建档）；
 //! 留空 ⇒ 取号。格式校验只挡「能不能用」（长度 ≤ 32 与 `VARCHAR(32)` 对齐），
 //! **不强制 `EMP-0001` 形态**。
@@ -76,7 +88,7 @@
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::seq;
+use crate::business::shared::seq;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -208,18 +220,19 @@ mod tests {
     use crate::business::hr::employee_handler;
     use crate::business::hr::handler::ROUTE_CONTRACT;
 
-    /// `EMP` 必须登记成主数据号段（否则取号直接 `InvalidValue("不是主数据号段")`），
-    /// 且**查重 SQL 归本域**（P2-36：`erp::seq` 只发号，不认识员工主档的表）。
+    /// `EMP` 必须登记成主数据号段（否则取号直接 `InvalidValue("不是主数据号段")`）。
+    ///
+    /// 「查重 SQL 归本域」这一条**不在本文件断言**：`erp::seq::master_code_exists_sql`
+    /// 是 ERP 的符号，在 hr 的源码里提一下就是一条 `hr → erp` 引用（P2-B 解环卡
+    /// `t_3442b4fb` 要摘的正是这个）。它由 ERP 侧自己的用例钉住
+    /// （`erp::seq::tests::t02_exists_sql_covers_every_erp_owned_master_type`），
+    /// 本文件只钉「EMP 是主数据号段」+「查重 SQL 在本域」（下一条用例）。
     #[test]
     fn emp_is_registered_as_master_code() {
         assert_eq!(SEQ_TYPE, "EMP");
         assert!(
             seq::is_master_code_type(SEQ_TYPE),
             "EMP 不在 seq::MASTER_CODE_TYPES 里 —— 取号会直接报「不是主数据号段」"
-        );
-        assert!(
-            seq::master_code_exists_sql(SEQ_TYPE).is_none(),
-            "EMP 的查重 SQL 不该再长在 erp::seq 里（表属主自持，见 EMP_EXISTS_SQL）"
         );
     }
 

@@ -90,15 +90,17 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::voucher::voucher_multi::{self, ExplicitLine, ExplicitVoucherInput};
-use crate::business::erp::voucher::{self, AccountRef};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::hr::salary_sheet_dto::{
     self as salary_dto, STATUS_APPROVED, STATUS_CALCULATED, STATUS_POSTED, STATUS_REVERSED, STATUS_SUBMITTED,
     SalarySheetCardRes,
 };
 use crate::business::hr::salary_sheet_model::{self as model, SheetRow};
+use crate::business::shared::period_key::today_cst;
 use crate::business::shared::state_machine::{self, ENTITY_SALARY_SHEET, Operator};
+use crate::business::shared::voucher_port::{
+    self, AccountPick, ExplicitVoucherReq, ReversalSpec, VoucherBrief, VoucherLine,
+};
 use crate::shared::error_code;
 use cloudpivot_doc::VoucherSourceType;
 
@@ -538,32 +540,23 @@ async fn load_item_amounts(ex: &impl SqlExecutor, sheet_id: Uuid) -> DbResult<Ve
 }
 
 /// 声明了 `DEPT` 辅助核算的科目编码集合（决定凭证行要不要带部门）。
-async fn dept_aware_accounts(ex: &impl SqlExecutor) -> DbResult<HashSet<String>> {
-    // SCOPE-EXEMPT: 科目表是全局主数据，这里列表头（编码 + 维度），不按数据范围裁。
-    let rows = ex
-        .query_sql(
-            "SELECT account_code FROM biz_account \
-              WHERE deleted_at IS NULL AND status = 1 AND upper(coalesce(aux_dimensions, '')) LIKE '%DEPT%'"
-                .to_string(),
-            vec![],
-        )
-        .await?;
-    let mut out = HashSet::with_capacity(rows.len());
-    for row in rows {
-        out.insert(row.get_typed::<String>("account_code")?);
-    }
-    Ok(out)
+///
+/// SQL 在**凭证域**（`shared::voucher_port` → `erp/voucher/voucher_port_impl.rs`）：
+/// `biz_account` 是凭证域的表，`aux_dimensions` 的取值口径归它。P2-B 之前这条 SQL
+/// 长在 HR 里，等于让 HR 认 ERP 的表名（`hr → erp` 的表级直连，依赖报告看不见）。
+async fn dept_aware_accounts(tx: &Transaction) -> DbResult<HashSet<String>> {
+    Ok(voucher_port::dept_aware_account_codes(tx).await?.into_iter().collect())
 }
 
 /// 银行存款科目：凭证规则 `PAYROLL_PAYMENT_DEFAULT` 的贷方 → 缺失/失效回落 `1002`。
 ///
 /// 为什么两级：规则是**口径登记**（HR-02 的 V0384，配置页可见、客户可改开户行），
 /// 但客户把银行科目裂成 `1002.01 工行 / 1002.02 建行` 之后规则还指着父科目 `1002`，
-/// 这时 `ensure_leaf` 会拒 —— 直接 409 会把整张工资单卡死。所以退回按编码取 1002，
-/// 两级都不可用时由 [`voucher_multi::leaf_required`] 报「缺哪个科目」（运维能看懂）。
-async fn bank_account(ex: &impl SqlExecutor) -> std::result::Result<AccountRef, ApiError> {
-    match voucher_multi::rule_accounts(ex, RULE_PAYMENT).await {
-        Ok(Some(accounts)) => return Ok(accounts.credit),
+/// 这时「科目必须末级」的闸会拒 —— 直接 409 会把整张工资单卡死。所以退回按编码取 1002，
+/// 两级都不可用时由凭证侧报「缺哪个科目」（运维能看懂）。
+async fn bank_account(tx: &Transaction) -> std::result::Result<AccountPick, ApiError> {
+    match voucher_port::rule_credit_account(tx, RULE_PAYMENT).await {
+        Ok(Some(account)) => return Ok(account),
         Ok(None) => tracing::warn!(
             rule_code = RULE_PAYMENT,
             "工资凭证规则不存在：发放凭证的银行存款回落按编码 {} 取末级科目",
@@ -576,36 +569,39 @@ async fn bank_account(ex: &impl SqlExecutor) -> std::result::Result<AccountRef, 
             BANK_FALLBACK
         ),
     }
-    voucher_multi::leaf_required(ex, BANK_FALLBACK)
+    voucher_port::leaf_account(tx, BANK_FALLBACK)
         .await
         .map_err(|error| voucher_problem(error, "银行存款"))
 }
 
 /// 计划里的科目编码 → 末级科目快照（非末级 / 停用 → 400 点名科目）。
-async fn resolve_lines(
-    ex: &impl SqlExecutor,
-    planned: &[PostLine],
-) -> std::result::Result<Vec<ExplicitLine>, ApiError> {
-    let mut cache: BTreeMap<String, AccountRef> = BTreeMap::new();
+async fn resolve_lines(tx: &Transaction, planned: &[PostLine]) -> std::result::Result<Vec<VoucherLine>, ApiError> {
+    let mut cache: BTreeMap<String, AccountPick> = BTreeMap::new();
     let mut out = Vec::with_capacity(planned.len());
     for line in planned {
         let account = match cache.get(&line.account_code) {
             Some(account) => account.clone(),
             None => {
-                let account = voucher_multi::leaf_required(ex, &line.account_code)
+                let account = voucher_port::leaf_account(tx, &line.account_code)
                     .await
                     .map_err(|error| voucher_problem(error, "工资凭证科目"))?;
                 cache.insert(line.account_code.clone(), account.clone());
                 account
             }
         };
-        let mut explicit = if line.debit > Decimal::ZERO {
-            ExplicitLine::debit(account, line.debit)
+        // 借贷单向（与 `ExplicitLine::debit` / `::credit` 同口径）：金额恒正，方向二选一。
+        let (debit, credit) = if line.debit > Decimal::ZERO {
+            (line.debit, Decimal::ZERO)
         } else {
-            ExplicitLine::credit(account, line.credit)
+            (Decimal::ZERO, line.credit)
         };
-        explicit.aux_dept_id = line.aux_dept_id;
-        out.push(explicit);
+        out.push(VoucherLine {
+            account,
+            debit,
+            credit,
+            aux_dept_id: line.aux_dept_id,
+            summary: None,
+        });
     }
     Ok(out)
 }
@@ -684,7 +680,7 @@ async fn post_in_tx(
     let payment = plan_payment(&items, &dept_aware, &bank.code).map_err(plan_error)?;
     // ⑥ 落两张凭证（共享 `post_voucher` 的取号 / 平衡 / 期间闸 / 分录落库）
     let accrual_date = sheet.period_end;
-    let payment_date = voucher::today_cst(now);
+    let payment_date = today_cst(now);
     let accrual_id = post_one(
         tx,
         &SourceDoc {
@@ -770,9 +766,9 @@ async fn post_one(
     now: DateTime<Utc>,
 ) -> std::result::Result<Uuid, ApiError> {
     let lines = resolve_lines(tx, planned).await?;
-    voucher_multi::post_explicit_lines(
+    voucher_port::post_explicit(
         tx,
-        ExplicitVoucherInput {
+        ExplicitVoucherReq {
             source_type,
             source_id: Some(doc.sheet.id),
             source_no: &doc.sheet.sheet_no,
@@ -919,8 +915,8 @@ async fn ensure_totals_match(ex: &impl SqlExecutor, sheet: &SheetRow) -> std::re
 }
 
 /// 读凭证号（单据上存「人能查的号」）。
-async fn voucher_no(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<String, ApiError> {
-    let Some(row) = voucher::find_voucher(ex, id)
+async fn voucher_no(tx: &Transaction, id: Uuid) -> std::result::Result<String, ApiError> {
+    let Some(no) = voucher_port::voucher_no(tx, id)
         .await
         .map_err(|error| internal(error, "读取凭证"))?
     else {
@@ -930,7 +926,7 @@ async fn voucher_no(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<Stri
             format!("凭证 {id} 刚落库就查不到：请刷新薪资单确认（若凭证缺失请联系研发）"),
         ));
     };
-    Ok(row.voucher_no)
+    Ok(no)
 }
 
 // ==================== ③·5 红冲（HR-40） ====================
@@ -1038,7 +1034,7 @@ async fn reverse_in_tx(
     let accrual = lock_original(tx, &sheet, accrual_id, SOURCE_ACCRUAL).await?;
     let payment = lock_original(tx, &sheet, payment_id, SOURCE_PAYMENT).await?;
     // ⑤ 各冲一张红字：日期取「今天」（CST）——红冲是更正动作，记在发现问题的期间
-    let voucher_date = voucher::today_cst(now);
+    let voucher_date = today_cst(now);
     let accrual_red = reverse_one(tx, &accrual, reason, voucher_date, operator.id, now, "计提").await?;
     let payment_red = reverse_one(tx, &payment, reason, voucher_date, operator.id, now, "发放").await?;
     let accrual_red_no = voucher_no(tx, accrual_red).await?;
@@ -1089,8 +1085,8 @@ async fn lock_original(
     sheet: &SheetRow,
     voucher_id: Uuid,
     expect_source: &str,
-) -> std::result::Result<voucher::VoucherRow, ApiError> {
-    let Some(row) = voucher::find_voucher_locked(tx, voucher_id)
+) -> std::result::Result<VoucherBrief, ApiError> {
+    let Some(brief) = voucher_port::lock_voucher(tx, voucher_id)
         .await
         .map_err(|error| internal(error, "锁定薪资凭证"))?
     else {
@@ -1104,7 +1100,7 @@ async fn lock_original(
             ),
         ));
     };
-    if row.source_id != Some(sheet.id) || row.source_type != expect_source {
+    if brief.source_id != Some(sheet.id) || brief.source_type != expect_source {
         return Err(ApiError::new(
             409,
             error_code::HR_SALARY_RULE_BLOCKED,
@@ -1112,31 +1108,31 @@ async fn lock_original(
                 "薪资单 {} 记着的凭证 {} 来源是 {}/{}，与单据 {}/{} 不符：\
                  红冲会冲错账，已拦下（请让研发核对）",
                 sheet.sheet_no,
-                row.voucher_no,
-                row.source_type,
-                row.source_id.map(|id| id.to_string()).unwrap_or_default(),
+                brief.voucher_no,
+                brief.source_type,
+                brief.source_id.map(|id| id.to_string()).unwrap_or_default(),
                 expect_source,
                 sheet.id
             ),
         ));
     }
-    Ok(row)
+    Ok(brief)
 }
 
 /// 冲一张凭证：`reverse_posted` 的回写失败在这里翻成人话 409。
 async fn reverse_one(
     tx: &Transaction,
-    original: &voucher::VoucherRow,
+    original: &VoucherBrief,
     reason: &str,
     voucher_date: NaiveDate,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
     label: &str,
 ) -> std::result::Result<Uuid, ApiError> {
-    voucher::reverse_posted(
+    voucher_port::reverse_posted(
         tx,
-        original,
-        voucher::ReversalInput {
+        original.id,
+        ReversalSpec {
             reason: Some(reason),
             voucher_date,
         },

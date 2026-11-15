@@ -148,6 +148,60 @@ fn register_task_approval_port() {
     }
 }
 
+/// P2-B 解环（卡 `t_3442b4fb`）：把凭证域的「记账能力」装进 `shared::voucher_port` 的注册表。
+///
+/// # 为什么在启动期同步做、失败了为什么不能继续
+///
+/// HR 的工资过账 / 红冲**只认这条接缝**（P2-B 之前是直调 `erp::voucher` /
+/// `voucher_multi`）。漏安装的后果是**刺眼的 500**（不是静默错账）：
+/// 接缝的写方法在未安装时返回 `InvalidValue("凭证写入接缝未安装…")`，
+/// 用户看到的是「过账失败」而不是「过账成功但账上没凭证」。
+///
+/// 但「用户点过账报 500」同样是事故，所以口径与 [`register_doc_readers`] /
+/// [`register_hr_employee_reader`] / [`register_task_approval_port`] 一致：
+/// prod `exit(1)`、其它 profile `panic`（重复安装是纯编程错误，不依赖任何数据）。
+fn register_voucher_port() {
+    match crate::business::erp::voucher::voucher_port_impl::install() {
+        Ok(()) => tracing::info!(
+            port = crate::business::shared::voucher_port::port_name().unwrap_or(""),
+            "凭证写入接缝安装完成（P2-B 解环）：hr 的工资过账 / 红冲改走 shared::voucher_port"
+        ),
+        Err(error) => {
+            let message = format!("凭证写入接缝安装失败（注册表不完整）：{error}");
+            tracing::error!("{message}");
+            if is_prod_profile() {
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            panic!("{message}");
+        }
+    }
+}
+
+/// 测试用接线（`#[cfg(test)]`）：lib 单测没有启动链，跨域接缝的实现只能在用例里显式装。
+///
+/// # 为什么这个入口在 `bootstrap` 而不是在 HR 的测试文件里
+///
+/// `bootstrap` 是**同时看得到两侧**的地方（消费者 `hr` / 实现者 `erp`），而它本身不是业务域
+/// —— 用例 `use crate::bootstrap::…` 不会产生任何业务域之间的引用。
+/// 反过来在 `hr/salary_bridge_db_tests.rs` 里写 `use crate::business::erp::…` 就会留下一条
+/// `hr → erp` 引用，正是本卡要摘的东西（`module_cycle_report` 连测试文件一起扫）。
+///
+/// 幂等：多次调用只装一次（`OnceLock`）。
+#[cfg(test)]
+pub(crate) fn install_voucher_port_for_tests() {
+    static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| {
+        let port = crate::business::shared::voucher_port::is_installed();
+        match crate::business::erp::voucher::voucher_port_impl::install() {
+            Ok(()) => {}
+            // 已被别的用例装过：正常（注册表是进程级）
+            Err(_) if port => {}
+            Err(error) => panic!("测试期安装凭证写入接缝失败：{error}"),
+        }
+    });
+}
+
 /// 启动钩子：完成业务侧初始化并输出启动摘要。
 ///
 /// # 异常情况
@@ -192,6 +246,9 @@ pub async fn bootstrap() {
     // 任务审批接缝（P2-37 · P2-B 解环）：`task` 对审批的四条硬连接只认这张注册表，
     // 实现在审批域里。漏装 = 提交验收不发起审批 / 流程节点不推进，且任务侧不报错。
     register_task_approval_port();
+    // 凭证写入接缝（P2-B 解环 · t_3442b4fb）：hr 的工资过账 / 红冲只认 shared::voucher_port，
+    // 实现在凭证域里。漏装 = 过账直接 500（大声失败），所以启动期就装、装不上就退出。
+    register_voucher_port();
 
     tokio::join!(
         async {

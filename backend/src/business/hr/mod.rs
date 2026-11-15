@@ -82,7 +82,9 @@
 //! - **审批流**：4 套流程 `hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`
 //!   由 HR-26 / HR-38 的迁移种进 `biz_flow_def`；回调按 `flow::linkage` 的桥接写法
 //!   （参考 `erp/contract/contract_bridge.rs`：通过 → 推进状态 / 驳回 → 回草稿 / 反向兜底孤儿实例）。
-//! - **凭证**：工资计提 / 发放两张凭证走 `erp::voucher::post_explicit_lines`（HR-39），
+//! - **凭证**：工资计提 / 发放两张凭证走 `business::shared::voucher_port` 接缝（P2-B 解环 · 卡
+//!   `t_3442b4fb`：实现在凭证域 `erp/voucher/voucher_port_impl.rs`，启动期注册；HR 源码里
+//!   **一个 `business::erp` 引用都没有**，见 `hr::no_erp_edge_tests`），
 //!   科目由 HR-02 的 9 个科目 + 2 条 `biz_voucher_rule` 提供，本模块**不写死科目号**。
 //! - **通知**：`business::notice::dispatch`；通知失败不回滚业务（同 `task` 模块口径）。
 //! - **附件**：`business::attachment`（`ATTACHMENT_DOC_KINDS` 已含员工 / 合同 / 请假单 / 薪资单）。
@@ -249,6 +251,11 @@ mod leave_handler_db_tests;
 /// 分页（按 dept 数据权限）+ 已批无薪假天数（HR-24）。
 pub mod leave_model;
 pub mod model;
+/// 模块边护栏（P2-B 解环 · 卡 `t_3442b4fb`）：`hr/` 源码里**不许出现任何 `erp` 引用**
+/// （基线 0，连测试文件一起扫），并钉住四个中立落点与凭证接缝的实现位置。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod no_erp_edge_tests;
 /// HR-47 的权限矩阵静态契约：35 个权限码（30 按钮 + 5 页面 list）× 6 个角色的授权矩阵，
 /// 与 `V0387` 种子 / `ROUTE_CONTRACT` / 全新库补授权种子（`S__hr_employee_grants.sql`）
 /// 三方对拍；另钉死 4 个「无后端路由」的已知缺口。只在 `cargo test` 时编译。
