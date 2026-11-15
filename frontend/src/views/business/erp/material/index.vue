@@ -1,40 +1,28 @@
 <template>
   <div class="material-page">
-    <!-- 筛选行：关键词 / 分类 / 一物一码 / 查询 / 重置 / 新建 -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="搜索物料编码 / 名称 / 规格"
-          clearable
-          data-testid="mat-keyword"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
+    <!-- 筛选 / 分页 / 行操作 / 导出交给 ListPage（P3-07） -->
+    <ListPage
+      ref="listRef"
+      title="物料列表"
+      testid="material"
+      table-testid="material-table"
+      meta-testid="mat-meta"
+      btn-prefix="btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="MATERIAL_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #meta-extra>
+        <template v-if="serialCountOnPage > 0"> · 本页 {{ serialCountOnPage }} 条一物一码</template>
+      </template>
 
-        <t-select
-          v-model="filter.material_type"
-          class="filter-row__select"
-          :options="typeOptions"
-          placeholder="全部分类"
-          clearable
-          data-testid="mat-type"
-        />
-
-        <t-select
-          v-model="filter.serial_required"
-          class="filter-row__select filter-row__select--wide"
-          :options="serialOptions"
-          data-testid="mat-serial"
-        />
-
-        <t-button theme="primary" data-testid="btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-reset" @click="handleReset">重置</t-button>
-
-        <span class="filter-row__spacer" />
-
+      <!-- 筛选行右侧：导入 + 新建 -->
+      <template #toolbar>
         <ImportEntryButton
           biz-type="business.erp.material"
           biz-label="物料"
@@ -50,37 +38,9 @@
           <template #icon><t-icon name="add" /></template>
           新建物料
         </t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- 列表 -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">物料列表</span>
-          <span class="panel-head__meta" data-testid="mat-meta">
-            共 {{ total }} 条<template v-if="serialCountOnPage > 0"> · 本页 {{ serialCountOnPage }} 条一物一码</template>
-          </span>
-        </div>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadMaterials()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="material-table"
-        @page-change="handlePageChange"
-      >
-        <template #serial_required="{ row }">
+      <template #serial_required="{ row }">
           <!-- 一物一码是 W2 的核心概念：有就挂 tag + ★，扫一眼就能捞出来 -->
           <t-tooltip v-if="isSerialRequired(row.serial_required)" content="一物一码：出入库需逐件登记序列号">
             <t-tag theme="warning" variant="light" size="small" data-testid="serial-flag" class="serial-tag">
@@ -111,17 +71,16 @@
           </t-link>
         </template>
 
-        <template #empty>
-          <div class="panel-empty" data-testid="materials-empty">
-            <t-icon class="panel-empty__icon" name="box" />
-            <p class="panel-empty__title">{{ isFiltered ? '没有匹配的物料' : '还没有物料' }}</p>
-            <p class="panel-empty__desc">
-              {{ isFiltered ? '换个关键词 / 分类试试，或点「重置」看全部' : '点右上角「新建物料」建第一个；一物一码物料记得打开那个开关' }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty>
+        <div class="panel-empty" data-testid="materials-empty">
+          <t-icon class="panel-empty__icon" name="box" />
+          <p class="panel-empty__title">{{ isFiltered ? '没有匹配的物料' : '还没有物料' }}</p>
+          <p class="panel-empty__desc">
+            {{ isFiltered ? '换个关键词 / 分类试试，或点「重置」看全部' : '点右上角「新建物料」建第一个；一物一码物料记得打开那个开关' }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- 新建 / 编辑弹窗 -->
     <t-dialog
@@ -290,6 +249,8 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import ImportEntryButton from '@/components/ImportEntryButton.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../shared/code-policy';
 import {
   COSTING_METHOD_HINT,
@@ -301,7 +262,6 @@ import {
   buildMaterialCreatePayload,
   buildMaterialQuery,
   buildMaterialUpdatePayload,
-  clampPage,
   costingMethodOptions,
   emptyMaterialFilter,
   emptyMaterialForm,
@@ -345,22 +305,18 @@ const typeOptions = MATERIAL_TYPE_OPTIONS.map((item) => ({ ...item }));
 /** 一物一码下拉：全部 / ★是 / 否 */
 const serialOptions = SERIAL_FILTER_OPTIONS.map((item) => ({ ...item }));
 
-// ==================== 列表状态 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
 
-/** 筛选行 */
+/** 筛选行（作为 `filterState` 传进 ListPage：组件就地读写同一个对象，`buildMaterialQuery` 一行不用改） */
 const filter = reactive<MaterialFilterState>(emptyMaterialFilter());
-/** 当前页数据 */
+/** 当前页数据（镜像 ListPage 拉回来的这一页，「本页一物一码条数」要读它） */
 const rows = ref<MaterialRow[]>([]);
-/** 总条数（服务端分页） */
+/** 总条数（镜像） */
 const total = ref(0);
-/** 当前页码 */
+/** 当前页码（保存后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-/** 每页条数 */
-const pageSize = MATERIAL_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
+/** ListPage 实例（新建 / 编辑后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 /** 计量单位（把 unit_id 译成名字 + 弹窗下拉） */
 const units = ref<UnitRow[]>([]);
 
@@ -372,14 +328,56 @@ const isFiltered = computed(
 /** 本页一物一码条数（面板副标题用） */
 const serialCountOnPage = computed(() => rows.value.filter((row) => isSerialRequired(row.serial_required)).length);
 
-/** 表格分页器（服务端分页：只喂 current / pageSize / total，切页自己拉接口） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 筛选项声明。
+ *
+ * 两个下拉改造前都**不**触发即时查询（只靠「查询」/ 回车），所以不开 `searchOnChange`。
+ * 用 `computed` 是因为选项在下面才建（`typeOptions` / `serialOptions` 不是仅声明常量）。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '搜索物料编码 / 名称 / 规格',
+    width: 260,
+    testid: 'mat-keyword',
+  },
+  {
+    key: 'material_type',
+    type: 'select',
+    placeholder: '全部分类',
+    width: 150,
+    options: typeOptions,
+    testid: 'mat-type',
+  },
+  {
+    key: 'serial_required',
+    type: 'select',
+    width: 200,
+    options: serialOptions,
+    testid: 'mat-serial',
+  },
+]);
+
+/** 拉一页（入参拼装沿用 `buildMaterialQuery`，空值整键缺席等口径由它的单测钉住） */
+const fetcher: ListFetcher<MaterialRow> = (query) =>
+  fetchMaterialPage(query as Parameters<typeof fetchMaterialPage>[0]);
+
+/** 入参拼装（页面自己的 `buildMaterialQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildMaterialQuery(state as MaterialFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码 / 行 / 总数（「本页一物一码条数」与保存后回页都读它们） */
+function onLoaded(payload: { rows: MaterialRow[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+}
 
 /** 单位下拉项 */
 const unitSelectOptions = computed(() => unitOptions(units.value).map((item) => ({ ...item })));
@@ -397,49 +395,6 @@ function messageOf(error: unknown): string {
     return error.message;
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * 拉列表。
- *
- * @param page 目标页码（默认当前页；筛选变化时传 1）
- */
-async function loadMaterials(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const query = buildMaterialQuery(filter, page, pageSize);
-    const data = await fetchMaterialPage(query);
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    // 页码夹紧：筛到只剩 1 页时别停在不存在的第 3 页
-    current.value = clampPage(data.page ?? page, total.value, pageSize);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `物料列表加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-/** 查询（回到第 1 页） */
-function handleSearch(): void {
-  current.value = 1;
-  void loadMaterials(1);
-}
-
-/** 重置筛选并回第 1 页 */
-function handleReset(): void {
-  Object.assign(filter, emptyMaterialFilter());
-  current.value = 1;
-  void loadMaterials(1);
-}
-
-/** 切页（服务端分页） */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadMaterials(pageInfo.current);
 }
 
 // ==================== 新建 / 编辑弹窗 ====================
@@ -558,7 +513,7 @@ async function handleConfirm(): Promise<void> {
       MessagePlugin.success(`物料已创建 · 编码 ${created.material_code}`);
     }
     dialogVisible.value = false;
-    await loadMaterials(editing.value ? current.value : 1);
+    await reloadList(editing.value ? current.value : 1);
   } catch (error) {
     submitError.value = messageOf(error);
   } finally {
@@ -570,7 +525,7 @@ async function handleConfirm(): Promise<void> {
 
 onMounted(async () => {
   // 单位与物料并行：单位拉不到不影响列表，只是「单位」列显示 —
-  const [unitList] = await Promise.all([fetchUnitOptions().catch(() => [] as UnitRow[]), loadMaterials(1)]);
+  const [unitList] = await Promise.all([fetchUnitOptions().catch(() => [] as UnitRow[])]);
   units.value = unitList;
   // CODE-08：编码策略单独取（失败按「允许手填」兜底，不打断列表）
   allowManualCode.value = await loadAllowManualCode();

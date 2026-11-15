@@ -1,8 +1,23 @@
 <template>
   <div class="stocktake-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="盘点单"
+      testid="stocktake"
+      table-testid="stocktake-table"
+      meta-testid="stocktake-meta"
+      btn-prefix="btn-stocktake"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="STOCK_TAKE_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -12,88 +27,14 @@
           <template #icon><t-icon name="add" /></template>
           新建盘点单
         </t-button>
-        <t-button variant="outline" data-testid="btn-stocktake-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="stocktake-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.take_type"
-          class="tool-row__type"
-          :options="typeFilterOptions"
-          placeholder="全部类型"
-          clearable
-          data-testid="stocktake-filter-type"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.warehouse_id"
-          class="tool-row__warehouse"
-          :options="warehouseOptions"
-          placeholder="全部仓库"
-          clearable
-          filterable
-          data-testid="stocktake-filter-warehouse"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="盘点单号（模糊）"
-          clearable
-          data-testid="stocktake-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-stocktake-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-stocktake-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">盘点单</span>
-          <span class="panel-head__meta" data-testid="stocktake-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">
           过账时按差异正负分别走入库 / 出库，并生成「盘点差异凭证」（盘盈 借 1405 贷 1901；盘亏 借 1901 贷 1405）
         </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="stocktake-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadOrders()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="stocktake-table"
-        @page-change="handlePageChange"
-      >
         <template #take_no="{ row }">
           <span class="mono" :data-testid="`stocktake-no-${row.take_no}`">{{ row.take_no }}</span>
         </template>
@@ -169,8 +110,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 新建抽屉（12 列栅格） ==================== -->
     <t-drawer
@@ -730,6 +670,8 @@ import { useUserStore } from '@/stores/user';
 import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
@@ -847,24 +789,77 @@ const detailColumns: PrimaryTableCol[] = [
 const statusFilterOptions = STOCK_TAKE_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
 const typeFilterOptions = TAKE_TYPE_OPTIONS.map((item) => ({ ...item }));
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
 const filter = reactive<StockTakeFilterState>(emptyStockTakeFilter());
-const rows = ref<StockTakeRow[]>([]);
-const total = ref(0);
+/** 当前页（保存后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = STOCK_TAKE_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（保存 / 删除后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
+/** 是否处于筛选态（空态文案分「没数据」「没匹配」） */
 const filtered = computed(() => isStockTakeFiltered(filter));
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 筛选项声明。
+ *
+ * 三个下拉改造前都是「值一变就查」（`@change="handleSearch"`），关键词走回车 ——
+ * 手感与改造前一致。`computed` 是因为仓库下拉来自异步主数据。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 130,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'stocktake-filter-status',
+  },
+  {
+    key: 'take_type',
+    type: 'select',
+    placeholder: '全部类型',
+    width: 120,
+    options: typeFilterOptions,
+    searchOnChange: true,
+    testid: 'stocktake-filter-type',
+  },
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '全部仓库',
+    width: 190,
+    options: warehouseOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'stocktake-filter-warehouse',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '盘点单号（模糊）',
+    width: 220,
+    testid: 'stocktake-filter-keyword',
+  },
+]);
+
+/** 拉一页（入参拼装沿用 `buildStockTakeQuery`） */
+const fetcher: ListFetcher<StockTakeRow> = (query) =>
+  fetchStockTakePage(query as Parameters<typeof fetchStockTakePage>[0]);
+
+/** 入参拼装（页面自己的 `buildStockTakeQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildStockTakeQuery(state as StockTakeFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码（保存后回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
 
 // ==================== 主数据 ====================
 const warehouses = ref<Warehouse[]>([]);
@@ -937,39 +932,6 @@ async function loadBasics(): Promise<void> {
 }
 
 /** 拉列表 */
-async function loadOrders(page = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchStockTakePage(buildStockTakeQuery(filter, page, pageSize));
-    rows.value = data.list;
-    total.value = data.total;
-    current.value = page;
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function refresh(): void {
-  void loadOrders(current.value);
-}
-
-function handleSearch(): void {
-  void loadOrders(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyStockTakeFilter());
-  void loadOrders(1);
-}
-
-function handlePageChange(pageInfo: { current: number }): void {
-  void loadOrders(pageInfo.current);
-}
 
 // ==================== 建单表单 ====================
 const formVisible = ref(false);
@@ -1119,7 +1081,7 @@ async function handleSave(): Promise<void> {
     const saved = await createStockTake(buildStockTakePayload(form));
     formVisible.value = false;
     MessagePlugin.success(`已建单 ${saved.take_no}（账面数已快照，共 ${saved.items.length} 行）`);
-    await loadOrders(1);
+    await reloadList(1);
     await loadDetail(saved.id);
   } catch (error) {
     submitError.value = errorText(error);
@@ -1140,7 +1102,7 @@ function confirmRemove(row: StockTakeRow): void {
         await deleteStockTake(row.id);
         MessagePlugin.success('已删除');
         dialog.hide();
-        await loadOrders(current.value);
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(errorText(error));
       }
@@ -1342,7 +1304,7 @@ async function handleSaveActuals(): Promise<void> {
         ? `实盘数已保存（按明细：盘盈 ${formatQty(agg.gainQty)} / 盘亏 ${formatQty(agg.lossQty)}，共 ${agg.diffLines} 行有差异）`
         : '实盘数已保存（账实相符，无差异）',
     );
-    await loadOrders(current.value);
+    await reloadList();
   } catch (error) {
     actualError.value = errorText(error);
   } finally {
@@ -1479,7 +1441,7 @@ async function runStatus(
             ? '已提交审批（待过账）'
             : '已撤回为草稿',
     );
-    await loadOrders(current.value);
+    await reloadList();
   } catch (error) {
     const text = errorText(error);
     errorFlowFlag.value = isFlowNotConfigured(error);
@@ -1524,8 +1486,8 @@ async function confirmSkip(): Promise<void> {
 }
 
 onMounted(() => {
+  // 列表由 ListPage 自己拉首屏；这里只补主数据（拉不到只是下拉空 / 名称退化成短 id）
   void loadBasics();
-  void loadOrders(1);
 });
 </script>
 

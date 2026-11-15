@@ -1,8 +1,29 @@
 <template>
   <div class="lot-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="批次管理"
+      testid="lot"
+      table-testid="lot-table"
+      meta-testid="lot-meta"
+      btn-prefix="btn-lot"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="LOT_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #head-extra>
+        <span class="panel-head__tip">
+          批号在同一物料下唯一（不同物料可以重名）；停用的批次仍保留历史，但不再出现在领料下拉里
+        </span>
+      </template>
+
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -12,143 +33,59 @@
           <template #icon><t-icon name="add" /></template>
           新建批次
         </t-button>
-        <t-button variant="outline" data-testid="btn-lot-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
+      <template #lot_no="{ row }">
+        <span class="mono" :data-testid="`lot-no-${row.lot_no}`">{{ row.lot_no }}</span>
+      </template>
 
-        <t-select
-          v-model="filter.material_id"
-          class="tool-row__material"
-          :options="materialOptions"
-          placeholder="全部物料"
-          clearable
-          filterable
-          data-testid="lot-filter-material"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.source_type"
-          class="tool-row__source"
-          :options="sourceFilterOptions"
-          placeholder="全部来源"
-          clearable
-          data-testid="lot-filter-source"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.qc_status"
-          class="tool-row__qc"
-          :options="qcFilterOptions"
-          placeholder="全部质检"
-          clearable
-          data-testid="lot-filter-qc"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="lot-filter-status"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="批号 / 物料编码 / 名称（模糊）"
-          clearable
-          data-testid="lot-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-lot-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-lot-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      <template #material_id="{ row }">
+        <span class="mono">{{ row.material_code || shortId(row.material_id) }}</span>
+        <span class="muted"> {{ row.material_name || '' }}</span>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">批次管理</span>
-          <span class="panel-head__meta" data-testid="lot-meta">共 {{ total }} 条</span>
+      <template #source_type="{ row }">
+        <t-tag size="small" variant="outline" :theme="sourceTheme(row.source_type)">
+          {{ sourceTypeLabel(row.source_type) }}
+        </t-tag>
+      </template>
+
+      <template #prod_date="{ row }">
+        <span class="muted">{{ dash(row.prod_date) }}</span>
+      </template>
+
+      <template #expire_date="{ row }">
+        <span class="muted">{{ dash(row.expire_date) }}</span>
+      </template>
+
+      <template #qc_status="{ row }">
+        <t-tag size="small" :theme="qcStatusTheme(row.qc_status)">
+          {{ qcStatusLabel(row.qc_status) }}
+        </t-tag>
+      </template>
+
+      <template #status="{ row }">
+        <t-tag size="small" :theme="lotStatusTheme(row.status)" data-testid="lot-row-status">
+          {{ lotStatusLabel(row.status) }}
+        </t-tag>
+      </template>
+
+      <template #op="{ row }">
+        <t-link v-privilege="[PERM.update]" theme="primary" :data-testid="`btn-lot-edit-${row.lot_no}`" @click="openEdit(row)">
+          编辑
+        </t-link>
+      </template>
+
+      <template #empty>
+        <div class="panel-empty" data-testid="lot-empty">
+          <t-icon name="inbox" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的批次' : '还没有批次' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个条件再查，或点「重置」回全量' : '采购到货 / 生产产出会自动建批，也可以点「新建批次」手工建档' }}
+          </p>
         </div>
-        <span class="panel-head__tip">
-          批号在同一物料下唯一（不同物料可以重名）；停用的批次仍保留历史，但不再出现在领料下拉里
-        </span>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="lot-load-error">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="lot-table"
-        @page-change="handlePageChange"
-      >
-        <template #lot_no="{ row }">
-          <span class="mono" :data-testid="`lot-no-${row.lot_no}`">{{ row.lot_no }}</span>
-        </template>
-
-        <template #material_id="{ row }">
-          <span class="mono">{{ row.material_code || shortId(row.material_id) }}</span>
-          <span class="muted"> {{ row.material_name || '' }}</span>
-        </template>
-
-        <template #source_type="{ row }">
-          <t-tag size="small" variant="outline" :theme="sourceTheme(row.source_type)">
-            {{ sourceTypeLabel(row.source_type) }}
-          </t-tag>
-        </template>
-
-        <template #prod_date="{ row }">
-          <span class="muted">{{ dash(row.prod_date) }}</span>
-        </template>
-
-        <template #expire_date="{ row }">
-          <span class="muted">{{ dash(row.expire_date) }}</span>
-        </template>
-
-        <template #qc_status="{ row }">
-          <t-tag size="small" :theme="qcStatusTheme(row.qc_status)">
-            {{ qcStatusLabel(row.qc_status) }}
-          </t-tag>
-        </template>
-
-        <template #status="{ row }">
-          <t-tag size="small" :theme="lotStatusTheme(row.status)" data-testid="lot-row-status">
-            {{ lotStatusLabel(row.status) }}
-          </t-tag>
-        </template>
-
-        <template #op="{ row }">
-          <t-link v-privilege="[PERM.update]" theme="primary" :data-testid="`btn-lot-edit-${row.lot_no}`" @click="openEdit(row)">
-            编辑
-          </t-link>
-        </template>
-
-        <template #empty>
-          <div class="panel-empty" data-testid="lot-empty">
-            <t-icon name="inbox" class="panel-empty__icon" />
-            <p class="panel-empty__title">{{ filtered ? '没有匹配的批次' : '还没有批次' }}</p>
-            <p class="panel-empty__desc">
-              {{ filtered ? '换个条件再查，或点「重置」回全量' : '采购到货 / 生产产出会自动建批，也可以点「新建批次」手工建档' }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑抽屉 ==================== -->
     <t-drawer
@@ -278,6 +215,8 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 
 import { fetchMaterialPage, type MaterialRow } from '@/api/business/erp';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   LOT_NO_MAX,
   LOT_PAGE_SIZE,
@@ -339,24 +278,17 @@ const statusFilterOptions = [
   { label: '停用', value: String(LOT_STATUS_DISABLED) },
 ];
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
+
+/** 筛选行（`filterState` 就地读写；`buildLotQuery` 等闭包引用的是同一个对象） */
 const filter = reactive<LotFilterState>(emptyLotFilter());
-const rows = ref<LotRow[]>([]);
-const total = ref(0);
+/** 当前页码（保存后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = LOT_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（新建 / 编辑后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
+/** 是否处于筛选态（空态文案分「没数据」「没匹配」） */
 const filtered = computed(() => isLotFiltered(filter));
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
 
 // ==================== 物料主数据 ====================
 const materials = ref<MaterialRow[]>([]);
@@ -376,39 +308,74 @@ async function loadMaterials(): Promise<void> {
   }
 }
 
-async function loadRows(page = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const query: LotPageQuery = buildLotQuery(filter, page, pageSize);
-    const data = await fetchLotPage(query);
-    rows.value = data.list;
-    total.value = data.total;
-    current.value = page;
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
-  }
+/**
+ * 筛选项声明。
+ *
+ * 五个控件改造前**都**是「值一变就查」（`@change="handleSearch"`），
+ * 所以下拉一律 `searchOnChange`，关键词走回车 —— 手感与改造前一致。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '全部物料',
+    width: 220,
+    options: materialOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'lot-filter-material',
+  },
+  {
+    key: 'source_type',
+    type: 'select',
+    placeholder: '全部来源',
+    width: 130,
+    options: sourceFilterOptions,
+    searchOnChange: true,
+    testid: 'lot-filter-source',
+  },
+  {
+    key: 'qc_status',
+    type: 'select',
+    placeholder: '全部质检',
+    width: 130,
+    options: qcFilterOptions,
+    searchOnChange: true,
+    testid: 'lot-filter-qc',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 130,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'lot-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '批号 / 物料编码 / 名称（模糊）',
+    width: 240,
+    testid: 'lot-filter-keyword',
+  },
+]);
+
+/** 拉一页（入参拼装沿用 `buildLotQuery`） */
+const fetcher: ListFetcher<LotRow> = (query) => fetchLotPage(query as LotPageQuery);
+
+/** 入参拼装（页面自己的 `buildLotQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildLotQuery(state as LotFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
 }
 
-function refresh(): void {
-  void loadRows(current.value);
-}
-
-function handleSearch(): void {
-  void loadRows(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyLotFilter());
-  void loadRows(1);
-}
-
-function handlePageChange(pageInfo: { current: number }): void {
-  void loadRows(pageInfo.current);
+/** 一页拉完：同步页码（保存后回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
 }
 
 /** 来源标签主题 */
@@ -476,7 +443,7 @@ async function handleSave(): Promise<void> {
       MessagePlugin.success('批次已创建');
     }
     formVisible.value = false;
-    await loadRows(form.id ? current.value : 1);
+    await reloadList(form.id ? current.value : 1);
   } catch (error) {
     // 批号重复（409 / 66056）的报文带物料名与批号 —— 原样上屏，别只写「保存失败」
     submitError.value = errorText(error);
@@ -487,7 +454,6 @@ async function handleSave(): Promise<void> {
 
 onMounted(() => {
   void loadMaterials();
-  void loadRows(1);
 });
 </script>
 

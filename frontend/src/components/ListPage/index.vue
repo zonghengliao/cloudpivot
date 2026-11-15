@@ -25,6 +25,8 @@
   | `#op` | 行操作列自绘（列里要有 `colKey: 'op'` 或别名的操作列，且**不要**同时声明 `actions.row`） |
   | `#empty` | 整块空态（默认按「有没有筛选」给两种文案） |
   | `#head-extra` | 「共 N 条」右边的补充（页头提示 / 「已选 M 条」） |
+  | `#meta-extra` | 写进「共 N 条」**同一个元素里**的后缀（`（全部仓库）` 这类限定语；e2e 按 `*-meta` 断言文案时不能挪到旁边） |
+  | `#footer` | 表格下方（页脚合计 / 说明条），仍在列表卡内 |
 
   # 事件
 
@@ -35,6 +37,7 @@
   | `refresh` | 点过「刷新」（页面可顺带重拉主数据字典） |
   | `selection-change` | 勾选变化 / 换页清空（`selectable` 或批量模式下） |
   | `batch-done` | 一批批量动作跑完（列表已自动刷新） |
+  | `row-click` | 点了表格某一行（`{ row }`；行内的操作链接自带 `@click.stop`，不会误触） |
 
 
   # 行操作与权限
@@ -159,7 +162,9 @@
       <div class="panel-head">
         <div class="panel-head__main">
           <span class="panel-head__title">{{ title }}</span>
-          <span class="panel-head__meta" :data-testid="metaTestid">共 {{ total }} 条</span>
+          <span class="panel-head__meta" :data-testid="metaTestid">
+            共 {{ total }} 条<slot name="meta-extra" :rows="rows" :total="total" />
+          </span>
         </div>
         <slot name="head-extra" :rows="rows" :total="total" />
       </div>
@@ -194,6 +199,7 @@
         :data-testid="tableTestid"
         @page-change="handlePageChange"
         @select-change="onSelectChange"
+        @row-click="onRowClick"
       >
         <!-- 单元格自绘：槽名 = 列 colKey（`#status` / `#contact_person` …），原样转给 t-table -->
         <template v-for="item in cellSlots" :key="item.source" #[item.target]="slotProps">
@@ -231,6 +237,9 @@
           </slot>
         </template>
       </t-table>
+
+      <!-- 表格下方：页脚合计 / 说明条（仍在列表卡内，宽度与表格对齐） -->
+      <slot name="footer" :rows="rows" :total="total" />
     </t-card>
   </div>
 </template>
@@ -358,6 +367,8 @@ const emit = defineEmits<{
   (event: 'selection-change', ids: string[]): void;
   /** 点过「刷新」（页面据此顺带刷主数据字典） */
   (event: 'refresh'): void;
+  /** 点了某一行（页面拿去做「点行开详情」；行内链接自带 `@click.stop`） */
+  (event: 'row-click', payload: { row: any }): void;
 }>();
 
 const slots = useSlots();
@@ -525,6 +536,19 @@ function resetSelection(): void {
 function onSelectChange(keys: Array<string | number>): void {
   selection.onSelectChange(keys);
   emit('selection-change', selectedIds.value);
+}
+
+/**
+ * 点行：原样抛给页面（「点行开详情」这类交互归页面）。
+ *
+ * 行内的操作链接由页面自己写 `@click.stop`（`#op` 插槽），不会在这里被当成行点击；
+ * 声明式行操作（`actions.row`）渲染的 `t-link` 也不冒泡到 `tr` —— TDesign 的
+ * `row-click` 只在单元格空白处触发（实测点链接不进这里）。
+ */
+function onRowClick(context: { row?: any }): void {
+  if (context?.row) {
+    emit('row-click', { row: context.row });
+  }
 }
 
 /** 表格勾选列的禁用判据：没有批量动作时（`selectable` 模式）所有行都能勾 */

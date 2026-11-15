@@ -1,8 +1,23 @@
 <template>
   <div class="stockout-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="出库单"
+      testid="stockout"
+      table-testid="stockout-table"
+      meta-testid="stockout-meta"
+      btn-prefix="btn-stockout"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="STOCK_OUT_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -12,96 +27,27 @@
           <template #icon><t-icon name="add" /></template>
           新建出库单
         </t-button>
-        <t-button variant="outline" data-testid="btn-stockout-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="stockout-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.out_type"
-          class="tool-row__type"
-          :options="typeFilterOptions"
-          placeholder="全部类型"
-          clearable
-          data-testid="stockout-filter-type"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.warehouse_id"
-          class="tool-row__warehouse"
-          :options="warehouseOptions"
-          placeholder="全部仓库"
-          clearable
-          filterable
-          data-testid="stockout-filter-warehouse"
-          @change="handleSearch"
-        />
+      <!-- 日期区间整块画在一个槽里：两个日期框分属两个槽时，换行会把「起 / 止」拆到两行 -->
+      <template #filter-date_range>
         <t-date-range-picker
-          v-model="filter.date_range"
+          :model-value="filter.date_range"
           class="tool-row__range"
           placeholder="出库日期区间"
           format="YYYY-MM-DD"
           clearable
           data-testid="stockout-filter-date"
+          @update:model-value="setDateRange"
         />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="单号 / 事由 / 备注（模糊）"
-          clearable
-          data-testid="stockout-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-stockout-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-stockout-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">出库单</span>
-          <span class="panel-head__meta" data-testid="stockout-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">
           出库过账会减三本账并生成成本结转凭证（借 6401 / 1901，贷 1405）；作废按明细快照回滚
         </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="stockout-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadOrders()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="stockout-table"
-        @page-change="handlePageChange"
-      >
         <template #out_no="{ row }">
           <span class="mono" :data-testid="`stockout-no-${row.out_no}`">{{ row.out_no }}</span>
         </template>
@@ -172,8 +118,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑抽屉 ==================== -->
     <t-drawer
@@ -629,6 +574,8 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import DocPdfButton from '@/components/DocPdfButton.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useCostSwitchStore } from '@/stores/cost';
 import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
 import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
@@ -732,24 +679,38 @@ const detailColumns: PrimaryTableCol[] = [
 const statusFilterOptions = STOCK_OUT_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
 const typeFilterOptions = OUT_TYPE_OPTIONS.map((item) => ({ ...item }));
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
 const filter = reactive<StockOutFilterState>(emptyStockOutFilter());
-const rows = ref<StockOutRow[]>([]);
-const total = ref(0);
+/** 当前页（保存后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = STOCK_OUT_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（保存 / 删除 / 状态流转后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
+/** 是否处于筛选态（空态文案分「没数据」「没匹配」） */
 const filtered = computed(() => isStockOutFiltered(filter));
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** 拉一页（入参拼装沿用 `buildStockOutQuery`） */
+const fetcher: ListFetcher<StockOutRow> = (query) =>
+  fetchStockOutPage(query as Parameters<typeof fetchStockOutPage>[0]);
+
+/** 入参拼装（页面自己的 `buildStockOutQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildStockOutQuery(state as StockOutFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码（保存后回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
+
+/** 日期区间写回（`t-date-range-picker` 可能给 `null`，一律归成空数组） */
+function setDateRange(value: unknown): void {
+  filter.date_range = Array.isArray(value) ? value.map(String) : [];
+}
 
 // ==================== 主数据 ====================
 const warehouses = ref<Warehouse[]>([]);
@@ -833,6 +794,51 @@ function typeTheme(outType: string): 'default' | 'primary' | 'warning' | 'danger
   }
 }
 
+/**
+ * 筛选项声明。
+ *
+ * 三个下拉改造前都是「值一变就查」（`@change="handleSearch"`），关键词走回车；
+ * 日期区间只靠「查询」按钮 —— 手感与改造前一致。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 130,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'stockout-filter-status',
+  },
+  {
+    key: 'out_type',
+    type: 'select',
+    placeholder: '全部类型',
+    width: 120,
+    options: typeFilterOptions,
+    searchOnChange: true,
+    testid: 'stockout-filter-type',
+  },
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '全部仓库',
+    width: 190,
+    options: warehouseOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'stockout-filter-warehouse',
+  },
+  { key: 'date_range', type: 'custom', defaultValue: [], testid: 'stockout-filter-date' },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '单号 / 事由 / 备注（模糊）',
+    width: 220,
+    testid: 'stockout-filter-keyword',
+  },
+]);
+
 async function loadBasics(): Promise<void> {
   try {
     const [warehousePage, materialPage] = await Promise.all([
@@ -847,39 +853,6 @@ async function loadBasics(): Promise<void> {
 }
 
 /** 拉列表 */
-async function loadOrders(page = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchStockOutPage(buildStockOutQuery(filter, page, pageSize));
-    rows.value = data.list;
-    total.value = data.total;
-    current.value = page;
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function refresh(): void {
-  void loadOrders(current.value);
-}
-
-function handleSearch(): void {
-  void loadOrders(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyStockOutFilter());
-  void loadOrders(1);
-}
-
-function handlePageChange(pageInfo: { current: number }): void {
-  void loadOrders(pageInfo.current);
-}
 
 // ==================== 建单 / 编辑表单 ====================
 const formVisible = ref(false);
@@ -1174,7 +1147,7 @@ async function handleSave(): Promise<void> {
     const saved = form.id ? await updateStockOut(form.id, payload) : await createStockOut(payload);
     formVisible.value = false;
     MessagePlugin.success(form.id ? '已保存修改' : `已保存草稿 ${saved.out_no}`);
-    await loadOrders(current.value);
+    await reloadList();
     await loadDetail(saved.id);
   } catch (error) {
     submitError.value = errorText(error);
@@ -1195,7 +1168,7 @@ function confirmRemove(row: StockOutRow): void {
         await deleteStockOut(row.id);
         MessagePlugin.success('已删除');
         dialog.hide();
-        await loadOrders(current.value);
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(errorText(error));
       }
@@ -1367,7 +1340,7 @@ async function runStatus(
             ? '已提交待过账'
             : '已撤回为草稿',
     );
-    await loadOrders(current.value);
+    await reloadList();
     await loadLocationsFor(updated);
     await loadLocationRowsForDetail(updated);
   } catch (error) {
@@ -1391,8 +1364,11 @@ onMounted(async () => {
   // 模块开关先取（COST-B4-4）：决定「成本对象」字段渲染与否；失败按关闭处理，不阻塞页面
   void costSwitch.ensure();
   await loadBasics();
-  applyOutNoDeepLink();
-  void loadOrders(1);
+  // 深链（?out_no=…）要在首屏列表之后落筛选：先等组件拉完这一页，再按单号筛一次
+  await reloadList(1);
+  if (applyOutNoDeepLink()) {
+    await reloadList(1);
+  }
   // 一键领料：成本对象详情页「领料」跳进来时带 ?cost_object_id=…
   await applyRouteIssuePrefill();
 });
@@ -1404,16 +1380,17 @@ onMounted(async () => {
  * 与 `?cost_object_id=` 同一个纪律：只读 query、只在有值时写 `filter.keyword`
  * （不带参数进页面时不能清掉用户手填的筛选），处理完把 query 摘掉防止刷新又筛一次。
  */
-function applyOutNoDeepLink(): void {
+function applyOutNoDeepLink(): boolean {
   const raw = route.query.out_no;
   const outNo = (typeof raw === 'string' ? raw : Array.isArray(raw) ? String(raw[0] ?? '') : '').trim();
   if (!outNo) {
-    return;
+    return false;
   }
   filter.keyword = outNo;
   const rest = { ...route.query };
   delete rest.out_no;
   void router.replace({ path: route.path, query: rest });
+  return true;
 }
 </script>
 

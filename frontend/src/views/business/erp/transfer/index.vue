@@ -1,8 +1,31 @@
 <template>
   <div class="transfer-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 批量 / 行操作交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="调拨单"
+      testid="transfer"
+      table-testid="transfer-table"
+      meta-testid="transfer-meta"
+      btn-prefix="btn-transfer"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="TRANSFER_PAGE_SIZE"
+      :actions="{ batch: BATCH_ACTIONS }"
+      :batch-runner="runBatchAction"
+      :batch-can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+      exportable
+      @loaded="onLoaded"
+      @batch-done="handleBatchDone"
+      @row-click="handleRowClick"
+      @refresh="handleRefresh"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -12,14 +35,13 @@
           <template #icon><t-icon name="add" /></template>
           新建调拨单
         </t-button>
-        <t-button variant="outline" data-testid="btn-transfer-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <!-- 超期在途开关（LNK-F12）：打开 = 只看超期在途，同时锁定状态下拉（后端 400 的矛盾组合） -->
+      <!--
+        超期在途开关（LNK-F12）：打开 = 只看超期在途，同时锁定状态下拉。
+        两个控件都是「页面自己的行为」（开关联动、下拉禁用），所以都走 custom 槽自绘。
+      -->
+      <template #filter-in_transit_overdue>
         <t-tooltip content="只看「已发货但超过阈值天数仍未收货」的单；打开后状态筛选锁定为在途">
           <t-checkbox
             v-model="filter.in_transit_overdue"
@@ -30,7 +52,9 @@
             超期在途
           </t-checkbox>
         </t-tooltip>
+      </template>
 
+      <template #filter-status>
         <t-select
           v-model="filter.status"
           class="tool-row__status"
@@ -41,87 +65,34 @@
           data-testid="transfer-filter-status"
           @change="handleSearch"
         />
-        <t-input
-          v-model="filter.transfer_no"
-          class="tool-row__no"
-          placeholder="调拨单号（模糊）"
-          clearable
-          data-testid="transfer-filter-no"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-transfer-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-transfer-reset" @click="handleReset">重置</t-button>
-      </div>
+      </template>
+
       <!-- O4 列表记忆：恢复筛选（含「超期在途」开关）必须让用户看得见 -->
-      <ListMemoryBar
-        :restored="listMemoryRestored"
-        :text="listMemoryText"
-        testid="transfer-memory"
-        @clear="handleClearListMemory"
-      />
-    </t-card>
+      <template #filter-footer>
+        <ListMemoryBar
+          :restored="listMemoryRestored"
+          :text="listMemoryText"
+          testid="transfer-memory"
+          @clear="handleClearListMemory"
+        />
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">调拨单</span>
-          <span class="panel-head__meta" data-testid="transfer-meta">共 {{ total }} 条</span>
-          <!-- 页头角标：超期在途总量（summary 接口；点一下直接筛超期） -->
-          <t-tag
-            v-if="overdueHeadText"
-            theme="danger"
-            variant="light"
-            size="small"
-            class="panel-head__overdue"
-            data-testid="transfer-overdue-badge"
-            @click="turnOnOverdueFilter"
-          >
-            {{ overdueHeadText }}
-          </t-tag>
-        </div>
+      <template #head-extra>
+        <!-- 页头角标：超期在途总量（summary 接口；点一下直接筛超期） -->
+        <t-tag
+          v-if="overdueHeadText"
+          theme="danger"
+          variant="light"
+          size="small"
+          class="panel-head__overdue"
+          data-testid="transfer-overdue-badge"
+          @click="turnOnOverdueFilter"
+        >
+          {{ overdueHeadText }}
+        </t-tag>
         <span class="panel-head__tip">点任意一行看详情与审批进度</span>
-      </div>
+      </template>
 
-      <!-- 接口未就绪（W3b 联调前）：不是红错，是「这条路还没通车」 -->
-      <t-alert v-if="apiMissing" theme="info" class="list-alert" data-testid="transfer-api-missing">
-        <template #message>
-          调拨接口尚未上线（{{ apiMissing }}）：页面结构与交互已就绪，等 W3b 后端合并后即可联调。
-        </template>
-      </t-alert>
-
-      <t-alert v-else-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="transfer-load-error">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadTransfers()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
-      <BatchActionBar
-        :selected="selectedRows"
-        :actions="BATCH_ACTIONS"
-        :filtered-total="total"
-        :runner="runBatchAction"
-        :can="canBatchAction"
-      :fetch-all-ids="fetchAllRowIds"
-        testid="transfer-batch"
-        @update:selected="onSelectedRows"
-        @done="handleBatchDone"
-      />
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        :selected-row-keys="selectedIds"
-        data-testid="transfer-table"
-        @select-change="onSelectChange"
-        @row-click="handleRowClick"
-        @page-change="handlePageChange"
-      >
         <template #transfer_no="{ row }">
           <span class="mono" :data-testid="`transfer-no-${row.transfer_no}`">{{ row.transfer_no }}</span>
         </template>
@@ -249,8 +220,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 详情抽屉 ==================== -->
     <t-drawer
@@ -761,8 +731,8 @@
 import {
   transferBatchStatus,
 } from '@/api/business/batch';
-import BatchActionBar from '@/components/BatchActionBar.vue';
-import { useBatchSelection } from '@/composables/useBatchSelection';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useUserStore } from '@/stores/user';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { computed, onMounted, reactive, ref } from 'vue';
@@ -867,13 +837,7 @@ const PERM = {
 
 /** 表格列（`colKey` 与 `TransferRow` 字段同名，插槽按 colKey 命中） */
 const columns: PrimaryTableCol[] = [
-  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
-  {
-    colKey: 'row-select',
-    type: 'multiple',
-    width: 50,
-    disabled: (options: { row: unknown }) => !isSelectable(options.row as TransferRow),
-  },
+  // 勾选列由 ListPage 补（`actions.batch` 声明后自动挂，判据与改造前同一个 `useBatchSelection`）
   { colKey: 'transfer_no', title: '调拨单号', width: 190, fixed: 'left' },
   { colKey: 'from_warehouse_id', title: '调出仓', width: 150, ellipsis: true },
   { colKey: 'to_warehouse_id', title: '调入仓', width: 150, ellipsis: true },
@@ -918,11 +882,11 @@ const MEMORY_LABELS: Record<string, string> = {
 /** 路由（`?transfer_no=` 深链要在首屏列表之后消费） */
 const route = useRoute();
 const router = useRouter();
-/** 筛选行 */
+/** 筛选行（`filterState` 就地读写；`buildTransferQuery` / `isTransferFiltered` 引用同一个对象） */
 const filter = reactive<TransferFilterState>(emptyTransferFilter());
-/** 行数据 */
+/** 行数据（镜像 ListPage 抛回来的这一页：深链按单号定位要用） */
 const rows = ref<TransferRow[]>([]);
-/** 总条数 */
+/** 总条数（镜像） */
 const total = ref(0);
 
 // ==================== 批量操作（D7） ====================
@@ -964,9 +928,6 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   cancel: 'business:erp:transfer:status',
 };
 
-const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
-  useBatchSelection(BATCH_ACTIONS, rows);
-
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
   const code = BATCH_PERMISSIONS[action.key];
@@ -1002,18 +963,12 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
 
 /** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
 function handleBatchDone(): void {
-  void loadTransfers(1);
+  void reloadList(1);
 }
 /** 当前页 */
 const current = ref(1);
-/** 每页条数 */
-const pageSize = TRANSFER_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
-/** 接口未就绪的说明（W3b 合并前：404 不是故障） */
-const apiMissing = ref('');
+/** ListPage 实例（批量完 / 状态流转 / 深链都靠它重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /**
  * 列表记忆（O4）：筛选（含「超期在途」开关）+ 页码。
@@ -1029,7 +984,7 @@ const {
   listName: 'erp-transfer',
   filter,
   page: current,
-  pageSize,
+  pageSize: TRANSFER_PAGE_SIZE,
 });
 
 /** 表单记忆（O1）：调出仓 / 调入仓；优先级 源单 > 记忆 > 默认 */
@@ -1090,14 +1045,49 @@ const transitWarehouseOptions = computed(() =>
     .map((item) => ({ label: `${item.warehouse_name}（${item.warehouse_code}）`, value: item.id })),
 );
 
-/** 分页器（服务端分页） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 筛选项声明。
+ *
+ * `status` 与「超期在途」都走 custom 槽：状态下拉要按开关联动禁用（打开超期时锁成在途），
+ * 开关本身也不是下拉/输入框 —— 两个控件的联动逻辑留在页面里，组件只负责摆位置与重置。
+ */
+const filters: FilterDef[] = [
+  { key: 'in_transit_overdue', type: 'custom', defaultValue: false, testid: 'transfer-filter-overdue' },
+  { key: 'status', type: 'custom', defaultValue: '', testid: 'transfer-filter-status' },
+  {
+    key: 'transfer_no',
+    type: 'keyword',
+    placeholder: '调拨单号（模糊）',
+    width: 220,
+    testid: 'transfer-filter-no',
+  },
+];
+
+/** 拉一页（入参拼装沿用 `buildTransferQuery`） */
+const fetcher: ListFetcher<TransferRow> = (query) =>
+  fetchTransferPage(query as Parameters<typeof fetchTransferPage>[0]);
+
+/** 入参拼装（页面自己的 `buildTransferQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildTransferQuery(state as TransferFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/**
+ * 一页拉完：镜像行 / 总数 / 页码，并顺带刷新超期角标。
+ *
+ * 角标挂在 `loaded` 上（而不是原来的 `loadTransfers` 里）：收货 / 删单会让超期总量变化，
+ * 只要列表重拉过就必须重算，写在唯一的落地口最不容易漏。
+ */
+function onLoaded(payload: { rows: TransferRow[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+  void loadOverdueSummary();
+}
 
 /** 仓库名称（查不到显示短 id，别留白） */
 function warehouseNameOf(warehouseId: string | null | undefined): string {
@@ -1128,13 +1118,11 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * 「这条路还没通车」：404（路由不存在）/ 10002（业务资源不存在）。
+ * 「这条单据没了」：404（路由不存在）/ 10002（业务资源不存在）。
  *
  * 实测口径（`curl` 打真后端 172.18.10.144）：
  * - 未注册路由 → HTTP 404 + `{"code":404,"msg":"请求的资源不存在"}`，规整成 `ApiError(404, …)`；
  * - 业务 404（如按 id 查不到单据）→ `code = 10002`（`shared::error_code` 的通用码）。
- *
- * 这两种都不该在列表页弹红错：W3b 合并前它是**预期状态**，合并后是「这条单据没了」。
  */
 function isNotFound(error: unknown): boolean {
   if (error instanceof ApiError) {
@@ -1143,38 +1131,10 @@ function isNotFound(error: unknown): boolean {
   return false;
 }
 
-/** 拉列表 */
-async function loadTransfers(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchTransferPage(buildTransferQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-    apiMissing.value = '';
-    // 列表每次刷新都顺带刷新角标（收货 / 删单会让超期总量变化，角标不能停在旧值）
-    void loadOverdueSummary();
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    if (isNotFound(error)) {
-      // 接口未上线：信息提示 + 空态，不是红错（卡面 §七 的兜底要求）
-      apiMissing.value = 'GET /api/business/erp/transfer/page 返回 404';
-    } else {
-      loadError.value = `调拨单列表加载失败：${messageOf(error)}`;
-    }
-  } finally {
-    loading.value = false;
-  }
-}
-
 /** 查询（回第 1 页） */
 function handleSearch(): void {
   current.value = 1;
-  void loadTransfers(1);
+  void reloadList(1);
 }
 
 /**
@@ -1212,31 +1172,17 @@ async function loadOverdueSummary(): Promise<void> {
   }
 }
 
-/** 重置筛选 */
-function handleReset(): void {
-  Object.assign(filter, emptyTransferFilter());
-  current.value = 1;
-  void loadTransfers(1);
-}
-
 /** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
 function handleClearListMemory(): void {
   Object.assign(filter, emptyTransferFilter());
   current.value = 1;
   forgetListMemory();
-  void loadTransfers(1);
+  void reloadList(1);
 }
 
-/** 刷新（保留筛选与页码） */
-function refresh(): void {
-  void loadTransfers(current.value);
+/** 「刷新」按钮：列表由组件刷，主数据（物料 / 仓库）要页面自己跟 */
+function handleRefresh(): void {
   void loadMasterData();
-}
-
-/** 切页 */
-function handlePageChange(pageInfo: { current: number }): void {
-  current.value = pageInfo.current;
-  void loadTransfers(pageInfo.current);
 }
 
 /** 主数据（物料 / 仓库）：拉不到不挡列表，只是名称列退化成短 id */
@@ -1281,7 +1227,7 @@ async function confirmShip(): Promise<void> {
     });
     MessagePlugin.success(`${row.transfer_no} 已发货，货在在途仓`);
     shipVisible.value = false;
-    await loadTransfers(current.value);
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -1365,7 +1311,7 @@ async function confirmWithdraw(): Promise<void> {
     await updateTransferStatus(row.id, { status: 'CANCELLED', reason: withdrawReason.value.trim() });
     MessagePlugin.success(`${row.transfer_no} 已撤回（单据已取消）`);
     withdrawVisible.value = false;
-    await loadTransfers(current.value);
+    await reloadList();
     if (detail.value?.id === row.id) {
       await openDetail({ ...row, id: row.id });
     }
@@ -1382,7 +1328,7 @@ async function patchStatus(row: TransferRow, target: TransferStatus, successText
   try {
     await updateTransferStatus(row.id, { status: target as 'PENDING' | 'DRAFT' | 'DONE' });
     MessagePlugin.success(successText);
-    await loadTransfers(current.value);
+    await reloadList();
     if (detail.value?.id === row.id) {
       await openDetail({ ...row, id: row.id });
     }
@@ -1406,7 +1352,7 @@ function confirmRemove(row: TransferRow): void {
         if (detail.value?.id === row.id) {
           detailVisible.value = false;
         }
-        await loadTransfers(current.value);
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -1599,7 +1545,7 @@ async function copyCurrent(): Promise<void> {
     copyNotice.value = transferCopyNotice(origin);
     formVisible.value = true;
     MessagePlugin.success(`已复制为 ${created.transfer_no}（草稿），请核对后提交`);
-    await loadTransfers(1);
+    await reloadList(1);
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -1788,7 +1734,7 @@ async function submitForm(mode: 'draft' | 'submit'): Promise<void> {
     formMemory.remember(form);
     memoryLabels.value = [];
     current.value = 1;
-    await loadTransfers(1);
+    await reloadList(1);
     if (detailVisible.value && detail.value?.id === saved.id) {
       await openDetail(saved);
     }
@@ -1906,7 +1852,7 @@ async function applyRouteQuery(): Promise<void> {
   }
   await router.replace({ path: route.path, query: {} });
   filter.transfer_no = transferNo;
-  await loadTransfers(1);
+  await reloadList(1);
   const row = rows.value.find((item) => item.transfer_no === transferNo);
   if (!row) {
     void MessagePlugin.warning(`没有找到调拨单 ${transferNo}（可能已删除，或没有查看权限）`);
@@ -1917,8 +1863,7 @@ async function applyRouteQuery(): Promise<void> {
 
 onMounted(async () => {
   await loadMasterData();
-  // 列表记忆恢复的页码要在首次加载就生效
-  await loadTransfers(current.value);
+  // 首屏由 ListPage 自己拉（`initial-page` 传的是列表记忆恢复的页码）；
   // 深链要等首屏列表出来之后再跑（要按单号在列表里定位那一行）
   await applyRouteQuery();
 });

@@ -1,53 +1,37 @@
 <template>
   <div class="location-page">
-    <!-- ① 筛选行：仓库筛选是本页的主轴（库位挂在仓库下，不选就是跨仓总览） -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-select
-          v-model="filter.warehouse_id"
-          class="filter-row__warehouse"
-          :options="warehouseOptions"
-          placeholder="全部仓库（跨仓总览）"
-          clearable
-          filterable
-          data-testid="loc-filter-warehouse"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="库位编码 / 名称（模糊）"
-          clearable
-          data-testid="loc-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-select
-          v-model="filter.location_type"
-          class="filter-row__select"
-          :options="typeFilterOptions"
-          placeholder="全部类型"
-          clearable
-          data-testid="loc-filter-type"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select--narrow"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="loc-filter-status"
-          @change="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-loc-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-loc-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" :loading="loading" data-testid="btn-loc-refresh" @click="handleRefresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+    <!-- ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage（P3-07） -->
+    <ListPage
+      ref="listRef"
+      title="库位列表"
+      testid="loc"
+      table-testid="loc-table"
+      meta-testid="loc-meta"
+      btn-prefix="btn-loc"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="LOCATION_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+      @refresh="handleRefresh"
+    >
+      <!-- 口径后缀写进「共 N 条」同一个元素（e2e 按 loc-meta 断言「全部仓库 / 当前仓库」） -->
+      <template #meta-extra>
+        {{ filter.warehouse_id ? '（当前仓库）' : '（全部仓库）' }}
+      </template>
 
-        <span class="filter-row__spacer" />
+      <template #head-extra>
+        <span class="panel-head__hint">
+          单仓内的新建 / 删除也可在
+          <router-link class="panel-head__link" to="/business/erp/warehouse">仓库管理</router-link>
+          页操作
+        </span>
+      </template>
 
+      <template #toolbar>
         <ImportEntryButton biz-type="business.erp.location" biz-label="库位" testid="btn-import-location" />
 
         <t-button
@@ -59,105 +43,71 @@
           <template #icon><t-icon name="add" /></template>
           新建库位
         </t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ② 列表（服务端分页：切页重新打接口，不在前端切片） -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">库位列表</span>
-          <span class="panel-head__meta" data-testid="loc-meta">
-            共 {{ total }} 个库位{{ filter.warehouse_id ? '（当前仓库）' : '（全部仓库）' }}
-          </span>
-        </div>
-        <span class="panel-head__hint">
-          单仓内的新建 / 删除也可在
-          <router-link class="panel-head__link" to="/business/erp/warehouse">仓库管理</router-link>
-          页操作
-        </span>
-      </div>
+      <template #location_code="{ row }">
+        <span class="mono" :data-testid="`loc-code-${row.location_code}`">{{ row.location_code }}</span>
+      </template>
 
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadLocations(current)">重试</t-button>
-        </template>
-      </t-alert>
+      <template #location_name="{ row }">
+        {{ dash(row.location_name) }}
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="tableRows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="loc-table"
-        @page-change="handlePageChange"
-      >
-        <template #location_code="{ row }">
-          <span class="mono" :data-testid="`loc-code-${row.location_code}`">{{ row.location_code }}</span>
-        </template>
+      <template #warehouse_id="{ row }">
+        <!-- LocationRes 只有 warehouse_id，没有名称：这里用 warehouse/tree 翻译 -->
+        <span :data-testid="`loc-warehouse-${row.location_code}`">{{ warehouseNameOf(tree, row.warehouse_id) }}</span>
+      </template>
 
-        <template #location_name="{ row }">
-          {{ dash(row.location_name) }}
-        </template>
+      <template #location_type="{ row }">
+        <t-tag size="small" :theme="locationTypeTheme(row.location_type)" variant="light">
+          {{ locationTypeLabel(row.location_type) }}
+        </t-tag>
+      </template>
 
-        <template #warehouse_id="{ row }">
-          <!-- LocationRes 只有 warehouse_id，没有名称：这里用 warehouse/tree 翻译 -->
-          <span :data-testid="`loc-warehouse-${row.location_code}`">{{ row.warehouse_text }}</span>
-        </template>
+      <template #is_default="{ row }">
+        <t-tag v-if="row.is_default" size="small" theme="warning" variant="light">默认收货位</t-tag>
+        <span v-else class="muted">—</span>
+      </template>
 
-        <template #location_type="{ row }">
-          <t-tag size="small" :theme="locationTypeTheme(row.location_type)" variant="light">
-            {{ row.type_label }}
-          </t-tag>
-        </template>
+      <template #status="{ row }">
+        <t-tag
+          size="small"
+          :theme="locationStatusTheme(row.status)"
+          variant="light"
+          :data-testid="`loc-status-${row.location_code}`"
+        >
+          {{ locationStatusLabel(row.status) }}
+        </t-tag>
+      </template>
 
-        <template #is_default="{ row }">
-          <t-tag v-if="row.is_default" size="small" theme="warning" variant="light">默认收货位</t-tag>
-          <span v-else class="muted">—</span>
-        </template>
-
-        <template #status="{ row }">
-          <t-tag
-            size="small"
-            :theme="locationStatusTheme(row.status)"
-            variant="light"
-            :data-testid="`loc-status-${row.location_code}`"
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link theme="primary" data-testid="btn-loc-view" @click="openDetail(row)">查看</t-link>
+          <t-link
+            v-privilege="[PERM.locationUpdate]"
+            theme="primary"
+            data-testid="btn-loc-edit"
+            @click="openEdit(row)"
           >
-            {{ row.status_label }}
-          </t-tag>
-        </template>
+            编辑
+          </t-link>
+        </div>
+      </template>
 
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link theme="primary" data-testid="btn-loc-view" @click="openDetail(row)">查看</t-link>
-            <t-link
-              v-privilege="[PERM.locationUpdate]"
-              theme="primary"
-              data-testid="btn-loc-edit"
-              @click="openEdit(row)"
-            >
-              编辑
-            </t-link>
-          </div>
-        </template>
-
-        <template #empty>
-          <div class="panel-empty" data-testid="loc-empty">
-            <t-icon class="panel-empty__icon" name="location" />
-            <p class="panel-empty__title">{{ filtered ? '没有匹配的库位' : '还没有库位' }}</p>
-            <p class="panel-empty__desc">
-              {{
-                filtered
-                  ? '换个仓库 / 类型 / 关键词，或点「重置」看全部'
-                  : '库位挂在叶子仓库下：点右上角「新建库位」建第一个'
-              }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty>
+        <div class="panel-empty" data-testid="loc-empty">
+          <t-icon class="panel-empty__icon" name="location" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的库位' : '还没有库位' }}</p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个仓库 / 类型 / 关键词，或点「重置」看全部'
+                : '库位挂在叶子仓库下：点右上角「新建库位」建第一个'
+            }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ③ 详情抽屉（只读；编辑入口在行操作里） -->
     <t-drawer
@@ -226,6 +176,8 @@ import {
   type WarehouseTreeNode,
 } from '@/api/business/erp';
 import LocationFormDialog from '../warehouse/components/LocationFormDialog.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   LOCATION_PAGE_SIZE,
   LOCATION_STATUS_OPTIONS,
@@ -240,11 +192,9 @@ import {
   locationStatusTheme,
   locationTypeLabel,
   locationTypeTheme,
-  toLocationRow,
   warehouseFilterOptions,
   warehouseNameOf,
   type LocationFilterState,
-  type LocationRowView,
 } from './location-logic';
 
 /**
@@ -278,22 +228,14 @@ const typeFilterOptions = LOCATION_TYPE_OPTIONS.map((item) => ({ ...item }));
 /** 状态下拉（`'0'` 停用是有效选项，别当真值丢掉） */
 const statusFilterOptions = LOCATION_STATUS_OPTIONS.map((item) => ({ ...item }));
 
-// ==================== 主数据 / 筛选 ====================
+// ==================== 筛选 / 列表（交给 ListPage） ====================
 
-/** 筛选行 */
+/** 筛选行（`filterState` 就地读写；`buildLocationQuery` / `isLocationFiltered` 引用的是同一个对象） */
 const filter = reactive<LocationFilterState>(emptyLocationFilter());
-/** 原始行数据 */
-const rows = ref<Location[]>([]);
-/** 总条数（后端 `total`） */
-const total = ref(0);
-/** 当前页 */
+/** 当前页（保存后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-/** 每页条数（服务端分页） */
-const pageSize = LOCATION_PAGE_SIZE;
-/** 列表加载中 */
-const loading = ref(false);
-/** 列表加载错误 */
-const loadError = ref('');
+/** ListPage 实例（新建 / 编辑保存后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 /** 仓库树（仓库下拉 + `warehouse_id → 名称` 翻译） */
 const tree = ref<WarehouseTreeNode[]>([]);
 
@@ -303,19 +245,67 @@ const filtered = computed(() => isLocationFiltered(filter));
 /** 仓库筛选下拉（全部仓库：非叶子也要能筛，否则历史数据永远筛不出来） */
 const warehouseOptions = computed(() => warehouseFilterOptions(tree.value));
 
-/** 表格数据 = 原始行 + 翻译好的仓库名 / 类型 / 状态 */
-const tableRows = computed<LocationRowView[]>(() =>
-  rows.value.map((row) => toLocationRow(row, tree.value)),
-);
+/**
+ * 筛选项声明。
+ *
+ * 四个控件改造前**都**是「值一变就查」（`@change="handleSearch"`），关键词走回车 ——
+ * 手感与改造前一致。`computed` 是因为仓库下拉依赖 `tree`（异步拉回来的）。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '全部仓库（跨仓总览）',
+    width: 280,
+    options: warehouseOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'loc-filter-warehouse',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '库位编码 / 名称（模糊）',
+    width: 220,
+    testid: 'loc-filter-keyword',
+  },
+  {
+    key: 'location_type',
+    type: 'select',
+    placeholder: '全部类型',
+    width: 150,
+    options: typeFilterOptions,
+    searchOnChange: true,
+    testid: 'loc-filter-type',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 130,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'loc-filter-status',
+  },
+]);
 
-/** 分页器（服务端分页：`total` 用后端回的值，不在前端算） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** 拉一页（行保持原始 `Location`，仓库名 / 类型 / 状态在单元格里现译，树后到也能跟上） */
+const fetcher: ListFetcher<Location> = (query) =>
+  fetchLocationPage(query as Parameters<typeof fetchLocationPage>[0]);
+
+/** 入参拼装（页面自己的 `buildLocationQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildLocationQuery(state as LocationFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码（保存后回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
 
 /** 错误 → 文案 */
 function messageOf(error: unknown): string {
@@ -323,30 +313,6 @@ function messageOf(error: unknown): string {
     return error.message;
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * 拉列表。
- *
- * 页码夹紧放在**后端回参之后**：删光最后一页的行时后端会回一个空页，
- * 直接把 `current` 落回 `maxPage` 会让分页器停在一个空页上（用户以为数据没了）。
- */
-async function loadLocations(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchLocationPage(buildLocationQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, data.page ?? page), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `库位列表加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
 }
 
 /** 仓库树（失败不阻塞列表：仓库名退化成 uuid 短码，页面仍可用） */
@@ -359,29 +325,9 @@ async function loadTree(): Promise<void> {
   }
 }
 
-/** 查询（回第 1 页） */
-function handleSearch(): void {
-  current.value = 1;
-  void loadLocations(1);
-}
-
-/** 重置筛选（回跨仓总览） */
-function handleReset(): void {
-  Object.assign(filter, emptyLocationFilter());
-  current.value = 1;
-  void loadLocations(1);
-}
-
-/** 刷新（保留当前筛选与页码） */
+/** 「刷新」按钮：仓库树顺带重拉（组件的「刷新」只刷列表，树要页面自己跟） */
 function handleRefresh(): void {
   void loadTree();
-  void loadLocations(current.value);
-}
-
-/** 切页 */
-function handlePageChange(pageInfo: { current: number }): void {
-  current.value = pageInfo.current;
-  void loadLocations(pageInfo.current);
 }
 
 // ==================== 详情抽屉 ====================
@@ -436,15 +382,14 @@ function openEdit(row: Location): void {
 
 /** 保存成功：刷新列表（新建回第 1 页，让新行按 sort_order/code 出现在视野里） */
 async function handleSaved(payload: { id: string; isEdit: boolean }): Promise<void> {
-  const page = payload.isEdit ? current.value : 1;
-  current.value = page;
-  await loadLocations(page);
+  await reloadList(payload.isEdit ? current.value : 1);
 }
 
 // ==================== 初始化 ====================
 
 onMounted(async () => {
-  await Promise.all([loadTree(), loadLocations(1)]);
+  // 列表由 ListPage 自己在 setup 里拉首屏；这里只补仓库树（拉不到只是仓库名显示短 id）
+  await loadTree();
 });
 </script>
 

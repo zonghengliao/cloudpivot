@@ -1,6 +1,6 @@
 <template>
   <div class="inventory-page">
-    <t-card :bordered="false" class="list-card">
+    <div class="inventory-tabs">
       <t-tabs v-model="activeTab" data-testid="inventory-tabs">
         <!-- ==================== Tab 1：即时库存 ==================== -->
         <t-tab-panel value="stock" label="即时库存">
@@ -11,7 +11,7 @@
             （物料 × 仓库），数据来自 GET /erp/inventory/audit?dry_run=true。
             页面**只读**：一键改账不该是个页面按钮（后端红线③：dry_run 缺省 true 防误修）。
           -->
-          <template v-if="auditMode">
+          <t-card v-if="auditMode" :bordered="false" class="list-card">
             <t-alert theme="info" class="list-alert audit-banner" data-testid="inventory-audit-banner">
               <template #title>巡检模式</template>
               <span data-testid="inventory-audit-summary">{{ auditSummary }}</span>
@@ -126,72 +126,40 @@
                 </div>
               </template>
             </t-table>
-          </template>
+          </t-card>
 
-          <template v-else>
-            <div class="tool-row">
-              <t-select
-                v-model="stockFilter.material_id"
-                class="tool-row__select"
-                :options="materialOptions"
-                placeholder="物料（全部）"
-                filterable
-                clearable
-                data-testid="stock-filter-material"
-              />
-              <t-select
-                v-model="stockFilter.warehouse_id"
-                class="tool-row__select"
-                :options="warehouseOptions"
-                placeholder="仓库（全部）"
-                filterable
-                clearable
-                data-testid="stock-filter-warehouse"
-              />
+          <!-- 列表：筛选 / 分页 / 导出交给 ListPage（P3-07） -->
+          <ListPage
+            v-else
+            ref="stockListRef"
+            title="即时库存"
+            testid="stock"
+            table-testid="stock-table"
+            meta-testid="stock-meta"
+            btn-prefix="stock-btn"
+            :columns="stockColumns"
+            :filters="stockFilters"
+            :filter-state="stockFilter"
+            :fetcher="stockFetcher"
+            :query-builder="stockQueryBuilder"
+            :page-size="INVENTORY_PAGE_SIZE"
+            exportable
+            @loaded="onStockLoaded"
+          >
+            <!-- 「隐藏零库存」不是下拉 / 输入框：走 `custom` 筛选槽，重置时由组件写成 false -->
+            <template #filter-only_nonzero>
               <label class="tool-row__switch">
                 <t-switch v-model="stockFilter.only_nonzero" size="small" data-testid="stock-switch-nonzero" />
                 <span>隐藏零库存</span>
               </label>
-              <t-button theme="primary" data-testid="stock-btn-search" @click="handleStockSearch">查询</t-button>
-              <t-button variant="outline" data-testid="stock-btn-reset" @click="handleStockReset">重置</t-button>
-              <t-button variant="outline" data-testid="stock-btn-refresh" @click="refreshStock">
-                <template #icon><t-icon name="refresh" /></template>
-                刷新
-              </t-button>
-            </div>
+            </template>
 
-            <div class="panel-head">
-              <div class="panel-head__main">
-                <span class="panel-head__title">即时库存（物料 × 仓库）</span>
-                <span class="panel-head__meta" data-testid="stock-meta">共 {{ stockTotal }} 行</span>
-              </div>
+            <template #head-extra>
               <span class="panel-head__tip">
                 数量 = 已过账的账面结存（可用 = 数量；「锁定量」为预留字段，本版本无占用流程，故不显示）
               </span>
-            </div>
+            </template>
 
-            <t-alert
-              v-if="stockError"
-              theme="error"
-              :message="stockError"
-              class="list-alert"
-              data-testid="stock-load-error"
-            >
-              <template #operation>
-                <t-button size="small" variant="outline" @click="loadStock()">重试</t-button>
-              </template>
-            </t-alert>
-
-            <t-table
-              row-key="id"
-              :data="stockRows"
-              :columns="stockColumns"
-              :loading="stockLoading"
-              :pagination="stockPagination"
-              hover
-              data-testid="stock-table"
-              @page-change="handleStockPageChange"
-            >
               <template #material="{ row }">
                 <div class="cell-stack">
                   <span class="cell-stack__main" :data-testid="`stock-material-${row.material_id}`">
@@ -245,94 +213,49 @@
                   </p>
                 </div>
               </template>
-            </t-table>
 
-            <div class="footer-row" data-testid="stock-footer">
-              <span class="footer-row__label">本页合计</span>
-              <span class="footer-row__item">
-                数量 <b class="num" data-testid="stock-footer-qty">{{ formatQty(stockTotals.qty) }}</b>
-              </span>
-              <span class="footer-row__item">
-                可用 <b class="num" data-testid="stock-footer-available">{{ formatQty(stockTotals.available) }}</b>
-              </span>
-              <span class="footer-row__item">
-                金额 <b class="num" data-testid="stock-footer-amount">{{ formatMoney(stockTotals.amount) }}</b>
-              </span>
-              <span class="footer-row__tip">合计只算本页，不是全仓库存</span>
-            </div>
-          </template>
+              <template #footer>
+                <div class="footer-row" data-testid="stock-footer">
+                  <span class="footer-row__label">本页合计</span>
+                  <span class="footer-row__item">
+                    数量 <b class="num" data-testid="stock-footer-qty">{{ formatQty(stockTotals.qty) }}</b>
+                  </span>
+                  <span class="footer-row__item">
+                    可用 <b class="num" data-testid="stock-footer-available">{{ formatQty(stockTotals.available) }}</b>
+                  </span>
+                  <span class="footer-row__item">
+                    金额 <b class="num" data-testid="stock-footer-amount">{{ formatMoney(stockTotals.amount) }}</b>
+                  </span>
+                  <span class="footer-row__tip">合计只算本页，不是全仓库存</span>
+                </div>
+              </template>
+            </ListPage>
         </t-tab-panel>
 
         <!-- ==================== Tab 2：库位库存 ==================== -->
-        <t-tab-panel value="location" label="库位库存">
-          <div class="tool-row">
-            <t-select
-              v-model="locationFilter.warehouse_id"
-              class="tool-row__select"
-              :options="warehouseOptions"
-              placeholder="仓库（全部）"
-              filterable
-              clearable
-              data-testid="location-filter-warehouse"
-            />
-            <t-select
-              v-model="locationFilter.material_id"
-              class="tool-row__select"
-              :options="materialOptions"
-              placeholder="物料（全部）"
-              filterable
-              clearable
-              data-testid="location-filter-material"
-            />
-            <t-select
-              v-model="locationFilter.location_id"
-              class="tool-row__select"
-              :options="locationOptions"
-              placeholder="库位（全部）"
-              filterable
-              clearable
-              data-testid="location-filter-location"
-            />
-            <t-button theme="primary" data-testid="location-btn-search" @click="handleLocationSearch">查询</t-button>
-            <t-button variant="outline" data-testid="location-btn-reset" @click="handleLocationReset">重置</t-button>
-            <t-button variant="outline" data-testid="location-btn-refresh" @click="refreshLocation">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </div>
-
-          <div class="panel-head">
-            <div class="panel-head__main">
-              <span class="panel-head__title">库位库存（物料 × 仓库 × 库位）</span>
-              <span class="panel-head__meta" data-testid="location-meta">共 {{ locationTotal }} 行</span>
-            </div>
-            <span class="panel-head__tip">
-              主表 <code>biz_inventory_location</code>；库位列为空 = 该仓未分配到具体库位的数量
-            </span>
-          </div>
-
-          <t-alert
-            v-if="locationError"
-            theme="error"
-            :message="locationError"
-            class="list-alert"
-            data-testid="location-load-error"
-          >
-            <template #operation>
-              <t-button size="small" variant="outline" @click="loadLocation()">重试</t-button>
-            </template>
-          </t-alert>
-
-          <t-table
-            row-key="id"
-            :data="locationRows"
+        <t-tab-panel value="location" label="库位库存" lazy>
+          <ListPage
+            ref="locationListRef"
+            title="库位库存"
+            testid="location"
+            table-testid="location-table"
+            meta-testid="location-meta"
+            btn-prefix="location-btn"
             :columns="locationColumns"
-            :loading="locationLoading"
-            :pagination="locationPagination"
-            hover
-            data-testid="location-table"
-            @page-change="handleLocationPageChange"
+            :filters="locationFilters"
+            :filter-state="locationFilter"
+            :fetcher="locationFetcher"
+            :query-builder="locationQueryBuilder"
+            :page-size="INVENTORY_PAGE_SIZE"
+            exportable
+            @loaded="onLocationLoaded"
           >
+            <template #head-extra>
+              <span class="panel-head__tip">
+                主表 <code>biz_inventory_location</code>；库位列为空 = 该仓未分配到具体库位的数量
+              </span>
+            </template>
+
             <template #location="{ row }">
               <span v-if="row.location_id" class="cell-stack">
                 <span class="cell-stack__main mono" :data-testid="`location-code-${row.id}`">
@@ -378,102 +301,67 @@
                 </p>
               </div>
             </template>
-          </t-table>
+          </ListPage>
         </t-tab-panel>
 
         <!-- ==================== Tab 3：库存流水 ==================== -->
-        <t-tab-panel value="txn" label="库存流水">
-          <div class="tool-row">
-            <t-select
-              v-model="txnFilter.material_id"
-              class="tool-row__select"
-              :options="materialOptions"
-              placeholder="物料（全部）"
-              filterable
-              clearable
-              data-testid="txn-filter-material"
-            />
-            <t-select
-              v-model="txnFilter.warehouse_id"
-              class="tool-row__select"
-              :options="warehouseOptions"
-              placeholder="仓库（全部）"
-              filterable
-              clearable
-              data-testid="txn-filter-warehouse"
-            />
-            <t-select
-              v-model="txnFilter.txn_type"
-              class="tool-row__type"
-              :options="txnTypeOptions"
-              placeholder="类型（全部）"
-              clearable
-              data-testid="txn-filter-type"
-            />
-            <t-input
-              v-model="txnFilter.doc_no"
-              class="tool-row__doc"
-              placeholder="单据号（精确）"
-              clearable
-              data-testid="txn-filter-docno"
-              @enter="handleTxnSearch"
-            />
-            <t-date-picker
-              v-model="txnFilter.date_from"
-              class="tool-row__date"
-              placeholder="起始日"
-              format="YYYY-MM-DD"
-              value-type="YYYY-MM-DD"
-              clearable
-              data-testid="txn-filter-from"
-            />
-            <span class="tool-row__sep">到</span>
-            <t-date-picker
-              v-model="txnFilter.date_to"
-              class="tool-row__date"
-              placeholder="结束日"
-              format="YYYY-MM-DD"
-              value-type="YYYY-MM-DD"
-              clearable
-              data-testid="txn-filter-to"
-            />
-            <t-button theme="primary" data-testid="txn-btn-search" @click="handleTxnSearch">查询</t-button>
-            <t-button variant="outline" data-testid="txn-btn-reset" @click="handleTxnReset">重置</t-button>
-            <t-button variant="outline" data-testid="txn-btn-refresh" @click="refreshTxn">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </div>
-
-          <div class="panel-head">
-            <div class="panel-head__main">
-              <span class="panel-head__title">库存流水（数量账，按记账时间倒序）</span>
-              <span class="panel-head__meta" data-testid="txn-meta">共 {{ txnTotal }} 条</span>
-            </div>
-            <span class="panel-head__tip">
-              主表 <code>biz_inventory_txn</code>；数量恒为正，方向看「类型」；点行看 before/after 快照
-            </span>
-          </div>
-
-          <t-alert v-if="txnHint" theme="warning" :message="txnHint" class="list-alert" data-testid="txn-hint" />
-
-          <t-alert v-if="txnError" theme="error" :message="txnError" class="list-alert" data-testid="txn-load-error">
-            <template #operation>
-              <t-button size="small" variant="outline" @click="loadTxn()">重试</t-button>
-            </template>
-          </t-alert>
-
-          <t-table
-            row-key="id"
-            :data="txnRows"
+        <t-tab-panel value="txn" label="库存流水" lazy>
+          <ListPage
+            ref="txnListRef"
+            title="库存流水"
+            testid="txn"
+            table-testid="txn-table"
+            meta-testid="txn-meta"
+            btn-prefix="txn-btn"
             :columns="txnColumns"
-            :loading="txnLoading"
-            :pagination="txnPagination"
-            hover
-            data-testid="txn-table"
-            @page-change="handleTxnPageChange"
+            :filters="txnFilters"
+            :filter-state="txnFilter"
+            :fetcher="txnFetcher"
+            :query-builder="txnQueryBuilder"
+            :page-size="INVENTORY_PAGE_SIZE"
+            exportable
+            @loaded="onTxnLoaded"
             @row-click="handleTxnRowClick"
           >
+            <!-- 日期区间整块画在一个槽里：两个日期框分属两个槽时，换行会把「起 / 止」拆到两行 -->
+            <template #filter-date_from>
+              <span class="lp-date-range">
+                <t-date-picker
+                  :model-value="txnFilter.date_from"
+                  class="tool-row__date"
+                  placeholder="起始日"
+                  format="YYYY-MM-DD"
+                  value-type="YYYY-MM-DD"
+                  allow-input
+                  clearable
+                  data-testid="txn-filter-from"
+                  @update:model-value="setTxnDateFrom"
+                />
+                <span class="tool-row__sep">到</span>
+                <t-date-picker
+                  :model-value="txnFilter.date_to"
+                  class="tool-row__date"
+                  placeholder="结束日"
+                  format="YYYY-MM-DD"
+                  value-type="YYYY-MM-DD"
+                  allow-input
+                  clearable
+                  data-testid="txn-filter-to"
+                  @update:model-value="setTxnDateTo"
+                />
+              </span>
+            </template>
+
+            <template #filter-footer>
+              <t-alert v-if="txnHint" theme="warning" :message="txnHint" class="list-alert" data-testid="txn-hint" />
+            </template>
+
+            <template #head-extra>
+              <span class="panel-head__tip">
+                主表 <code>biz_inventory_txn</code>；数量恒为正，方向看「类型」；点行看 before/after 快照
+              </span>
+            </template>
+
             <template #created_at="{ row }">
               <span class="muted" :data-testid="`txn-time-${row.id}`">{{ formatDateTime(row.created_at) }}</span>
             </template>
@@ -526,10 +414,10 @@
                 </p>
               </div>
             </template>
-          </t-table>
+          </ListPage>
         </t-tab-panel>
       </t-tabs>
-    </t-card>
+    </div>
 
     <!-- ==================== 流水详情抽屉（before/after 快照对账） ==================== -->
     <t-drawer
@@ -667,8 +555,10 @@
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { PrimaryTableCol } from 'tdesign-vue-next';
+import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   fetchInventoryAudit,
   fetchInventoryLocationPage,
@@ -702,7 +592,6 @@ import {
   buildStockQuery,
   buildTxnQuery,
   bizTypeLabel,
-  clampPage,
   docTypeLabel,
   emptyLocationFilter,
   emptyStockFilter,
@@ -860,11 +749,12 @@ const stockColumns: PrimaryTableCol[] = [
 ];
 
 const stockFilter = reactive<StockFilterState>(emptyStockFilter());
+/** 本页行（镜像 ListPage 抛回来的这一页：页脚合计要算它） */
 const stockRows = ref<InventoryRow[]>([]);
-const stockTotal = ref(0);
+/** 当前页 */
 const stockCurrent = ref(1);
-const stockLoading = ref(false);
-const stockError = ref('');
+/** ListPage 实例（巡检模式进出时用） */
+const stockListRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 本页合计（数量 / 可用 / 金额），只算本页 */
 const stockTotals = computed(() => {
@@ -879,46 +769,45 @@ const stockTotals = computed(() => {
   return { qty, available, amount };
 });
 
-const stockPagination = computed(() => ({
-  current: stockCurrent.value,
-  pageSize: INVENTORY_PAGE_SIZE,
-  total: stockTotal.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * Tab1 筛选项声明。
+ *
+ * 两个下拉改造前**不**触发即时查询（只靠「查询」按钮），所以不开 `searchOnChange`；
+ * 用 `computed` 是因为选项来自异步主数据。
+ */
+const stockFilters = computed<FilterDef[]>(() => [
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '物料（全部）',
+    width: 220,
+    options: materialOptions.value,
+    filterable: true,
+    testid: 'stock-filter-material',
+  },
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '仓库（全部）',
+    width: 220,
+    options: warehouseOptions.value,
+    filterable: true,
+    testid: 'stock-filter-warehouse',
+  },
+  // 「隐藏零库存」开关：走 `#filter-only_nonzero` 插槽自绘，重置时由组件写回 `false`
+  { key: 'only_nonzero', type: 'custom', defaultValue: false, testid: 'stock-switch-nonzero' },
+]);
 
-async function loadStock(page: number = stockCurrent.value): Promise<void> {
-  stockLoading.value = true;
-  stockError.value = '';
-  try {
-    const data = await fetchInventoryPage(buildStockQuery(stockFilter, page));
-    stockRows.value = data.list ?? [];
-    stockTotal.value = data.total ?? 0;
-    stockCurrent.value = clampPage(data.page ?? page, stockTotal.value);
-  } catch (error) {
-    stockRows.value = [];
-    stockTotal.value = 0;
-    stockError.value = messageOf(error);
-  } finally {
-    stockLoading.value = false;
-  }
-}
+const stockFetcher: ListFetcher<InventoryRow> = (query) =>
+  fetchInventoryPage(query as Parameters<typeof fetchInventoryPage>[0]);
 
-function handleStockSearch(): void {
-  void loadStock(1);
-}
+const stockQueryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildStockQuery(state as StockFilterState, page, pageSize);
 
-function handleStockReset(): void {
-  Object.assign(stockFilter, emptyStockFilter());
-  void loadStock(1);
-}
-
-function refreshStock(): void {
-  void loadStock();
-}
-
-function handleStockPageChange(pageInfo: { current?: number }): void {
-  void loadStock(pageInfo.current ?? 1);
+/** Tab1 一页拉完：镜像行 + 页码 */
+function onStockLoaded(payload: { rows: InventoryRow[]; total: number; page: number }): void {
+  stockRows.value = payload.rows;
+  stockCurrent.value = payload.page;
 }
 
 // ==================== Tab2：库位库存 ====================
@@ -932,51 +821,51 @@ const locationColumns: PrimaryTableCol[] = [
 ];
 
 const locationRows = ref<InventoryLocationRow[]>([]);
-const locationTotal = ref(0);
+/** 当前页 */
 const locationCurrent = ref(1);
-const locationLoading = ref(false);
-const locationError = ref('');
+const locationListRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const locationPagination = computed(() => ({
-  current: locationCurrent.value,
-  pageSize: INVENTORY_PAGE_SIZE,
-  total: locationTotal.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** Tab2 筛选项（库位下拉按 Tab2 所选仓库收窄，所以是 computed） */
+const locationFilters = computed<FilterDef[]>(() => [
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '仓库（全部）',
+    width: 220,
+    options: warehouseOptions.value,
+    filterable: true,
+    testid: 'location-filter-warehouse',
+  },
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '物料（全部）',
+    width: 220,
+    options: materialOptions.value,
+    filterable: true,
+    testid: 'location-filter-material',
+  },
+  {
+    key: 'location_id',
+    type: 'select',
+    placeholder: '库位（全部）',
+    width: 220,
+    options: locationOptions.value,
+    filterable: true,
+    testid: 'location-filter-location',
+  },
+]);
 
-async function loadLocation(page: number = locationCurrent.value): Promise<void> {
-  locationLoading.value = true;
-  locationError.value = '';
-  try {
-    const data = await fetchInventoryLocationPage(buildLocationQuery(locationFilter, page));
-    locationRows.value = data.list ?? [];
-    locationTotal.value = data.total ?? 0;
-    locationCurrent.value = clampPage(data.page ?? page, locationTotal.value);
-  } catch (error) {
-    locationRows.value = [];
-    locationTotal.value = 0;
-    locationError.value = messageOf(error);
-  } finally {
-    locationLoading.value = false;
-  }
-}
+const locationFetcher: ListFetcher<InventoryLocationRow> = (query) =>
+  fetchInventoryLocationPage(query as Parameters<typeof fetchInventoryLocationPage>[0]);
 
-function handleLocationSearch(): void {
-  void loadLocation(1);
-}
+const locationQueryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildLocationQuery(state as LocationFilterState, page, pageSize);
 
-function handleLocationReset(): void {
-  Object.assign(locationFilter, emptyLocationFilter());
-  void loadLocation(1);
-}
-
-function refreshLocation(): void {
-  void loadLocation();
-}
-
-function handleLocationPageChange(pageInfo: { current?: number }): void {
-  void loadLocation(pageInfo.current ?? 1);
+/** Tab2 一页拉完：镜像行 + 页码（本 Tab 没有页脚合计，镜像只为「刷新当前页」留口） */
+function onLocationLoaded(payload: { rows: InventoryLocationRow[]; page: number }): void {
+  locationRows.value = payload.rows;
+  locationCurrent.value = payload.page;
 }
 
 // ==================== Tab3：库存流水 ====================
@@ -994,11 +883,10 @@ const txnColumns: PrimaryTableCol[] = [
 
 const txnFilter = reactive<TxnFilterState>(emptyTxnFilter());
 const txnRows = ref<InventoryTxnRow[]>([]);
-const txnTotal = ref(0);
+/** 当前页 */
 const txnCurrent = ref(1);
-const txnLoading = ref(false);
-const txnError = ref('');
-/** 日期区间非法时的提示（不发请求） */
+const txnListRef = ref<InstanceType<typeof ListPage> | null>(null);
+/** 日期区间非法时的提示（不发请求，条子在筛选卡下方） */
 const txnHint = ref('');
 
 /**
@@ -1010,55 +898,76 @@ const txnHint = ref('');
  */
 const txnTypeOptions = computed(() => TXN_TYPE_OPTIONS.map((item) => ({ ...item })));
 
-const txnPagination = computed(() => ({
-  current: txnCurrent.value,
-  pageSize: INVENTORY_PAGE_SIZE,
-  total: txnTotal.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** Tab3 筛选项（日期区间整块画在 `#filter-date_from` 槽里） */
+const txnFilters = computed<FilterDef[]>(() => [
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '物料（全部）',
+    width: 220,
+    options: materialOptions.value,
+    filterable: true,
+    testid: 'txn-filter-material',
+  },
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '仓库（全部）',
+    width: 220,
+    options: warehouseOptions.value,
+    filterable: true,
+    testid: 'txn-filter-warehouse',
+  },
+  {
+    key: 'txn_type',
+    type: 'select',
+    placeholder: '类型（全部）',
+    width: 140,
+    options: txnTypeOptions.value,
+    testid: 'txn-filter-type',
+  },
+  {
+    key: 'doc_no',
+    type: 'keyword',
+    placeholder: '单据号（精确）',
+    width: 200,
+    testid: 'txn-filter-docno',
+  },
+  // 起 / 止两个受控日期框：重置时组件按 `defaultValue` 写回空串（不能是 undefined，否则日期框不受控）
+  { key: 'date_from', type: 'custom', defaultValue: '', testid: 'txn-filter-from' },
+  { key: 'date_to', type: 'custom', defaultValue: '', testid: 'txn-filter-to' },
+]);
 
-async function loadTxn(page: number = txnCurrent.value): Promise<void> {
+/**
+ * 拉一页。
+ *
+ * 日期区间非法（起 > 止）时**不发请求**：给黄条 + 空列表，与改造前 `loadTxn` 的早退一致。
+ */
+const txnFetcher: ListFetcher<InventoryTxnRow> = async (query) => {
   const rangeError = txnRangeError(txnFilter);
+  txnHint.value = rangeError;
   if (rangeError) {
-    txnHint.value = rangeError;
-    txnRows.value = [];
-    txnTotal.value = 0;
-    return;
+    return { list: [], total: 0, page: query.page ?? 1, page_size: query.page_size ?? INVENTORY_PAGE_SIZE };
   }
-  txnHint.value = '';
-  txnLoading.value = true;
-  txnError.value = '';
-  try {
-    const data = await fetchInventoryTxnPage(buildTxnQuery(txnFilter, page));
-    txnRows.value = data.list ?? [];
-    txnTotal.value = data.total ?? 0;
-    txnCurrent.value = clampPage(data.page ?? page, txnTotal.value);
-  } catch (error) {
-    txnRows.value = [];
-    txnTotal.value = 0;
-    txnError.value = messageOf(error);
-  } finally {
-    txnLoading.value = false;
-  }
+  return fetchInventoryTxnPage(query as Parameters<typeof fetchInventoryTxnPage>[0]);
+};
+
+const txnQueryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildTxnQuery(state as TxnFilterState, page, pageSize);
+
+/** Tab3 一页拉完：镜像行 + 页码 */
+function onTxnLoaded(payload: { rows: InventoryTxnRow[]; page: number }): void {
+  txnRows.value = payload.rows;
+  txnCurrent.value = payload.page;
 }
 
-function handleTxnSearch(): void {
-  void loadTxn(1);
+/** 日期框写回（`t-date-picker` 的 `update:model-value` 可能是 `null`，一律归成空串） */
+function setTxnDateFrom(value: unknown): void {
+  txnFilter.date_from = value == null ? '' : String(value);
 }
 
-function handleTxnReset(): void {
-  Object.assign(txnFilter, emptyTxnFilter());
-  txnHint.value = '';
-  void loadTxn(1);
-}
-
-function refreshTxn(): void {
-  void loadTxn();
-}
-
-function handleTxnPageChange(pageInfo: { current?: number }): void {
-  void loadTxn(pageInfo.current ?? 1);
+function setTxnDateTo(value: unknown): void {
+  txnFilter.date_to = value == null ? '' : String(value);
 }
 
 // ==================== 流水详情抽屉 ====================
@@ -1122,7 +1031,8 @@ async function openTxnDetail(id: string): Promise<void> {
     txnDetail.value = await fetchInventoryTxnDetail(id);
   } catch (error) {
     txnDetail.value = null;
-    txnError.value = messageOf(error);
+    // 详情拉不到只弹一条 toast：列表本身是好的，别把整块列表染红
+    MessagePlugin.error(`流水详情加载失败：${messageOf(error)}`);
   } finally {
     txnDetailLoading.value = false;
   }
@@ -1213,10 +1123,10 @@ function exitAuditMode(): void {
 }
 
 /**
- * 进出巡检模式：进来就拉报告，退出就丢掉报告并回到普通列表。
+ * 进出巡检模式：进来就拉报告，退出就丢掉报告。
  *
- * 初次进入不靠这个 watch（`immediate` 不设），加载统一走 `ensureLoaded('stock')` ——
- * 否则 onMounted 那一发会重复打两次接口。
+ * 退出后 Tab1 换回 ListPage（`v-else` 重新挂载），首屏那一发由组件自己发 —— 这里不再手动
+ * `loadStock`，否则退出瞬间会打两次同样的接口。
  */
 watch(auditMode, (on) => {
   if (on) {
@@ -1225,23 +1135,20 @@ watch(auditMode, (on) => {
   }
   auditReport.value = null;
   auditError.value = '';
-  void loadStock(1);
 });
 
 // ==================== Tab 切换 / 路由同步 ====================
 
 /**
- * 切 Tab 时：先加载该 Tab 的数据，再把 URL 换成对应菜单路径（`router.push`）。
+ * 切 Tab 时把 URL 换成对应菜单路径（`router.push`）。
  *
  * 为什么要换 URL：侧边栏菜单按 `sys_menu.path` 高亮；在 `/business/erp/inventory` 下切到
  * 「库存流水」而地址还是 `/inventory`，用户刷新后又回 Tab1 —— 三处状态打脸。
  *
- * 为什么加载放在这里而不是等新实例：三条 route 共用**同一个组件**，Vue 复用组件实例
- * （不重新挂载，`onMounted` 不会再跑），所以切 Tab 的那一发请求必须由本实例发；
- * `loadedTabs` 兜住重复加载，切回已看过的 Tab 不会再打接口（要强制刷新用「刷新」按钮）。
+ * 数据加载不用在这里管：三个 Tab 的 `t-tab-panel` 都标了 `lazy`，面板第一次显示时
+ * 才挂载里面的 ListPage，由它自己拉首屏（切回已看过的 Tab 只是重新显示，不会再打接口）。
  */
 watch(activeTab, (tab) => {
-  ensureLoaded(tab);
   const target = INVENTORY_TABS.find((item) => item.key === tab);
   if (target && route.path !== target.path) {
     // query 一并带过去：巡检模式（`?audit=1`）下切 Tab 不能被顺手清掉，
@@ -1254,7 +1161,7 @@ watch(activeTab, (tab) => {
  * 点侧边栏换菜单路径进来（同一个组件实例，不会重新 mounted）→ 同步当前 Tab。
  *
  * 只改 `activeTab` 就够：`watch(activeTab)` 里 `route.path` 已经是目标路径（不会再 push），
- * 只会走 `ensureLoaded`，不会打环。
+ * 不会打环。
  */
 watch(
   () => route.path,
@@ -1266,28 +1173,6 @@ watch(
   },
 );
 
-/** 首次进入某个 Tab 才拉数据（切回来不重复请求，用「刷新」按钮强制） */
-const loadedTabs = new Set<InventoryTabKey>();
-
-function ensureLoaded(tab: InventoryTabKey): void {
-  if (loadedTabs.has(tab)) {
-    return;
-  }
-  loadedTabs.add(tab);
-  if (tab === 'stock') {
-    // 巡检模式（`?audit=1`）下 Tab1 的内容是巡检报告，不是即时库存分页
-    if (auditMode.value) {
-      void loadAudit();
-    } else {
-      void loadStock(1);
-    }
-  } else if (tab === 'location') {
-    void loadLocation(1);
-  } else {
-    void loadTxn(1);
-  }
-}
-
 onMounted(async () => {
   // 主数据拉不到不挡列表（只是名称列退化成长 id）
   const [materialPage, warehousePage, locationPage] = await Promise.all([
@@ -1298,7 +1183,10 @@ onMounted(async () => {
   materials.value = materialPage?.list ?? [];
   warehouses.value = warehousePage?.list ?? [];
   locations.value = locationPage?.list ?? [];
-  ensureLoaded(activeTab.value);
+  // 巡检模式（`?audit=1`）直达：Tab1 渲染的是巡检报告，不会去挂 ListPage
+  if (auditMode.value) {
+    void loadAudit();
+  }
 });
 </script>
 
@@ -1307,6 +1195,21 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* 三个 Tab 各自带一套筛选卡 + 列表卡（ListPage），所以外层只是布局容器，不再是 card */
+.inventory-tabs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 日期区间整块（起始日 ~ 结束日）：作为一个 flex item，换行时整体走，不会被拆开 */
+.lp-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .list-card {
