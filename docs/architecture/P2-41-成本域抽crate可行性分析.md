@@ -187,7 +187,29 @@ L3  cloudpivot-bin            装配层：依赖 L2 全部 + 内核；跑 `App::
 cd /opt/cloudpivot
 python3 scripts/verify/crate_split_readiness.py                          # 顶层域全表 + SCC
 python3 scripts/verify/crate_split_readiness.py --domain cost            # 本卡目标
-python3 scripts/verify/crate_split_readiness.py --domain cost --check    # 退出码 1（不可抽）
-python3 scripts/verify/crate_split_readiness.py --domain dashboard --check   # 退出码 0（可抽，对照）
+python3 scripts/verify/crate_split_readiness.py --domain cost --check    # 退出码 1（旧口径：入边非 0）
+python3 scripts/verify/crate_split_readiness.py --domain dashboard --check   # 退出码 0（旧口径对照，注意是假阳性）
 python3 scripts/verify/crate_split_readiness.py --scope erp-sub --json   # 机器可读
 ```
+
+## 7. 决策落定（2026-11-25 · 卡 `t_b287611c`，架构侧拍板）
+
+**结论：P2-41 作废；P2-C 改「层次切」（15 卡），`cost` 留在 `cloudpivot-erp` 内部。**
+卡序与每张卡的解环账见 `docs/planning/20261113-新卡清单.md` §P2-C。
+
+本节同时更正本文早先的 3 处，全部是**度量口径**问题（不是结论反转）：
+
+| # | 本文早先写的 | 实测（工作区修复后） | 原因 |
+|--:|---|---|---|
+| 1 | 顶层 SCC = 22 | **24** | `collect_nodes()` 里 `business/shared` 与 `src/shared`、`business/task` 与 `src/task` 同名，前者先写入、随即被 `TOP_KERNEL` 覆盖 ⇒ **这两个目录（14 384 / 27 688 行）从未进图**。已修 |
+| 2 | 全仓最大回边源 = `flow` 128 行 | **`business/shared` 480 行**（18 个来源） | 同上。⇒ L1 内核更要第一个做：它是最大耦合枢纽，不是小助手 |
+| 3 | 判据 = 「入边（回边）为 0 才可抽」 | **判据是出边**：出边全落在更下层才可抽。入边（app→域）是合法方向 | 见 §2.2 与 §3 路线 A：装配层必须依赖域 crate（否则 `inventory` 路由项进不了链接单元 ⇒ 静默 404）。旧判据把方向判反了：`dashboard` 入边 0 但出边 6，「可抽」是**假阳性** |
+
+另需修正一处措辞（§2.4「逐子域抽在上游不成立」）：
+**「按域抽」不是原理上不可能，而是每张域卡必须先付自己那一笔解环账。**实测 what-if：
+把 `cost` 的 14 行回边全切掉后，`cost` 所在 SCC 从 37 个节点（仅代码边口径）降到 **1**，
+且不再有节点指向它 —— 也就是说逐子域抽是可行的，只是要付 18 次。
+之所以仍然不这么做：`erp` 内部 51 节点、296 388 行，逐子域抽合计上百行接缝 + 18 次搬迁，
+而包边界对增量编译的主要收益来自「内核 / 装配层 / erp」这一级的分离（`erp` 占全仓 50%）——
+**`erp` 一个包，内部继续用目录分层**，是投入产出比的选择，不是「不可能」。
+
