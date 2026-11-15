@@ -16,8 +16,11 @@
   ✓ log_line_prefix 无待重启项（false）
 ③ postgresql.auto.conf 无覆盖
   ✓ auto.conf 不存在（无 ALTER SYSTEM 覆盖）
-④ 日志落点
-  ✓ PG 日志文件存在：/var/log/postgresql/postgresql-18-main.log（13970 行）
+④ 重启后会怎样（postgres -C 解析同一份 conf，等价于重启时读到的值）
+  ✓ 重启后 log_min_duration_statement（配置持久化，不靠 reload 的运行时状态）（1000）
+  ✓ 重启后 log_line_prefix（[%m [%p] %q%u@%d ]）
+⑤ 日志落点
+  ✓ PG 日志文件存在：/var/log/postgresql/postgresql-18-main.log（13974 行）
   ✓ 匹配 /stderr/
 
-== 汇总：通过 14 / 失败 0 ==
+== 汇总：通过 16 / 失败 0 ==

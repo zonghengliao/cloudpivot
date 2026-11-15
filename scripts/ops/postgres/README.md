@@ -10,7 +10,7 @@
 
 ```bash
 # 在 99 上对远端落地（ssh root@HOST，脚本自身作为载荷，不依赖 scp）
-bash scripts/ops/postgres/pg_slowlog.sh --host 172.18.10.145     # 落地 + 14 项检查 + 4 项探针断言
+bash scripts/ops/postgres/pg_slowlog.sh --host 172.18.10.145     # 落地 + 16 项检查 + 4 项探针断言
 bash scripts/ops/postgres/pg_slowlog.sh --host 172.18.10.144
 
 # 只检查（只读，可对生产跑）

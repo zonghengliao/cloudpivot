@@ -1,9 +1,9 @@
 # P3-16 证据：PG 慢查询日志（>1s）落地与验收
 
-- 日期：2026-11-16 00:16–00:21 CST
+- 日期：2026-11-16 00:16–00:24 CST
 - 机器：145（测试）/ 144（生产）
 - 执行：`bash scripts/ops/postgres/pg_slowlog.sh --host <HOST>`（脚本自身经 `ssh root@HOST bash -s` 送过去，不依赖 scp）
-- 结论：**两台都 18/18 断言全绿（检查 14 + 探针 4）**，慢查询行确实进 PG 日志
+- 结论：**两台都 20/20 断言全绿（检查 16 + 探针 4）**，慢查询行确实进 PG 日志
 
 ## 关键样例（卡面要求「日志里有记录」）
 
@@ -32,6 +32,11 @@ log_destination            = stderr（默认）→ /var/log/postgresql/postgresq
 落地前基线（用备份文件复现）：`log_min_duration_statement = -1`（默认，未开）、
 `log_line_prefix` 已是 Debian 默认 `'%m [%p] %q%u@%d '` → 见 `01_before_from_backup.txt`。
 
+「重启后验证」怎么答的：**没有真重启**（145 上当时有别卡在跑 DB 测试、144 是生产库），
+改由断言 ④ `postgres -D <datadir> -c config_file=<conf> -C ...` 回答 —— 它解析的正是重启时读的那份 conf，
+输出 `1000` / 前缀正确 ⇒ 重启后结果一致。运行时已生效则由断言 ②（`pg_settings` + `source = configuration file` + `pending_restart = false`）证明。
+依据见 `docs/运维规程-慢查询日志.md` §4。
+
 ## 生产影响面（144）
 
 | 项 | 落地前 | 落地后 |
@@ -48,9 +53,9 @@ log_destination            = stderr（默认）→ /var/log/postgresql/postgresq
 |:--|:--|
 | `01_before_from_backup.txt` | 落地前基线（用 `.bak-p316.*` 复现 `-1` 与原始两行） |
 | `01_before_145.txt` | 145 落地前跑 `--check`：6 项红（证明检查器不是空转） |
-| `02_apply_145.txt` | 145 落地 + 14 项检查 + 4 项探针（18/18） |
+| `02_apply_145.txt` | 145 落地 + 16 项检查 + 4 项探针（20/20） |
 | `03a_apply_144_first_run.txt` | 144 首次落地（含「托管块外与备份逐字节一致」sha256 断言）；末尾探针因缺 `cloudpivot_test` 报错 |
-| `03b_apply_144.txt` | 144 重跑（探针降级到 `postgres` 库）18/18 |
+| `03b_apply_144.txt` | 144 重跑（探针降级到 `postgres` 库）20/20 |
 | `04a_check_145.txt` / `04b_probe_145.txt` | 145 只读检查 14/14 / 探针 3/3（加反证前） |
 | `05_prod_impact_144.txt` | 生产服务与 PG 启动时间未变 |
 | `06_observe_window.txt` | 开阈值后约 2 分钟真实流量：144 只有探针 1 行、145 2 行；后台进程行仍无 `@`（`%q` 生效） |

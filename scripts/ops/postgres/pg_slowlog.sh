@@ -196,7 +196,14 @@ check_all() {
     assert_eq "$(grep -cE "^[[:space:]]*(log_min_duration_statement|log_line_prefix)" "$auto" || true)" "0" "auto.conf 未覆盖这两个参数"
   fi
 
-  echo "④ 日志落点"
+  echo "④ 重启后会怎样（postgres -C 解析同一份 conf，等价于重启时读到的值）"
+  local pv pl
+  pv="$(su - postgres -s /bin/bash -c "/usr/lib/postgresql/$PGVER/bin/postgres -D '$DATADIR' -c config_file='$CONF' -C log_min_duration_statement" 2>&1)"
+  pl="$(su - postgres -s /bin/bash -c "/usr/lib/postgresql/$PGVER/bin/postgres -D '$DATADIR' -c config_file='$CONF' -C log_line_prefix" 2>&1)"
+  assert_eq "$pv" "${THRESHOLD_MS}" "重启后 log_min_duration_statement（配置持久化，不靠 reload 的运行时状态）"
+  assert_eq "[$pl]" "[$PREFIX]" "重启后 log_line_prefix"
+
+  echo "⑤ 日志落点"
   if [ -n "$LOGFILE" ] && [ -f "$LOGFILE" ]; then
     ok "PG 日志文件存在：$LOGFILE（$(wc -l < "$LOGFILE") 行）"
     assert_match "stderr" "$(gset log_destination | cut -d'|' -f1)"
