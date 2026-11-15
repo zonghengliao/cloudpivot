@@ -15,11 +15,6 @@ use std::net::SocketAddr;
 
 use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::mutex;
-use crate::business::shared::guard as scope_guard;
-use crate::business::shared::principal;
-use crate::business::shared::scope::ScopeKind;
-use crate::shared::constants::EnableStatus;
-use crate::shared::{constants, error_code};
 use crate::support::log;
 use crate::system::menu::model::SysMenuModel;
 use crate::system::role::dto::{
@@ -27,7 +22,12 @@ use crate::system::role::dto::{
 };
 use crate::system::role::model::{self, SysRoleMenuModel, SysRoleModel};
 use crate::system::user::model::SysUserRoleModel;
-use crate::utils;
+use cloudpivot_kernel::business::shared::guard as scope_guard;
+use cloudpivot_kernel::business::shared::principal;
+use cloudpivot_kernel::business::shared::scope::ScopeKind;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::{constants, error_code};
+use cloudpivot_kernel::utils;
 
 // ==================== 接口 ====================
 
@@ -320,7 +320,7 @@ pub async fn update(
     // FIX-05：角色名 / 状态 / 数据范围变更推进了**全体持有者**的版本号
     // （事务内 `bump_token_version_of_role_holders_in`），提交后清空会话字段缓存，
     // 否则旧版本号最多还会被缓存命中 60 s。
-    crate::shared::session_cache::invalidate_all().await;
+    cloudpivot_kernel::shared::session_cache::invalidate_all().await;
     // 角色名称 / 状态变更会影响持有者权限快照，清理其主体上下文缓存
     crate::system::auth::model::invalidate_role_holders(&id).await;
     if data_scope != existing.data_scope {
@@ -1045,7 +1045,7 @@ fn role_snapshot(role: &SysRoleModel) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
     use nik::uuid::Uuid;
 
     fn uid(n: u128) -> Uuid {

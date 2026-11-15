@@ -56,10 +56,10 @@ use async_trait::async_trait;
 use nik::prelude::nik_plugin::scheduler::{CronSchedule, SchedulerPlugin};
 use nik::prelude::*;
 
-use crate::shared::{constants, error_code};
 use crate::support::job::model::{JobLogStatus, SysJobLogModel, SysJobModel};
 use crate::support::log::model::{self as log_model, JsonLogTable};
-use crate::utils;
+use cloudpivot_kernel::shared::{constants, error_code};
+use cloudpivot_kernel::utils;
 
 pub mod metrics_sampler;
 

@@ -439,7 +439,10 @@ async fn terminate_rejects_finished_instance() {
 
     let error = out.rejected.expect("终态实例必须被拒");
     assert_eq!(error.status, 409, "引擎口径是 409（handler 对外翻成 400）");
-    assert_eq!(error.code, crate::shared::error_code::FLOW_INSTANCE_NOT_PENDING);
+    assert_eq!(
+        error.code,
+        cloudpivot_kernel::shared::error_code::FLOW_INSTANCE_NOT_PENDING
+    );
     assert_eq!(fx.instance_status().await, "APPROVED", "拒绝时不许改状态");
     assert_eq!(fx.task_status(fx.pending_task_id).await, "PENDING", "拒绝时不许动待办");
 
@@ -465,5 +468,8 @@ async fn terminate_missing_instance_is_404() {
 
     let error = out.rejected.expect("必须回 404");
     assert_eq!(error.status, 404);
-    assert_eq!(error.code, crate::shared::error_code::FLOW_INSTANCE_NOT_FOUND);
+    assert_eq!(
+        error.code,
+        cloudpivot_kernel::shared::error_code::FLOW_INSTANCE_NOT_FOUND
+    );
 }

@@ -37,7 +37,7 @@ use cloudpivot::business::flow::{dto as flow_dto, handler as flow_handler, model
 use cloudpivot::business::task::state::TaskStatus;
 use cloudpivot::business::task::{dto as task_dto, handler as task_handler};
 use cloudpivot::business::taskflow::bridge::{self as task_bridge, FlowTaskOutcome, TaskStatusChanged};
-use cloudpivot::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 连库 ====================
 

@@ -12,8 +12,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::serial_model::period_key_of;
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
 
 use super::transfer_scan::{is_in_transit_overdue, overdue_elapsed_days};
 

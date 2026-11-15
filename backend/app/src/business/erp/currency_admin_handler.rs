@@ -48,8 +48,8 @@ use std::collections::HashMap;
 
 use crate::business::erp::currency;
 use crate::business::erp::currency_admin_model::{self as model, CurrencyRow, RateRow};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0316 的 sys_menu.auth_code 逐字一致） ====================
 

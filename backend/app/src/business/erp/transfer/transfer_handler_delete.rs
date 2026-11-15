@@ -8,7 +8,7 @@
 
 use super::transfer_handler_common::*;
 use crate::business::erp::transfer::transfer_model::{self};
-use crate::utils;
+use cloudpivot_kernel::utils;
 use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;

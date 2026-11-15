@@ -30,9 +30,9 @@ use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::state_machine;
-use crate::shared::constants::SUPER_ADMIN_ROLE_CODE;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::constants::SUPER_ADMIN_ROLE_CODE;
+use cloudpivot_kernel::shared::error_code;
 
 use super::spec::{self, ActionSpec};
 
@@ -501,7 +501,7 @@ pub async fn upsert_rule(
 
     let after = find_rule(ex, id)
         .await
-        .map_err(|error| crate::utils::db_error(error, "读回联动规则"))?
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "读回联动规则"))?
         .ok_or_else(|| {
             ApiError::new(
                 500,
@@ -538,7 +538,7 @@ pub async fn delete_rule(ex: &impl SqlExecutor, claims: &TokenClaims, id: Uuid, 
     }
     let before = find_rule(ex, id)
         .await
-        .map_err(|error| crate::utils::db_error(error, "读联动规则"))?
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "读联动规则"))?
         .ok_or_else(|| {
             ApiError::new(
                 404,
@@ -563,7 +563,7 @@ pub async fn delete_rule(ex: &impl SqlExecutor, claims: &TokenClaims, id: Uuid, 
             ],
         )
         .await
-        .map_err(|error| crate::utils::db_error(error, "软删联动规则"))?;
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "软删联动规则"))?;
     if affected == 0 {
         return Err(ApiError::new(
             404,
@@ -663,7 +663,7 @@ async fn write_config_audit(
         ],
     )
     .await
-    .map_err(|error| crate::utils::db_error(error, "写联动配置审计"))?;
+    .map_err(|error| cloudpivot_kernel::utils::db_error(error, "写联动配置审计"))?;
     Ok(())
 }
 

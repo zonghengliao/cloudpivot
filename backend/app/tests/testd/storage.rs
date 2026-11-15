@@ -13,7 +13,7 @@ use cloudpivot::business::storage::handler as storage_handler;
 use cloudpivot::business::storage::model as storage_model;
 use cloudpivot::business::storage::sigv4;
 use cloudpivot::business::storage::store::{self, LocalStore, ObjectStore};
-use cloudpivot::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 use crate::testd::common::{self as c, Ctx};
 

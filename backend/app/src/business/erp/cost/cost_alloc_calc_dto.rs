@@ -28,7 +28,7 @@ use crate::business::erp::cost::cost_alloc_result_model::AllocResultRow;
 use crate::business::erp::cost::cost_alloc_rule_dto::{self as rule_dto, AllocOutcome};
 use crate::business::erp::cost::cost_alloc_rule_model::CostAllocRuleRow;
 use crate::business::erp::cost::cost_overhead_collect_dto::PoolAmount;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 报文里最多列几个「没规则覆盖的池」（超出只计数）。
 pub const UNCOVERED_LIMIT: usize = 10;

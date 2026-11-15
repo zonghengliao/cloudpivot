@@ -104,10 +104,10 @@ use crate::business::erp::payable::payable_query::{self, PayableDetailRes};
 use crate::business::erp::payable::{self, PayableRow};
 use crate::business::erp::voucher::{self, EntryLine, ReversalInput, SeqSpec};
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::separation;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 应付单状态变更的跨单据联动 hook（LNK-03）。
 ///

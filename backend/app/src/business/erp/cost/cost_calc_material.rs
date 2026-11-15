@@ -40,7 +40,7 @@ use crate::business::erp::cost::cost_collect_dto::{
 };
 use crate::business::erp::cost::cost_collect_model as model;
 use crate::business::erp::ledger;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 期间区间：先校验编码形态（400），再取库里的真实区间（`biz_accounting_period` 优先）。
 pub async fn period_bounds(period_code: &str) -> std::result::Result<(NaiveDate, NaiveDate), ApiError> {

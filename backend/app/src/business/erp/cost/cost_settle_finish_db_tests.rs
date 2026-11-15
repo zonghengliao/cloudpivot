@@ -32,7 +32,7 @@ use nik::uuid::Uuid;
 mod db {
     use super::*;
     use crate::business::erp::cost::cost_settle_finish::{self, SettleContext};
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
     use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
     use nik::prelude::rust_decimal::Decimal;
     use tokio::sync::OnceCell;
@@ -161,7 +161,7 @@ mod db {
             sweep_leftovers().await;
             let suffix = uniq();
             let year = next_year();
-            let dept = crate::shared::test_helpers::ensure_any_dept().await;
+            let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
             let unit: Uuid = db()
                 .scalar_with_params("SELECT id FROM biz_unit WHERE deleted_at IS NULL LIMIT 1", vec![])
                 .await

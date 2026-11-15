@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::result::Result;
 
 use crate::business::erp::expense::expense_compute::{self, Split, Tier};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 默认每页条数。
 pub const DEFAULT_PAGE_SIZE: u64 = 20;

@@ -16,7 +16,7 @@ use cloudpivot::business::changelog::model as changelog_model;
 use cloudpivot::business::changelog::query as changelog_query;
 use cloudpivot::business::project::dto::{ProjectCreateReq, ProjectUpdateReq};
 use cloudpivot::business::project::{handler as project_handler, model as project_model};
-use cloudpivot::business::shared::principal;
+use cloudpivot_kernel::business::shared::principal;
 
 use crate::testd::common::{self as c, Ctx};
 

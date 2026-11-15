@@ -50,8 +50,12 @@ SCAN_EXTS = (".sh", ".bash", ".py", ".mjs", ".js", ".json", ".ts", ".rs")
 # 引用形态 ①：带前缀的绝对（仓库相对）路径
 # P2-40 起后端源码在 `backend/app/src/`（workspace 化：`backend/` 是 workspace 根，
 # `backend/app/` 是主 binary crate），前端源码仍在 `frontend/src/`。
+# P2-59（2026-11-15）起 `backend/crates/<crate>/src/` 也要认：域 crate 逐个抽出后，
+# 脚本 / 用例里引用的是新路径；不认的话这些引用会**静默不被检查**（红变绿的漏洞），
+# 而且形态 ② 会把 `…/cloudpivot-kernel/src/business/shared/x.rs` 的尾巴误判成
+# `backend/app/src/business/shared/x.rs`（假红）。
 REF_RE = re.compile(
-    r"((?:backend/app|frontend)/src/[A-Za-z0-9_./\-]+\.(?:rs|ts|vue|js|mjs))"
+    r"((?:backend/app|backend/crates/[A-Za-z0-9_\-]+|frontend)/src/[A-Za-z0-9_./\-]+\.(?:rs|ts|vue|js|mjs))"
 )
 # 引用形态 ②：相对 backend/app/src 的裸路径（脚本里很常见：`("business/erp/x_dto.rs", "Res", …)`）
 # 只认「已知后端模块根 + 至少两级」且必须以 .rs 结尾 —— API URL（/api/business/erp/…）

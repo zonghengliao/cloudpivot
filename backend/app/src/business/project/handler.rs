@@ -40,10 +40,10 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::project::{dto, model};
-use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::business::task::{dto as task_dto, handler as task_handler, model as task_model};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 sys_menu.auth_code 逐字一致） ====================
 //

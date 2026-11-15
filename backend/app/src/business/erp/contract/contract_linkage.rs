@@ -65,7 +65,7 @@ use crate::business::erp::contract::contract_model;
 use crate::business::erp::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 合同状态通知的 `biz_type`（与审批用例的 `CONTRACT_APPROVE` 区分开：一个是被联动发的
 /// 状态通知，一个是流程引擎发的待办）。

@@ -19,9 +19,9 @@ use crate::business::erp::stockin::stockin_model::{
 };
 use crate::business::erp::voucher;
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// **发起作废审批**（P16）：`POSTED → PENDING_CANCEL`，只挂审批单，六本账一动没动。
 ///

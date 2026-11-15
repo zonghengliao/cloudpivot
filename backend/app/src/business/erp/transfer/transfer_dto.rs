@@ -48,7 +48,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::transfer::transfer_model::{
     ALL_STATUSES, STATUS_CANCELLED, TransferItemRow, TransferRow, TransferSerialRow,
 };
-use crate::business::shared::doc_lines;
+use cloudpivot_kernel::business::shared::doc_lines;
 
 // ==================== 口径常量 ====================
 
@@ -620,7 +620,7 @@ impl TransferSerialRes {
 
 /// 参数错误码（`10001`，与其余模块一致）。
 fn error_code_param() -> i32 {
-    crate::shared::error_code::PARAM_INVALID
+    cloudpivot_kernel::shared::error_code::PARAM_INVALID
 }
 
 /// 去空白 + 空串归一成 `None`。
@@ -637,7 +637,7 @@ fn require_uuid(value: &str, field: &str) -> std::result::Result<(), ApiError> {
     if nik::uuid::Uuid::parse_str(text).is_err() {
         return Err(ApiError::new(
             400,
-            crate::shared::error_code::ERP_FILTER_INVALID,
+            cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID,
             format!("{field} 不是合法的 UUID：{text}"),
         ));
     }
@@ -651,7 +651,7 @@ fn check_optional_uuid(value: Option<&str>, field: &str) -> std::result::Result<
     {
         return Err(ApiError::new(
             400,
-            crate::shared::error_code::ERP_FILTER_INVALID,
+            cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID,
             format!("{field} 不是合法的 UUID：{text}"),
         ));
     }

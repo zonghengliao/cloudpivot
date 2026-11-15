@@ -51,8 +51,8 @@ use crate::business::impexp::engine;
 use crate::business::impexp::model::{self, ExportTask};
 use crate::business::impexp::registry::global_registry;
 use crate::business::impexp::validate::global_dicts;
-use crate::business::shared::principal;
 use crate::task::Scheduler;
+use cloudpivot_kernel::business::shared::principal;
 
 /// 调度任务名（同时用作调度名与日志标识）。
 pub const TASK_NAME: &str = "impexp_export_worker";

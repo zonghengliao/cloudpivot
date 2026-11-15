@@ -40,8 +40,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::cost::cost_object_dto::{
     self, CloseFacts, CostObjectFilter, CostObjectSpec, CostPeriodItemRes, QtyAmount,
 };
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 表名。
 pub const COST_OBJECT_TABLE: &str = "biz_cost_object";
@@ -1018,9 +1018,9 @@ pub const LEGAL_EDGES: [(&str, &str); 2] = [
 
 /// 有效边（`BASE_EDGES ∩ biz_flow_state_edge` 配置）。
 pub async fn effective_edges() -> Vec<(String, String)> {
-    crate::business::shared::state_machine::effective_edges(
+    cloudpivot_kernel::business::shared::state_machine::effective_edges(
         db(),
-        crate::business::shared::state_machine::Entity::CostObject,
+        cloudpivot_kernel::business::shared::state_machine::Entity::CostObject,
     )
     .await
     .into_iter()
@@ -1038,7 +1038,7 @@ pub fn parse_qty(raw: &str) -> DbResult<Decimal> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::shared::state_machine;
+    use cloudpivot_kernel::business::shared::state_machine;
 
     #[test]
     fn legal_edges_match_state_machine_registry() {

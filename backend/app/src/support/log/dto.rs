@@ -115,7 +115,7 @@ impl From<&OperationLogModel> for LogDetailRes {
 
 /// 操作日志分页查询参数。
 ///
-/// `page` / `page_size` 缺省时由 [`crate::utils::normalize_page`] 规整；
+/// `page` / `page_size` 缺省时由 [`cloudpivot_kernel::utils::normalize_page`] 规整；
 /// `start_time` / `end_time` 为字符串，同时兼容 RFC3339 与
 /// `%Y-%m-%d %H:%M:%S` 两种格式（后者按 UTC 解释）。
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -140,7 +140,7 @@ pub struct LogPageQuery {
 
 /// 日志清理查询参数。
 ///
-/// `days` 表示保留天数，缺省取 [`crate::shared::constants::OPERATION_LOG_RETENTION_DAYS`]；
+/// `days` 表示保留天数，缺省取 [`cloudpivot_kernel::shared::constants::OPERATION_LOG_RETENTION_DAYS`]；
 /// 至少为 1，小于 1 时按 1 处理。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CleanQuery {

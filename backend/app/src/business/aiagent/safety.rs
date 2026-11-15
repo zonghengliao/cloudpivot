@@ -24,11 +24,17 @@
 //!
 //! # 边界
 //!
-//! 本文件**纯函数、不碰数据库、不碰磁盘**：写入路径在
+//! 规则文本与写入路径都**纯函数、不碰磁盘**：写入路径在
 //! [`crate::business::aiagent::hermes::Hermes::write_soul`]（唯一落盘点），
-//! 编辑路径的「删了自动补回 + 写审计」在 [`crate::business::aiagent::handler::update`]，
-//! 启动自检在 [`crate::shared::startup_guard::check_ai_agent_missing_safety_block`]。
-//! 这样「规则文本」只有一份事实来源，改文案不需要动任何逻辑。
+//! 编辑路径的「删了自动补回 + 写审计」在 [`crate::business::aiagent::handler::update`]。
+//! 启动自检 [`warn_missing_safety_block`] 也在本文件 —— 它读库（列 ROBOT profile）与
+//! ssh 读 `SOUL.md`，因此 P2-59 · C1 把这条检查从基座 `shared::startup_guard`
+//! **下移**到这里：基座不该认识 `Hermes`（AI 员工域的东西），启动链在 AI 用户不变式
+//! 自检之后调它一次。这样「规则文本」只有一份事实来源，改文案不需要动任何逻辑。
+
+use nik::prelude::*;
+
+use crate::business::aiagent::hermes::Hermes;
 
 /// 安全区块起始标记（带版本号）。
 ///
@@ -156,6 +162,97 @@ pub fn ensure_safety_block(soul: &str) -> String {
         return SAFETY_BLOCK.to_string();
     }
     format!("{trimmed}\n\n{SAFETY_BLOCK}")
+}
+
+/// 启动巡检（E15）：每个 `user_type='ROBOT'` 的 Hermes profile，其 `SOUL.md` 必须含
+/// **当前版本**的安全红线区块（[`crate::business::aiagent::safety::SAFETY_BEGIN`]）。
+///
+/// # 为什么只 WARN、不阻启动
+///
+/// 缺失区块不会让任何接口报错、也不会让账号登不上 —— 它的危害是「这个 AI 员工这一轮
+/// 上下文里没有红线」（典型成因：有人手工编辑了 `.99` 上的 `SOUL.md`、或 profile 从
+/// 别处拷过来）。但 `SOUL.md` 在**另一台机器**上（Hermes 在 `172.18.10.99`，本服务通过
+/// ssh 读写），网络抖动 / 免密失效都会让「读不到」变成「启动失败」，代价远大于收益。
+/// 所以：**点名 WARN**，修复走编辑接口（`PUT /system/user/ai/{id}` 会自动补回）。
+///
+/// # 处置口径
+///
+/// | 情况 | 日志 |
+/// |------|------|
+/// | 文件存在但没有当前版本区块 | `WARN` + profile 名（逐个点名） |
+/// | 文件读不到（404 / ssh 失败 / 名字非法） | `WARN` + profile 名 + 原因（**不能**当成「合规」） |
+/// | 全部合规 | `INFO` + 检查了几个 profile |
+/// | 查库失败 | `WARN`（不阻启动） |
+///
+/// # 异常情况
+///
+/// 本函数**不返回错误**：所有异常都被降级成日志，调用方（`bootstrap::ai_agent_invariant_guard`）
+/// 的语义不受影响。P2-59 · C1 起本检查随 `aiagent` 域走（基座不再认识 `Hermes` / `SAFETY_BEGIN`），
+/// 由启动链在 AI 用户不变式自检之后调用一次。
+pub async fn warn_missing_safety_block() {
+    // SCOPE-EXEMPT: 启动巡检是全局检查（跨全部 ROBOT 账号），注入数据范围会漏检。
+    let rows = match db()
+        .find_with_params(
+            "SELECT a.hermes_profile FROM sys_ai_agent a \
+             JOIN sys_user u ON u.id = a.user_id \
+             WHERE a.deleted_at IS NULL AND u.deleted_at IS NULL AND u.user_type = 'ROBOT' \
+             ORDER BY a.hermes_profile LIMIT 50",
+            vec![],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!("AI 员工安全红线巡检无法完成（查库失败，继续启动）：{error}");
+            return;
+        }
+    };
+    let profiles: Vec<String> = rows
+        .iter()
+        .filter_map(|row| row.get_typed::<String>("hermes_profile").ok())
+        .collect();
+    if profiles.is_empty() {
+        tracing::info!("AI 员工安全红线巡检：当前没有 ROBOT profile，跳过");
+        return;
+    }
+
+    let hermes = Hermes::from_env();
+    let mut missing: Vec<String> = Vec::new();
+    let mut unreadable: Vec<String> = Vec::new();
+    for profile in &profiles {
+        match hermes.read_soul(profile).await {
+            Ok(soul) => {
+                if !has_safety_block(&soul) {
+                    missing.push(profile.clone());
+                }
+            }
+            Err(error) => unreadable.push(format!("{profile}（{}）", error.msg)),
+        }
+    }
+
+    for profile in &missing {
+        tracing::warn!(
+            profile = %profile,
+            "AI 员工 SOUL.md 缺少安全红线区块（E15）：该员工当前上下文里没有红线；\
+             请通过 PUT /system/user/ai/{{id}} 保存一次以自动补回"
+        );
+    }
+    for detail in &unreadable {
+        tracing::warn!("AI 员工 SOUL.md 读取失败，无法确认安全红线（E15）：{detail}");
+    }
+    if missing.is_empty() && unreadable.is_empty() {
+        tracing::info!(
+            "AI 员工安全红线巡检通过：{} 个 ROBOT profile 均含安全红线区块",
+            profiles.len()
+        );
+    } else {
+        tracing::warn!(
+            "AI 员工安全红线巡检：{} 个 profile 缺区块，{} 个读不到（共 {} 个 ROBOT profile）",
+            missing.len(),
+            unreadable.len(),
+            profiles.len()
+        );
+    }
 }
 
 #[cfg(test)]

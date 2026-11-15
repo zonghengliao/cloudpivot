@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::hr::salary_compute::{self as compute, CalcOutcome, CalcTotals, Payslip};
 use crate::business::hr::salary_item_dto::{CALC_TYPES, ITEM_TYPES, label_of};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 列表默认每页条数（与薪资项配置页同口径）。
 pub const DEFAULT_PAGE_SIZE: u64 = 20;

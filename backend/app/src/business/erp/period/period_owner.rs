@@ -37,7 +37,7 @@ use nik::uuid::Uuid;
 use std::collections::HashMap;
 use std::result::Result;
 
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 // ==================== 「下一个动作」的权限码 ====================
 

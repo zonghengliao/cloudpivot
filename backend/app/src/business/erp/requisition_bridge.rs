@@ -32,8 +32,8 @@ use crate::business::erp::budget::budget_guard::{self, BudgetVerdict, ControlMod
 use crate::business::erp::purchase::purchase_requisition_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::purchase::purchase_requisition_model::{self as model, BudgetSnapshot};
 use crate::business::flow::model as flow_model;
-use crate::business::shared::separation;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::shared::error_code;
 
 /// 采购申请审批的业务类型（与 V0331 种子 / `purchase_requisition_handler::submit` 同口径）。
 pub const BIZ_TYPE: &str = "PR_APPROVE";

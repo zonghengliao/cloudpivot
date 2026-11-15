@@ -65,9 +65,9 @@ use crate::business::impexp::registry::{DefinitionBrief, ensure_mode_allowed, gl
 use crate::business::impexp::template;
 use crate::business::impexp::validate::{self, DbFkResolver, global_dicts};
 use crate::business::impexp::worker;
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// xlsx 的 Content-Type。
 const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

@@ -51,7 +51,7 @@ use super::expense_handler::{report_cancel, report_pay, report_submit};
 use super::expense_model::{self, ItemInsert, ReportInsert};
 use crate::business::erp::linkage::spec;
 use crate::business::flow::engine;
-use crate::shared::test_helpers as seed_guard;
+use cloudpivot_kernel::shared::test_helpers as seed_guard;
 
 fn dec(text: &str) -> Decimal {
     Decimal::from_str(text).expect("金额字面量非法")

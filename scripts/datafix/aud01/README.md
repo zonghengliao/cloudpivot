@@ -20,7 +20,7 @@ V0352 加了 `uploader_name` 快照列，新上传由代码写入；**历史行*
 | `20_verify.sql` | 回填后验收：空值数 = 0、无 UUID 脏值、占位串只出现在该出现的行、抽样 10 行 | 否 |
 | `apply.sh` | 执行器：`--check` / 默认回填 / `--verify` / `--rollback` | — |
 
-## 取值口径（与 `backend/app/src/business/shared/user_name.rs` 逐字一致）
+## 取值口径（与 `backend/crates/cloudpivot-kernel/src/business/shared/user_name.rs` 逐字一致）
 
 | 情况 | 写成 |
 |------|------|

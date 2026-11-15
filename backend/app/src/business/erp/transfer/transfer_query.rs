@@ -11,7 +11,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 use super::transfer_base::*;
 use super::transfer_scan::{DEFAULT_OVERDUE_DAYS, cutoff_of};

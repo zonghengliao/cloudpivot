@@ -43,7 +43,7 @@ use crate::business::erp::cost::cost_collect_dto::{
     self as collect, CollectKey, ExistingCollectRow, PurgedRow, exceeds_scale,
 };
 use crate::business::erp::cost::cost_labor_dto;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 常量（与 DDL / 设计逐字对齐） ====================
 

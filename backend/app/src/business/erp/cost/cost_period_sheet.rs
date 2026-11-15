@@ -53,7 +53,7 @@ use crate::business::erp::cost::cost_period_handler::detail_of;
 use crate::business::erp::cost::cost_period_sheet_model::{self as model, AllocSheetRow};
 use crate::business::erp::report::money_text;
 use crate::business::impexp::engine::{WorkbookSheet, write_workbook};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 表头（主表 20 列） ====================
 //
@@ -438,7 +438,7 @@ pub async fn cost_period_cost_sheet_api(
     let detail = detail_of(id).await?;
     let allocs = model::alloc_sheet_rows(&detail.period_code)
         .await
-        .map_err(|error| crate::utils::db_error(error, "查询成本分摊结果"))?;
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询成本分摊结果"))?;
     let bytes = build_workbook(&detail, &allocs)?;
     Ok(crate::business::impexp::handler::xlsx_response(
         bytes,

@@ -41,12 +41,12 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::scope;
 use crate::business::task::handler::{param_invalid, parse_uuid_field};
 use crate::business::task::model;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量 ====================
 

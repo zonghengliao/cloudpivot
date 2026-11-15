@@ -20,11 +20,11 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// `sys_storage_config` 表对应的强类型模型（存储后端配置）。
 ///
@@ -586,7 +586,7 @@ impl PolicyViolation {
         }
     }
 
-    /// 对应的业务错误码（见 [`crate::shared::error_code`]）。
+    /// 对应的业务错误码（见 [`cloudpivot_kernel::shared::error_code`]）。
     ///
     /// # 返回值
     ///

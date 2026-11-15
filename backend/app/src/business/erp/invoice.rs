@@ -113,11 +113,11 @@ use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::voucher::{self, ReversalInput, SeqSpec};
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
 use cloudpivot_doc::VoucherSourceType;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0299 的 sys_menu.auth_code 逐字一致） ====================
 

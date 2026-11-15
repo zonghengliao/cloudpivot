@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::announcement::model::{
     AnnouncementCardRow, AnnouncementDetailRow, AttachmentRow, ManageCardRow, ManageDetailRow, ReaderRow,
 };
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 我的可见公告列表查询。
 #[derive(Debug, Clone, Default, Deserialize)]

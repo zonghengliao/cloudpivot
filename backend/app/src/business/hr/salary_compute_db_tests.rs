@@ -40,8 +40,8 @@ mod db {
         self as engine_mod, AttendanceNumbers, CalcRequest, CalcTotals, ManualEntry, STATUS_CALCULATED,
     };
     use crate::business::hr::salary_item_model;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::error_code;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::error_code;
     use tokio::sync::OnceCell;
 
     /// 夹具编码前缀（清场按它精确删）。

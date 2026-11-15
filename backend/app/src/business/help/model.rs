@@ -6,7 +6,7 @@
 //!
 //! # 三条不变量（改这个文件前先读）
 //!
-//! 1. **`content_html` 只能由 [`crate::business::shared::content`] 生成**：
+//! 1. **`content_html` 只能由 [`cloudpivot_kernel::business::shared::content`] 生成**：
 //!    [`render_content`] 是唯一的渲染入口。任何"顺手用 `format!("<h2>{}</h2>")` 拼一下"
 //!    的写法都是 XSS 面（架构 §3.2、红线）；
 //! 2. **检索只搜 `content_md`，且关键词必须过 [`escape_like`]**：不转义时用户搜 `%`
@@ -36,9 +36,9 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::content;
-use crate::business::shared::scope;
 use crate::task::Scheduler;
+use cloudpivot_kernel::business::shared::content;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 分类树的最大深度（架构 §3.1：超过 3 层前端树组件会爆炸）。
 pub const MAX_CATEGORY_DEPTH: i32 = 3;

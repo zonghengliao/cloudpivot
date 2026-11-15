@@ -31,8 +31,8 @@
 
 use nik::prelude::*;
 
-use crate::shared::observability;
 use crate::task::Scheduler;
+use cloudpivot_kernel::shared::observability;
 
 /// 调度任务名（同时用作调度名与日志标识）。
 pub const TASK_NAME: &str = "token_blacklist_cleanup";
@@ -104,7 +104,7 @@ pub async fn run_once() -> std::result::Result<CleanupReport, String> {
         .await
         .map_err(|error| format!("删除过期吊销行失败: {error}"))?;
 
-    let remaining = crate::shared::token_revocation::row_count()
+    let remaining = cloudpivot_kernel::shared::token_revocation::row_count()
         .await
         .map_err(|error| format!("统计吊销行数失败: {error}"))?;
 

@@ -106,7 +106,7 @@ impl From<&FileRow> for FileRes {
 
 /// 文件分页查询参数。
 ///
-/// `page` / `page_size` 缺省时由 [`crate::utils::normalize_page`] 规整到默认值；
+/// `page` / `page_size` 缺省时由 [`cloudpivot_kernel::utils::normalize_page`] 规整到默认值；
 /// 其余字段均为可选过滤条件。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FilePageQuery {

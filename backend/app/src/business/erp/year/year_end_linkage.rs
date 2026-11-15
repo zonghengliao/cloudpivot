@@ -75,7 +75,7 @@ use crate::business::erp::linkage;
 use crate::business::erp::year::year_end::STATUS_CLOSED;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 会计年度通知的 `biz_type`（与状态日志 `entity_type = 'ACCOUNTING_YEAR'` 同字，
 /// 便于按年度追通知）。

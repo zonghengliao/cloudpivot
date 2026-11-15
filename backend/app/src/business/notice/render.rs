@@ -28,7 +28,7 @@ use std::collections::BTreeSet;
 use nik::prelude::*;
 
 use crate::business::notice::dto::{ContentFormat, TemplateVarDecl};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 渲染后标题的最大字符数（与 `sys_notice.title VARCHAR(255)` 对齐，按字符而非字节）。
 pub const MAX_TITLE_CHARS: usize = 255;

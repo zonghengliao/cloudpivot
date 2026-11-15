@@ -43,13 +43,13 @@
 //!
 //! 单位是软删（`deleted_at`）。守卫**不看** `deleted_at`：已停用 / 已软删的单位上挂的
 //! 存量单据仍然读得到 `is_base`，而「这个单位是不是基本单位」是身份属性，与删除无关。
-//! 真正查不到单位行（数据损坏）才报 [`crate::shared::error_code::ERP_REFERENCE_MISSING`]。
+//! 真正查不到单位行（数据损坏）才报 [`cloudpivot_kernel::shared::error_code::ERP_REFERENCE_MISSING`]。
 
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 取「物料 → 它的单位（含折算基准名称）」。
 ///

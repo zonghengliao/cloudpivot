@@ -34,7 +34,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use cloudpivot::business::task::model;
-use cloudpivot::shared::startup_guard;
+use cloudpivot_kernel::shared::startup_guard;
 
 // ==================== 夹具 UUID ====================
 

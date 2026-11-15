@@ -66,9 +66,9 @@ use super::asset_model::{self, AssetInsert};
 use crate::business::erp::linkage;
 use crate::business::erp::linkage::spec;
 use crate::business::erp::period::period_test_support as support;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::shared::test_helpers as seed_guard;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::shared::test_helpers as seed_guard;
 
 /// 处置日期（库里没有 2099-03 的期间行，见文件头）。
 const DISPOSE_DATE: &str = "2099-03-15";
@@ -220,7 +220,7 @@ async fn setup() -> Option<(tokio::sync::MutexGuard<'static, ()>, Uuid)> {
 
 /// 取一个可用部门：**库里有就用，没有就造**（TST-02b A 方案）。
 async fn any_dept() -> Uuid {
-    crate::shared::test_helpers::ensure_any_dept().await
+    cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await
 }
 
 /// 取一个启用中的资产分类（V0229 种子）。

@@ -78,7 +78,7 @@ use crate::business::flow::graph::{self, AssigneeKind, EvalContext, SnapshotNode
 use crate::business::flow::internal_control;
 use crate::business::flow::no_assignee;
 use crate::business::flow::self_approval;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 策略枚举 ====================
 
@@ -882,7 +882,7 @@ pub async fn resolve(
                 "自审金额上限：实例表单既没有 amount 也没有 total_amount，按 0 处理（不拦）"
             );
         }
-        let max_amount = crate::business::shared::separation::self_approval_max_amount().await;
+        let max_amount = cloudpivot_kernel::business::shared::separation::self_approval_max_amount().await;
         (amount, max_amount)
     } else {
         (None, 0.0)

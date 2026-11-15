@@ -6,7 +6,7 @@
 | 实体 | 来源 |
 |---|---|
 | `biz_task` | `backend/app/src/business/task/state.rs::TRANSITIONS`（10 条） |
-| `biz_stock_in` | `backend/app/src/business/shared/state_machine.rs::STOCK_IN_EDGES`（3 条） |
+| `biz_stock_in` | `backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs::STOCK_IN_EDGES`（3 条） |
 | `biz_transfer` | 同上 `TRANSFER_EDGES`（6 条） |
 | `biz_purchase_order` | 同上 `PURCHASE_ORDER_EDGES`（10 条） |
 | `biz_payable` | 同上 `PAYABLE_EDGES`（4 条） |

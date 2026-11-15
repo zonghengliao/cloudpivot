@@ -34,9 +34,9 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
-use crate::utils;
 use cloudpivot_doc::DocKind;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 一种「任务可以挂上去」的单据类型：`DocKind` + 该表里的单号列。
 ///

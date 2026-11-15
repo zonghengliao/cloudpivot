@@ -32,7 +32,7 @@ use crate::business::pdf::dto::{
     MAX_RENDER_HTML_BYTES, MAX_SAMPLE_ROWS, PdfHealthRes, PdfRenderReq, PdfSampleReq, build_opts,
 };
 use crate::business::pdf::{engine, template};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 渲染服务自检。
 ///

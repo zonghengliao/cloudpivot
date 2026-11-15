@@ -17,8 +17,8 @@ use crate::business::task::dto::{self, TaskAiProgressReq, TaskAiProgressRes, Tas
 use crate::business::task::hermes_sync;
 use crate::business::task::model::{self};
 use crate::middleware::task_token::AiTaskActor;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// AI 进度回写（`PATCH /business/task/{id}/ai-progress`，**只接受任务令牌**）。
 ///

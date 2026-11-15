@@ -9,8 +9,8 @@
 //!
 //! # 与 `business/shared`（B2 基座）的分工
 //!
-//! B2 提供 [`ScopedPrincipal`]（解析后的范围）、[`crate::business::shared::scope::filter_for`]
-//! （片段生成）、[`crate::business::shared::guard::ensure_scope_grant_allowed`]（范围上限）与
+//! B2 提供 [`ScopedPrincipal`]（解析后的范围）、[`cloudpivot_kernel::business::shared::scope::filter_for`]
+//! （片段生成）、[`cloudpivot_kernel::business::shared::guard::ensure_scope_grant_allowed`]（范围上限）与
 //! 缓存失效。本模块**不重复实现**这些判定，只负责：
 //!
 //! 1. 把「角色 × 范围 × 自定义部门集合」读写到 `sys_role` / `sys_role_dept`；
@@ -30,9 +30,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::dto::{DeptBrief, DeptTreeNode, RoleScopeRes, ScopeSummary, SourceRole, TableCoverage};
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope::{SCOPED_TABLES, ScopeKind, ScopeTarget};
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope::{SCOPED_TABLES, ScopeKind, ScopeTarget};
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 运行时门禁清单（§2.4 闸② 的运行时镜像） ====================
 
@@ -401,7 +401,7 @@ pub fn validate_custom_scope(
 }
 
 /// 范围「形态」本身的上限校验（集合包含关系由
-/// [`crate::business::shared::guard::ensure_scope_grant_allowed`] 负责）。
+/// [`cloudpivot_kernel::business::shared::guard::ensure_scope_grant_allowed`] 负责）。
 ///
 /// # 为什么还需要这一层
 ///
@@ -523,7 +523,7 @@ pub fn crop_to_visible(rows: Vec<DeptRow>, visible: &BTreeSet<Uuid>) -> Vec<Dept
 
 /// 组树（输入应已过 [`crop_to_visible`]）。
 ///
-/// 复用项目既有的 [`crate::utils::build_tree`]（同级按 `sort_order` 升序），
+/// 复用项目既有的 [`cloudpivot_kernel::utils::build_tree`]（同级按 `sort_order` 升序），
 /// 不另写一份组树逻辑。
 pub fn build_tree(rows: Vec<DeptRow>) -> Vec<DeptTreeNode> {
     let nodes: Vec<DeptTreeNode> = rows
@@ -538,7 +538,7 @@ pub fn build_tree(rows: Vec<DeptRow>) -> Vec<DeptTreeNode> {
             children: Vec::new(),
         })
         .collect();
-    crate::utils::build_tree(
+    cloudpivot_kernel::utils::build_tree(
         nodes,
         |node| node.id.clone(),
         |node| node.parent_id.clone(),
@@ -942,7 +942,7 @@ fn uuid_array_param(ids: &[Uuid]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
 
     fn uid(n: u128) -> Uuid {
         Uuid::from_u128(n)

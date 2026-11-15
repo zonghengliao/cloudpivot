@@ -50,7 +50,7 @@ use nik::prelude::*;
 use std::result::Result;
 use tokio::process::Command;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// profile 名白名单正则：**命令注入的唯一入口**（红线）。
 ///

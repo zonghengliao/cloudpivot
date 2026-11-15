@@ -249,7 +249,7 @@ pub fn dept_required_usernames() -> impl Iterator<Item = &'static str> {
     DEMO_USERS
         .iter()
         .map(|user| user.username)
-        .chain(std::iter::once(crate::shared::constants::ADMIN_USERNAME))
+        .chain(std::iter::once(cloudpivot_kernel::shared::constants::ADMIN_USERNAME))
 }
 
 // ==================== 查询：关键角色当前状态 ====================
@@ -722,7 +722,7 @@ mod tests {
         let leaders = DEMO_USERS.iter().filter(|user| user.username == "demo_lead").count();
         assert_eq!(leaders, 1, "演示部门的负责人只能是 demo_lead");
         let members = dept_required_usernames()
-            .filter(|name| *name != crate::shared::constants::ADMIN_USERNAME)
+            .filter(|name| *name != cloudpivot_kernel::shared::constants::ADMIN_USERNAME)
             .count();
         assert_eq!(
             members,
@@ -744,7 +744,7 @@ mod tests {
         let unique: std::collections::HashSet<_> = names.iter().collect();
         assert_eq!(unique.len(), names.len(), "补漏名单不许重复");
         assert!(
-            names.contains(&crate::shared::constants::ADMIN_USERNAME),
+            names.contains(&cloudpivot_kernel::shared::constants::ADMIN_USERNAME),
             "admin 没有部门 ⇒ N2 照样 WARN（本卡现象①）"
         );
         for user in DEMO_USERS {

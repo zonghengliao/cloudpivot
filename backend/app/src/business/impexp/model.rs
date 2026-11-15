@@ -18,9 +18,9 @@
 use nik::prelude::*;
 
 use crate::business::impexp::definition::RowIssue;
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 /// `sys_import_task` 的强类型视图。
 #[derive(Debug, Clone)]

@@ -701,7 +701,7 @@ async fn k08_mutex_erp_maker_checker_gap() {
 
         // ③ 错误码 + 留痕口径没漂
         assert_eq!(
-            cloudpivot::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
+            cloudpivot_kernel::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
             65019,
             "内控拒绝的错误码变了（前端/文档按 65019 判自审拦截）"
         );

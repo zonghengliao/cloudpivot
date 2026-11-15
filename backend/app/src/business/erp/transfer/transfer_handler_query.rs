@@ -12,7 +12,7 @@ use crate::business::erp::transfer::transfer_dto::{
     TransferSerialRes, TransferSerialsRes,
 };
 use crate::business::erp::transfer::transfer_model::{self, TransferQuery};
-use crate::utils;
+use cloudpivot_kernel::utils;
 use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;

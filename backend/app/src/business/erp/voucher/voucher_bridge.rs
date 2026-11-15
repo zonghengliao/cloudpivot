@@ -53,8 +53,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::separation;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::shared::error_code;
 
 /// 红冲审批的业务类型（与 V0191 种子 / `voucher_write::REVERSE_BIZ_TYPE` 同口径）。
 pub const BIZ_TYPE: &str = "VOUCHER_REVERSE";
@@ -519,7 +519,7 @@ mod tests {
         // 库里 ck_biz_voucher_status 只有 4 个值，没有 PENDING_REVERSE：
         // 报表取数只认 POSTED，加一个「审批中」状态会让已入账凭证从报表消失。
         assert!(
-            !crate::business::shared::state_machine::VOUCHER_EDGES
+            !cloudpivot_kernel::business::shared::state_machine::VOUCHER_EDGES
                 .iter()
                 .any(|(_, to)| *to == "PENDING_REVERSE"),
             "凭证状态机里不许出现 PENDING_REVERSE：红冲用 pending_reverse_instance_id 表达"

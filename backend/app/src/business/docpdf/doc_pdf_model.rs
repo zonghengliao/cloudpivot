@@ -30,20 +30,20 @@ use nik::uuid::Uuid;
 /// 路径里的 UUID：非法 → `400 + 66006`（绝不静默当作「没传」）。
 ///
 /// 与 `purchase_handler::parse_uuid` / `order_pdf::parse_id` 同一判据
-/// （错误码 [`crate::shared::error_code::ERP_FILTER_INVALID`]）。
+/// （错误码 [`cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID`]）。
 pub fn parse_doc_id(raw: &str) -> std::result::Result<Uuid, ApiError> {
     let text = raw.trim();
     if text.is_empty() {
         return Err(ApiError::new(
             400,
-            crate::shared::error_code::ERP_FILTER_INVALID,
+            cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID,
             "id 不能为空",
         ));
     }
     Uuid::parse_str(text).map_err(|_| {
         ApiError::new(
             400,
-            crate::shared::error_code::ERP_FILTER_INVALID,
+            cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID,
             format!("id 不是合法的 UUID：{text}"),
         )
     })
@@ -84,7 +84,7 @@ pub fn sanitize_filename(text: &str) -> String {
 pub fn not_found(label: &str) -> ApiError {
     ApiError::new(
         404,
-        crate::shared::error_code::RESOURCE_NOT_FOUND,
+        cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND,
         format!("{label}不存在或已删除"),
     )
 }
@@ -490,7 +490,7 @@ mod tests {
     fn parse_doc_id_rejects_garbage() {
         let error = parse_doc_id("not-a-uuid").expect_err("非法 id 必须报错");
         assert_eq!(error.status, 400);
-        assert_eq!(error.code, crate::shared::error_code::ERP_FILTER_INVALID);
+        assert_eq!(error.code, cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID);
         let empty = parse_doc_id("   ").expect_err("空 id 必须报错");
         assert_eq!(empty.status, 400);
         assert!(parse_doc_id(&Uuid::nil().to_string()).is_ok());

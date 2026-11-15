@@ -809,7 +809,7 @@ async fn paginate_with_filter(
 }
 
 /// 校验「片段注入位置」与参数顺序是否自洽（见 [`paginate`] 的三条规则）。
-pub(crate) fn ensure_injection_point(base_sql: &str, base_param_count: usize) -> DbResult<()> {
+pub fn ensure_injection_point(base_sql: &str, base_param_count: usize) -> DbResult<()> {
     let markers = base_sql.matches(FILTER_MARKER).count();
     if markers > 1 {
         return Err(DbError::InvalidValue(format!(
@@ -859,7 +859,7 @@ fn inject_filter(base_sql: &str, filter: &RowFilter) -> String {
 /// 构造 count 语句：**不含** `ORDER BY`（S12）。
 ///
 /// 形如 `SELECT COUNT(*) FROM (base_sql 已注入片段) AS _scope_count`。
-pub(crate) fn build_count_sql(base_sql: &str, filter: &RowFilter) -> String {
+pub fn build_count_sql(base_sql: &str, filter: &RowFilter) -> String {
     format!(
         "SELECT COUNT(*) FROM ({}) AS _scope_count",
         inject_filter(base_sql, filter).trim_end()
@@ -870,13 +870,7 @@ pub(crate) fn build_count_sql(base_sql: &str, filter: &RowFilter) -> String {
 ///
 /// `LIMIT` / `OFFSET` 由本函数用**字面量**内联（与框架 `push_limit_offset` 同取向：
 /// 参数化 LIMIT 会让驱动多一次绑定；它们是 `u64` 运算结果，不存在注入面）。
-pub(crate) fn build_data_sql(
-    base_sql: &str,
-    filter: &RowFilter,
-    order_by: Option<&str>,
-    size: u64,
-    offset: u64,
-) -> String {
+pub fn build_data_sql(base_sql: &str, filter: &RowFilter, order_by: Option<&str>, size: u64, offset: u64) -> String {
     let injected = inject_filter(base_sql, filter);
     let mut sql = String::with_capacity(injected.len() + 64);
     sql.push_str(injected.trim_end());
@@ -891,7 +885,7 @@ pub(crate) fn build_data_sql(
 /// 参数合并：**片段参数前置**于业务参数（S8/S13 的顺序契约）。
 ///
 /// 原因：片段拼在 `WHERE` 的业务过滤条件**之前**，SQL 里 `?` 的位置自然在前。
-pub(crate) fn merge_params(filter: &RowFilter, base_params: &[Value]) -> Vec<Value> {
+pub fn merge_params(filter: &RowFilter, base_params: &[Value]) -> Vec<Value> {
     let mut params = Vec::with_capacity(filter.params().len() + base_params.len());
     params.extend(filter.params().iter().cloned());
     params.extend(base_params.iter().cloned());

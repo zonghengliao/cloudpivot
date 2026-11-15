@@ -64,7 +64,6 @@ use nik::uuid::Uuid;
 
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
-use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::business::storage;
 use crate::business::task::dto::{
     self, PERM_ATTACHMENT_DELETE, PERM_COMMENT_DELETE, PERM_WORKLOG, TaskAttachmentDeleteRes, TaskAttachmentItemRes,
@@ -73,8 +72,9 @@ use crate::business::task::dto::{
 };
 use crate::business::task::handler::{not_found, parse_uuid_field};
 use crate::business::task::model::{self, TaskDetailRow};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量（上限 / 值域，唯一来源） ====================
 

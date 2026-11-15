@@ -91,7 +91,7 @@ const RUST_RECORD_DTO = readFileSync(
   'utf8',
 );
 const RUST_STATE_MACHINE = readFileSync(
-  new URL('../../../backend/app/src/business/shared/state_machine.rs', import.meta.url),
+  new URL('../../../backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs', import.meta.url),
   'utf8',
 );
 const SQL_HR_TABLES = readFileSync(

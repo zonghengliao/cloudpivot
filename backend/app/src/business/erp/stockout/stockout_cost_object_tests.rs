@@ -46,7 +46,7 @@ use crate::business::erp::stockout::stockout_dto::{CreateStockOutReq, IssuePrefi
 use crate::business::erp::stockout::stockout_handler;
 use crate::business::erp::stockout::stockout_model;
 use crate::business::erp::voucher;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ---------- 夹具（固定 UUID，每轮 setup 重建） ----------
 
@@ -178,7 +178,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         return None;
     }
     cleanup_fixtures().await;
-    let dept = crate::shared::test_helpers::ensure_any_dept().await;
+    let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
     // 夹具声明是常量（`&'static str`），车间 id 是运行时取的，所以这里补一条 UPDATE 把
     // 成本对象的车间指到真实存在的部门上（`workshop_dept_id` 没有物理外键，但与
     // `close_facts` 的车间口径一致更贴近真实数据）。

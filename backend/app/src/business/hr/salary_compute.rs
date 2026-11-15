@@ -95,9 +95,9 @@ use crate::business::hr::salary_item_dto::{
 };
 use crate::business::hr::salary_item_model::{self as item_model, SalaryItemRow};
 use crate::business::hr::salary_vars::{self, ComputePlan, ItemSpec, VarIssue};
-use crate::business::shared::state_machine::{self, Operator};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine::{self, Operator};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量 ====================
 

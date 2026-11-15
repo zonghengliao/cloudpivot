@@ -15,7 +15,7 @@ use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::stockin::stockin_bridge;
 use crate::business::erp::stockin::stockin_model::{self, STATUS_DRAFT};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// ⑨ 提交过账 → PENDING_POST + 实例 + 六本账一分没动。
 #[tokio::test]

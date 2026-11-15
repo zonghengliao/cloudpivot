@@ -40,8 +40,8 @@ use crate::business::erp::asset::asset_model::{self, AssetRow};
 use crate::business::erp::voucher;
 use crate::business::erp::voucher::voucher_multi;
 use crate::business::flow::model as flow_model;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 /// 资产处置审批的业务类型（与 V0231 种子 / `asset_handler::dispose` 同口径）。
 pub const BIZ_TYPE: &str = "ASSET_DISPOSAL";

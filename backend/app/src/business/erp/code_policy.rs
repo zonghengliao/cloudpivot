@@ -43,8 +43,8 @@
 use nik::prelude::*;
 
 use crate::business::erp::seq;
-use crate::shared::error_code;
 use crate::support::config::model::{self as config_model, SysConfigModel};
+use cloudpivot_kernel::shared::error_code;
 
 /// 参数键（`sys_config.config_key`）。
 pub const ALLOW_MANUAL_CODE_KEY: &str = "erp.master_data.allow_manual_code";

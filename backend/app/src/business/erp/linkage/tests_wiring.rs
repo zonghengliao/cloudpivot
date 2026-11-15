@@ -743,7 +743,7 @@ fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
 
     // 第二道闸：配置期（保存接口 + 配置页预览）必须真的读实体级禁令。
     assert!(
-        spec::forbidden_actions(crate::business::shared::state_machine::ENTITY_VOUCHER)
+        spec::forbidden_actions(cloudpivot_kernel::business::shared::state_machine::ENTITY_VOUCHER)
             .contains(&spec::ACTION_GENERATE_VOUCHER),
         "凭证实体没有声明 GENERATE_VOUCHER 禁令：保存时拦不住「凭证生凭证」"
     );
@@ -820,7 +820,7 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
     // 第二道闸：配置期（保存接口 + 配置页预览）必须读实体级禁令 ——
     // 合同上跑 GENERATE_VOUCHER 永远只会被 Skipped，不能让管理员配得上一份「看起来生效」的规则。
     assert!(
-        spec::forbidden_actions(crate::business::shared::state_machine::ENTITY_CONTRACT)
+        spec::forbidden_actions(cloudpivot_kernel::business::shared::state_machine::ENTITY_CONTRACT)
             .contains(&spec::ACTION_GENERATE_VOUCHER),
         "合同实体没有声明 GENERATE_VOUCHER 禁令：保存时拦不住「配了永远不执行」的规则"
     );
@@ -1574,7 +1574,7 @@ fn purchase_return_wires_generic_engine_and_excludes_accounting() {
     );
 
     // 触发点本身必须标 wired（接线表里查得到）。
-    let decl = spec::trigger_spec(crate::business::shared::state_machine::ENTITY_PURCHASE_RETURN)
+    let decl = spec::trigger_spec(cloudpivot_kernel::business::shared::state_machine::ENTITY_PURCHASE_RETURN)
         .expect("PURCHASE_RETURN 必须在 spec::TRIGGER_SPECS 里（白名单与接线表逐字同序）");
     assert!(
         decl.wired,

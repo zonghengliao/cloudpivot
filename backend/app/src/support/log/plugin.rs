@@ -18,8 +18,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nik::prelude::*;
 
-use crate::shared::constants;
 use crate::support::config::model;
+use cloudpivot_kernel::shared::constants;
 
 /// 日志总线插件。
 pub struct LogPlugin;

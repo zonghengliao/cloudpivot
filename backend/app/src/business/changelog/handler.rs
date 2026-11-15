@@ -20,7 +20,7 @@
 //!
 //! `sys_change_log` 的**写入**只能由业务事务内的 [`crate::business::changelog::record`]
 //! 完成（D11）；本文件只读。读路径允许使用全局连接，执行器由
-//! [`crate::business::shared::conn`] 提供 —— 门禁 G2（`business/changelog/` 内不得出现
+//! [`cloudpivot_kernel::business::shared::conn`] 提供 —— 门禁 G2（`business/changelog/` 内不得出现
 //! 自开事务的 `db()`）因此仍然成立：本文件的每一个 SQL 都只吃 `&impl SqlExecutor`，
 //! 连接从「外部」传进来，写路径的签名一个字都没变。
 //!
@@ -48,9 +48,9 @@ use crate::business::changelog::dto::{
 };
 use crate::business::changelog::mask;
 use crate::business::changelog::query::{self, ChangeLogRow, Filter};
-use crate::business::shared::conn;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::conn;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// xlsx 的 MIME（与 `business/impexp` 同口径）。
 const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

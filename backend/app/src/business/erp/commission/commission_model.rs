@@ -42,8 +42,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::commission::commission_dto::{
     self, CommissionFilter, STATUS_APPROVED, STATUS_DRAFT, STATUS_PAID,
 };
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 // ==================== 常量 ====================
 
@@ -481,7 +481,7 @@ pub async fn page(
         sql.push_str(" AND t.status = ?");
         params.push(Value::Text(status.to_string()));
     }
-    if let Some(pattern) = crate::utils::like_pattern(q.keyword.as_deref()) {
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(q.keyword.as_deref()) {
         sql.push_str(
             " AND (t.settlement_no LIKE ? \
                     OR COALESCE(NULLIF(u.real_name, ''), u.username, '') LIKE ? \

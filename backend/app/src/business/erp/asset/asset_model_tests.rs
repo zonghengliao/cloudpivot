@@ -50,9 +50,9 @@ mod db {
     }
 
     /// 取一个可用部门：**库里有就用，没有就造**（TST-02b A 方案，见
-    /// `crate::shared::test_helpers::ensure_any_dept`）。
+    /// `cloudpivot_kernel::shared::test_helpers::ensure_any_dept`）。
     async fn any_dept() -> Uuid {
-        crate::shared::test_helpers::ensure_any_dept().await
+        cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await
     }
 
     /// 取一个启用中的资产分类（V0229 迁移种子；空库上也有，查不到就是库版本不对）。

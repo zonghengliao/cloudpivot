@@ -52,10 +52,10 @@ use crate::business::hr::employee_handler;
 use crate::business::hr::employee_model;
 use crate::business::hr::salary_dto::{self, SalaryAdjustReq, SalaryAdjustRes, SalaryListRes, SalaryWrite};
 use crate::business::hr::salary_model;
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::state_machine::Operator;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::state_machine::Operator;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0387 的 sys_menu.auth_code 逐字一致） ====================
 

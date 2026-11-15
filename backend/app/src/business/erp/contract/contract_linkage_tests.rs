@@ -43,8 +43,8 @@ use super::contract_model;
 use crate::business::erp::linkage;
 use crate::business::erp::linkage::model as linkage_model;
 use crate::business::erp::linkage::{engine as linkage_engine, spec};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 /// 夹具账号（制单人 / 操作人 / 审批实例发起人）。
 const U_MAKER: &str = "a2a70001-0000-4000-8000-000000000001";

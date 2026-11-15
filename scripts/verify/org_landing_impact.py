@@ -11,7 +11,7 @@
 
 ## 口径来源（不重新发明）
 
-- `backend/app/src/business/shared/principal.rs::RESOLVE_SQL`（原样搬过来，`?` 换成字面量）；
+- `backend/crates/cloudpivot-kernel/src/business/shared/principal.rs::RESOLVE_SQL`（原样搬过来，`?` 换成字面量）；
 - `principal.rs::merge_scope_rows`（多角色并集 / 超管与 ALL 短路清空 dept_ids /
   部门类解析不出部门 → 降级 SelfOnly，S10/S11）；
 - `shared/scope.rs::filter_for`（All→恒真；部门集合→`dept_id = ANY`；self_only→`OR owner = me`；

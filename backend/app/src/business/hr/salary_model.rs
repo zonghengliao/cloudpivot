@@ -48,8 +48,8 @@ use nik::uuid::Uuid;
 
 use crate::business::hr::employee_dto::SalaryInput;
 use crate::business::hr::model::SENTINEL_ORG_ID;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 约束名（与 V0383 逐字一致） ====================
 

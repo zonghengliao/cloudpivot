@@ -50,8 +50,8 @@ use std::result::Result;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::hr::leave_dto::{self, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::hr::leave_model::{self as model, LeaveRow};
-use crate::business::shared::state_machine::{self, Operator};
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine::{self, Operator};
+use cloudpivot_kernel::shared::error_code;
 
 /// 请假审批的业务类型（与 `V0393` 种子 / `leave_handler::FLOW_BIZ_TYPE` 同口径）。
 pub const BIZ_TYPE: &str = "HR_LEAVE";

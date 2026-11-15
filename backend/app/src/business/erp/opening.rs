@@ -81,9 +81,9 @@ use super::inventory_writer::{self, TxnRecord};
 use crate::business::erp::period;
 use crate::business::erp::stockin::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
-use crate::shared::error_code;
 use crate::support::config::model::SysConfigModel;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量 ====================
 
@@ -1764,8 +1764,8 @@ mod tests {
     use crate::business::erp::fixture_hygiene;
     use crate::business::erp::income_statement;
     use crate::business::erp::report;
-    use crate::business::shared::state_machine;
     use crate::support::config::model::reload_runtime_snapshot;
+    use cloudpivot_kernel::business::shared::state_machine;
     use std::str::FromStr;
 
     /// 真库用例串行跑。

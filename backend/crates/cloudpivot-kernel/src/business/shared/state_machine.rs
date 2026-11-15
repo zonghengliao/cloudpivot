@@ -5827,7 +5827,8 @@ mod hr_state_machine_tests {
 
     /// 读 HR 建表迁移（V0383，已应用、不可改）。
     fn hr_ddl() -> String {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations/business/V0383__hr_tables.up.sql");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../app/migrations/business/V0383__hr_tables.up.sql");
         std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("读不到 {}：{err}", path.display()))
     }
 

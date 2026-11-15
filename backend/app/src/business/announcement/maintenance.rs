@@ -317,7 +317,7 @@ pub fn notice_target(
         other => {
             return Err(notice::DispatchError::Api(ApiError::new(
                 400,
-                crate::shared::error_code::PARAM_INVALID,
+                cloudpivot_kernel::shared::error_code::PARAM_INVALID,
                 format!("公告范围类型非法：{other}"),
             )));
         }
@@ -346,7 +346,7 @@ pub fn notice_content(row: &PendingDispatchRow) -> String {
     if !summary.is_empty() {
         return truncate_chars(summary, 200);
     }
-    let plain = crate::business::shared::content::to_plain_text(&row.content_md);
+    let plain = cloudpivot_kernel::business::shared::content::to_plain_text(&row.content_md);
     let plain = plain.trim();
     if plain.is_empty() {
         row.title.clone()

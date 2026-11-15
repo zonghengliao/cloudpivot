@@ -9,7 +9,7 @@
 use super::*;
 use crate::business::erp::transfer::transfer_dto::TRANSFER_PERMISSIONS;
 use crate::business::flow::model as flow_model;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 use nik::prelude::*;
 
 /// 与 V0144 逐字一致的 6 个权限码（重复导出一次，单测与脚本都能拿到）。

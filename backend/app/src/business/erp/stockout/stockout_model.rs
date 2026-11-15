@@ -61,9 +61,9 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::voucher;
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::utils;
 
 use super::super::inventory_writer::{self, TxnRecord};
 use super::super::stockin::stockin_base::InventorySnapshot;

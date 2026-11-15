@@ -50,8 +50,8 @@ mod db {
     };
     use crate::business::hr::salary_sheet_handler;
     use crate::business::hr::salary_sheet_model as model;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::error_code;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::error_code;
     use tokio::sync::OnceCell;
 
     /// 夹具员工工号前缀（清场按它精确删）。

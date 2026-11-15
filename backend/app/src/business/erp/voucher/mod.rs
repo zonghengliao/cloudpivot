@@ -122,7 +122,7 @@ use std::collections::BTreeMap;
 pub use crate::business::erp::currency::BaseAmounts;
 use crate::business::erp::serial_model;
 use crate::business::erp::stockin::stockin_model::StockInRow;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 // ==================== 子模块（P2-13：`erp/voucher_*.rs` 拆入 `erp/voucher/`） ====================
 // 本文件是凭证域的 **facade**（拆目录前叫 `erp/voucher.rs`），对外路径 `erp::voucher::*` 一字未变；
@@ -468,7 +468,7 @@ pub async fn is_period_closed(ex: &impl SqlExecutor, period_code: &str) -> DbRes
 /// 实现已下移到 `business/shared/period_key.rs`（P2-B 解环：凭证日期与单据号段的日期段
 /// 必须是同一天，而那个换算是纯函数 —— 留在 ERP 里会让别的域为了一个 `format` 依赖整个 ERP）。
 pub fn today_cst(now: DateTime<Utc>) -> NaiveDate {
-    crate::business::shared::period_key::today_cst(now)
+    cloudpivot_kernel::business::shared::period_key::today_cst(now)
 }
 
 // ==================== 科目解析 ====================

@@ -39,14 +39,14 @@
 
 use nik::prelude::*;
 
-use crate::shared::constants;
-use crate::shared::error_code;
 use crate::system::auth::dto::LoginReq;
 use crate::system::tests_support as ts;
 use crate::system::user::dto::{
     UserCreateReq, UserPageQuery, UserPasswordReq, UserRoleAssignReq, UserStatusReq, UserUpdateReq,
 };
 use crate::system::user::{handler, model};
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::error_code;
 
 /// 「库里真实存在且持有 SUPER_ADMIN」的操作者声明 —— 直接用内置管理员。
 ///
@@ -477,7 +477,7 @@ async fn u08_dept_change_updates_data_scope_immediately() {
     )
     .await
     .expect("改部门失败");
-    let principal_a = crate::business::shared::principal::resolve(&user_uuid)
+    let principal_a = cloudpivot_kernel::business::shared::principal::resolve(&user_uuid)
         .await
         .expect("解析数据范围失败");
     assert_eq!(
@@ -503,7 +503,7 @@ async fn u08_dept_change_updates_data_scope_immediately() {
     )
     .await
     .expect("改部门失败");
-    let principal_b = crate::business::shared::principal::resolve(&user_uuid)
+    let principal_b = cloudpivot_kernel::business::shared::principal::resolve(&user_uuid)
         .await
         .expect("解析数据范围失败");
     assert_eq!(

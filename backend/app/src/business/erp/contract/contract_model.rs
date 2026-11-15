@@ -38,8 +38,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::contract::contract_dto::ContractQuery;
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 合同表名（A2 复用，避免各处硬编码）。
 pub const CONTRACT_TABLE: &str = "biz_contract";
@@ -73,11 +73,11 @@ pub fn required_party_b_type(contract_type: &str) -> &'static str {
 /// 合同的 6 个状态（与 DDL 的 `ck_biz_contract_status` 白名单逐字一致）。
 ///
 /// R-P1-1 之前是 5 个（`DRAFT/SIGNED/ACTIVE/COMPLETED/TERMINATED`），
-/// 现在多了 `PENDING_APPROVAL`（审批中）—— 见 [`crate::business::shared::state_machine::CONTRACT_EDGES`]
+/// 现在多了 `PENDING_APPROVAL`（审批中）—— 见 [`cloudpivot_kernel::business::shared::state_machine::CONTRACT_EDGES`]
 /// 的说明：**没有待审批态就没法表达「合同已经交出去等人批」**，而 A1 的
 /// `DRAFT → SIGNED` 一条边就把合同变成了可用于采购付款的已签状态。
 ///
-/// 状态推进**只能**走 [`crate::business::shared::state_machine::transition`]
+/// 状态推进**只能**走 [`cloudpivot_kernel::business::shared::state_machine::transition`]
 /// （`Entity::Contract`，ARCH-2 DEC-10）；本模块不提供 `UPDATE ... SET status`，
 /// 也不该有人提供 —— `rg "SET status" business/erp/contract/contract_*` 必须 0 命中。
 pub const STATUSES: [&str; 6] = [
@@ -934,7 +934,7 @@ pub async fn contract_write_termination_remark(ex: &impl SqlExecutor, id: Uuid, 
 }
 
 /// 写状态 + 审批实例（R-P1-1：**审批三态的所有写入都走这一个函数**）。
-/// 语义按 `to` 分三种（与 [`crate::business::shared::state_machine::transition`] 的调用点一一对应）：
+/// 语义按 `to` 分三种（与 [`cloudpivot_kernel::business::shared::state_machine::transition`] 的调用点一一对应）：
 ///
 /// | 迁移 | `instance_id` | 结果 |
 /// |---|---|---|

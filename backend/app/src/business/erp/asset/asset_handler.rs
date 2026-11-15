@@ -56,9 +56,9 @@ use crate::business::erp::code_policy;
 use crate::business::erp::seq;
 use crate::business::erp::voucher::voucher_multi;
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
     utils::current_user_uuid(claims)

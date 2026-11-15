@@ -50,7 +50,7 @@ use crate::business::erp::expense::expense_model::ReportRow;
 use crate::business::erp::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 

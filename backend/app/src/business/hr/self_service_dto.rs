@@ -51,7 +51,7 @@ use crate::business::hr::attendance_record_dto::{self, RecordNumbers};
 use crate::business::hr::employee_dto;
 use crate::business::hr::leave_dto;
 use crate::business::hr::salary_sheet_dto;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 权限码 ====================
 

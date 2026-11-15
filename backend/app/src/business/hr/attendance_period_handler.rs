@@ -70,9 +70,9 @@ use crate::business::hr::attendance_period_dto::{
     STATUS_DRAFT,
 };
 use crate::business::hr::attendance_period_model as model;
-use crate::business::shared::state_machine::{self, Operator};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine::{self, Operator};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0387 的 sys_menu.auth_code 逐字一致） ====================
 

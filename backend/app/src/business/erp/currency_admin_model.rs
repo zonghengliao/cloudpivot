@@ -35,8 +35,8 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::currency;
 use crate::business::erp::model_base::page_of;
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 /// 分页口径复用底座（默认 20 / 上限 200 / `page_size = 0` 回落）。
 pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalize_page};

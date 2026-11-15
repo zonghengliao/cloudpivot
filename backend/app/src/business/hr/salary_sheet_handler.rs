@@ -63,10 +63,10 @@ use crate::business::hr::salary_sheet_dto::{
     SalarySheetCardRes, SalarySheetListQuery, SalarySheetSummaryRes, SalaryTotalsRes,
 };
 use crate::business::hr::salary_sheet_model::{self as model};
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::state_machine::{self, ENTITY_SALARY_SHEET, Operator};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::state_machine::{self, ENTITY_SALARY_SHEET, Operator};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 sys_menu.auth_code 逐字一致） ====================
 

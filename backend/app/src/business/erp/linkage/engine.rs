@@ -53,7 +53,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::voucher::{self, VoucherSnapshot};
 use crate::business::notice::NoticeDraft;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 use super::actions::{self, ActionError};
 use super::model::{self, LinkageRuleRow};

@@ -201,7 +201,7 @@ pub fn slowest_of(rows: &[BottleneckRow]) -> Option<&BottleneckRow> {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn efficiency_rows(
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
     window: StatsWindow,
 ) -> DbResult<Vec<EfficiencyRow>> {
     let vis = instance_visibility(principal).await?;
@@ -260,7 +260,7 @@ pub async fn efficiency_rows(
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn bottleneck_rows(
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
     window: StatsWindow,
     limit: i64,
 ) -> DbResult<Vec<BottleneckRow>> {

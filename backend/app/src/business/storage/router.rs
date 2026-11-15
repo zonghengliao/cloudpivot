@@ -26,7 +26,7 @@ use nik::prelude::*;
 use crate::business::storage::cipher::{self, MasterKey};
 use crate::business::storage::model::{SysStorageConfigModel, SysStoragePolicyModel};
 use crate::business::storage::store::{LocalStore, ObjectStore, S3Store, S3StoreParams};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 存储路由器（进程级单例，见 [`crate::business::storage::global_router`]）。
 #[derive(Default)]
@@ -348,7 +348,7 @@ pub fn decrypt_credentials(
 mod tests {
     use super::*;
     use crate::business::storage::store::MemoryStore;
-    use crate::shared::constants::EnableStatus;
+    use cloudpivot_kernel::shared::constants::EnableStatus;
 
     /// 构造一条测试策略。
     fn policy_with(storage_code: Option<&str>) -> SysStoragePolicyModel {

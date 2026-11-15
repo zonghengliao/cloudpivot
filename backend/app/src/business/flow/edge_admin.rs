@@ -1,6 +1,6 @@
 //! 状态机边配置的**管理面 + 审批化**（【D3】流程配置化 · 阶段 3 出口 / 卡 t_217a95ad）。
 //!
-//! 内核在 [`crate::business::shared::state_machine`]（D1）：`BASE_EDGES` 硬约束白名单 +
+//! 内核在 [`cloudpivot_kernel::business::shared::state_machine`]（D1）：`BASE_EDGES` 硬约束白名单 +
 //! `biz_flow_state_edge` 配置表 + 运行时 `effective_edges()` 合并 + 唯一写入入口
 //! `upsert_edge_config` / `delete_edge_config` / `list_edge_config`。
 //! **本模块一行合并 / 校验逻辑都不重复实现**，只做三件事：
@@ -59,9 +59,11 @@ use serde_json::Value as JsonValue;
 
 use crate::business::flow::approval_gate;
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine::{self, BaseEdge, Edge, EdgeConfigPatch, EdgeConfigRow, Entity, Operator};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine::{
+    self, BaseEdge, Edge, EdgeConfigPatch, EdgeConfigRow, Entity, Operator,
+};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 读配置的权限码（与 `V0206` 种进 `sys_menu.auth_code` 的值逐字一致）。
 pub const PERM_LIST: &str = "business:flow:state-edge:list";
@@ -1223,7 +1225,7 @@ async fn super_admin_claims_of(user_id: Uuid) -> std::result::Result<TokenClaims
         .collect();
     if !roles
         .iter()
-        .any(|code| code == crate::shared::constants::SUPER_ADMIN_ROLE_CODE)
+        .any(|code| code == cloudpivot_kernel::shared::constants::SUPER_ADMIN_ROLE_CODE)
     {
         return Err(ApiError::new(
             403,

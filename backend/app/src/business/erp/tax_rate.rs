@@ -42,7 +42,7 @@
 use nik::prelude::rust_decimal::{Decimal, RoundingStrategy};
 use nik::prelude::*;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 百分数标度的上限（`tax_rate <= 100`）。
 pub const PERCENT_MAX: Decimal = Decimal::ONE_HUNDRED;

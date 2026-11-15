@@ -43,8 +43,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::stockin::stockin_handler;
 use crate::business::erp::stockin::stockin_model::{self, STATUS_PENDING_CANCEL};
 use crate::business::flow::{engine, model as flow_model, settle_guard};
-use crate::business::shared::separation;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::shared::error_code;
 
 /// 作废审批的业务类型（与 V0174 种子 / `stockin_model::published_cancel_flow` 同口径）。
 pub const BIZ_TYPE: &str = stockin_model::CANCEL_BIZ_TYPE;
@@ -147,7 +147,7 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
     };
     if !settle_guard::gate(
         &instance,
-        crate::business::shared::state_machine::Entity::StockIn,
+        cloudpivot_kernel::business::shared::state_machine::Entity::StockIn,
         &row.in_no,
         &row.status,
         STATUS_PENDING_CANCEL,
@@ -441,7 +441,7 @@ async fn settle_post(instance_id: Uuid, verdict: PostVerdict) -> DbResult<Option
     };
     if !settle_guard::gate(
         &instance,
-        crate::business::shared::state_machine::Entity::StockIn,
+        cloudpivot_kernel::business::shared::state_machine::Entity::StockIn,
         &row.in_no,
         &row.status,
         stockin_model::STATUS_PENDING_POST,

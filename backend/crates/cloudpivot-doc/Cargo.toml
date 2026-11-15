@@ -15,7 +15,7 @@
 #
 # 与应用 crate 的关系：`backend/Cargo.toml` 以 path 依赖引用本 crate。
 # P2-28 已把 141 处 `crate::business::shared::doc_kind::*` 调用点改到 `cloudpivot_doc::*`，
-# 旧转发垫片 `backend/app/src/business/shared/doc_kind.rs` 已删除 —— 词表现在只有这一份定义。
+# 旧转发垫片 `backend/crates/cloudpivot-kernel/src/business/shared/doc_kind.rs` 已删除 —— 词表现在只有这一份定义。
 #
 # P2-40（2026-11-15）起本 crate 是 workspace 成员（`backend/Cargo.toml` 的
 # `members = ["app", "crates/*"]`），因此：

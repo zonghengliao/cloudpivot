@@ -33,7 +33,7 @@ use nik::prelude::*;
 
 use crate::system::preference::dto::{PreferenceRes, UpdatePreferenceReq};
 use crate::system::preference::model;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 读取当前登录用户的全量偏好。
 ///

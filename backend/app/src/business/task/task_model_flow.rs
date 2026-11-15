@@ -10,7 +10,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::task_model_rows::*;
-use crate::business::shared::task_node_switch;
+use cloudpivot_kernel::business::shared::task_node_switch;
 
 /// 把 SQL 里 `string_agg` 拼好的待办人姓名串拆成数组（保持顺序、去重、丢空段）。
 ///

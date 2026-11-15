@@ -19,14 +19,14 @@
 //! 的 scoped 查询 + actor_role 逐条判，批量层不放行任何范围）。
 //! ```
 
-use crate::utils;
 use axum::extract::Path;
 use axum::{Extension, Json};
+use cloudpivot_kernel::utils;
 use nik::prelude::*;
 
-use crate::business::shared::batch::{self, BatchResult};
 use crate::business::task::dto::{PERM_ASSIGN, TaskAssignReq, TaskStatusChangeReq};
 use crate::business::task::handler::{assign, change_status};
+use cloudpivot_kernel::business::shared::batch::{self, BatchResult};
 
 /// 批量改状态的权限码（与单条 `PATCH /business/task/{id}/status` 一致）。
 pub const PERM_STATUS: &str = "business:task:status";

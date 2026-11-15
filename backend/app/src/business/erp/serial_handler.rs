@@ -38,8 +38,8 @@ use crate::business::erp::serial_dto::{
 };
 use crate::business::erp::serial_model::{self, GenerateParams, TransitionOutcome};
 use crate::business::erp::stockin::stockin_model;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0142 迁移逐字一致） ====================
 

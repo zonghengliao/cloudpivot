@@ -97,6 +97,21 @@ nik-utils = { path = "../vendor/nik-utils" }
 # ======================================================================
 cloudpivot-doc = { path = "../crates/cloudpivot-doc" }
 
+# ======================================================================
+# 内核基座（P2-59 · C1，2026-11-15）：`shared` + `utils` + `business/shared` 一个包
+#
+# 依赖方向只有一条：`cloudpivot → cloudpivot-kernel → cloudpivot-doc`。
+# 内核里 10 处曾指向业务域/平台层的引用已全部倒转成接缝（配置读取 / 会话字段 / 主密钥解析 /
+# AI 安全巡检 / 菜单 DTO / 两条跨轴用例），所以它**不反向依赖本包**——这是后面 14 张域包卡
+# 能落地的前提。清单见 `backend/crates/cloudpivot-kernel/Cargo.toml` 顶部注释。
+#
+# `[dev-dependencies]` 里同一路径再登一次并打开 `test-support`：`shared::test_helpers`
+# （真库用例的前置体检）是 `#[cfg(any(test, feature = "test-support"))]`，域包的测试代码
+# 在**依赖配置**下看不到 `cfg(test)` 的符号，必须靠这个 feature（全仓 132 行 / 39 个文件）。
+# 生产构建（`cargo build --release`）不打开它，符号面与抽包前一致。
+# ======================================================================
+cloudpivot-kernel = { path = "../crates/cloudpivot-kernel" }
+
 # Excel 读取：与 nik-utils 的 xlsx feature 锁定同一版本（nik-utils 0.4.2 声明 calamine = "0.36"），
 # 依赖树里只有一份 calamine，不引入 nik 之外的新 crate。
 # 直连原因：框架 Import::from_xlsx 把整表转成 Vec<HashMap> 且不暴露表头——
@@ -207,6 +222,9 @@ tera = "1"
 name = "c7_rollback_probe"
 path = "examples/c7_rollback_probe.rs"
 required-features = ["test-hooks"]
+
+[dev-dependencies]
+cloudpivot-kernel = { path = "../crates/cloudpivot-kernel", features = ["test-support"] }
 
 # ======================================================================
 # 单测专用（当前为空）

@@ -62,6 +62,37 @@ biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc
 # 扫描范围硬断言（设计修正 A · 修正 2 第②条）：这些目录必须在范围内且真有 .rs
 SCAN_DIRS = ("business/task", "business", "system", "support", "shared")
 
+# P2-59（C1，2026-11-15）：`shared` / `utils` / `business/shared` 已整体搬进独立 crate
+# `backend/crates/cloudpivot-kernel/`，所以判定面从一个根变成**两个根**：
+#
+#   ① 应用根 `backend/app/src`：`shared` / `utils` 目录已不存在（`APP_SCAN_DIRS`）；
+#   ② 内核根 `backend/crates/cloudpivot-kernel/src`：自己的 `shared` / `utils` / `business/shared`
+#      （`KERNEL_SCAN_DIRS`），必须跟着扫描，否则内核从闸② 的判定面**静默消失**
+#      ——那正好是「登记表查询绕过 scope::」最容易出事的地方（`business/shared/scope.rs` 自己就在里面）。
+#
+# `SCAN_DIRS` / `REQUIRED_PRODUCTION` 保留为**自测 fixture 的默认值**（负例在临时目录里造的是
+# 老结构的 5 个目录，见 `write_fixture`）；真实仓库跑的是 `APP_*` 与 `KERNEL_*` 两组。
+APP_SCAN_DIRS = ("business/task", "business", "system", "support")
+APP_REQUIRED_PRODUCTION = (
+    "business/task/task_model_query.rs",
+    "business/project/model.rs",
+)
+KERNEL_SCAN_DIRS = ("business/shared", "shared", "utils")
+KERNEL_REQUIRED_PRODUCTION = (
+    # 分页唯一入口的实现本体：它必须被扫到（生产面），否则「谁在用 paginate」无从判定。
+    "business/shared/scope.rs",
+)
+KERNEL_SKIP_MANIFEST = frozenset(
+    {
+        # 这两条是 `business/shared/mod.rs` 里 `#[cfg(test)] mod …;` 挂载的测试面文件。
+        "business/shared/doc_kind_entity_tests.rs",
+        "business/shared/layering_tests.rs",
+        # 注意 `shared/test_helpers.rs` **不在**这里：P2-59 起它是
+        # `#[cfg(any(test, feature = "test-support"))]`，按口径 v2 属「可能进生产」⇒ 照判，
+        # 文件头写了 `SCOPE-EXEMPT`（夹具必须看得见全库，数据范围对它无意义）。
+    }
+)
+
 # 防假绿硬断言（口径 v2 · D1.4）：这几个是**已知生产文件**（分别接入 scope::paginate /
 # scope::filter_for / 是 scope 实现本身）。解析器一旦把它们判成测试面，闸② 必须红。
 REQUIRED_PRODUCTION = (
@@ -212,8 +243,6 @@ business/impexp/export_mask_tests.rs
 business/masking/independence_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs
-business/shared/doc_kind_entity_tests.rs
-business/shared/layering_tests.rs
 business/taskflow/delete_cancel_tests.rs
 business/task/approval_port_tests.rs
 business/task/task_attachment_snapshot_tests.rs
@@ -227,10 +256,10 @@ business/task/task_model_depth_tests.rs
 business/task/task_model_display_file_name_tests.rs
 business/task/task_model_repair_tests.rs
 business/task/task_model_root_only_tests.rs
+kernel_axis_tests.rs
 business/task/task_model_stats_tests.rs
 business/task/task_model_statuses_filter_tests.rs
 business/task/task_model_tests.rs
-shared/test_helpers.rs
 system/auth/cache_tests.rs
 system/authz_tests.rs
 system/dept/tests.rs
@@ -611,7 +640,13 @@ class Report(NamedTuple):
         return not (self.failures or self.coverage_errors or self.guard_errors or self.skip_manifest_errors)
 
 
-def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report:
+def run_gate(
+    src: Path,
+    expect_skipped: Collection[str] | None = None,
+    scan_dirs: Collection[str] = SCAN_DIRS,
+    required: Collection[str] = REQUIRED_PRODUCTION,
+    label: str = "backend/app/src",
+) -> Report:
     """跑一次闸② 判定。
 
     `expect_skipped` = 跳过清单硬断言（R1）：传 `SKIP_MANIFEST` 时，实测跳过集合必须与它
@@ -622,13 +657,13 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
         raise FileNotFoundError(f"{src} 下没有 .rs 文件")
 
     coverage_errors: list[str] = []
-    for rel in SCAN_DIRS:
+    for rel in scan_dirs:
         directory = src / rel
         if not directory.is_dir():
-            coverage_errors.append(f"扫描范围缺少目录 backend/app/src/{rel}（闸② 会漏掉该目录下的查询）")
+            coverage_errors.append(f"扫描范围缺少目录 {label}/{rel}（闸② 会漏掉该目录下的查询）")
             continue
         if not any(directory.rglob("*.rs")):
-            coverage_errors.append(f"扫描范围 backend/app/src/{rel} 下没有 .rs 文件（目录搬走或未纳入版本管理）")
+            coverage_errors.append(f"扫描范围 {label}/{rel} 下没有 .rs 文件（目录搬走或未纳入版本管理）")
 
     skipped = collect_test_surface(files)
     production = {p: info for p, info in files.items() if p not in skipped}
@@ -636,17 +671,17 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
     # 防假绿硬断言（D1.4）：已知生产文件必须落在生产面
     guard_errors: list[str] = []
     production_rel = {info.path.relative_to(src).as_posix() for info in production.values()}
-    for rel in REQUIRED_PRODUCTION:
+    for rel in required:
         target = (src / rel).resolve()
         if not target.is_file():
-            guard_errors.append(f"防假绿断言：已知生产文件 backend/app/src/{rel} 不存在（扫描根/目录结构异常）")
+            guard_errors.append(f"防假绿断言：已知生产文件 {label}/{rel} 不存在（扫描根/目录结构异常）")
         elif target in skipped:
             guard_errors.append(
-                f"防假绿断言：已知生产文件 backend/app/src/{rel} 被判成了测试面"
+                f"防假绿断言：已知生产文件 {label}/{rel} 被判成了测试面"
                 f"（声明位置 {skipped[target]}）—— 解析器误判，闸② 不许据此变绿"
             )
         elif rel not in production_rel:
-            guard_errors.append(f"防假绿断言：已知生产文件 backend/app/src/{rel} 不在生产面扫描结果里")
+            guard_errors.append(f"防假绿断言：已知生产文件 {label}/{rel} 不在生产面扫描结果里")
 
     failures: dict[str, list[str]] = {}
     skipped_rel = {info.path.relative_to(src).as_posix(): why for p, why in skipped.items() for info in [files[p]]}
@@ -658,13 +693,13 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
         observed = set(skipped_rel)
         for rel in sorted(observed - expected):
             skip_manifest_errors.append(
-                f"跳过清单断言：backend/app/src/{rel} 被判成了测试面，但 SKIP_MANIFEST 里没有登记"
+                f"跳过清单断言：{label}/{rel} 被判成了测试面，但 SKIP_MANIFEST 里没有登记"
                 f"（声明位置 {skipped_rel[rel]}）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」"
                 f'的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："{rel}",'
             )
         for rel in sorted(expected - observed):
             skip_manifest_errors.append(
-                f"跳过清单断言：SKIP_MANIFEST 登记了 backend/app/src/{rel}，但本次解析没有跳过它"
+                f"跳过清单断言：SKIP_MANIFEST 登记了 {label}/{rel}，但本次解析没有跳过它"
                 f"（文件被删/改名/搬进子目录，或声明被去掉）—— "
                 f"**文件搬了就把这一行改成新路径**（P2 系列目录拆分就是这么来的）；"
                 f"只有确认文件真被删掉才允许删条目 —— 删条目 = 放宽门禁，不许用「找不到就删」收红："
@@ -694,7 +729,13 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
     )
 
 
-def print_report(report: Report, list_skipped: bool, baseline: int | None) -> None:
+def print_report(
+    report: Report,
+    list_skipped: bool,
+    baseline: int | None,
+    label: str = "backend/app/src",
+    scan_dirs: Collection[str] = SCAN_DIRS,
+) -> None:
     print(
         f"闸② 判定面（v2）：扫描生产面 {report.scanned} 个文件 / 跳过测试面 {len(report.skipped)} 个文件"
     )
@@ -706,7 +747,7 @@ def print_report(report: Report, list_skipped: bool, baseline: int | None) -> No
         for item in report.coverage_errors:
             print(f"  FAIL：{item}")
     else:
-        print("  PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support,shared}")
+        print("  PASS：扫描范围已覆盖 " + label + "/{" + ",".join(scan_dirs) + "}")
     if list_skipped:
         print(f"被跳过的测试面文件（{len(report.skipped)} 个，含声明位置）：")
         for rel, why in report.skipped.items():
@@ -1073,14 +1114,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"闸② 跳过/失败：找不到源码目录 {src}", file=sys.stderr)
         return 2
 
-    try:
-        report = run_gate(src, SKIP_MANIFEST)
-    except FileNotFoundError as error:
-        print(f"闸② 跳过/失败：{error}", file=sys.stderr)
+    kernel_src = repo_root / "backend" / "crates" / "cloudpivot-kernel" / "src"
+    # P2-59（C1）：内核 crate 是同一套口径的第二个根。目录不存在时**判失败**而不是跳过
+    # ——「内核被搬走/改名」必须让人看见，不许静默少扫一半判定面。
+    if not kernel_src.is_dir():
+        print(f"闸② 失败：找不到内核源码目录 {kernel_src}（P2-59 起闸② 必须同时覆盖内核）", file=sys.stderr)
         return 2
+    roots = [
+        (src, SKIP_MANIFEST, APP_SCAN_DIRS, APP_REQUIRED_PRODUCTION, "backend/app/src"),
+        (
+            kernel_src,
+            KERNEL_SKIP_MANIFEST,
+            KERNEL_SCAN_DIRS,
+            KERNEL_REQUIRED_PRODUCTION,
+            "backend/crates/cloudpivot-kernel/src",
+        ),
+    ]
 
-    print_report(report, args.list_skipped, args.baseline)
-    return 0 if report.ok else 1
+    ok = True
+    for root, manifest, dirs, required, label in roots:
+        try:
+            report = run_gate(root, manifest, scan_dirs=dirs, required=required, label=label)
+        except FileNotFoundError as error:
+            print(f"闸② 跳过/失败：{error}", file=sys.stderr)
+            return 2
+        print_report(report, args.list_skipped, args.baseline, label=label, scan_dirs=dirs)
+        ok = ok and report.ok
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

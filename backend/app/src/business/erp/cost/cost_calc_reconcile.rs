@@ -37,7 +37,7 @@ use nik::prelude::*;
 use crate::business::erp::cost::cost_calc_overhead;
 use crate::business::erp::cost::cost_reconcile_dto::{self as dto, ReconcileOutcome, Stage};
 use crate::business::erp::cost::cost_reconcile_model as model;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 对账（自开事务）：返回结论文本，**不平直接 409**。
 ///
@@ -140,7 +140,10 @@ mod tests {
         let unbalanced = dto::reconcile("2026-11", Stage::Calc, &pool, &[]);
         let err = dto::ensure_balanced(&unbalanced).expect_err("不平必须报错");
         assert_eq!(err.status, 409);
-        assert_eq!(err.code, crate::shared::error_code::ERP_COST_POOL_LEDGER_MISMATCH);
+        assert_eq!(
+            err.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_POOL_LEDGER_MISMATCH
+        );
         assert!(err.msg.contains("4101.01"), "报文要点名科目与车间：{}", err.msg);
     }
 

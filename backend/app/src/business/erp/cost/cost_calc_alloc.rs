@@ -59,7 +59,7 @@ use crate::business::erp::cost::cost_calc_overhead;
 use crate::business::erp::cost::cost_overhead_collect_dto;
 use crate::business::erp::cost::cost_overhead_collect_model;
 use crate::business::erp::ledger;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 分摊当期全部制造费用（calc 第 5 段，自开事务）。
 ///

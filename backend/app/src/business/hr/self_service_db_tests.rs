@@ -43,7 +43,7 @@ mod db {
     use crate::business::hr::self_service_dto::{MyAttendanceQuery, MyLeaveQuery, MySalaryQuery};
     use crate::business::hr::self_service_handler as handler;
     use crate::business::hr::self_service_model as model;
-    use crate::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
     use tokio::sync::OnceCell;
 
     /// 夹具编码前缀（清场按它精确删）。

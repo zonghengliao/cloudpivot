@@ -39,9 +39,9 @@ use nik::uuid::Uuid;
 
 use crate::business::hr::model::SENTINEL_ORG_ID;
 use crate::business::hr::salary_item_dto::{SalaryItemDraft, SalaryItemFilter, SalaryItemSnapshot};
-use crate::business::shared::scope;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 约束名（与 V0383 逐字一致） ====================
 
@@ -347,7 +347,7 @@ pub fn list_query(filter: &SalaryItemFilter) -> (String, Vec<Value>) {
     let mut sql = format!("{ROW_COLUMNS} WHERE s.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
 
-    if let Some(pattern) = crate::utils::like_pattern(filter.keyword.as_deref()) {
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref()) {
         // 编码 / 名称都能搜：客户记得「餐补」但忘了编码 `MEAL` 是常态
         sql.push_str(" AND (s.item_code ILIKE ? OR s.item_name ILIKE ?)");
         params.push(Value::Text(pattern.clone()));

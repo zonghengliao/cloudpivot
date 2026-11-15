@@ -5,7 +5,7 @@
 //! 1. **明细与单头永远同事务重建**：改草稿 = 先删明细再插（`biz_expense_item` 没有
 //!    `deleted_at`，与 `biz_purchase_order_item` 同款）；单头的 `item_count /
 //!    total_*` 由调用方按 `expense_compute` 算好一起写，**不存在「明细已改、单头还是旧数」**。
-//! 2. **状态只由 [`crate::business::shared::state_machine::transition`] 写**：本文件的
+//! 2. **状态只由 [`cloudpivot_kernel::business::shared::state_machine::transition`] 写**：本文件的
 //!    `report_mark_*` 只改业务列（金额 / 凭证 / 时间戳），状态的 `from → to` 由调用方先过状态机。
 //! 3. **付款必须行锁**（[`report_lock_in`]）：付款是**拒绝型**操作，不锁就会两张付款单
 //!    同时通过 `unpaid_amount` 校验，最终 `paid_amount > total_with_tax` 撞库 CHECK。
@@ -23,8 +23,8 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::expense::expense_dto::{ReportFilter, TypeFilter};
 use crate::business::erp::voucher::SeqSpec;
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 费用类型表名。
 pub const TYPE_TABLE: &str = "biz_expense_type";

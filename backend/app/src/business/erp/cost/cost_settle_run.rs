@@ -82,9 +82,9 @@ use crate::business::erp::cost::cost_reconcile_dto::{self as reconcile_dto, Stag
 use crate::business::erp::cost::cost_settle_finish::{self, FinishStockIn, SettleContext};
 use crate::business::erp::cost::cost_settle_voucher::{self as cv, ItemCostRow, SettledVouchers, VoucherContext};
 use crate::business::erp::voucher;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量（与设计 / 迁移逐字对齐，单测钉死） ====================
 

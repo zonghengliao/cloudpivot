@@ -48,7 +48,7 @@ use crate::business::flow::task_node;
 use crate::business::flow::{engine, model};
 use crate::business::task::model as task_model;
 use crate::business::task::state::{self, ActorKind, TaskStatus};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 任务验收类流程的业务类型（`biz_flow_def.biz_type`，`flow::dto::normalize_biz_type` 归一化后全大写）。
 pub const TASK_ACCEPT_BIZ_TYPE: &str = "TASK_ACCEPT";
@@ -2245,7 +2245,7 @@ mod pflow1b_mapping_tests {
         };
         let conflict = FlowTaskOutcome::Conflict(ApiError::new(
             409,
-            crate::shared::error_code::FLOW_TASK_STATE_CONFLICT,
+            cloudpivot_kernel::shared::error_code::FLOW_TASK_STATE_CONFLICT,
             "流程已结束",
         ));
         assert!(matches!(not_flow, FlowTaskOutcome::NotFlowTask));
@@ -2260,7 +2260,10 @@ mod pflow1b_mapping_tests {
         match conflict {
             FlowTaskOutcome::Conflict(error) => {
                 assert_eq!(error.status, 409);
-                assert_eq!(error.code, crate::shared::error_code::FLOW_TASK_STATE_CONFLICT);
+                assert_eq!(
+                    error.code,
+                    cloudpivot_kernel::shared::error_code::FLOW_TASK_STATE_CONFLICT
+                );
             }
             other => panic!("必须是 Conflict：{other:?}"),
         }

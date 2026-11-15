@@ -33,7 +33,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::{stockin::stockin_model, voucher};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{NoticeDraft, NoticeTarget};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 use super::actions::{self, ActionError, NoticeMode, NoticeSetting, RecipientStrategy};
 use super::engine::{self, LinkageContext, NoticeRoute, Outcome};

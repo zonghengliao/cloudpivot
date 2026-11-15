@@ -39,8 +39,8 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::contract::contract_model::{self, ContractRow, STATUS_DRAFT, STATUSES, USABLE_FOR_ORDER};
-use crate::business::shared::state_machine::Entity;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine::Entity;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 口径常量 ====================
 
@@ -914,7 +914,7 @@ impl From<&ContractRow> for ContractDetailRes {
 
 /// AUD-02：详情里三个人字段（负责人 / 制单人 / 修改人）的姓名回填，
 /// 由 `business/shared/user_name.rs` 的批量入口统一驱动（一页/一单恒定 1 条 SQL）。
-impl crate::business::shared::user_name::PersonNameRow for ContractDetailRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for ContractDetailRes {
     fn person_ids(&self, out: &mut Vec<Uuid>) {
         for raw in [
             self.owner_id.as_deref(),

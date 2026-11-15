@@ -13,13 +13,13 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::scope::ScopeKind;
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
 use crate::system::dept::dto::{DeptMigrateReq, DeptNode, DeptSaveReq};
 use crate::system::dept::{handler, model};
 use crate::system::tests_support as ts;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::scope::ScopeKind;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
 
 /// 超管主体（数据范围 = 全部）。
 fn super_principal() -> ScopedPrincipal {
@@ -133,7 +133,7 @@ async fn d01_dept_tree_nested_and_sorted() {
     assert_eq!(depts.len(), 5, "本次夹具应恰好 5 条（按前缀过滤，不用全局 COUNT）");
 
     let nodes: Vec<DeptNode> = depts.iter().map(DeptNode::from).collect();
-    let nodes = crate::utils::build_tree(
+    let nodes = cloudpivot_kernel::utils::build_tree(
         nodes,
         |n| n.id.clone(),
         |n| n.parent_id.clone(),

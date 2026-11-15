@@ -66,7 +66,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Serialize;
 
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 // ==================== 通用闸门（P2-34 从 ERP 搬来） ====================
 
@@ -289,7 +289,7 @@ pub async fn health() -> DbResult<FlowHealthRes> {
 /// 查测试残留（`biz_type` = `E2E_*` / `D2_SMOKE` 且未软删）。
 ///
 /// 判据**不在这里重写**：用 [`cloudpivot_doc::TEST_RESIDUE_SQL`]，
-/// 与 `biz_type_domain.py --strict`、[`crate::shared::startup_guard::count_test_residue`]
+/// 与 `biz_type_domain.py --strict`、[`cloudpivot_kernel::shared::startup_guard::count_test_residue`]
 /// 是同一个口径（否则「巡检红了但 /health 说干净」这种对不上会反复出现）。
 ///
 /// 只读，两条走 `deleted_at` 的 count 查询，毫秒级。
@@ -313,11 +313,11 @@ async fn inspect_test_residue() -> DbResult<TestResidueRes> {
             vec![],
         )
         .await?;
-    let residue = crate::shared::startup_guard::TestResidue {
+    let residue = cloudpivot_kernel::shared::startup_guard::TestResidue {
         defs: defs.max(0) as u64,
         instances: instances.max(0) as u64,
     };
-    let message = match crate::shared::startup_guard::test_residue_warning(residue) {
+    let message = match cloudpivot_kernel::shared::startup_guard::test_residue_warning(residue) {
         Some(message) => message,
         None => "测试残留 0 行：biz_flow_def / biz_flow_instance 里没有 E2E_* / D2_SMOKE 活行".to_string(),
     };
@@ -373,7 +373,7 @@ pub async fn approval_flow_health() -> ResResult<FlowHealthRes> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
 
     /// 造一份 claims（只关心 `permissions`）。
     fn claims_with(permissions: &[&str]) -> TokenClaims {
@@ -634,7 +634,7 @@ mod tests {
 #[cfg(test)]
 mod gate_boundary_tests {
     use super::*;
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
 
     /// 造一份 claims（只关心 `permissions`）。
     fn claims_with(permissions: &[&str]) -> TokenClaims {

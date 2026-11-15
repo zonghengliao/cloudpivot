@@ -48,10 +48,10 @@ mod db {
     use crate::business::hr::salary_sheet_dto::{STATUS_SUBMITTED, SalaryManualReq, SalarySheetCalcReq};
     use crate::business::hr::salary_sheet_handler;
     use crate::business::hr::salary_sheet_model::{self as model, TABLE_DETAIL};
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::business::shared::state_machine::{ENTITY_SALARY_SHEET, Operator, trail_of_no};
-    use crate::shared::error_code;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::state_machine::{ENTITY_SALARY_SHEET, Operator, trail_of_no};
+    use cloudpivot_kernel::shared::error_code;
     use tokio::sync::OnceCell;
 
     /// 夹具工号前缀（清场按它精确删）。

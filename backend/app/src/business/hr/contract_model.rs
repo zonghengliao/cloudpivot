@@ -36,8 +36,8 @@ use nik::uuid::Uuid;
 
 use crate::business::hr::employee_dto::ContractInput;
 use crate::business::hr::model::SENTINEL_ORG_ID;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 约束名（与 V0383 逐字一致） ====================
 
@@ -240,7 +240,7 @@ impl ContractRow {
 
     /// 是否处于「不可再修改」的封闭终态（已解除 / 已续签，见 `state_machine::EMPLOYEE_CONTRACT_LOCKED`）。
     pub fn is_locked(&self) -> bool {
-        crate::business::shared::state_machine::EMPLOYEE_CONTRACT_LOCKED.contains(&self.status.as_str())
+        cloudpivot_kernel::business::shared::state_machine::EMPLOYEE_CONTRACT_LOCKED.contains(&self.status.as_str())
     }
 }
 

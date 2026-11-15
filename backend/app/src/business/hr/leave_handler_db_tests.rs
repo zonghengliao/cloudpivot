@@ -45,11 +45,11 @@ mod db {
         self, LeaveCancelReq, LeaveCreateReq, LeavePageQuery, LeaveSubmitReq, LeaveUpdateReq,
     };
     use crate::business::hr::leave_handler;
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::business::shared::state_machine::{self, Operator};
-    use crate::shared::error_code;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::state_machine::{self, Operator};
+    use cloudpivot_kernel::shared::error_code;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::rust_decimal::Decimal;
     use nik::uuid::Uuid;
     use tokio::sync::OnceCell;

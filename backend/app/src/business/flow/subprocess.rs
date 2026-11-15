@@ -49,7 +49,7 @@ use nik::uuid::Uuid;
 use crate::business::flow::engine::{self, StartFailure, StartReq};
 use crate::business::flow::graph::{FlowGraph, Issue, NodeType, SnapshotNode};
 use crate::business::flow::model as flow_model;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 允许的最大嵌套深度（本流程 = 第 1 层，它的子流程 = 第 2 层 …）。
 ///

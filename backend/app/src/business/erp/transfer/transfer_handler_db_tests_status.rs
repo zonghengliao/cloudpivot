@@ -14,7 +14,7 @@ use crate::business::erp::transfer::transfer_model::{
 };
 use crate::business::flow::graph::{canonical_json, parse_snapshot};
 use crate::business::flow::{engine, model as flow_model};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 

@@ -33,11 +33,11 @@ mod db {
     use crate::business::hr::salary_dto::{SalaryAdjustReq, SalaryItemReq};
     use crate::business::hr::salary_handler;
     use crate::business::hr::salary_model;
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::error_code;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::error_code;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::chrono::NaiveDate;
     use nik::prelude::rust_decimal::Decimal;
     use tokio::sync::OnceCell;

@@ -43,8 +43,8 @@ use crate::business::erp::cost::cost_overhead_dto::{
 use crate::business::erp::cost::cost_overhead_model::{self as model, CostOverheadRow};
 use crate::business::erp::model_base::normalize_page;
 use crate::business::erp::model_master;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与设计 §5.3 / V0378 菜单种子逐字一致） ====================
 

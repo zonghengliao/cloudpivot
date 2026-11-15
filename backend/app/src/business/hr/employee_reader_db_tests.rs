@@ -30,7 +30,7 @@ mod db {
     use crate::business::hr::employee_reader::{self, EmployeeReader, GLOBAL_LOCK};
     use crate::business::hr::employee_reader_impl::{self, HrEmployeeReader};
     use crate::business::hr::model::SENTINEL_ORG_ID;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::shared::test_helpers;
     use tokio::sync::OnceCell;
 
     /// 连库（进程内只做一次初始化）。`false` = 没配库地址，用例直接跳过。

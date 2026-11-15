@@ -74,7 +74,7 @@ pub(crate) fn status_ctx<'a>(
     draft.force = false;
     draft.idempotency_key = Some(format!("LNK:STOCK_TRANSFER:{status}:{doc_id}"));
     linkage::LinkageContext::new(
-        crate::business::shared::state_machine::ENTITY_TRANSFER,
+        cloudpivot_kernel::business::shared::state_machine::ENTITY_TRANSFER,
         status,
         doc_id,
         doc_no,

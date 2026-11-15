@@ -37,7 +37,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cost::cost_overhead_collect_dto::{SOURCE_DEPRECIATION, SOURCE_EXPENSE};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 报文里最多列几个差额分组（超出只计数）：400 行报文没人看，也截断日志。
 pub const DIFF_DETAIL_LIMIT: usize = 10;

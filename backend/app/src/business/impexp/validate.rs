@@ -34,8 +34,8 @@ use crate::business::impexp::definition::{
     ColumnKind, DictTranslation, ErrorKind, FkSpec, ImportCtx, ImportDefinition, RowIssue, RowValues,
 };
 use crate::business::impexp::engine::{EngineError, SheetReader};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 一次预检最多收集的错误明细条数（PRD §4.2.1：最多 2000 条）。
 pub const MAX_ERRORS: usize = 2_000;

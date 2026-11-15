@@ -28,7 +28,7 @@
 use nik::prelude::*;
 use serde::Deserialize;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 「跳过审批」的权限码。
 ///

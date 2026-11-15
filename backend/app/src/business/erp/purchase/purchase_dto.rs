@@ -49,8 +49,8 @@ use crate::business::erp::model::PurchaseOrderItemRow;
 use crate::business::erp::purchase::purchase_model::{
     LineAmounts, PRICE_MODE_EXCL, PRICE_MODE_INCL, PRICE_MODES, unit_price,
 };
-use crate::business::shared::doc_lines;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::doc_lines;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 口径常量 ====================
 

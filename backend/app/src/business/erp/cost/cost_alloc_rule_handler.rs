@@ -43,7 +43,7 @@ use crate::business::erp::cost::cost_alloc_rule_model::{self as model, CostAlloc
 use crate::business::erp::cost::cost_labor_dto;
 use crate::business::erp::model_base::normalize_page;
 use crate::business::erp::model_master;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与设计 §5.3 / V0378 菜单种子逐字一致） ====================
 
@@ -703,7 +703,10 @@ mod tests {
             ..Default::default()
         };
         let error = filter_of(&query).expect_err("非制造费用科目");
-        assert_eq!(error.code, crate::shared::error_code::ERP_COST_OVERHEAD_ACCOUNT);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_OVERHEAD_ACCOUNT
+        );
 
         let query = CostAllocRulePageQuery {
             status: Some(7),
@@ -767,13 +770,19 @@ mod tests {
         let pool = nik::prelude::rust_decimal::Decimal::new(40000000, 4);
         let no_object = dto::no_cost_object("一车间", "4101.02", pool);
         assert_eq!(no_object.status, 409);
-        assert_eq!(no_object.code, crate::shared::error_code::ERP_COST_ALLOC_NO_OBJECT);
+        assert_eq!(
+            no_object.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_ALLOC_NO_OBJECT
+        );
         assert!(no_object.msg.contains("一车间"), "{}", no_object.msg);
         assert!(no_object.msg.contains("4101.02"), "{}", no_object.msg);
         assert!(no_object.msg.contains("4000"), "{}", no_object.msg);
 
         let zero = dto::basis_total_zero(dto::BASIS_MACHINE_HOURS, "一车间", "4101.02", pool);
-        assert_eq!(zero.code, crate::shared::error_code::ERP_COST_ALLOC_BASIS_ZERO);
+        assert_eq!(
+            zero.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_ALLOC_BASIS_ZERO
+        );
         assert!(zero.msg.contains("机器工时"), "{}", zero.msg);
         assert!(zero.msg.contains("4101.02"), "{}", zero.msg);
     }

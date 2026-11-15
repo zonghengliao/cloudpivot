@@ -27,7 +27,7 @@ use nik::prelude::*;
 
 use crate::business::impexp::definition::{DictTranslation, ExportColumn, ImportColumn};
 use crate::business::masking::masker::{MaskError, Masker};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// xlsx 文件头（zip 容器魔数 `PK\x03\x04`）。
 pub const XLSX_MAGIC: &[u8; 4] = b"PK\x03\x04";

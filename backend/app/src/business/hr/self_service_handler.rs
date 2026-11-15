@@ -52,8 +52,8 @@ use crate::business::hr::self_service_dto::{
     self as dto, MyAttendanceQuery, MyAttendanceRes, MyLeaveQuery, MyLeaveRes, MySalaryQuery, MySalaryRes,
 };
 use crate::business::hr::self_service_model as model;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 令牌 → 当前用户 id（自助接口的**唯一**身份来源）。
 ///

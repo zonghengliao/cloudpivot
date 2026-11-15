@@ -34,8 +34,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::masking::dto::FieldMaskPageQuery;
-use crate::shared::constants;
-use crate::utils;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::utils;
 
 /// `sys_field_mask` 的一行（含 join 出来的角色名）。
 #[derive(Debug, Clone)]

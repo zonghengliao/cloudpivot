@@ -44,9 +44,9 @@
 
 use nik::prelude::*;
 
-use crate::shared::{constants, error_code};
 use crate::system::user::model::{self, SysUserModel, SysUserRoleModel};
-use crate::utils;
+use cloudpivot_kernel::shared::{constants, error_code};
+use cloudpivot_kernel::utils;
 
 /// 非超管操作超管账号时的提示。
 const MSG_TARGET_SUPER_ADMIN: &str = "无权操作超级管理员账号";

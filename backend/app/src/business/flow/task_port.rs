@@ -215,7 +215,7 @@ pub async fn spawn_task(tx: &Transaction, spec: SpawnTaskSpec) -> DbResult<Spawn
             );
             Ok(SpawnOutcome::Failed(ApiError::new(
                 500,
-                crate::shared::error_code::INTERNAL_ERROR,
+                cloudpivot_kernel::shared::error_code::INTERNAL_ERROR,
                 "流程任务接缝未安装：节点无法生成任务",
             )))
         }

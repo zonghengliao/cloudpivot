@@ -46,6 +46,11 @@
 //! cd backend && cargo test --lib -- --test-threads=1
 //! ```
 
+// SCOPE-EXEMPT: 测试夹具的前置体检必须**看得见全库** —— `ensure_any_dept` / `ensure_any_user`
+// 的任务就是在「任意一个」部门 / 用户里挑一个来给夹具挂靠；注入数据范围会把夹具挑到
+// 调用方看不见的行上，断言随之随机红（而失败信息与被测业务毫无关系）。
+// 本文件只在 `cfg(test)` 或 `test-support` feature 下编译，不进生产二进制，也不发任何请求。
+
 use nik::prelude::*;
 use nik::uuid::Uuid;
 

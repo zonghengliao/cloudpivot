@@ -66,9 +66,9 @@ use crate::business::flow::engine;
 use crate::business::flow::model as flow_model;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 采购退货状态通知的 `biz_type`（与审批流发的待办区分开：一个是被联动发的状态通知，
 /// 一个是流程引擎的待办）。

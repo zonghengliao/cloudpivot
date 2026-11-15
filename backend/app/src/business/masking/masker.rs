@@ -31,7 +31,7 @@ use std::sync::LazyLock;
 use nik_utils::Mask;
 use regex::Regex;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 脱敏类型（与 `sys_field_mask.mask_type` 的 1..7 一一对应）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

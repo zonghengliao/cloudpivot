@@ -33,8 +33,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::budget::budget_model::{self, STATUS_ACTIVE, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 /// 预算审批的业务类型（与 V0228 种子 / `budget_handler::submit` 同口径）。
 pub const BIZ_TYPE: &str = "BUDGET_APPROVE";

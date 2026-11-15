@@ -33,9 +33,9 @@ mod db {
     use crate::business::hr::salary_item_dto::{self, SalaryItemValidateReq, SalaryItemWriteReq};
     use crate::business::hr::salary_item_handler;
     use crate::business::hr::salary_item_model;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::error_code;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::error_code;
+    use cloudpivot_kernel::shared::test_helpers;
     use tokio::sync::OnceCell;
 
     /// 连库（进程内只做一次初始化）。`false` = 没配库地址，用例直接跳过。

@@ -67,8 +67,8 @@ use crate::business::erp::cost::cost_rate_dto::{self, RateRequest, RateSubject};
 use crate::business::hr::employee_reader;
 use crate::business::impexp::definition::{ColumnKind, ImportColumn, parse_date};
 use crate::business::impexp::engine::{SheetReader, WorkbookSheet, write_workbook};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 8 列模板（设计 §4.5.3 逐列） ====================
 

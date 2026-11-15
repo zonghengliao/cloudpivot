@@ -14,7 +14,7 @@
 //!
 //! # 五条不变量（C4 与后续维护者都必须遵守）
 //!
-//! 1. **渲染与净化统一走** [`crate::business::shared::content`]，且**必须**用
+//! 1. **渲染与净化统一走** [`cloudpivot_kernel::business::shared::content`]，且**必须**用
 //!    `Recipe::Help`：只有这一套配方会保留 heading 的锚点 `id`（`h-{level}-{index}`），
 //!    TOC 跳转依赖它；任何"自己拼 HTML"的写法都是红线；
 //! 2. **TOC 不落库**：直接取 `content::Rendered::toc`（架构 §3.2 已否决"单独存 `toc`

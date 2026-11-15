@@ -15,7 +15,7 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 趋势与看板的业务时区。
 ///

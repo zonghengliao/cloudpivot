@@ -109,7 +109,7 @@ fn only_six_legal_edges() {
 /// ④b 作废审批中单据必须锁定（不许改数量 / 金额 / 明细）。
 #[test]
 fn pending_cancel_is_locked() {
-    use crate::business::shared::state_machine::Entity;
+    use cloudpivot_kernel::business::shared::state_machine::Entity;
     assert!(Entity::StockIn.is_locked(STATUS_PENDING_CANCEL));
     assert!(Entity::StockIn.is_locked(STATUS_POSTED));
     assert!(!Entity::StockIn.is_locked(STATUS_DRAFT));

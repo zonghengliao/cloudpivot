@@ -108,8 +108,6 @@ pub fn expand(codes: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::contract::contract_handler;
-    use std::collections::BTreeSet;
 
     /// ① 双向：旧码补齐规范码，规范码补齐旧码；无关码不动。
     #[test]
@@ -152,55 +150,6 @@ mod tests {
         assert_eq!(codes, once, "第二次 expand 必须无副作用");
     }
 
-    /// ③ 对照表 ↔ handler 常量逐条对应（任一侧改动即红）。
-    ///
-    /// 这是「双码」的真正守门人：只改 handler 的 5 个常量而不加别名 → 老令牌 403；
-    /// 只加别名而 handler 没切 → 别名指向不存在的码，等于没扩。
-    #[test]
-    fn contract_aliases_match_handler_permissions() {
-        let canonical_in_table: BTreeSet<&str> = LEGACY_ALIASES.iter().map(|(_, c)| *c).collect();
-        let canonical_in_code: BTreeSet<&str> = contract_handler::PERMISSIONS.iter().copied().collect();
-        assert_eq!(
-            canonical_in_table, canonical_in_code,
-            "LEGACY_ALIASES 的规范码必须与 contract_handler::PERMISSIONS 完全相同"
-        );
-        assert_eq!(LEGACY_ALIASES.len(), 5, "合同域 5 个码，一个不能多一个不能少");
-
-        for (legacy, canonical) in LEGACY_ALIASES {
-            assert!(
-                canonical.starts_with("business:erp:contract:"),
-                "{canonical} 必须以 business:erp:contract: 开头（与 ERP 其余 313 码同族）"
-            );
-            assert!(
-                legacy.starts_with("erp:contract:"),
-                "{legacy} 是历史码，必须是 erp:contract: 前缀"
-            );
-            assert_eq!(
-                legacy.rsplit(':').next(),
-                canonical.rsplit(':').next(),
-                "别名只能换前缀，动作段必须一致（{legacy} vs {canonical}）"
-            );
-            assert_eq!(
-                aliases_of(canonical),
-                vec![legacy],
-                "{canonical} 的对端码应只有 {legacy}"
-            );
-        }
-    }
-
-    /// ④ 全量扩一次：5 个规范码 → 10 个码，且旧码 / 新码各 5 个。
-    #[test]
-    fn expanding_all_contract_codes_yields_both_families() {
-        let mut codes: Vec<String> = contract_handler::PERMISSIONS
-            .iter()
-            .map(|code| (*code).to_string())
-            .collect();
-        expand(&mut codes);
-        assert_eq!(codes.len(), 10, "5 个规范码 + 5 个别名：{codes:?}");
-        assert_eq!(codes.iter().filter(|c| c.starts_with("erp:contract:")).count(), 5);
-        assert_eq!(
-            codes.iter().filter(|c| c.starts_with("business:erp:contract:")).count(),
-            5
-        );
-    }
+    // ③④（对照表 ⇄ `contract_handler::PERMISSIONS`、全量扩 5 → 10）已搬到应用侧：
+    // `src/kernel_axis_tests.rs`（P2-59 · C1 —— 内核不能反向依赖 `erp`）。
 }

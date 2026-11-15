@@ -33,7 +33,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::purchase::purchase_requisition_dto::{
     RequisitionFilter, STATUS_APPROVED, STATUS_CONVERTED, STATUS_DRAFT, STATUS_SUBMITTED,
 };
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 // ==================== 表名 / 列清单 ====================
 
@@ -742,7 +742,7 @@ pub async fn page_requisitions(filter: &RequisitionFilter) -> DbResult<(Vec<Requ
         sql.push_str(" AND r.req_date <= NULLIF(?::text,'')::date");
         params.push(Value::Text(to.to_string()));
     }
-    if let Some(pattern) = crate::utils::like_pattern(filter.keyword.as_deref()) {
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref()) {
         let like = Value::Text(pattern);
         sql.push_str(
             " AND (r.req_no LIKE ? OR COALESCE(r.remark, '') LIKE ? \

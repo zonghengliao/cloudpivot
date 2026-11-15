@@ -644,7 +644,10 @@ async fn pflow3b_payable_self_approval_forbidden() {
         .await
         .expect_err("制单人自批必须 403");
     assert_eq!(err.status, 403, "{}", err.msg);
-    assert_eq!(err.code, crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+    assert_eq!(
+        err.code,
+        cloudpivot_kernel::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN
+    );
     assert!(err.msg.contains("内控"), "{}", err.msg);
     // 别人来批：放行
     payable_bridge::guard_self_approval(tasks[0].0, uid(U_MAKER))
@@ -889,7 +892,10 @@ async fn pflow3b_voucher_self_approval_forbidden() {
         .await
         .expect_err("制单人自批必须 403");
     assert_eq!(err.status, 403, "{}", err.msg);
-    assert_eq!(err.code, crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+    assert_eq!(
+        err.code,
+        cloudpivot_kernel::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN
+    );
     voucher_bridge::guard_self_approval(tasks[0].0, uid(U_MAKER))
         .await
         .expect("非制单人应当放行");
@@ -1041,7 +1047,7 @@ async fn pflow3b_dc01_cancel_without_published_flow_is_409() {
     assert_eq!(error.status, 409, "{}", error.msg);
     assert_eq!(
         error.code,
-        crate::shared::error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+        cloudpivot_kernel::shared::error_code::APPROVAL_FLOW_NOT_CONFIGURED,
         "必须用 DC-01 的新码 66033：{}",
         error.msg
     );
@@ -1085,7 +1091,7 @@ async fn pflow3b_dc01_reverse_without_published_flow_is_409() {
     assert_eq!(error.status, 409, "{}", error.msg);
     assert_eq!(
         error.code,
-        crate::shared::error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+        cloudpivot_kernel::shared::error_code::APPROVAL_FLOW_NOT_CONFIGURED,
         "必须用 DC-01 的新码 66033：{}",
         error.msg
     );

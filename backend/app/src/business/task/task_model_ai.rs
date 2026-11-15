@@ -208,7 +208,7 @@ pub async fn apply_ai_done(
 /// # 参数
 ///
 /// - `uploader_name`：上传人姓名**快照**（AUD-01，
-///   [`crate::business::shared::user_name::snapshot_name`] 的返回值）。落库后永不回改；
+///   [`cloudpivot_kernel::business::shared::user_name::snapshot_name`] 的返回值）。落库后永不回改；
 ///   `None` 时该列留空，读路径回落实时 join（仅历史行 / 夹具）。
 ///
 /// # 返回值

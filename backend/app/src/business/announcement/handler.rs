@@ -28,8 +28,8 @@
 //! # 两条硬约束
 //!
 //! 1. **`content_html` 只能来自净化管线**：详情出参前必须走
-//!    [`crate::business::shared::content::sanitize_html`]（闸 3）；快照缺失时从
-//!    `content_md` 用 [`crate::business::shared::content::render`] 现渲染（闸 1 + 闸 2）。
+//!    [`cloudpivot_kernel::business::shared::content::sanitize_html`]（闸 3）；快照缺失时从
+//!    `content_md` 用 [`cloudpivot_kernel::business::shared::content::render`] 现渲染（闸 1 + 闸 2）。
 //!    任何情况下都**不允许**把 Markdown 原文拼进 HTML。
 //! 2. **附件下载必须过三道校验**：公告可见 → 附件属于该公告 → 文件存在，然后才由服务端
 //!    流式代理。只走 `sys_file` 直链等于「任何登录用户可下载任意文件」（架构 §2.5.1 的 a 方案，
@@ -63,12 +63,12 @@ use crate::business::announcement::model::{
 };
 use crate::business::announcement::{dto, maintenance};
 use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
-use crate::business::shared::content::{self, Recipe};
 use crate::business::storage::model as storage_model;
 use crate::business::storage::store::{LocalStore, ObjectStore, StoreError};
 use crate::business::storage::{ensure_router, global_router};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::content::{self, Recipe};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 列表 ====================
 

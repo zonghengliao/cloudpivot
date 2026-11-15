@@ -52,7 +52,7 @@ use std::net::SocketAddr;
 
 use crate::support::log::bus::AuthEvent;
 use crate::support::log::model::{AuditLogModel, PasswordChangeLogModel, SecurityLogModel};
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 // ==================== 认证类型 / 状态的受控取值 ====================
 

@@ -41,7 +41,7 @@ use nik::uuid::Uuid;
 use crate::business::flow::expression;
 use crate::business::flow::node_config;
 use crate::business::notice::render;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 规模上限（R15 / 65017） ====================
 
@@ -875,7 +875,7 @@ impl FlowGraph {
 pub struct Issue {
     /// 规则编号（`R1`–`R16`），与卡面 / 架构 §3.7 的映射见模块文档。
     pub rule: &'static str,
-    /// 业务错误码（`crate::shared::error_code::FLOW_*`）。
+    /// 业务错误码（`cloudpivot_kernel::shared::error_code::FLOW_*`）。
     pub code: i32,
     /// 面向用户的中文文案（**必须点名节点 / 边**，架构 §3.7 V3 的硬性要求）。
     pub message: String,

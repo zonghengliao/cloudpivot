@@ -36,9 +36,9 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::approval_gate;
-use crate::business::shared::doc_lines;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::doc_lines;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 use super::stocktake_model::{
     self as model, MAX_LINES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockTakeFilter,
@@ -446,7 +446,7 @@ impl StockTakeRes {
 }
 
 /// AUD-02：制单人姓名回填（`create_by` → `create_by_name`）。
-impl crate::business::shared::user_name::PersonNameRow for StockTakeRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for StockTakeRes {
     fn person_ids(&self, out: &mut Vec<Uuid>) {
         if let Some(id) = self.create_by.as_deref().and_then(|raw| Uuid::parse_str(raw).ok()) {
             out.push(id);

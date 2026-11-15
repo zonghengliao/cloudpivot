@@ -53,9 +53,9 @@ use crate::business::hr::attendance_period_dto::{
     AttendancePeriodRes, PeriodCreate, PeriodFilter, PeriodPatch, PeriodTotals, STATUS_SUBMITTED, status_label,
 };
 use crate::business::hr::model::SENTINEL_ORG_ID;
-use crate::business::shared::scope;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 唯一索引名（`V0383`：`(org_id, period_code) WHERE deleted_at IS NULL`）。
 pub const UK_PERIOD: &str = "uk_biz_att_period";

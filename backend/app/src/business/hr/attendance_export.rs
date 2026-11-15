@@ -45,8 +45,8 @@ use crate::business::hr::attendance_period_dto::{STATUS_DRAFT, STATUS_LOCKED, ST
 use crate::business::hr::attendance_period_model as period_model;
 use crate::business::hr::attendance_record_dto::{self, RecordPageQuery};
 use crate::business::hr::attendance_record_model::{self as model, AttendanceRecordRow};
-use crate::business::shared::principal;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal;
+use cloudpivot_kernel::utils;
 
 /// 导出考勤（与 `V0387` 的 `sys_menu.auth_code` 逐字一致）。
 pub const PERM_EXPORT: &str = "business:hr:attendance:export";

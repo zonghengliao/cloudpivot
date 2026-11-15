@@ -41,7 +41,7 @@ use std::collections::BTreeMap;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// `title_template` 的字符数上限（与 `biz_task.title varchar(200)` 对齐）。
 pub const MAX_TITLE_TEMPLATE_CHARS: usize = 200;
@@ -84,7 +84,7 @@ pub const FORM_MAPPING_KEYS: [&str; 3] = ["priority", "due_date", "estimate_hour
 /// 的 `on_complete` / `on_reject` / `on_cancel`），真源留在本模块就等于让 `task` 依赖 `flow`，
 /// `task → flow` 那条边永远摘不掉。本体搬到 `shared`，这里原样再导出，
 /// **`flow` 侧所有调用点一行不用改**（同 P2-34 把 `approval_gate` 搬到 `flow` 再导出的口径）。
-pub use crate::business::shared::task_node_switch::{OnCancel, OnComplete, OnReject};
+pub use cloudpivot_kernel::business::shared::task_node_switch::{OnCancel, OnComplete, OnReject};
 
 /// 期限模式（`config.task.due.mode`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

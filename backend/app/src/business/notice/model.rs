@@ -21,11 +21,11 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::shared::constants;
-use crate::shared::constants::EnableStatus;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::utils;
 
 /// 通知主体可空 UUID 列（发送人）。
 pub type MaybeId = Option<uuid::Uuid>;

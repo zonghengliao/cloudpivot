@@ -79,7 +79,7 @@ use crate::business::flow::graph::{
     self, ApprovalMode, EvalContext, GatewayMode, NodeType, Snapshot, SnapshotEdge, SnapshotNode,
 };
 use crate::business::flow::model::{self, Tally};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 单实例最大轮次（防止退回打转把库写爆；超了直接拒绝并提示人工介入）。
 pub const MAX_ROUND: i32 = 50;
@@ -812,7 +812,7 @@ async fn vote(
     //   拒绝也要记（`vote=REJECTED`）—— 「自己驳回自己」同样说明自审通道被用上了。
     if task.is_self_approval {
         let amount = self_approval::amount_of(&instance.form_data);
-        let threshold = crate::business::shared::separation::self_approval_max_amount().await;
+        let threshold = cloudpivot_kernel::business::shared::separation::self_approval_max_amount().await;
         self_approval::record(
             ex,
             &self_approval::AuditEntry {
@@ -2910,7 +2910,7 @@ impl<'a> Run<'a> {
                         continue;
                     }
                     let amount = self_approval::amount_of(&self.instance.form_data);
-                    let threshold = crate::business::shared::separation::self_approval_max_amount().await;
+                    let threshold = cloudpivot_kernel::business::shared::separation::self_approval_max_amount().await;
                     self_approval::record(
                         self.ex,
                         &self_approval::AuditEntry {

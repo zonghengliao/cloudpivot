@@ -33,8 +33,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::stocktake::stocktake_model::{self as model, STATUS_DRAFT, STATUS_PENDING_POST};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 /// 盘点审批的业务类型（与 `V0211` 种子 / 提交入口同口径）。
 pub const BIZ_TYPE: &str = "STOCK_TAKE_POST";
@@ -306,7 +306,11 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::
     if instance.biz_type != BIZ_TYPE {
         return Ok(());
     }
-    if !crate::business::shared::separation::enabled(crate::business::shared::separation::Duty::Approve).await {
+    if !cloudpivot_kernel::business::shared::separation::enabled(
+        cloudpivot_kernel::business::shared::separation::Duty::Approve,
+    )
+    .await
+    {
         return Ok(());
     }
     let Some(take_id) = instance.biz_id else {
@@ -323,7 +327,9 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::
                 "不能审批自己提交的盘点单：盘点单 {} 由你本人提交（内控要求制单与审批分离），\
                  请交给其他有审批权限的账号处理{}",
                 row.take_no,
-                crate::business::shared::separation::approval_hint(crate::business::shared::separation::Duty::Approve)
+                cloudpivot_kernel::business::shared::separation::approval_hint(
+                    cloudpivot_kernel::business::shared::separation::Duty::Approve
+                )
             ),
         ));
     }

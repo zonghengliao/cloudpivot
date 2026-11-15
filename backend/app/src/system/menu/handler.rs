@@ -11,12 +11,12 @@ use axum::http::HeaderMap;
 use nik::prelude::*;
 use std::net::SocketAddr;
 
-use crate::shared::constants::{self, EnableStatus};
-use crate::shared::error_code;
 use crate::support::log;
 use crate::system::menu::dto::{MenuCreateReq, MenuQuery, MenuRes, MenuUpdateReq};
 use crate::system::menu::model::{self, MenuType, SysMenuModel};
-use crate::utils;
+use cloudpivot_kernel::shared::constants::{self, EnableStatus};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 接口 ====================
 
@@ -199,7 +199,7 @@ pub async fn update(
     //
     // FIX-05：批量推进的是一批用户的版本号，模型层在事务里只拿到行数，
     // 因此这里整命名空间清空 `uv:*`（低频管理动作，语义最安全）。
-    crate::shared::session_cache::invalidate_all().await;
+    cloudpivot_kernel::shared::session_cache::invalidate_all().await;
     // P1-FIX-3：库侧 `token_version` 推进只让旧令牌作废（下次请求 401 逼重登），
     // 但**重登时读的是 `perm:user_perms:{uid}` 缓存** —— 不清它，用户重登后
     // 仍拿到旧权限码，最长 300 s 继续 403。这两条必须配对出现。
@@ -300,7 +300,7 @@ pub async fn delete(
     // （BUG-SYS-03）。失败以 warn + pending_compensation 留痕。
     //
     // FIX-05：同 `update`——批量推进版本号后整命名空间清空会话字段缓存。
-    crate::shared::session_cache::invalidate_all().await;
+    cloudpivot_kernel::shared::session_cache::invalidate_all().await;
     // P1-FIX-3：清「被删菜单的持有者」的主体缓存（持有者已在事务前反查）。
     // 反查失败（None）时退化为整命名空间全清，宁可多清不可漏清。
     match menu_holders {

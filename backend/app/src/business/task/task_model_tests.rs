@@ -10,7 +10,7 @@ use nik::prelude::chrono::{Duration, NaiveDate, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 use super::*;
 

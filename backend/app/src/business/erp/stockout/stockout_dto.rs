@@ -36,9 +36,9 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::stockout::stockout_model::{self as model, CostObjectRef, MaterialInfo};
-use crate::business::shared::doc_lines;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::doc_lines;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 use super::stockout_base::{
     OUT_TYPE_ISSUE, OUT_TYPES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockOutFilter,
@@ -627,7 +627,7 @@ impl StockOutRes {
 }
 
 /// AUD-02：制单人姓名回填（`create_by` → `create_by_name`）。
-impl crate::business::shared::user_name::PersonNameRow for StockOutRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for StockOutRes {
     fn person_ids(&self, out: &mut Vec<nik::uuid::Uuid>) {
         if let Some(id) = self
             .create_by

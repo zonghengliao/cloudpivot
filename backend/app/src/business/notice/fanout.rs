@@ -26,7 +26,7 @@
 
 use nik::prelude::*;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 单条通知的接收人上限（架构文档 §4.2：>5 万改用公告或分批）。
 pub const MAX_RECEIVERS: i64 = 50_000;

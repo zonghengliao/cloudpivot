@@ -12,9 +12,9 @@ use nik::uuid::Uuid;
 
 use super::task_model_base::*;
 use super::task_model_rows::*;
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
 use crate::business::task::state::{self, ChildSnapshot};
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 返回「我参与」的 task_id 集合（决策 D6）。
 ///

@@ -154,7 +154,7 @@ async fn x04_missing_rule_fails_closed() {
         let _target = make_target(&ctx, "target").await;
 
         // ① 规则解析：未豁免、规则集为空
-        let principal = cloudpivot::business::shared::principal::resolve(&exporter)
+        let principal = cloudpivot_kernel::business::shared::principal::resolve(&exporter)
             .await
             .expect("解析范围");
         assert!(!principal.is_super(), "夹具用户被解析成超管");

@@ -32,9 +32,9 @@ mod db {
     use crate::business::hr::employee_handler as handler;
     use crate::business::hr::employee_sensitive as sensitive;
     use crate::business::masking::{self, MaskSet, masker::MaskType, registry};
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::chrono::{DateTime, Utc};
     use nik::uuid::Uuid;
     use tokio::sync::OnceCell;
@@ -405,7 +405,7 @@ mod db {
         .await
         .expect_err("范围外必须报错");
         assert_eq!(error.status, 404, "范围外一律 404（403 会泄露 id 存在性）");
-        assert_eq!(error.code, crate::shared::error_code::RESOURCE_NOT_FOUND);
+        assert_eq!(error.code, cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND);
 
         let rows = audit_rows(employee_id).await;
         assert!(rows.is_empty(), "越权尝试不该写明文审计：{rows:?}");

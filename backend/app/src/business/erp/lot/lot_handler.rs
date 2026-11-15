@@ -39,7 +39,7 @@ use crate::business::erp::lot::lot_dto::{
 };
 use crate::business::erp::lot::lot_model::{self as model, LotRow};
 use crate::business::erp::model_base::normalize_page;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与设计 §5.3 逐字一致） ====================
 

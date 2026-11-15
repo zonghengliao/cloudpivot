@@ -55,7 +55,7 @@ use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 值域（与 V0371 的 CHECK 逐字一致） ====================
 
@@ -401,7 +401,7 @@ pub fn map_write_error(err: DbError, spec: &CostLaborSpec, ctx: &str) -> ApiErro
             ),
         ),
         DbError::UniqueViolation { .. } => conflict("工时台账写入冲突（主键重复），请刷新后重试"),
-        _ => crate::utils::db_error(err, ctx),
+        _ => cloudpivot_kernel::utils::db_error(err, ctx),
     }
 }
 

@@ -63,9 +63,9 @@ use crate::business::erp::sales::sales_return_model::{
     self as model, NewReturn, NewReturnItem, ReturnItemRow, ReturnRow,
 };
 use crate::business::erp::shipment::shipment_model;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0304 的 sys_menu.auth_code 逐字一致） ====================
 

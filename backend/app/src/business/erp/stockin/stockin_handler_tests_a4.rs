@@ -14,7 +14,7 @@ use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInPageQuery};
 use crate::business::erp::stockin::stockin_model::{self};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// ① + ⑥ + ⑨：有源单 → 创建成功，供应商**从采购单派生**（请求里根本没给），
 /// 且明细 `source_item_id` 是从采购单带出的。

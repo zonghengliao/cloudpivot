@@ -182,7 +182,7 @@ pub(crate) fn super_claims() -> AuthClaims {
 
 /// 内置管理员用户名（与 `constants::ADMIN_USERNAME` 保持一致）。
 fn constants_admin() -> &'static str {
-    crate::shared::constants::ADMIN_USERNAME
+    cloudpivot_kernel::shared::constants::ADMIN_USERNAME
 }
 
 /// 每个用例唯一的后缀（毫秒 + 进程内自增），用于所有夹具标识与清理前缀。

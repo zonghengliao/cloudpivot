@@ -10,12 +10,12 @@
 
 use nik::prelude::*;
 
-use crate::shared::cache_gate::InvalidationGate;
+use cloudpivot_kernel::shared::cache_gate::InvalidationGate;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::shared::constants::{self, EnableStatus};
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants::{self, EnableStatus};
+use cloudpivot_kernel::utils;
 
 /// `sys_dept` 表对应的强类型模型（部门机构）。
 ///
@@ -281,7 +281,7 @@ pub(crate) async fn find_dept_subtree_ids(root_id: &uuid::Uuid) -> std::result::
 
 // ==================== 部门树缓存 ====================
 
-/// 部门树缓存的失效记账（与菜单树同一套做法，见 [`crate::shared::cache_gate`]）。
+/// 部门树缓存的失效记账（与菜单树同一套做法，见 [`cloudpivot_kernel::shared::cache_gate`]）。
 static TREE_CACHE_GATE: InvalidationGate = InvalidationGate::new();
 
 /// 读取缓存的全量部门树。

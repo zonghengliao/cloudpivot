@@ -11,8 +11,8 @@ use nik::prelude::*;
 use super::task_model_base::*;
 use super::task_model_query::*;
 use super::task_model_rows::*;
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 按执行模式统计任务（**可见性 = 数据范围 ∪ 参与 id 数组**，与列表页同一谓词）。
 ///

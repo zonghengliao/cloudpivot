@@ -71,8 +71,8 @@ use crate::business::erp::requisition_bridge;
 use crate::business::erp::unit_guard;
 use crate::business::flow::engine;
 use crate::business::flow::model as flow_model;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0331 的 sys_menu.auth_code 逐字一致） ====================
 

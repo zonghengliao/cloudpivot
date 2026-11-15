@@ -67,8 +67,8 @@ use crate::business::erp::period;
 use crate::business::erp::period::period_items::BlockingItem;
 use crate::business::erp::period::period_remind::{self, REMIND_MAX_ITEMS, RemindReq, RemindRes, RemindScope};
 use crate::business::erp::year::year_end::{self, YearEndBlocker};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 口径常量 ====================
 

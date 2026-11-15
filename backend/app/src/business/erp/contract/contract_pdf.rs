@@ -46,7 +46,7 @@ use crate::business::pdf::template::{
     term_range_of,
 };
 use crate::business::pdf::{engine, handler as pdf_handler};
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 审计里的操作码。
 pub const EXPORT_OPERATION: &str = "EXPORT_CONTRACT_PDF";
@@ -95,7 +95,7 @@ pub fn file_role_label(role: &str) -> &'static str {
 ///
 /// # 异常情况
 ///
-/// - 404 [`crate::shared::error_code::RESOURCE_NOT_FOUND`]：合同不存在 / 已软删；
+/// - 404 [`cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND`]：合同不存在 / 已软删；
 /// - 500：数据库异常。
 pub async fn contract_context(id: Uuid) -> std::result::Result<ContractContext, ApiError> {
     let row = contract_model::contract_find(id)
@@ -222,9 +222,9 @@ pub struct RenderedContract {
 ///
 /// # 异常情况
 ///
-/// - 422 [`crate::shared::error_code::PDF_TEMPLATE_INVALID`]：模板渲染失败；
-/// - 503 [`crate::shared::error_code::PDF_RENDER_UNAVAILABLE`]：Chromium 不可用；
-/// - 504 [`crate::shared::error_code::PDF_RENDER_TIMEOUT`]：渲染超时。
+/// - 422 [`cloudpivot_kernel::shared::error_code::PDF_TEMPLATE_INVALID`]：模板渲染失败；
+/// - 503 [`cloudpivot_kernel::shared::error_code::PDF_RENDER_UNAVAILABLE`]：Chromium 不可用；
+/// - 504 [`cloudpivot_kernel::shared::error_code::PDF_RENDER_TIMEOUT`]：渲染超时。
 pub async fn render_contract_pdf(context: &ContractContext) -> std::result::Result<RenderedContract, ApiError> {
     let html = template::render_contract(context).map_err(|error| error.into_api())?;
     let filename = format!("合同-{}.pdf", doc_pdf_model::sanitize_filename(&context.doc_no));
@@ -247,7 +247,7 @@ pub async fn render_contract_pdf(context: &ContractContext) -> std::result::Resu
 ///
 /// # 异常情况
 ///
-/// - 400 [`crate::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
+/// - 400 [`cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
 /// - 404：合同不存在；
 /// - 422 / 503 / 504：同 [`render_contract_pdf`]。
 pub async fn export_contract(id_raw: &str) -> std::result::Result<RenderedContract, ApiError> {
@@ -261,7 +261,7 @@ pub async fn export_contract(id_raw: &str) -> std::result::Result<RenderedContra
 /// # 异常情况
 ///
 /// - 401：未登录；
-/// - 403 [`crate::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:contract:list`；
+/// - 403 [`cloudpivot_kernel::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:contract:list`；
 /// - 400 / 404 / 422 / 503 / 504：见 [`export_contract`]。
 #[nik::permission(
     path = "/business/erp/contract/{id}/pdf",
@@ -684,6 +684,6 @@ mod db_tests {
         }
         let error = export_contract("not-a-uuid").await.expect_err("必须 400");
         assert_eq!(error.status, 400);
-        assert_eq!(error.code, crate::shared::error_code::ERP_FILTER_INVALID);
+        assert_eq!(error.code, cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID);
     }
 }

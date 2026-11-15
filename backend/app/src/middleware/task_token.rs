@@ -56,7 +56,7 @@ use nik::prelude::*;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 任务级令牌的明文前缀。
 ///

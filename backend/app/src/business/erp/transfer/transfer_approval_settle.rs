@@ -117,7 +117,7 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
     };
     if !settle_guard::gate(
         &instance,
-        crate::business::shared::state_machine::Entity::Transfer,
+        cloudpivot_kernel::business::shared::state_machine::Entity::Transfer,
         &row.transfer_no,
         &row.status,
         erp_transfer::STATUS_PENDING,

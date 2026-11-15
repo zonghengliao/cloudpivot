@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::{PurchaseOrderItemRow, PurchaseOrderRow};
 use crate::business::erp::serial_model;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 use super::stockin_cancel::PO_RACE_PREFIX;
 

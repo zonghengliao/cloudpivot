@@ -27,9 +27,9 @@ use nik::uuid::Uuid;
 mod db {
     use super::*;
     use crate::business::hr::employee_model as model;
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::chrono::NaiveDate;
     use tokio::sync::OnceCell;
 
@@ -301,7 +301,10 @@ mod db {
 
         let api = model::write_error(err, "hr_employee_insert", &model::WriteValues::of(&two));
         assert_eq!(api.status, 409);
-        assert_eq!(api.code, crate::shared::error_code::HR_EMPLOYEE_NO_DUPLICATE);
+        assert_eq!(
+            api.code,
+            cloudpivot_kernel::shared::error_code::HR_EMPLOYEE_NO_DUPLICATE
+        );
         assert!(api.msg.contains(&two.emp_no), "报文要点名撞的工号：{}", api.msg);
         assert!(api.msg.contains("工号"), "报文要说人话：{}", api.msg);
 
@@ -337,7 +340,10 @@ mod db {
 
         let api = model::write_error(err, "hr_employee_insert", &model::WriteValues::of(&two));
         assert_eq!(api.status, 409);
-        assert_eq!(api.code, crate::shared::error_code::HR_EMPLOYEE_ID_CARD_DUPLICATE);
+        assert_eq!(
+            api.code,
+            cloudpivot_kernel::shared::error_code::HR_EMPLOYEE_ID_CARD_DUPLICATE
+        );
         assert!(api.msg.contains("身份证"), "报文要说人话：{}", api.msg);
         assert!(
             !api.msg.contains(&plaintext),
@@ -377,7 +383,10 @@ mod db {
             .expect_err("同账号必须被拒");
         let api = model::write_error(err, "hr_employee_insert", &model::WriteValues::of(&two));
         assert_eq!(api.status, 409);
-        assert_eq!(api.code, crate::shared::error_code::HR_EMPLOYEE_ACCOUNT_BOUND);
+        assert_eq!(
+            api.code,
+            cloudpivot_kernel::shared::error_code::HR_EMPLOYEE_ACCOUNT_BOUND
+        );
         assert!(api.msg.contains("账号"), "报文要说人话：{}", api.msg);
 
         // ② 先建一个没账号的员工，再 bind-user 到同一个账号 → 同一个约束、同一个码
@@ -390,7 +399,10 @@ mod db {
             .expect_err("改绑到已占用账号必须被拒");
         let api = model::write_error(err, "hr_employee_bind_user", &model::WriteValues::default());
         assert_eq!(api.status, 409);
-        assert_eq!(api.code, crate::shared::error_code::HR_EMPLOYEE_ACCOUNT_BOUND);
+        assert_eq!(
+            api.code,
+            cloudpivot_kernel::shared::error_code::HR_EMPLOYEE_ACCOUNT_BOUND
+        );
 
         drop_rows(&[first, second]).await;
     }
@@ -415,7 +427,7 @@ mod db {
             .expect_err("状态 RESIGNED 但无离职日期必须被库拒掉");
         let api = model::write_error(err, "hr_employee_insert", &model::WriteValues::of(&write));
         assert_eq!(api.status, 400);
-        assert_eq!(api.code, crate::shared::error_code::PARAM_INVALID);
+        assert_eq!(api.code, cloudpivot_kernel::shared::error_code::PARAM_INVALID);
         assert!(api.msg.contains("离职日期"), "报文要点名该改哪个字段：{}", api.msg);
 
         // 补上离职日期与类型 → 能建（同一个 CHECK 的反向也成立）
@@ -512,7 +524,7 @@ mod db {
         let err = model::insert(db(), plain_id, &by_no, None).await.expect_err("撞工号");
         assert_eq!(
             model::write_error(err, "hr", &model::WriteValues::of(&by_no)).code,
-            crate::shared::error_code::HR_EMPLOYEE_NO_DUPLICATE
+            cloudpivot_kernel::shared::error_code::HR_EMPLOYEE_NO_DUPLICATE
         );
 
         // 只撞身份证
@@ -524,7 +536,7 @@ mod db {
             .expect_err("撞身份证");
         assert_eq!(
             model::write_error(err, "hr", &model::WriteValues::of(&by_card)).code,
-            crate::shared::error_code::HR_EMPLOYEE_ID_CARD_DUPLICATE
+            cloudpivot_kernel::shared::error_code::HR_EMPLOYEE_ID_CARD_DUPLICATE
         );
 
         // 只撞账号（`q…` 的身份证由 tag 哈希得到，与基线不同）
@@ -535,7 +547,7 @@ mod db {
             .expect_err("撞账号");
         assert_eq!(
             model::write_error(err, "hr", &model::WriteValues::of(&by_user)).code,
-            crate::shared::error_code::HR_EMPLOYEE_ACCOUNT_BOUND
+            cloudpivot_kernel::shared::error_code::HR_EMPLOYEE_ACCOUNT_BOUND
         );
 
         drop_rows(&[base_id, plain_id]).await;

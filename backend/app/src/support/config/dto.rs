@@ -61,7 +61,7 @@ impl ConfigRes {
     /// # 异常情况
     ///
     /// 加密参数解密失败时返回 500 错误（错误码见
-    /// [`crate::shared::error_code::CONFIG_DECRYPT_FAILED`]）。
+    /// [`cloudpivot_kernel::shared::error_code::CONFIG_DECRYPT_FAILED`]）。
     pub(crate) fn from_model(m: &SysConfigModel) -> std::result::Result<Self, ApiError> {
         let config_value = match m.config_value.as_deref() {
             Some(raw) if m.is_encrypted => model::decrypt_config_value(raw)?,

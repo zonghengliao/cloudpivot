@@ -63,8 +63,8 @@ mod db {
     use crate::business::erp::cost::cost_labor_handler as handler;
     use crate::business::erp::cost::cost_labor_model as model;
     use crate::business::hr::{employee_reader, employee_reader_impl};
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;
     use tokio::sync::OnceCell;
@@ -141,7 +141,7 @@ mod db {
     impl Fixture {
         async fn build() -> Self {
             let suffix = uniq();
-            let dept = crate::shared::test_helpers::ensure_any_dept().await;
+            let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
             // 第二个部门：数据权限用例要验「别的部门看不见」。
             // 空库重放出来的库里 sys_dept 只有 1 行，所以自己造一个（清场时删掉）。
             let other_dept = Uuid::now_v7();

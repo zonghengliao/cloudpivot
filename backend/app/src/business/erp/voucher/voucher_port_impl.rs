@@ -45,7 +45,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::voucher::voucher_multi::{self, ExplicitLine, ExplicitVoucherInput};
 use crate::business::erp::voucher::{self, AccountRef, ReversalInput};
-use crate::business::shared::voucher_port::{
+use cloudpivot_kernel::business::shared::voucher_port::{
     self, AccountPick, ExplicitVoucherReq, ReversalSpec, VoucherBrief, VoucherLine, VoucherWriter,
 };
 

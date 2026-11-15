@@ -58,7 +58,7 @@ use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::Response;
 
-use crate::shared::observability;
+use cloudpivot_kernel::shared::observability;
 
 /// `path` 标签的硬上限（超出归 [`PATH_OTHER`]）。
 ///

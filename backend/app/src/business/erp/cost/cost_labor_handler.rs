@@ -53,9 +53,9 @@ use crate::business::erp::cost::cost_rate_dto::RateSubject;
 use crate::business::erp::cost::cost_rate_handler;
 use crate::business::erp::model_base::normalize_page;
 use crate::business::impexp::handler::xlsx_response;
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与设计 §5.3 逐字一致） ====================
 
@@ -518,7 +518,7 @@ pub fn all_permissions() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::shared::scope::SCOPED_TABLES;
+    use cloudpivot_kernel::business::shared::scope::SCOPED_TABLES;
     use nik::prelude::chrono::Utc;
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;

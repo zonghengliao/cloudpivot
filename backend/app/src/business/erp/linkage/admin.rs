@@ -37,9 +37,9 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::business::shared::state_machine::Entity;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine::Entity;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 use super::model::{self, LinkageRuleRow, RulePatch};
 use super::spec::{self, ActionSpec, ParamKind};

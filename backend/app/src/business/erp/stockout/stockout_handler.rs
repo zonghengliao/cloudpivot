@@ -35,10 +35,10 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::voucher;
-use crate::business::shared::separation;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // 出库过账的跨单据联动接线（P1-FIX-5C）：单独一个文件，只为守住单文件 ≤1500 行。
 #[path = "stockout_linkage.rs"]
@@ -1307,7 +1307,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockOutDetailRes, ApiEr
         .await
         .map_err(|error| utils::db_error(error, "查询成本对象"))?;
     // AUD-02：制单人姓名（单条同一入口，1 条 SQL）
-    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut detail.header))
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut detail.header))
         .await
         .unwrap_or_default();
     Ok(detail)
@@ -1416,7 +1416,7 @@ pub async fn page_of(q: &StockOutPageQuery) -> std::result::Result<StockOutPageR
         .await
         .map_err(|error| utils::db_error(error, "查询成本对象"))?;
     // AUD-02：制单人姓名，整页一次
-    crate::business::shared::user_name::fill_person_names(&mut list)
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
     Ok(StockOutPageRes {

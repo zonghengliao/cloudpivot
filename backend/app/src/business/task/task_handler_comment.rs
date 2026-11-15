@@ -16,8 +16,8 @@ use super::task_handler_common::*;
 use crate::business::task::dto::{self, TaskCommentReq, TaskCommentRes, TaskPostCommentReq};
 use crate::business::task::model::{self, TaskDetailRow};
 use crate::middleware::task_token::AiTaskActor;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 写一条任务评论（`POST /business/task/{id}/comment`）。
 ///

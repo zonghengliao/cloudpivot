@@ -47,7 +47,7 @@ use nik::uuid::Uuid;
 use crate::business::flow::assignee::Candidate;
 use crate::business::flow::doc_reader;
 use crate::business::flow::model as flow_model;
-use crate::business::shared::separation;
+use cloudpivot_kernel::business::shared::separation;
 
 /// 受内控约束的业务类型（`biz_flow_instance.biz_type` 落库原值）。
 ///
@@ -1129,7 +1129,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         assert_eq!(error.status, 422, "发起应当 422：{}", error.msg);
         assert_eq!(
             error.code,
-            crate::shared::error_code::FLOW_NO_ASSIGNEE,
+            cloudpivot_kernel::shared::error_code::FLOW_NO_ASSIGNEE,
             "码必须是 65018（没有可用审批人）：{}",
             error.msg
         );
@@ -1184,7 +1184,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         assert_eq!(error.status, 422, "发起应当 422：{}", error.msg);
         assert_eq!(
             error.code,
-            crate::shared::error_code::FLOW_NO_ASSIGNEE,
+            cloudpivot_kernel::shared::error_code::FLOW_NO_ASSIGNEE,
             "码必须是 65018（没有可用审批人）：{}",
             error.msg
         );

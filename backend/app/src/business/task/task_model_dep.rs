@@ -13,9 +13,9 @@ use nik::uuid::Uuid;
 use super::task_model_base::*;
 use super::task_model_query::*;
 use super::task_model_rows::*;
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
 use crate::business::task::dep;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 我依赖谁（前置列表，按截止日升序、无期限垫底）。
 ///

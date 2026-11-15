@@ -58,9 +58,9 @@ use crate::business::erp::stockin::stockin_base::InventorySnapshot;
 use crate::business::erp::stockout::stockout_base;
 use crate::business::erp::stockout::stockout_model as stock_out;
 use crate::business::erp::voucher::{self, ACCOUNT_MAIN_COST, AccountRef, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO};
-use crate::shared::error_code;
-use crate::utils;
 use cloudpivot_doc::TxnBizType;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量 ====================
 

@@ -87,8 +87,8 @@ use crate::business::erp::model::{self, InventoryLocationRow, InventoryRow, Inve
 use crate::business::erp::seq;
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::unit_guard;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 口径常量 ====================
 
@@ -2390,7 +2390,7 @@ pub async fn inventory_txn_page(Query(filter): Query<InventoryTxnFilter>) -> Res
         .map_err(|error| utils::db_error(error, "分页查询库存流水"))?;
     let mut list: Vec<InventoryTxnRes> = rows.iter().map(InventoryTxnRes::from).collect();
     // AUD-02：操作人姓名，整页一次（流水量最大的一张表，逐行查必炸）
-    crate::business::shared::user_name::fill_person_names(&mut list)
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
     Ok(page_body(list, total, page, page_size))
@@ -2412,7 +2412,7 @@ pub async fn inventory_txn_detail(Path(id): Path<String>) -> ResResult<Inventory
         &InventoryTxnRow::from_row(&row).map_err(|error| utils::db_error(error, "解析库存流水"))?,
     );
     // AUD-02：操作人姓名（单条同一入口）
-    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut res))
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut res))
         .await
         .unwrap_or_default();
     Ok(Res::ok(res))

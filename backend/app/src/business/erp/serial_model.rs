@@ -104,8 +104,8 @@ use crate::business::erp::model::normalize_page;
 use crate::business::erp::serial_dto::SerialFilter;
 use crate::business::erp::stockin::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, SerialMovement};
-use crate::business::shared::scope;
 use cloudpivot_doc::SerialSourceType;
+use cloudpivot_kernel::business::shared::scope;
 
 use super::inventory_writer::{self, TxnRecord};
 
@@ -154,7 +154,7 @@ pub const MAX_BATCH_COUNT: i64 = 1000;
 ///
 /// 真源在 `business/shared/period_key.rs`（P2-B 解环：周期键算法是**纯函数**，
 /// 不是 ERP 的私有口径）。这里保留同名常量只为不改动本文件既有调用点的可读性。
-pub const CST_OFFSET_HOURS: i64 = crate::business::shared::period_key::CST_OFFSET_HOURS;
+pub const CST_OFFSET_HOURS: i64 = cloudpivot_kernel::business::shared::period_key::CST_OFFSET_HOURS;
 
 /// 来源单据类型白名单（V0138 列注释：PURCHASE / TRANSFER / PRODUCE / RETURN）。
 pub const SOURCE_TYPES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
@@ -433,12 +433,12 @@ pub enum TransitionOutcome {
 /// 号按天重置必须用 **CST 的天**：用 UTC 会让「北京时间 00:00–08:00」这段算成前一天，
 /// 跨天那一刻的号段会跟白天重叠。
 pub fn period_key_of(now: DateTime<Utc>) -> String {
-    crate::business::shared::period_key::period_key_of(now)
+    cloudpivot_kernel::business::shared::period_key::period_key_of(now)
 }
 
 /// 当前周期键（北京时间今天）。
 pub fn today_period_key() -> String {
-    crate::business::shared::period_key::today_period_key()
+    cloudpivot_kernel::business::shared::period_key::today_period_key()
 }
 
 /// 拼序列号：`SN-yyyyMMdd-XXXXXX`。
@@ -617,7 +617,7 @@ pub const TXN_REMARK_MAX: usize = 255;
 
 /// 「某一刻」的会计期间码 `yyyy-MM`（同样用 **CST**：月末 23:30 的流水不该记到上个月）。
 pub fn period_code_of(now: DateTime<Utc>) -> String {
-    crate::business::shared::period_key::period_code_of(now)
+    cloudpivot_kernel::business::shared::period_key::period_code_of(now)
 }
 
 /// 库存快照（流水的前后六列里，变动前的三项）。
@@ -1245,7 +1245,7 @@ pub async fn serial_page(q: &SerialFilter) -> DbResult<(Vec<SerialRow>, i64)> {
         sql.push_str(" AND status = ?");
         params.push(Value::from(status));
     }
-    if let Some(pattern) = crate::utils::like_pattern(q.serial_no.as_deref()) {
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(q.serial_no.as_deref()) {
         sql.push_str(" AND serial_no LIKE ?");
         params.push(Value::from(pattern));
     }

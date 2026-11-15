@@ -272,7 +272,7 @@ async fn level_nine_is_rejected_with_63005() {
     assert!(message.contains("最多 8 层"), "文案应写明 8 层上限：{message}");
     assert!(message.contains("第 8 层"), "文案应点明父任务链已到第 8 层：{message}");
     // handler 侧的口径：DbError::InvalidValue → 400 + TASK_PARENT_INVALID(63005)
-    assert_eq!(crate::shared::error_code::TASK_PARENT_INVALID, 63005);
+    assert_eq!(cloudpivot_kernel::shared::error_code::TASK_PARENT_INVALID, 63005);
 }
 
 // ---------- ⑥ 自指（parent_id = 自己）→ 400 + 63005 ----------

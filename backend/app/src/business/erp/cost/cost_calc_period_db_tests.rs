@@ -34,7 +34,7 @@ use nik::uuid::Uuid;
 mod db {
     use super::*;
     use crate::business::erp::cost::cost_calc_period;
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
     use tokio::sync::OnceCell;
 
     /// 连库（进程内只初始化一次）。`false` = 没配 `ERP_DB_URL`，用例直接跳过。
@@ -144,7 +144,7 @@ mod db {
             sweep_leftovers().await;
             let suffix = uniq();
             let year = next_year();
-            let dept = crate::shared::test_helpers::ensure_any_dept().await;
+            let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
             let unit: Uuid = db()
                 .scalar_with_params("SELECT id FROM biz_unit WHERE deleted_at IS NULL LIMIT 1", vec![])
                 .await
@@ -837,7 +837,10 @@ mod db {
                 locked => {
                     let error = outcome.expect_err(&format!("{locked} 必须拒绝重算"));
                     assert_eq!(error.status, 409, "{locked}：{}", error.msg);
-                    assert_eq!(error.code, crate::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD);
+                    assert_eq!(
+                        error.code,
+                        cloudpivot_kernel::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD
+                    );
                     assert!(error.msg.contains(locked), "{locked}：报文要点名状态：{}", error.msg);
                     assert_eq!(fx.active_batches().await.len(), 1, "{locked}：不许多出批次");
                     assert!(fx.items().await.is_empty(), "{locked}：一行计算单都不许写");

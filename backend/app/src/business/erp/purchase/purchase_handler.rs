@@ -62,9 +62,9 @@ use crate::business::erp::purchase::purchase_model::{
 use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::unit_guard;
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 共用辅助 ====================
 

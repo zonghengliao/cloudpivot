@@ -42,8 +42,8 @@ use crate::business::erp::approval_gate::SkipApprovalReq;
 use crate::business::erp::stockin::stockin_model::{
     STOCK_IN_SUMMARY_PLACEHOLDER, StockInFilter, StockInItemRow, StockInRow, Totals, money, unit_price,
 };
-use crate::business::shared::doc_lines;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::doc_lines;
+use cloudpivot_kernel::shared::error_code;
 
 /// 明细行上限。
 pub const MAX_LINES: usize = 200;
@@ -675,7 +675,7 @@ impl From<&StockInRow> for StockInRes {
 }
 
 /// AUD-02：制单人姓名回填（`create_by` → `create_by_name`）。
-impl crate::business::shared::user_name::PersonNameRow for StockInRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for StockInRes {
     fn person_ids(&self, out: &mut Vec<nik::uuid::Uuid>) {
         if let Some(id) = self
             .create_by

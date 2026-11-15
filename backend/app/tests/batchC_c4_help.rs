@@ -27,7 +27,7 @@
 //! 只删自己造的行（不会碰库里其它数据），可重复运行。
 
 use cloudpivot::business::help::model::{self, CategoryInput, DocFilter, DocInput, HelpError, SearchFilter};
-use cloudpivot::business::shared::content;
+use cloudpivot_kernel::business::shared::content;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 

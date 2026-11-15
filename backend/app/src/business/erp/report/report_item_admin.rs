@@ -40,8 +40,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 use super::report_item_model::{self as model, AccountOption, ItemRow, ItemWrite};
 use crate::business::erp::income_statement as income_report;

@@ -62,6 +62,10 @@ SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "backend", "app", "src")
 BIZ = os.path.join(SRC, "business")
 ERP = os.path.join(BIZ, "erp")
+# 内核 crate（P2-59 · C1）：`shared` / `utils` / `business/shared` 已整体搬到这里。
+# 它们仍是 L1 基准节点，只是源码根换了 —— 不认这个根的话 `--plan-order` 会报「未知节点」，
+# `--domain shared` 也会因为「节点没文件」而看不见出边（假绿）。
+KERNEL_SRC = os.path.join(os.path.dirname(os.path.dirname(SRC)), "crates", "cloudpivot-kernel", "src")
 
 TOP_KERNEL = ("shared", "utils", "system", "support", "middleware", "task")
 
@@ -103,6 +107,11 @@ def collect_nodes(scope: str) -> dict[str, list[str]]:
             path = os.path.join(SRC, name)
             if os.path.isdir(path):
                 nodes[name] = _rs_files(path)
+        # P2-59（C1）：内核三节点（`shared` / `utils` / `business/shared`）的源码在内核 crate 里。
+        for rel in ASSUMED_KERNEL:
+            path = os.path.join(KERNEL_SRC, *rel.split("/"))
+            if os.path.isdir(path):
+                nodes[rel] = _rs_files(path)
         for name in ("lib.rs", "main.rs", "bootstrap.rs"):
             path = os.path.join(SRC, name)
             if os.path.isfile(path):
@@ -131,6 +140,13 @@ def build_graph(scope: str):
         for f in files:
             owner[f] = node
 
+    # 内核已抽出（P2-59 · C1）：应用侧引用写成 `cloudpivot_kernel::shared|utils` 与
+    # `cloudpivot_kernel::business::shared`。这两个 pattern 与 scope 无关，先建好；
+    # `erp-sub` 口径下用「永不匹配」占位（那边只关心 erp 内部与外域）。
+    kernel_biz = [n.split("/")[-1] for n in ASSUMED_KERNEL if "/" in n]
+    kernel_top = [n for n in ASSUMED_KERNEL if "/" not in n]
+    pattern3 = re.compile(r"cloudpivot_kernel::business::(" + "|".join(sorted(kernel_biz)) + r")\b")
+    pattern4 = re.compile(r"cloudpivot_kernel::(" + "|".join(sorted(kernel_top)) + r")\b")
     if scope == "top":
         # 候选名 = 模块路径的最后一段（`business/shared` 的模块名是 `shared`）
         candidates = [n.split("/")[-1] for n in nodes if n not in TOP_KERNEL and n != "app#root"]
@@ -141,6 +157,7 @@ def build_graph(scope: str):
         names = [n.split(":", 1)[1] if ":" in n else n for n in sub]
         pattern = re.compile(r"(?:crate::business::erp::|super::super::)(" + "|".join(sorted(map(re.escape, names))) + r")\b")
         pattern2 = re.compile(r"crate::business::(flow|hr|impexp|changelog|masking|task)\b")
+        pattern3 = pattern4 = re.compile(r"(?!)")  # 占位：erp-sub 口径不判内核边
 
     edges: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))   # 全部（含注释）
     code: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))    # 只算代码
@@ -169,11 +186,16 @@ def build_graph(scope: str):
         nfile[node] += 1
         for lineno, line in enumerate(text.splitlines(), 1):
             is_comment = line.lstrip().startswith("//")
-            for pat in (pattern, pattern2):
+            for pat in (pattern, pattern2, pattern3, pattern4):
                 for m in pat.finditer(line):
                     raw = m.group(1)
-                    target = ("ext:" + raw if scope == "erp-sub" and pat is pattern2
-                              else resolve(node, raw, under_business=(pat is pattern)))
+                    if pat is pattern3:
+                        target = ("business/" + raw) if ("business/" + raw) in nodes else None
+                    elif pat is pattern4:
+                        target = raw if raw in nodes else None
+                    else:
+                        target = ("ext:" + raw if scope == "erp-sub" and pat is pattern2
+                                  else resolve(node, raw, under_business=(pat is pattern)))
                     if target is None or target == node:
                         continue
                     edges[node][target] += 1

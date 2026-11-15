@@ -152,7 +152,7 @@ pub(crate) fn status_ctx<'a>(
     draft.force = false;
     draft.idempotency_key = Some(format!("LNK:PURCHASE_ORDER:{status}:{doc_id}"));
     linkage::LinkageContext::new(
-        crate::business::shared::state_machine::ENTITY_PURCHASE_ORDER,
+        cloudpivot_kernel::business::shared::state_machine::ENTITY_PURCHASE_ORDER,
         status,
         doc_id,
         doc_no,

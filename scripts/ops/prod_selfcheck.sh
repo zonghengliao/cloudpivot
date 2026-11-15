@@ -6,7 +6,7 @@
 #   · 登录用 **运维账号** `CLOUDPIVOT_OPS_USER` / `CLOUDPIVOT_OPS_PASSWORD`，
 #     不再拿 `NIK_ADMIN_PASSWORD` 猜 admin 口令（那是「空库首启种子」语义，必然 401）；
 #   · 登录**只尝试一次**：失败立刻停并给出处置，绝不重试 —— 5 次失败会把账号锁 30 分钟
-#     （backend/app/src/shared/constants.rs MAX_LOGIN_FAIL_COUNT=5 / LOCK_MINUTES=30），
+#     （backend/crates/cloudpivot-kernel/src/shared/constants.rs MAX_LOGIN_FAIL_COUNT=5 / LOCK_MINUTES=30），
 #     且 60 秒内超过 10 次会命中登录限流（LOGIN_RATE_MAX_ATTEMPTS=10 / WINDOW=60s）。
 #
 # 用法：

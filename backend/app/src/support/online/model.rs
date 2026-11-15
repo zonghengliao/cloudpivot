@@ -19,7 +19,7 @@
 //!
 //! 吊销是安全动作，**不许静默失败**（评审 §1.3）。自 ADR-20261101 起吊销事实以
 //! PostgreSQL（`sys_token_blacklist`）为准，本文件的吊销动作统一走
-//! [`crate::shared::token_revocation::revoke`]：
+//! [`cloudpivot_kernel::shared::token_revocation::revoke`]：
 //!
 //! - **写库失败 = 吊销没生效** → `Err` 传给调用方，由处理器回 500；
 //! - **写缓存失败** → 只 `warn` + `auth_cache_degraded=true`，不改返回码（库侧已生效）；
@@ -31,8 +31,8 @@
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::constants;
-use crate::shared::token_revocation::{self, BlacklistKind, BlacklistReason};
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::token_revocation::{self, BlacklistKind, BlacklistReason};
 
 /// 在线用户会话快照。
 #[derive(Debug, Clone, Serialize, Deserialize)]

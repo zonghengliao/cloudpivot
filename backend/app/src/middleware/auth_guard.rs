@@ -15,7 +15,7 @@
 //! # 判定位置：PostgreSQL（ADR-20261101）
 //!
 //! 自 ADR-20261101 起，**「哪条令牌被吊销」是库侧事实**（`sys_token_blacklist`），
-//! Redis 退化为读加速器。本层只查库（[`crate::shared::token_revocation::is_revoked`]）：
+//! Redis 退化为读加速器。本层只查库（[`cloudpivot_kernel::shared::token_revocation::is_revoked`]）：
 //!
 //! | 情形 | 动作 |
 //! |------|------|
@@ -68,7 +68,7 @@ pub(crate) async fn check_revoked(jti: Option<&str>) -> std::result::Result<bool
     let Some(jti) = jti.filter(|v| !v.is_empty()) else {
         return Err("令牌缺少 jti，无法复检吊销状态".to_string());
     };
-    crate::shared::token_revocation::is_revoked(jti)
+    cloudpivot_kernel::shared::token_revocation::is_revoked(jti)
         .await
         .map_err(|error| format!("吊销名单查询失败: {error}"))
 }

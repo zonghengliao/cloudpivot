@@ -6,7 +6,7 @@
  * 断言口径照后端抄：
  * - 状态域 / 标签 / 类型 = `backend/app/src/business/erp/sales/sales_return_model.rs`
  *   （`STATUSES` / `status_label` / `RETURN_TYPES` / `return_type_label`）；
- * - 合法边 / 必填原因 = `backend/app/src/business/shared/state_machine.rs`
+ * - 合法边 / 必填原因 = `backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs`
  *   （`SALES_RETURN_EDGES` / `SALES_RETURN_REASON_EDGES`）—— 两张表直接读后端源码比对，
  *   前端自己抄错一条边，这里先红；
  * - 「只带可退的行」= `sales_return_handler::resolve_items` 的带出分支（`remaining > 0`）；
@@ -59,7 +59,11 @@ import {
 
 /** 读后端源码（仓库根的 `backend/app/src/...`），断言「前端没抄错」用 */
 function backendSource(relative: string): string {
-  return readFileSync(new URL(`../../../backend/app/src/${relative}`, import.meta.url), 'utf8');
+  // P2-59（C1）：内核那批文件（`shared` / `utils` / `business/shared`）已搬到
+  // `backend/crates/cloudpivot-kernel/src/`。传入**仓库相对全路径**（`backend/...`）时按
+  // 仓库根拼；只给模块内相对路径（如 erp 的 shipment_model）时仍按 app 的 src 拼。
+  const base = relative.startsWith('backend/') ? '../../../' : '../../../backend/app/src/';
+  return readFileSync(new URL(`${base}${relative}`, import.meta.url), 'utf8');
 }
 
 /** 一行可退明细（字段逐字照 `ReturnableItemRes`） */
@@ -134,7 +138,7 @@ test('退货类型 3 值与中文名与后端逐字一致', () => {
 });
 
 test('7 条合法边逐条等于后端 SALES_RETURN_EDGES', () => {
-  const source = backendSource('business/shared/state_machine.rs');
+  const source = backendSource('backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs');
   const anchor = source.slice(source.indexOf('pub const SALES_RETURN_EDGES: [(&str, &str); 7] = ['));
   const block = anchor.slice(0, anchor.indexOf('];'));
   const edges = [...block.matchAll(/\("([A-Z_]+)", "([A-Z_]+)"\)/g)].map((match) => [
@@ -146,7 +150,7 @@ test('7 条合法边逐条等于后端 SALES_RETURN_EDGES', () => {
 });
 
 test('2 条必填原因的边逐条等于后端 SALES_RETURN_REASON_EDGES', () => {
-  const source = backendSource('business/shared/state_machine.rs');
+  const source = backendSource('backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs');
   const anchor = source.slice(
     source.indexOf('pub const SALES_RETURN_REASON_EDGES: [(&str, &str); 2] ='),
   );

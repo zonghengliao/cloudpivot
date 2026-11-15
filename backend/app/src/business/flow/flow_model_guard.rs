@@ -6,7 +6,7 @@
 // `model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 use nik::prelude::*;
 
 /// 流程错误码转 [`ApiError`]（写路径复用的 404 文案）。

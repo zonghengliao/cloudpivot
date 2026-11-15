@@ -13,14 +13,14 @@ use nik::prelude::*;
 
 use std::net::SocketAddr;
 
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
 use crate::support::dict::dto::{
     DictItemPageQuery, DictItemRes, DictItemSaveReq, DictTypePageQuery, DictTypeRes, DictTypeSaveReq,
 };
 use crate::support::dict::model::{self, DictItemFilter, DictTypeFilter, SysDictItemModel, SysDictTypeModel};
 use crate::support::log;
-use crate::utils;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 字典类型接口 ====================
 

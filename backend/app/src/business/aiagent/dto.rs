@@ -220,7 +220,7 @@ pub fn normalize_description(raw: Option<&str>) -> Result<String, ApiError> {
     if flattened.chars().count() > max {
         return Err(ApiError::new(
             400,
-            crate::shared::error_code::AI_AGENT_DESCRIPTION_INVALID,
+            cloudpivot_kernel::shared::error_code::AI_AGENT_DESCRIPTION_INVALID,
             format!("职责最多 {max} 个字符（当前 {}）", flattened.chars().count()),
         ));
     }

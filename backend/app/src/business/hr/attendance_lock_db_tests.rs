@@ -41,9 +41,9 @@ mod db {
     use crate::business::hr::attendance_period_handler;
     use crate::business::hr::employee_handler;
     use crate::business::hr::model::SENTINEL_ORG_ID;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::error_code;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::error_code;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::chrono::{Duration, NaiveDate};
     use tokio::sync::OnceCell;
 

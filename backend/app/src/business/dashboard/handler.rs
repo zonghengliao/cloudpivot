@@ -21,8 +21,8 @@ use nik::prelude::*;
 
 use crate::business::dashboard::dto::MetricCardRes;
 use crate::business::dashboard::model;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 我的指标（四张卡：待办审批 / 本周已办 / 今日任务 / 逾期）。
 ///

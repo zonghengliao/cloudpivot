@@ -54,9 +54,9 @@ use crate::business::erp::{
     voucher::{self, voucher_multi},
 };
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
     utils::current_user_uuid(claims)
@@ -424,7 +424,7 @@ pub async fn report_page(
         filter.page.unwrap_or(1),
         filter.page_size.unwrap_or(expense_dto::DEFAULT_PAGE_SIZE),
     );
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let (rows, total) = expense_model::report_page(&filter, page, page_size, &principal)
         .await
         .map_err(|error| db_err(error, "分页查询报销单"))?;
@@ -449,7 +449,7 @@ pub async fn report_pay_page(
         filter.page.unwrap_or(1),
         filter.page_size.unwrap_or(expense_dto::DEFAULT_PAGE_SIZE),
     );
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let (rows, total) = expense_model::report_payable_page(page, page_size, &principal)
         .await
         .map_err(|error| db_err(error, "分页查询待付款报销单"))?;

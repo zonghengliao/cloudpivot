@@ -22,8 +22,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::purchase::purchase_return_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::purchase::purchase_return_model as model;
 use crate::business::flow::model as flow_model;
-use crate::business::shared::separation;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::shared::error_code;
 
 /// 采购退货审批的业务类型（与 V0332 种子 / `purchase_return_handler::submit` 同口径）。
 pub const BIZ_TYPE: &str = "PRT_APPROVE";

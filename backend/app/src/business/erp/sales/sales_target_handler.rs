@@ -61,8 +61,8 @@ use crate::business::erp::sales::sales_target_dto::{
 use crate::business::erp::sales::sales_target_model::{
     self as model, ForecastListRow, ForecastRow, TargetListRow, TargetRow,
 };
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0318 的 sys_menu.auth_code 逐字一致） ====================
 

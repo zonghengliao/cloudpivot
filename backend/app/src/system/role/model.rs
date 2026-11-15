@@ -16,13 +16,13 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::shared::cache_gate::InvalidationGate;
-use crate::shared::constants;
-use crate::shared::constants::EnableStatus;
 use crate::system::user::model::SysUserModel;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::cache_gate::InvalidationGate;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::utils;
 
 /// `sys_role` 表对应的强类型模型（角色）。
 ///
@@ -352,7 +352,7 @@ pub(crate) async fn replace_role_menus(
     .await?;
     // FIX-05：事务已提交（全体持有者的 `token_version` 都 +1）→ 清空会话字段缓存，
     // 让旧令牌的 `ver` 立刻与库里不符（不必等 60 s TTL）。
-    crate::shared::session_cache::invalidate_all().await;
+    cloudpivot_kernel::shared::session_cache::invalidate_all().await;
     Ok(())
 }
 
@@ -394,7 +394,7 @@ pub(crate) async fn find_role_holder_ids(role_id: &uuid::Uuid) -> std::result::R
 
 // ==================== 启用角色下拉缓存 ====================
 
-/// 启用角色下拉缓存的失效记账（与菜单树同一套做法，见 [`crate::shared::cache_gate`]）。
+/// 启用角色下拉缓存的失效记账（与菜单树同一套做法，见 [`cloudpivot_kernel::shared::cache_gate`]）。
 static ENABLED_ROLES_GATE: InvalidationGate = InvalidationGate::new();
 
 /// 读取缓存的启用角色下拉列表。

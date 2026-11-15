@@ -55,7 +55,7 @@ use crate::business::pdf::template::{
     self, OrderMetaField, ReturnContext, ReturnContextArgs, ReturnDocKind, ReturnItem, format_money, format_quantity,
     yuan_to_fen,
 };
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 审计里的操作码。
 pub fn export_operation(kind: ReturnDocKind) -> &'static str {
@@ -203,7 +203,7 @@ pub fn build_sales_return_items(
 ///
 /// # 异常情况
 ///
-/// - 404 [`crate::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
+/// - 404 [`cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
 /// - 500：数据库异常。
 pub async fn purchase_return_context(id: Uuid) -> std::result::Result<ReturnContext, ApiError> {
     let row = purchase_return_model::find_return(id)
@@ -297,7 +297,7 @@ pub async fn purchase_return_context(id: Uuid) -> std::result::Result<ReturnCont
 ///
 /// # 异常情况
 ///
-/// - 404 [`crate::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
+/// - 404 [`cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
 /// - 500：数据库异常。
 pub async fn sales_return_context(id: Uuid) -> std::result::Result<ReturnContext, ApiError> {
     let row = sales_return_model::find_return(id)
@@ -399,7 +399,7 @@ pub async fn sales_return_context(id: Uuid) -> std::result::Result<ReturnContext
 ///
 /// # 异常情况
 ///
-/// - 400 [`crate::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
+/// - 400 [`cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
 /// - 404：单据不存在；
 /// - 422 / 503 / 504：模板 / 渲染引擎异常。
 pub async fn export_return(kind: ReturnDocKind, id_raw: &str) -> std::result::Result<RenderedDoc, ApiError> {
@@ -437,7 +437,7 @@ fn context_total(context: &ReturnContext) -> Decimal {
 /// # 异常情况
 ///
 /// - 401：未登录；
-/// - 403 [`crate::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:purchase-return:list`；
+/// - 403 [`cloudpivot_kernel::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:purchase-return:list`；
 /// - 400 / 404 / 422 / 503 / 504：见 [`export_return`]。
 #[nik::permission(
     path = "/business/erp/purchase-return/{id}/pdf",
@@ -459,7 +459,7 @@ pub async fn purchase_return_pdf(
 /// # 异常情况
 ///
 /// - 401：未登录；
-/// - 403 [`crate::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:sales-return:list`；
+/// - 403 [`cloudpivot_kernel::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:sales-return:list`；
 /// - 400 / 404 / 422 / 503 / 504：见 [`export_return`]。
 #[nik::permission(
     path = "/business/erp/sales-return/{id}/pdf",
@@ -1278,7 +1278,7 @@ mod db_tests {
         for kind in [ReturnDocKind::Purchase, ReturnDocKind::Sales] {
             let error = export_return(kind, "not-a-uuid").await.expect_err("必须 400");
             assert_eq!(error.status, 400);
-            assert_eq!(error.code, crate::shared::error_code::ERP_FILTER_INVALID);
+            assert_eq!(error.code, cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID);
         }
     }
 }

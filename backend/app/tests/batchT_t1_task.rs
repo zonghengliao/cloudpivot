@@ -43,8 +43,8 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::shared::principal;
 use cloudpivot::business::task::model::{self, MyBucket, TaskFilter, TaskPatch};
+use cloudpivot_kernel::business::shared::principal;
 
 // ==================== 并发安全：本 target 的真库用例共用一把锁 ====================
 //

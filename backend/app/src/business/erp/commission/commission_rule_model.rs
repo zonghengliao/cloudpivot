@@ -37,8 +37,8 @@ use crate::business::erp::commission::commission_rule_dto::{
     RuleFilter, RuleSpec, SCOPE_MATERIAL, SCOPE_SALESPERSON, clean_optional,
 };
 use crate::business::erp::model_base::page_of;
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 /// 表名。
 pub const RULE_TABLE: &str = "biz_commission_rule";
@@ -399,7 +399,7 @@ mod tests {
         assert!(!RULE_TARGET.is_scoped());
         assert_eq!(RULE_TARGET.table, RULE_TABLE);
         assert!(
-            !crate::business::shared::scope::SCOPED_TABLES
+            !cloudpivot_kernel::business::shared::scope::SCOPED_TABLES
                 .iter()
                 .any(|target| target.table == RULE_TABLE),
             "biz_commission_rule 是配置表，不能进 SCOPED_TABLES"

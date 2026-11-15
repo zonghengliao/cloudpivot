@@ -46,7 +46,7 @@ use crate::business::hr::salary_item_dto::{
     ITEM_TYPE_WITHHOLD, ITEM_TYPES,
 };
 use crate::business::hr::salary_sheet_dto::{SalaryDetailRes, SalarySheetHeaderRes, status_label};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 常量 ====================
 

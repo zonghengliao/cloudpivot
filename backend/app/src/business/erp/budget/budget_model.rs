@@ -30,7 +30,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::budget::budget_dto::BudgetFilter;
 use crate::business::erp::budget::budget_guard::MonthGate;
 use crate::business::erp::voucher::{self, SeqSpec};
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 预算表名。
 pub const TABLE: &str = "biz_budget";
@@ -336,7 +336,7 @@ fn budget_page_filters(q: &BudgetFilter, params: &mut Vec<Value>) -> DbResult<St
 /// 分页（软删行不返回；按部门数据权限裁剪）。
 pub async fn budget_page(
     q: &BudgetFilter,
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
 ) -> DbResult<(Vec<BudgetRow>, i64)> {
     // `{FILTER}` 紧跟恒真条件之后（片段参数恒前置，架构 §2.6）：SCOPE-PAGE 卡同款隐患
     // ——此前业务筛选直接拼在 `WHERE` 后，非超管一带筛选就被 `scope::paginate` 拒（500）。

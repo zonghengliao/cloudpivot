@@ -16,13 +16,13 @@ use sha2::{Digest, Sha256};
 
 use std::net::SocketAddr;
 
-use crate::business::shared::principal;
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
 use crate::support::file::dto::{FileCheckDuplicateQuery, FileDuplicateRes, FilePageQuery, FileRes, FileUploadQuery};
 use crate::support::file::model::{self, SysFileModel};
 use crate::support::log;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 允许上传的文件扩展名白名单（小写、不含点）。
 ///

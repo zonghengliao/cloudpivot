@@ -14,12 +14,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::business::shared::scope;
-use crate::shared::constants;
-use crate::shared::constants::EnableStatus;
-use crate::shared::enums::{EnumItem, EnumsRes, color};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::enums::{EnumItem, EnumsRes, color};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// `sys_config` 表对应的强类型模型（系统参数）。
 ///
@@ -366,13 +366,14 @@ pub(crate) fn runtime_snapshot_keys() -> Vec<String> {
 /// # 返回值
 ///
 /// 可识别为布尔值时返回 `Some`，否则 `None`。
-pub(crate) fn parse_bool(raw: &str) -> Option<bool> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "true" | "1" => Some(true),
-        "false" | "0" => Some(false),
-        _ => None,
-    }
-}
+///
+/// # 实现位置（P2-59 · C1 解环）
+///
+/// 实现下沉到基座 [`cloudpivot_kernel::shared::config_port::parse_bool`]：基座里的成本开关 /
+/// 内控开关也要解析同一批 `sys_config` 真值文本，两处各写一份迟早在
+/// `yes` / ` True ` 这类脏值上分叉。这里保留同名转发，`config_model::parse_bool`
+/// 的既有调用点一行都不用改。
+pub(crate) use cloudpivot_kernel::shared::config_port::parse_bool;
 
 // ==================== 查询条件 ====================
 
@@ -910,12 +911,41 @@ pub fn is_valid_config_type(kind: &str) -> bool {
 /// - `config_type`：值类型（写入侧经 [`is_valid_config_type`] 白名单校验）。
 /// - `category`：参数分类（系统 / 业务 / 日志 / 认证），与种子的 `category` 对应。
 pub fn enums() -> EnumsRes {
-    crate::module_enums! {
+    cloudpivot_kernel::module_enums! {
         "config_type" => vec![
             EnumItem::text("字符串", config_type::STRING, color::DEFAULT),
             EnumItem::text("数字", config_type::NUMBER, color::DEFAULT),
             EnumItem::text("布尔", config_type::BOOLEAN, color::DEFAULT),
             EnumItem::text("JSON", config_type::JSON, color::DEFAULT),
         ],
+    }
+}
+
+// ==================== 基座配置读取接缝的实现（P2-59 · C1 解环） ====================
+
+/// `sys_config` 的读取实现：基座 [`cloudpivot_kernel::shared::config_port`] 的**唯一**实现。
+///
+/// # 为什么实现放在这里
+///
+/// 参数的存储、进程内快照（60 s TTL）与写后广播全在本模块，读者是基座里的判定
+/// （空闲超时 / 成本开关 / 内控开关）。抽包后基座不能反向 `use crate::support::…`，
+/// 所以由本模块实现 trait、由 `bootstrap::register_kernel_ports` 在启动期安装。
+///
+/// # 只读
+///
+/// 不带任何写入口：参数写操作仍走 `handler.rs` 的既有路径（写后调
+/// [`reload_runtime_snapshot`] 广播），接缝不参与写入。
+pub struct SysConfigReader;
+
+#[async_trait::async_trait]
+impl cloudpivot_kernel::shared::config_port::ConfigReader for SysConfigReader {
+    /// 读取参数文本值（命中进程内快照则不查库）。
+    async fn read_text(&self, key: &str) -> Option<String> {
+        SysConfigModel::read_text(key).await
+    }
+
+    /// 实现方自报名字（启动日志里打一行）。
+    fn name(&self) -> &'static str {
+        "support::config::model::SysConfigReader"
     }
 }

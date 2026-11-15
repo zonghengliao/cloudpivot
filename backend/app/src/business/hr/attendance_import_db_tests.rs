@@ -234,8 +234,8 @@ async fn fixture(tag: &str) -> Fixture {
     use crate::business::hr::attendance_period_dto::PeriodCreateReq;
     use crate::business::hr::attendance_period_handler;
     use crate::business::hr::employee_handler;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::test_helpers;
 
     let dept_code = format!("HR34-{tag}-{}", uniq());
     let dept_name = format!("HR34 部门 {tag}");
@@ -341,7 +341,7 @@ impl Fixture {
     async fn lock(&self) {
         use crate::business::hr::attendance_period_dto::{PeriodStatusReq, STATUS_LOCKED, STATUS_SUBMITTED};
         use crate::business::hr::attendance_period_handler;
-        use crate::business::shared::state_machine::Operator;
+        use cloudpivot_kernel::business::shared::state_machine::Operator;
 
         attendance_period_handler::change_status(
             Operator::named(Some(self.user1), "HR34 夹具"),
@@ -367,7 +367,7 @@ impl Fixture {
 
     /// 清场：导入任务（错误明细 → 任务）→ 记录 → 期间 → 员工 → 用户 → 部门。
     async fn clean(&self, task_ids: &[String]) {
-        use crate::shared::test_helpers;
+        use cloudpivot_kernel::shared::test_helpers;
 
         for task_id in task_ids {
             let Ok(id) = Uuid::parse_str(task_id) else { continue };
@@ -594,7 +594,7 @@ async fn locked_period_import_is_rejected_with_excel_row_no() {
     .await
     .expect_err("锁定期间确认入库必须被拦");
     assert_eq!(error.status, 422);
-    assert_eq!(error.code, crate::shared::error_code::IMPORT_BATCH_FAILED);
+    assert_eq!(error.code, cloudpivot_kernel::shared::error_code::IMPORT_BATCH_FAILED);
     assert!(
         error.msg.contains("已锁定"),
         "报文要说清「为什么」——已锁定：{}",

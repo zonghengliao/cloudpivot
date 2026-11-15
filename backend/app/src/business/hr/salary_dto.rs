@@ -45,7 +45,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::hr::employee_dto::{EmployeeSalaryRes, SalaryInput};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 长度上限（与 V0383 的列宽一致） ====================
 

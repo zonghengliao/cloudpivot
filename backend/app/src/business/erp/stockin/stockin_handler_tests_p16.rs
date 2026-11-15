@@ -15,7 +15,7 @@ use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::stockin::stockin_model::{self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_POSTED};
 use crate::business::flow::model as flow_model;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// ① 发起：`POSTED → PENDING_CANCEL` + 生成审批实例 + 回写 `approval_instance_id`，
 /// 而**六本账一动没动**。
@@ -47,7 +47,7 @@ async fn p16_submit_moves_to_pending_cancel_with_instance() {
         "申请理由要落库（审批人据此判断）"
     );
     // 状态日志：POSTED → PENDING_CANCEL
-    let trail = crate::business::shared::state_machine::trail_of_no(db(), &detail.header.in_no)
+    let trail = cloudpivot_kernel::business::shared::state_machine::trail_of_no(db(), &detail.header.in_no)
         .await
         .unwrap();
     assert_eq!(trail.last().unwrap().to_status, STATUS_PENDING_CANCEL);

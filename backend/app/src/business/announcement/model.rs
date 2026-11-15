@@ -39,8 +39,8 @@
 use nik::prelude::*;
 
 use crate::business::notice::model::{BIZ_TYPE_ANNOUNCEMENT, BizWithdrawReport, Executor as NoticeExecutor};
-use crate::business::shared::scope;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
 
 /// 可见性谓词的状态与有效期部分（**不含**受众匹配）。
 pub const VISIBLE_STATE: &str = "a.deleted_at IS NULL \
@@ -81,7 +81,7 @@ pub const VISIBLE_PREDICATE: &str = "( a.deleted_at IS NULL \
 
 /// 当前用户的受众身份：公告可见性判定所需的三个输入。
 ///
-/// # 为什么不直接用 [`crate::business::shared::principal::ScopedPrincipal`]
+/// # 为什么不直接用 [`cloudpivot_kernel::business::shared::principal::ScopedPrincipal`]
 ///
 /// `ScopedPrincipal` 的 `dept_ids()` 是**数据权限**语义（`CUSTOM` 会换成角色配置的部门
 /// 集合、`SELF_ONLY` 会清空），而公告的 `DEPT` 受众是**组织归属**语义（「我在哪个部门」

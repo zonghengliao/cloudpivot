@@ -91,9 +91,9 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::currency;
 use crate::business::erp::period;
 use crate::business::erp::voucher::{self, SeqSpec};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 子模块（P2-19：`erp/receivable_*.rs` 拆入 `erp/receivable/`） ====================
 // 本文件是应收域的 **facade**（拆目录前叫 `erp/receivable.rs`），对外路径 `erp::receivable::*` 一字未变；

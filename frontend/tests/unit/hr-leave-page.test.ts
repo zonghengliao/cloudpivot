@@ -138,7 +138,7 @@ test('状态清单（可编辑 / 可提交 / 可撤回 / 可作废 / 锁死）�
   );
   // 锁死清单在 state_machine 里（APPROVED / CANCELLED）
   const stateMachine = readFileSync(
-    new URL('../../../backend/app/src/business/shared/state_machine.rs', import.meta.url),
+    new URL('../../../backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs', import.meta.url),
     'utf8',
   );
   const locked = /pub const LEAVE_LOCKED: \[&str; \d+\] = \[([^\]]+)\]/.exec(stateMachine);

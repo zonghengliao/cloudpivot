@@ -950,7 +950,7 @@ pub struct NewAttachmentBinding<'a> {
 /// - `role`：文件角色；
 /// - `remark`：备注；
 /// - `uploaded_by`：上传人 id（行级删除判据用它）；
-/// - `uploader_name`：上传人姓名快照（[`crate::business::shared::user_name::snapshot_name`]
+/// - `uploader_name`：上传人姓名快照（[`cloudpivot_kernel::business::shared::user_name::snapshot_name`]
 ///   的返回值）。**写进库后永不回改** —— 用户改名 / 销号后，历史附件仍显示当时的名字。
 /// - `file_name`：**本次上传**的文件名快照（multipart 的 filename，已由
 ///   [`super::dto::normalize_file_name`] 归一）。同样写进库后永不回改 ——
@@ -962,7 +962,7 @@ pub struct NewAttachmentBinding<'a> {
 /// 现取只能拿到「此刻的名字」，而本列的全部价值就在「当时是谁」。handler 侧显式
 /// `let name = snapshot_name(uid).await?;` 有三个好处：① 写库语句只有一处依赖 sys_user
 /// （读的时候不需要再 join 才能解释这一列）；② 追溯不到人（已删 / 行不存在）时的
-/// 占位串由 [`crate::business::shared::user_name`] 统一给出，不散落在 SQL 字面量里；
+/// 占位串由 [`cloudpivot_kernel::business::shared::user_name`] 统一给出，不散落在 SQL 字面量里；
 /// ③ 测试夹具可以不传（`None`），不会因为「库里没这个用户」而写失败。
 ///
 /// # 返回值

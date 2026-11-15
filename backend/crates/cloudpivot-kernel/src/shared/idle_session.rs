@@ -46,17 +46,16 @@ use axum::http::{HeaderMap, Method};
 use nik::prelude::*;
 
 use crate::shared::constants;
-use crate::support::config::model::SysConfigModel;
 
 /// 空闲时间戳缓存键前缀（完整键形如 `idle:sid:{sid}`）。
-pub(crate) const CACHE_KEY_PREFIX_IDLE: &str = "idle:sid:";
+pub const CACHE_KEY_PREFIX_IDLE: &str = "idle:sid:";
 
 /// 键保留时长（秒）：7 天。
 ///
 /// 必须**远大于**空闲超时上限（60 分钟），否则「用户走了几天再回来」会因为键过期
 /// 被当成「没有记录 → 首次放行」，等于超时不生效。取 7 天与 refresh 会话绝对上限
 /// 同阶：更久之后会话本来也不能续期了。
-pub(crate) const IDLE_KEY_TTL_SECS: u64 = 7 * 24 * 3600;
+pub const IDLE_KEY_TTL_SECS: u64 = 7 * 24 * 3600;
 
 /// 前端用来声明「本次请求由用户操作触发」的请求头名。
 ///
@@ -65,7 +64,7 @@ pub const HEADER_USER_ACTIVE: &str = "x-user-active";
 
 /// 空闲判定的结论。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Verdict {
+pub enum Verdict {
     /// 会话仍活跃（或本模块降级放行）。
     Active,
     /// 空闲超过阈值：调用方必须 401 并清掉会话。
@@ -84,7 +83,7 @@ pub(crate) enum Verdict {
 /// # 返回值
 ///
 /// `idle:sid:{sid}`。
-pub(crate) fn cache_key(sid: &str) -> String {
+pub fn cache_key(sid: &str) -> String {
     format!("{CACHE_KEY_PREFIX_IDLE}{sid}")
 }
 
@@ -103,7 +102,7 @@ pub(crate) fn cache_key(sid: &str) -> String {
 ///
 /// 脏值回退默认值而不是回退 0，是刻意的**安全默认**：宁可多踢一次，也不能因为
 /// 有人往库里写了个 `-1` 就让功能整体失效。
-pub(crate) fn normalise_timeout(raw: Option<i64>) -> i64 {
+pub fn normalise_timeout(raw: Option<i64>) -> i64 {
     match raw {
         Some(value) if (0..=constants::MAX_IDLE_TIMEOUT_MINUTES).contains(&value) => value,
         _ => constants::DEFAULT_IDLE_TIMEOUT_MINUTES,
@@ -115,18 +114,18 @@ pub(crate) fn normalise_timeout(raw: Option<i64>) -> i64 {
 /// # 返回值
 ///
 /// `0` = 禁用；否则为分钟数。读库失败按参数「不存在」处理（回退默认值）。
-pub(crate) async fn timeout_minutes() -> i64 {
-    normalise_timeout(SysConfigModel::read_i64(constants::CONFIG_KEY_IDLE_TIMEOUT).await)
+pub async fn timeout_minutes() -> i64 {
+    normalise_timeout(crate::shared::config_port::read_i64(constants::CONFIG_KEY_IDLE_TIMEOUT).await)
 }
 
 /// 「即将退出」提前提示窗口的下限（秒）。
 ///
 /// 超时设为 1 分钟时窗口不能是 60 秒（那等于一分钟内全程在提示），取 20 秒：
 /// 用户有一整个阶段 1 可以点「继续使用」。
-pub(crate) const MIN_WARN_SECS: i64 = 20;
+pub const MIN_WARN_SECS: i64 = 20;
 
 /// 「即将退出」提前提示窗口的上限（秒）：一分钟。
-pub(crate) const MAX_WARN_SECS: i64 = 60;
+pub const MAX_WARN_SECS: i64 = 60;
 
 /// 计算「即将退出」提示提前多少秒出现。
 ///
@@ -163,7 +162,7 @@ pub fn warn_seconds(timeout_minutes: i64) -> i64 {
 /// 本系统的自动轮询（首页指标 / 未读数 / 看板）全部是 `GET`；`POST` / `PUT` /
 /// `PATCH` / `DELETE` 都是人点出来的动作。把它们计入可以让「只用表单不移动鼠标」
 /// 的场景（例如长表单里连续 keyboard 输入后直接提交）不会被误踢。
-pub(crate) fn is_user_activity(method: &Method, headers: &HeaderMap) -> bool {
+pub fn is_user_activity(method: &Method, headers: &HeaderMap) -> bool {
     let flagged = headers
         .get(HEADER_USER_ACTIVE)
         .and_then(|value| value.to_str().ok())
@@ -191,7 +190,7 @@ pub(crate) fn is_user_activity(method: &Method, headers: &HeaderMap) -> bool {
 /// - 首次见到该 `sid`（上线前签发的会话 / 键被回收）时写入当前时刻并放行；
 /// - `user_active = true` 且未超时时刷新时间戳；
 /// - 缓存不可用 / 读失败：放行（见模块头「降级语义」）。
-pub(crate) async fn check_and_touch(sid: &str, user_active: bool) -> Verdict {
+pub async fn check_and_touch(sid: &str, user_active: bool) -> Verdict {
     let timeout = timeout_minutes().await;
     // 0 = 超管显式禁用：不记录、不拦截
     if timeout <= 0 {
@@ -258,7 +257,7 @@ async fn touch<C: Cache + ?Sized>(store: &C, key: &str, now: i64) {
 /// 只做清理，**不参与判定**：泄露的旧令牌靠吊销名单拦（
 /// [`crate::shared::token_revocation`]），空闲记录删不删都不影响「登出后旧 token 401」。
 /// 删除失败只打日志，不影响登出结果。
-pub(crate) async fn forget(sid: &str) {
+pub async fn forget(sid: &str) {
     let Some(store) = try_cache() else {
         return;
     };

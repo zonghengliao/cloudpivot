@@ -40,8 +40,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::masking::masker::{self, MaskError, MaskType, Masker};
 use crate::business::masking::model::{self, RawRule};
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::shared::constants;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::shared::constants;
 
 /// 许可「看明文」的权限码（与 `V0065__seed_batchb_permissions` 逐字一致）。
 pub const PLAIN_PERMISSION: &str = "system:field-mask:plain";

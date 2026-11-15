@@ -10,10 +10,10 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::shared::constants::EnableStatus;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::utils;
 
 /// `sys_file` 表对应的强类型模型（文件元数据）。
 ///

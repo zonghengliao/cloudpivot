@@ -785,7 +785,7 @@ async fn g10_notice_search_filter_paging() {
             .expect("发送");
         }
 
-        let sender_principal = cloudpivot::business::shared::principal::resolve(&sender)
+        let sender_principal = cloudpivot_kernel::business::shared::principal::resolve(&sender)
             .await
             .expect("解析发送人范围");
         let filter = notice_filter(&ctx, Some(ctx.key("notice")));
@@ -817,7 +817,7 @@ async fn g10_notice_search_filter_paging() {
         assert!(mine.total >= 3, "我的通知应 >= 3 条，实际 {}", mine.total);
 
         // 管理端分页查询（按发送人范围收口：用发送人自己的 principal）
-        let sender_principal = cloudpivot::business::shared::principal::resolve(&sender)
+        let sender_principal = cloudpivot_kernel::business::shared::principal::resolve(&sender)
             .await
             .expect("解析发送人范围");
         let by_admin =

@@ -43,7 +43,7 @@ use super::year_end_test_support as support;
 use crate::business::erp::linkage;
 use crate::business::erp::linkage::spec;
 use crate::business::erp::period::period_test_support as p2;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 年结操作人（真实用户：通知的第 3 层校验要求收件人存在于 `sys_user`）。
 struct Fixture {

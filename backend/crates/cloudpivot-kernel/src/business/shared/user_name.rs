@@ -115,8 +115,8 @@ pub async fn snapshot_name(user_id: Uuid) -> DbResult<String> {
 ///
 /// # 可见性
 ///
-/// `pub(crate)`：`snapshot_name` 用它，`tests` 直接断言真值表（不连库）。
-pub(crate) fn display_name(real_name: Option<&str>, username: Option<&str>, deleted: bool) -> String {
+/// `pub`：`snapshot_name` 用它，`tests` 直接断言真值表（不连库）。
+pub fn display_name(real_name: Option<&str>, username: Option<&str>, deleted: bool) -> String {
     if deleted {
         return DELETED_USER_LABEL.to_string();
     }
@@ -140,7 +140,7 @@ pub(crate) fn display_name(real_name: Option<&str>, username: Option<&str>, dele
 /// 为什么：展示类字段（合同负责人 / 制单人 / 上传人…）问的是「**现在是谁**」。
 /// 账号停用后姓名仍然是有意义的信息，显示「(已删除用户)」反而丢信息；
 /// 审计类（写入时快照）继续走 [`display_name`] —— 那问的是「**当时是谁**」。
-pub(crate) fn realtime_name(real_name: Option<&str>, username: Option<&str>) -> String {
+pub fn realtime_name(real_name: Option<&str>, username: Option<&str>) -> String {
     if let Some(name) = real_name.map(str::trim).filter(|name| !name.is_empty()) {
         return name.to_string();
     }
@@ -262,8 +262,8 @@ pub async fn fill_person_names<T: PersonNameRow>(rows: &mut [T]) -> DbResult<()>
 /// 全局计数器会被它们污染，`assert_eq!(count, 1)` 就成了随机红。
 /// 每个测试在自己的线程上跑（`#[tokio::test]` 默认 `current_thread`），
 /// thread-local 天然按用例隔离。
-#[cfg(test)]
-pub(crate) mod stats {
+#[cfg(any(test, feature = "test-support"))]
+pub mod stats {
     use std::cell::Cell;
 
     thread_local! {
@@ -271,17 +271,17 @@ pub(crate) mod stats {
     }
 
     /// 记一条 SQL。
-    pub(crate) fn bump() {
+    pub fn bump() {
         NAME_QUERIES.with(|count| count.set(count.get() + 1));
     }
 
     /// 归零（每条断言前调用）。
-    pub(crate) fn reset() {
+    pub fn reset() {
         NAME_QUERIES.with(|count| count.set(0));
     }
 
     /// 当前计数。
-    pub(crate) fn count() -> usize {
+    pub fn count() -> usize {
         NAME_QUERIES.with(Cell::get)
     }
 }
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(DELETED_USER_LABEL, "(已删除用户)");
         let script = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/datafix/aud01/backfill_attachment_uploader_name.sql"
+            "/../../../scripts/datafix/aud01/backfill_attachment_uploader_name.sql"
         ));
         assert!(
             script.contains("'(已删除用户)'"),

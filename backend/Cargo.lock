@@ -563,6 +563,7 @@ dependencies = [
  "calamine",
  "chromiumoxide",
  "cloudpivot-doc",
+ "cloudpivot-kernel",
  "futures-util",
  "metrics",
  "nik",
@@ -585,6 +586,26 @@ dependencies = [
 [[package]]
 name = "cloudpivot-doc"
 version = "0.1.0"
+
+[[package]]
+name = "cloudpivot-kernel"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "async-trait",
+ "axum",
+ "cloudpivot-doc",
+ "metrics",
+ "nik",
+ "nik-utils",
+ "pulldown-cmark",
+ "redis",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "cmov"

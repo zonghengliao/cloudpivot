@@ -40,8 +40,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::flow::{engine, model as flow_model, settle_guard};
-use crate::business::shared::separation;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::shared::error_code;
 
 /// 付款审批的业务类型（与 V0175 种子 / `payable_payment::PAY_BIZ_TYPE` 同口径）。
 pub const BIZ_TYPE: &str = crate::business::erp::payable::payable_payment::PAY_BIZ_TYPE;
@@ -744,7 +744,7 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
     };
     if !settle_guard::gate(
         &instance,
-        crate::business::shared::state_machine::Entity::Payable,
+        cloudpivot_kernel::business::shared::state_machine::Entity::Payable,
         &row.payable_no,
         &row.status,
         crate::business::erp::payable::STATUS_PENDING_CANCEL,

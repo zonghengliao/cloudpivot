@@ -28,11 +28,11 @@ use axum::extract::{Extension, Path};
 use nik::prelude::*;
 
 use crate::middleware::session_guard::{unauthorized_with, version_is_current};
-use crate::shared::{constants, error_code, session_cache};
 use crate::system::role::dto::RoleMenuAssignReq;
 use crate::system::tests_support as ts;
 use crate::system::user::dto::{UserPasswordReq, UserRoleAssignReq, UserStatusReq};
 use crate::system::user::handler as user_handler;
+use cloudpivot_kernel::shared::{constants, error_code, session_cache};
 
 // ==================== 夹具 ====================
 

@@ -5,7 +5,7 @@
  *
  * 断言口径照后端抄：
  * - 状态域 / 标签 = `backend/app/src/business/erp/shipment/shipment_model.rs`（`STATUSES` / `status_label`）；
- * - 合法边 / 必填原因 = `backend/app/src/business/shared/state_machine.rs`
+ * - 合法边 / 必填原因 = `backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs`
  *   （`SHIPMENT_EDGES` / `SHIPMENT_REASON_EDGES`）—— 这两张表直接读后端源码比对，
  *   前端自己抄错一条边，这里先红；
  * - 「只带未发完的行」= `shipment_handler::resolve_items` 的 ① 分支（`remaining > 0`）；
@@ -53,7 +53,11 @@ import {
 
 /** 读后端源码（仓库根的 `backend/app/src/...`），断言「前端没抄错」用 */
 function backendSource(relative: string): string {
-  return readFileSync(new URL(`../../../backend/app/src/${relative}`, import.meta.url), 'utf8');
+  // P2-59（C1）：内核那批文件（`shared` / `utils` / `business/shared`）已搬到
+  // `backend/crates/cloudpivot-kernel/src/`。传入**仓库相对全路径**（`backend/...`）时按
+  // 仓库根拼；只给模块内相对路径（如 erp 的 shipment_model）时仍按 app 的 src 拼。
+  const base = relative.startsWith('backend/') ? '../../../' : '../../../backend/app/src/';
+  return readFileSync(new URL(`${base}${relative}`, import.meta.url), 'utf8');
 }
 
 /** 一行可发明细（字段逐字照 `ShippableItemRes`） */
@@ -110,7 +114,7 @@ test('状态中文名与后端 status_label 逐字一致', () => {
 });
 
 test('4 条合法边逐条等于后端 SHIPMENT_EDGES', () => {
-  const source = backendSource('business/shared/state_machine.rs');
+  const source = backendSource('backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs');
   const anchor = source.slice(source.indexOf('pub const SHIPMENT_EDGES: [(&str, &str); 4] = ['));
   const block = anchor.slice(0, anchor.indexOf('];'));
   const edges = [...block.matchAll(/\("([A-Z_]+)", "([A-Z_]+)"\)/g)].map((match) => [
@@ -130,7 +134,7 @@ test('4 条合法边逐条等于后端 SHIPMENT_EDGES', () => {
 });
 
 test('必填原因只有 PENDING_POST → CANCELLED（等于后端 SHIPMENT_REASON_EDGES）', () => {
-  const source = backendSource('business/shared/state_machine.rs');
+  const source = backendSource('backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs');
   const anchor = source.slice(
     source.indexOf('pub const SHIPMENT_REASON_EDGES: [(&str, &str); 1] = ['),
   );

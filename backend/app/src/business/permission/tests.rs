@@ -26,9 +26,9 @@
 use nik::prelude::*;
 
 use crate::business::permission::scope_model::{self, DeptRow};
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope::ScopeKind;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope::ScopeKind;
+use cloudpivot_kernel::shared::error_code;
 
 /// 造一个部门行。
 fn dept_row(id: uuid::Uuid, parent: Option<uuid::Uuid>, code: &str, sort: i32) -> DeptRow {

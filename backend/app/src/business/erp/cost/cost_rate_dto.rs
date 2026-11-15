@@ -46,7 +46,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 值域（与 V0371 的 CHECK 逐字一致） ====================
 

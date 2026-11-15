@@ -43,7 +43,7 @@
 //! | [`handler::create`] | `INSERT sys_user`（打标 ROBOT）与 `INSERT sys_ai_agent` **同一事务**，任一失败两行一起回滚；外部副作用（profile / workspace / 凭据）失败则补偿删除磁盘资产 + **同事务物理删除**两行（账号从未可见，不留垃圾行） |
 //! | [`handler::delete`] | `sys_ai_agent` 与 `sys_user` **同一事务**软删（中间态不可见） |
 //! | `system/user/handler.rs` 的 update / delete | 通用用户接口对 `ROBOT` 账号返回 `409 + 64013`：不许绕过本模块改/删 AI 账号 |
-//! | [`crate::shared::startup_guard::check_ai_agent_invariant`] | 每次启动各查一次（两条 SQL），有违规 → `ERROR` 日志，**prod 拒启动** |
+//! | [`cloudpivot_kernel::shared::startup_guard::check_ai_agent_invariant`] | 每次启动各查一次（两条 SQL），有违规 → `ERROR` 日志，**prod 拒启动** |
 //!
 //! 为什么必须这么严：`user_type` 是「机器人」的唯一标识，`sys_ai_agent` 是它的人格与
 //! 磁盘资产（profile / workspace / SOUL.md）的唯一索引。任一侧单独变化都会产生
@@ -58,7 +58,7 @@
 //! 2. **用户输入不进 shell**：Local 形态走参数数组；Ssh 形态只经 [`hermes::shell_quote`]，
 //!    且 SOUL.md **正文永不进参数**（一律 stdin）；
 //! 3. **失败必须回滚**：不允许留下半成品 profile 或孤立 `sys_user`。补偿未完成时业务码换成
-//!    [`crate::shared::error_code::AI_AGENT_ROLLBACK_FAILED`] 并在消息里列出残留项。
+//!    [`cloudpivot_kernel::shared::error_code::AI_AGENT_ROLLBACK_FAILED`] 并在消息里列出残留项。
 //!
 //! # 部署形态（**必须知道**）
 //!
@@ -92,7 +92,7 @@
 //! | [`safety::ensure_safety_block`] | 注入 / 替换（唯一一份，幂等；用户内容永远在前） |
 //! | [`hermes::Hermes::write_soul`] | **唯一落盘点**自己就注入：绕过 handler 也删不掉 |
 //! | [`handler::create`] / [`handler::update`] | 库内副本与磁盘同源；编辑时删掉 → 自动补回 + 审计 |
-//! | [`crate::shared::startup_guard::check_ai_agent_missing_safety_block`] | 启动时逐个 profile 查，缺失 → WARN 点名（不阻启动） |
+//! | [`crate::business::aiagent::safety::warn_missing_safety_block`] | 启动时逐个 profile 查，缺失 → WARN 点名（不阻启动） |
 //!
 //! 不阻止 AI 员工「自己改自己的 SOUL.md」这件事由 Hermes 侧的权限约束负责（红线第 12 条）；
 //! 云枢这一侧只保证「平台写入的区块永远在」，并提供启动期巡检兜底。

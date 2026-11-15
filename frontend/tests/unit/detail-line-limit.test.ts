@@ -4,7 +4,7 @@
  * # 钉死的口径
  *
  * 1. **文案**：超限提示必须同时说清「上限 / 当前行数 / 下一步动作（拆单）」，
- *    与后端 `backend/app/src/business/shared/doc_lines.rs` 的 `too_many_lines()` 同口径；
+ *    与后端 `backend/crates/cloudpivot-kernel/src/business/shared/doc_lines.rs` 的 `too_many_lines()` 同口径；
  *    并**反向断言**不含「导入向导」—— 导入通道里没有这 7 个单据（决策文档 §1 F1），
  *    谁把这张空头支票改回来，测试就红；
  * 2. **边界**：恰好 200 行合法，201 行才提示（`>` 而不是 `>=`）—— 差一行就误报会

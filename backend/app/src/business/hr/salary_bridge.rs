@@ -96,13 +96,13 @@ use crate::business::hr::salary_sheet_dto::{
     SalarySheetCardRes,
 };
 use crate::business::hr::salary_sheet_model::{self as model, SheetRow};
-use crate::business::shared::period_key::today_cst;
-use crate::business::shared::state_machine::{self, ENTITY_SALARY_SHEET, Operator};
-use crate::business::shared::voucher_port::{
+use cloudpivot_doc::VoucherSourceType;
+use cloudpivot_kernel::business::shared::period_key::today_cst;
+use cloudpivot_kernel::business::shared::state_machine::{self, ENTITY_SALARY_SHEET, Operator};
+use cloudpivot_kernel::business::shared::voucher_port::{
     self, AccountPick, ExplicitVoucherReq, ReversalSpec, VoucherBrief, VoucherLine,
 };
-use crate::shared::error_code;
-use cloudpivot_doc::VoucherSourceType;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 常量（与 V0394 种子 / ROUTE_CONTRACT 同口径） ====================
 

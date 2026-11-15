@@ -21,7 +21,7 @@
 //!
 //! # 数据权限（本卡验收项：**只能看本部门**）
 //!
-//! `biz_employee` 已登记进 `shared::scope::SCOPED_TABLES`（[`crate::business::shared::scope::ScopeTarget::BIZ_EMPLOYEE`]，
+//! `biz_employee` 已登记进 `shared::scope::SCOPED_TABLES`（[`cloudpivot_kernel::business::shared::scope::ScopeTarget::BIZ_EMPLOYEE`]，
 //! `dept_col = dept_id`、`owner_col = user_id`，设计 D-12）：
 //!
 //! - **列表**走 `employee_model::page` → `scope::paginate`（唯一分页入口，闸①）；
@@ -36,7 +36,7 @@
 //! # 状态变更为什么不在本文件里判边
 //!
 //! 合法边、`biz_status_log`、CAS 回写全在
-//! [`crate::business::shared::state_machine::transition`]（设计 §4.2.1：
+//! [`cloudpivot_kernel::business::shared::state_machine::transition`]（设计 §4.2.1：
 //! 「handler 里不许出现 `match (from, to)`」）。本文件只做**字段级守卫**
 //! （[`check_status_change`] 纯函数）：生效合同、原因字数、离职必须走审批单。
 //!
@@ -72,11 +72,11 @@ use crate::business::hr::employee_model::{self, EmployeeFilter, EmployeeRow, Emp
 use crate::business::hr::employee_no;
 use crate::business::hr::salary_model;
 use crate::business::masking::MaskSet;
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::state_machine::{self, Operator};
-use crate::business::shared::{principal, scope};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::state_machine::{self, Operator};
+use cloudpivot_kernel::business::shared::{principal, scope};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0387 的 sys_menu.auth_code 逐字一致） ====================
 

@@ -31,9 +31,9 @@ use async_trait::async_trait;
 use nik::prelude::*;
 
 use crate::business::impexp::definition::{ColumnKind, EnumItem, ExportColumn, ExportDefinition, ExportFilter};
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope::{self, ScopeTarget};
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope::{self, ScopeTarget};
+use cloudpivot_kernel::utils;
 
 /// 业务编码。
 pub const USER_BIZ_TYPE: &str = "system.user";

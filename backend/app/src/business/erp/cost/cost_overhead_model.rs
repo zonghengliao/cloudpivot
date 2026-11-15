@@ -44,7 +44,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cost::cost_overhead_dto::{self, CostOverheadFilter, CostOverheadSpec};
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 表名。
 pub const TABLE: &str = "biz_cost_overhead";
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(TARGET.dept_col, None);
         assert_eq!(TARGET.owner_col, None);
         assert!(
-            !crate::business::shared::scope::SCOPED_TABLES.contains(&TARGET),
+            !cloudpivot_kernel::business::shared::scope::SCOPED_TABLES.contains(&TARGET),
             "biz_cost_overhead 不该出现在 SCOPED_TABLES 里（设计 D-18 未登记）"
         );
     }

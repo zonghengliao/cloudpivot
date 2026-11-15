@@ -34,8 +34,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::price::price_inquiry_dto::{
     PriceInquiryFilter, STATUS_AWARDED, STATUS_CONVERTED, STATUS_QUOTING,
 };
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 // ==================== 表名 / 列清单 ====================
 

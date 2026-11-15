@@ -39,9 +39,9 @@ use crate::business::masking::dto::{
 use crate::business::masking::masker::{self, MaskType};
 use crate::business::masking::model::{self, NewFieldMaskRule, UpdateFieldMaskRule};
 use crate::business::masking::registry::{self, MaskSource, Maskable};
-use crate::shared::error_code;
 use crate::support::log;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 标识符正则（与 `V0062` 的 `ck_sys_field_mask_ident` **逐字一致**）。
 static IDENT_RE: std::sync::LazyLock<regex::Regex> =

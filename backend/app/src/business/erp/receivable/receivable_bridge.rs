@@ -90,8 +90,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::receivable::{self, NewReceivable};
 use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::voucher;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量 ====================
 
@@ -573,7 +573,7 @@ mod tests {
     use crate::business::erp::shipment::shipment_handler::{self, ShipmentStatusReq};
     use crate::business::erp::stockin::stockin_model;
     use crate::business::erp::stockout::stockout_base::{OUT_TYPE_OTHER, SOURCE_TYPE_SALES};
-    use crate::business::shared::state_machine;
+    use cloudpivot_kernel::business::shared::state_machine;
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
 

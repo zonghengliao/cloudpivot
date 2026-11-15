@@ -27,6 +27,18 @@ pub mod session_cache;
 pub mod startup_guard;
 pub mod token_revocation;
 
+/// 系统参数读取接缝（P2-59 · C1 解环）：实现在 `support::config`，启动期安装。
+pub mod config_port;
+/// 存储主密钥解析（P2-59 · C1 解环）：AES 加解密仍留在 `business::storage::cipher`。
+pub mod master_key;
+/// 会话安全字段读取接缝（P2-59 · C1 解环）：实现在 `system::user::model`，启动期安装。
+pub mod session_flags_port;
 /// 真库用例的前置体检（TST-02）：`require_seed_data()` —— 空库缺种子时点名缺什么、怎么补。
-#[cfg(test)]
+///
+/// **条件编译（P2-59 · C1）**：本模块一旦随基座抽成 crate，作为**依赖**被编译时
+/// `cfg(test)` 为假 —— 域包的测试代码（hr 92 行 / erp 40 行 / 全仓 132 行、39 个文件）
+/// 就会全线 `unresolved import`。因此改成
+/// `#[cfg(any(test, feature = "test-support"))]`，域包在 `[dev-dependencies]` 打开
+/// `test-support`（见 `backend/app/Cargo.toml`），生产构建里该符号仍然不存在。
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_helpers;

@@ -197,8 +197,8 @@ impl ScopedPrincipal {
     /// **仅供测试**：构造任意形态的 principal。
     ///
     /// 生产代码里没有公开构造器——这是「闸 1」的一部分，不要给它加 `pub`。
-    #[cfg(test)]
-    pub(crate) fn for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn for_test(
         user_id: Uuid,
         own_dept_id: Option<Uuid>,
         is_super: bool,
@@ -217,17 +217,17 @@ impl ScopedPrincipal {
 /// `system/dept/dto.rs::DeptNode` 的 `id: String`）。因此缓存形态用 `String`，
 /// 内存形态保持强类型，两者只在缓存边界转换一次。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ResolvedScope {
+pub struct ResolvedScope {
     /// 是否超管。
-    pub(crate) is_super: bool,
+    pub is_super: bool,
     /// 用户所在部门。
-    pub(crate) own_dept_id: Option<Uuid>,
+    pub own_dept_id: Option<Uuid>,
     /// 主导范围。
-    pub(crate) kind: ScopeKind,
+    pub kind: ScopeKind,
     /// 可见部门集合。
-    pub(crate) dept_ids: Vec<Uuid>,
+    pub dept_ids: Vec<Uuid>,
     /// 是否额外可见自己。
-    pub(crate) self_only: bool,
+    pub self_only: bool,
 }
 
 impl ResolvedScope {
@@ -259,17 +259,17 @@ impl ResolvedScope {
 ///
 /// `kind` 用 `i16` 存：与 `sys_role.data_scope` 对齐，便于人工核对缓存内容。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CachedScope {
+pub struct CachedScope {
     /// 是否超管。
-    pub(crate) is_super: bool,
+    pub is_super: bool,
     /// 用户所在部门。
-    pub(crate) own_dept_id: Option<String>,
+    pub own_dept_id: Option<String>,
     /// 主导范围（1..5）。
-    pub(crate) kind: i16,
+    pub kind: i16,
     /// 可见部门集合。
-    pub(crate) dept_ids: Vec<String>,
+    pub dept_ids: Vec<String>,
     /// 是否额外可见自己。
-    pub(crate) self_only: bool,
+    pub self_only: bool,
 }
 
 // ==================== 解析：一次往返 ====================
@@ -332,7 +332,7 @@ UNION ALL SELECT 'CUSTOM', rd.dept_id FROM my_roles mr \
 /// 单独建这个类型是为了让**合并逻辑成为纯函数**（[`merge_scope_rows`]）：S6/S7/S8/S10/S11
 /// 全部可以脱离数据库断言，不必连库。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ScopeRowKind {
+pub enum ScopeRowKind {
     /// 用户自身（附带 `dept_id`，可能为 `NULL`）。
     Me,
     /// 持有超级管理员角色。
@@ -370,11 +370,11 @@ impl ScopeRowKind {
 
 /// 解析结果的一行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ScopeRow {
+pub struct ScopeRow {
     /// 事实类型。
-    pub(crate) kind: ScopeRowKind,
+    pub kind: ScopeRowKind,
     /// 部门（仅 `ME` / `DEPT` / `DEPT_CHILD` / `CUSTOM` 行有值）。
-    pub(crate) dept_id: Option<Uuid>,
+    pub dept_id: Option<Uuid>,
 }
 
 /// 把解析出的多行事实**合并**成一份生效范围（纯函数，S6/S7/S8/S10/S11 的断言点）。
@@ -393,7 +393,7 @@ pub(crate) struct ScopeRow {
 /// - 没有 `ME` 行（用户不存在 / 已软删）→ `DbError::NotFound`（调用方是已认证请求，
 ///   走到这里说明会话与库不一致，应当报错而不是给一个空范围）；
 /// - 缓存里的 `kind` 非法（1..5 之外）→ `DbError::InvalidValue`（缓存被污染时宁可报错）。
-pub(crate) fn merge_scope_rows(rows: &[ScopeRow]) -> DbResult<ResolvedScope> {
+pub fn merge_scope_rows(rows: &[ScopeRow]) -> DbResult<ResolvedScope> {
     let mut me: Option<Option<Uuid>> = None;
     let mut is_super = false;
     let mut all = false;
@@ -515,14 +515,14 @@ fn parse_optional_id(raw: Option<&str>, field: &str) -> DbResult<Option<Uuid>> {
 /// 用 `async fn in trait` 而不是 `async_trait` 宏：本 trait 只在 crate 内用泛型参数
 /// 调用（不做 `dyn` 分发），不需要 `Send` 装箱。
 #[allow(async_fn_in_trait)]
-pub(crate) trait ScopeSource {
+pub trait ScopeSource {
     /// 查库解析一个用户的范围。
     async fn load(&self, user_id: &Uuid) -> DbResult<ResolvedScope>;
 }
 
 /// 范围数据的缓存（生产实现是全局 Redis 缓存，测试用假实现）。
 #[allow(async_fn_in_trait)]
-pub(crate) trait ScopeCache {
+pub trait ScopeCache {
     /// 缓存后端是否可用。`false` 时 [`resolve_with`] 走回退查库。
     fn available(&self) -> bool;
     /// 当前 epoch；键不存在返回 `None`。
@@ -534,7 +534,7 @@ pub(crate) trait ScopeCache {
 }
 
 /// 生产实现：`db()`（框架全局数据库）。
-pub(crate) struct PgScopeSource;
+pub struct PgScopeSource;
 
 impl ScopeSource for PgScopeSource {
     async fn load(&self, user_id: &Uuid) -> DbResult<ResolvedScope> {
@@ -564,7 +564,7 @@ impl ScopeSource for PgScopeSource {
 /// `available()` 返回 `false`（`try_cache()` 为 `None`：未初始化或初始化失败——
 /// 框架在 Redis 连接失败时只 warn 不中断启动，见 `nik-web::app` 的
 /// `缓存初始化失败…将不使用缓存`）。此时 [`resolve_with`] 直接回退查库。
-pub(crate) struct GlobalScopeCache;
+pub struct GlobalScopeCache;
 
 impl ScopeCache for GlobalScopeCache {
     fn available(&self) -> bool {
@@ -649,7 +649,7 @@ pub async fn resolve_for_claims(claims: &TokenClaims) -> std::result::Result<Sco
 /// [`resolve`] 的可注入版本（测试用：可替换数据源与缓存）。
 ///
 /// 三件事：读 epoch → 拼键读缓存 → 未命中/不可用则查库并回填。
-pub(crate) async fn resolve_with<S: ScopeSource, C: ScopeCache>(
+pub async fn resolve_with<S: ScopeSource, C: ScopeCache>(
     source: &S,
     cache: &C,
     user_id: &Uuid,

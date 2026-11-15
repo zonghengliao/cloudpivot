@@ -332,7 +332,7 @@ pub async fn reverse_posted(
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     //! 接缝自身的纪律用例（离线）：注册表行为 + 「本文件不认任何业务域」。
     //!
     //! 真实现的行为由凭证域自己的用例覆盖；这里只证明**接缝本身**可用、可判、不漏线。

@@ -29,7 +29,7 @@
 //! | `start_time` / `end_time` | `TIMESTAMPTZ NOT NULL` | 精确到**时**（半天假用 12:00 切）；`end > start`（库 `ck_biz_leave_range`）+ 天数校验见下 |
 //! | `duration_days` | `NUMERIC(6,2)`，`> 0` | **0.5 天粒度**（列注释）；且不得超过起止覆盖的自然日数（下面「两道校验的解释」） |
 //! | `paid` | `SMALLINT`，`IN (0,1)` | 1 带薪 / 0 无薪。**不按假别推导**：设计 §3.1 ⑥ 的列注释明确「请假类型与带薪与否解耦」，薪资扣款只看这一列 |
-//! | `status` | 4 值 CHECK | 新建恒为 `DRAFT`；流转只走 `shared::state_machine`（[`LEAVE_EDGES`](crate::business::shared::state_machine::LEAVE_EDGES)） |
+//! | `status` | 4 值 CHECK | 新建恒为 `DRAFT`；流转只走 `shared::state_machine`（[`LEAVE_EDGES`](cloudpivot_kernel::business::shared::state_machine::LEAVE_EDGES)） |
 //! | `reason` | `VARCHAR(500)` | 请假事由（前端必填感由页面负责，契约层只封长度；`NULL` 合法） |
 //! | `cancel_reason` | `VARCHAR(255)` | 作废原因**≥ 5 字**（设计 §5.2 #31）；库 `ck_biz_leave_cancel` 只要求非空，这里更严 |
 //! | `remark` | `TEXT` | 封 1000 字（挡住「把整封邮件贴进备注」），与合同台账同口径 |
@@ -74,8 +74,8 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::hr::employee_dto::{self, TZ_OFFSET_SECS};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 状态域（与 V0383 的 ck_biz_leave_status 逐字一致） ====================
 

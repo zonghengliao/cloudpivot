@@ -32,7 +32,7 @@
 //!
 //! 「当前状态 → 目标状态」是否合法一律问状态机（卡面明令禁止硬编码流程）：
 //!
-//! - 业务单据：[`crate::business::shared::state_machine::effective_edges`]
+//! - 业务单据：[`cloudpivot_kernel::business::shared::state_machine::effective_edges`]
 //!   （`BASE_EDGES ∩ biz_flow_state_edge` 配置，读配置失败自动退化到 BASE_EDGES）。
 //!
 //! 任务侧的判定（`REVIEW → DONE|DOING`）**不在本文件**：那张表要用任务状态机的类型，
@@ -62,7 +62,7 @@ use nik::uuid::Uuid;
 
 use crate::business::flow::model as flow_model;
 use crate::business::flow::model::InstanceRow;
-use crate::business::shared::state_machine::{self, Entity};
+use cloudpivot_kernel::business::shared::state_machine::{self, Entity};
 
 /// 留痕行的 `comment` 前缀（同时充当「这个实例已留过痕」的幂等判据）。
 pub const SKIP_TRACE_PREFIX: &str = "审批结论未落单据";
@@ -95,7 +95,7 @@ impl SettleCheck {
 ///
 /// # 参数
 ///
-/// - `entity`：单据在 [`crate::business::shared::state_machine`] 注册表里的实体；
+/// - `entity`：单据在 [`cloudpivot_kernel::business::shared::state_machine`] 注册表里的实体；
 /// - `current`：单据**此刻**的状态（调用方刚从库里读出来的那一行）；
 /// - `awaiting`：这张单据「等这个审批」时的状态（各模块自己的常量，如 `SUBMITTED` / `PENDING_CANCEL`）；
 /// - `target`：这条审批结论要落的目标状态。

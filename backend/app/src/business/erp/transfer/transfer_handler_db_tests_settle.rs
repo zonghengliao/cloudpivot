@@ -12,7 +12,7 @@ use crate::business::erp::transfer::transfer_model::{self, STATUS_PENDING};
 use crate::business::erp::transfer::transfer_model::{
     STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_IN_TRANSIT,
 };
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 use nik::prelude::chrono::Utc;
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;

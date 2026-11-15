@@ -38,7 +38,7 @@ def feat_files():
         "impexp": rs_files(["backend/app/src/business/impexp"]),
         "help+changelog": rs_files(["backend/app/src/business/help", "backend/app/src/business/changelog"]),
         "job": rs_files(["backend/app/src/support/job"]),
-        "shared": rs_files(["backend/app/src/business/shared"]),
+        "shared": rs_files(["backend/crates/cloudpivot-kernel/src/business/shared"]),
     }
 
 

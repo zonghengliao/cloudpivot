@@ -9,7 +9,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 // ==================== 分页口径 ====================
 

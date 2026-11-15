@@ -78,7 +78,7 @@ pub mod test_hooks;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 pub use dto::{Action, ChangeCtx, ChangeTarget, DiffInput, OperatorType, RecordOutcome, TraceSource};
 pub use model::NewChangeLog;
@@ -258,9 +258,9 @@ impl RequestCtx {
         connect_info: Option<&std::net::SocketAddr>,
     ) -> Self {
         Self {
-            request_id: crate::utils::request_id(headers),
-            client_ip: crate::utils::client_ip(headers, connect_info).map(|ip| ip.to_string()),
-            operator_id: crate::utils::current_user_uuid(claims),
+            request_id: cloudpivot_kernel::utils::request_id(headers),
+            client_ip: cloudpivot_kernel::utils::client_ip(headers, connect_info).map(|ip| ip.to_string()),
+            operator_id: cloudpivot_kernel::utils::current_user_uuid(claims),
             operator_name: claims.username.clone(),
         }
     }

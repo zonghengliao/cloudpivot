@@ -583,7 +583,7 @@ pub async fn template_issues(
     graph: &crate::business::flow::graph::FlowGraph,
 ) -> DbResult<Vec<crate::business::flow::graph::Issue>> {
     use crate::business::flow::graph::{Issue, NodeType};
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
 
     let mut issues: Vec<Issue> = Vec::new();
     for node in &graph.nodes {
@@ -719,7 +719,10 @@ mod tests {
         )
         .expect_err("未闭合的占位符必须失败");
         assert_eq!(error.status, 400, "渲染失败必须是 400 而不是 500");
-        assert_eq!(error.code, crate::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID
+        );
         assert!(error.msg.contains("n_notify"), "文案要点名节点：{}", error.msg);
     }
 
@@ -1507,7 +1510,10 @@ mod db_tests {
         }
         let error = out.rejected.expect("缺变量必须被拒");
         assert_eq!(error.status, 400, "渲染失败必须是 400（配置错误）");
-        assert_eq!(error.code, crate::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID
+        );
         assert!(
             error.msg.contains("渲染失败") && error.msg.contains("n_notify"),
             "文案要点名节点：{}",

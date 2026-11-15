@@ -24,7 +24,7 @@ use crate::business::erp::cost::cost_rate_dto::{
     self as dto, RATE_TYPE_LABOR, RateRequest, RateRow, RateSubject, ResolvedRate,
 };
 use crate::business::erp::cost::cost_rate_model as model;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 取某一类型的全部候选行（供批量场景复用：导入时只查一次库）。
 ///

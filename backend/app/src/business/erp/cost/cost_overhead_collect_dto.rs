@@ -41,7 +41,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cost::cost_collect_dto::{self as collect, CollectKey, PurgedRow, exceeds_scale};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 常量（与 DDL / 设计逐字对齐） ====================
 

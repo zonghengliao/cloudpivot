@@ -10,8 +10,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 use super::stockin_base::*;
 

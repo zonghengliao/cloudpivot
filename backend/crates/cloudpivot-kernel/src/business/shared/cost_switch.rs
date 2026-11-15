@@ -10,8 +10,8 @@
 //! | 成本相关接口一律 `403 + 66079` | [`guard`]（挂 `App::route_layer`） |
 //! | 领料单的「成本对象」字段隐藏 | 前端 `stores/cost.ts` + 出库单页（后端只放行读，前端不渲染） |
 //!
-//! 打开后全部恢复，**切换不需要重启**：值走 [`SysConfigModel::read_text`] 的进程内快照
-//! （参数写操作 / 跨实例版本轮询都会刷新），因此每一次判定都是当前值。
+//! 打开后全部恢复，**切换不需要重启**：值走 [`crate::shared::config_port::read_text`]
+//! 的进程内快照（参数写操作 / 跨实例版本轮询都会刷新），因此每一次判定都是当前值。
 //!
 //! # 为什么在 `business::shared` 而不是 `business/erp/`
 //!
@@ -43,9 +43,8 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 
+use crate::shared::config_port;
 use crate::shared::error_code;
-use crate::support::config::model::{SysConfigModel, parse_bool};
-use crate::system::menu::dto::MenuRes;
 
 /// 开关的参数键（`sys_config.config_key`，`V0385` 种入）。
 pub const CONFIG_KEY: &str = "erp.cost.enabled";
@@ -104,16 +103,16 @@ pub const COST_PAGE_PATHS: [&str; 6] = [
 ///
 /// 开关是否打开。
 pub fn enabled_from_raw(raw: Option<&str>) -> bool {
-    raw.and_then(parse_bool).unwrap_or(false)
+    raw.and_then(config_port::parse_bool).unwrap_or(false)
 }
 
-/// 当前开关是否打开（读取 `sys_config`，命中进程内快照）。
+/// 当前开关是否打开（读 `sys_config`，命中进程内快照）。
 ///
 /// # 返回值
 ///
 /// 打开返回 `true`；参数缺失 / 停用 / 无法识别一律 `false`。
 pub async fn is_enabled() -> bool {
-    enabled_from_raw(SysConfigModel::read_text(CONFIG_KEY).await.as_deref())
+    enabled_from_raw(config_port::read_text(CONFIG_KEY).await.as_deref())
 }
 
 /// 归一化请求路径：去掉查询串无关、去掉 `[router] prefix`（`/api`）、统一小写。
@@ -165,23 +164,37 @@ pub fn is_cost_auth_code(auth_code: &str) -> bool {
     !code.is_empty() && COST_MENU_AUTH_PREFIXES.iter().any(|p| code.starts_with(p))
 }
 
+/// 菜单节点的**只读视图**：基座不认任何业务域的菜单 DTO（P2-59 · C1 解环）。
+///
+/// 抽包前本文件直接 `use crate::system::menu::dto::MenuRes`，那是
+/// `cloudpivot-kernel → system` 的包级环。改成「一个 trait + 域侧 6 行 impl」：
+/// 判定逻辑（前缀表 / page path 兜底）仍只有这一份，域侧只回答两个字段。
+///
+/// 实现方：`system::menu::dto::MenuRes`（见该文件的 `impl MenuNode for MenuRes`）。
+pub trait MenuNode {
+    /// 权限码（`sys_menu.auth_code`；空串表示没有码）。
+    fn auth_code(&self) -> &str;
+
+    /// 前端路由地址（`sys_menu.path`；目录 / 按钮为 `None`）。
+    fn path(&self) -> Option<&str>;
+}
+
 /// 判断某个菜单节点是否属于成本核算模块（纯函数）。
 ///
 /// 命中任一条即算：权限码前缀（[`is_cost_auth_code`]）或页面路径（[`COST_PAGE_PATHS`]）。
 ///
 /// # 参数
 ///
-/// - `menu`：菜单节点。
+/// - `menu`：菜单节点（任何实现了 [`MenuNode`] 的类型）。
 ///
 /// # 返回值
 ///
 /// 属于成本模块返回 `true`。
-pub fn is_cost_menu(menu: &MenuRes) -> bool {
-    if is_cost_auth_code(&menu.auth_code) {
+pub fn is_cost_menu<M: MenuNode>(menu: &M) -> bool {
+    if is_cost_auth_code(menu.auth_code()) {
         return true;
     }
-    menu.path
-        .as_deref()
+    menu.path()
         .map(normalize_path)
         .is_some_and(|p| COST_PAGE_PATHS.contains(&p.as_str()))
 }
@@ -195,7 +208,7 @@ pub fn is_cost_menu(menu: &MenuRes) -> bool {
 /// # 返回值
 ///
 /// 不含成本节点的列表。
-pub fn retain_non_cost_menus(menus: Vec<MenuRes>) -> Vec<MenuRes> {
+pub fn retain_non_cost_menus<M: MenuNode>(menus: Vec<M>) -> Vec<M> {
     menus.into_iter().filter(|m| !is_cost_menu(m)).collect()
 }
 
@@ -228,7 +241,7 @@ pub fn retain_non_cost_permissions(permissions: Vec<String>) -> Vec<String> {
 /// # 返回值
 ///
 /// 过滤后的菜单列表。
-pub async fn filter_menus(menus: Vec<MenuRes>) -> Vec<MenuRes> {
+pub async fn filter_menus<M: MenuNode>(menus: Vec<M>) -> Vec<M> {
     if is_enabled().await {
         menus
     } else {
@@ -313,26 +326,29 @@ pub fn disabled_response() -> Response {
 mod tests {
     use super::*;
 
+    /// 判定所需的两个字段（P2-59 起基座不认 `MenuRes`，只认 [`MenuNode`]）。
+    struct TestMenu {
+        id: &'static str,
+        auth_code: String,
+        path: Option<String>,
+    }
+
+    impl MenuNode for TestMenu {
+        fn auth_code(&self) -> &str {
+            &self.auth_code
+        }
+
+        fn path(&self) -> Option<&str> {
+            self.path.as_deref()
+        }
+    }
+
     /// 构造一个只填了判定所需字段的菜单节点。
-    fn menu(id: &str, auth_code: &str, path: Option<&str>) -> MenuRes {
-        MenuRes {
-            id: id.to_string(),
-            name: id.to_string(),
-            menu_type: if path.is_some() { 2 } else { 3 },
+    fn menu(id: &'static str, auth_code: &str, path: Option<&str>) -> TestMenu {
+        TestMenu {
+            id,
             auth_code: auth_code.to_string(),
             path: path.map(str::to_string),
-            parent_id: None,
-            component: None,
-            sort_order: 10,
-            status: 1,
-            icon: None,
-            title: None,
-            is_frame: false,
-            is_cache: false,
-            is_visible: true,
-            hidden_expression: None,
-            module_code: Some("business".to_string()),
-            children: Vec::new(),
         }
     }
 
@@ -439,7 +455,7 @@ mod tests {
             menu("s01", "business:erp:stock-out:list", Some("/business/erp/stock-out")),
         ];
         let kept = retain_non_cost_menus(menus);
-        let ids: Vec<&str> = kept.iter().map(|m| m.id.as_str()).collect();
+        let ids: Vec<&str> = kept.iter().map(|m| m.id).collect();
         assert_eq!(ids, vec!["e02", "e01", "s01"]);
     }
 
@@ -466,7 +482,10 @@ mod tests {
     /// 同口径**：两边任一处被改成 true，都是「升级即上线」的事故。
     #[test]
     fn migration_seeds_switch_with_false_default() {
-        let sql = include_str!("../../../migrations/business/V0385__cost_module_switch.up.sql");
+        let sql = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../app/migrations/business/V0385__cost_module_switch.up.sql"
+        ));
         assert!(sql.contains("'erp.cost.enabled'"), "迁移必须种 erp.cost.enabled");
         assert!(sql.contains("'BOOLEAN'"), "开关类型必须是 BOOLEAN（配置页才渲染开关）");
         // 开关行本身：false 默认值 + config_level 2
@@ -478,7 +497,10 @@ mod tests {
         // 值域只允许 true/false（配置页下拉的 ref_value/select_value）
         assert!(sql.contains("'true|false'"));
         // 反面对照：down 迁移必须删掉这一行（回滚不留死参数）
-        let down = include_str!("../../../migrations/business/V0385__cost_module_switch.down.sql");
+        let down = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../app/migrations/business/V0385__cost_module_switch.down.sql"
+        ));
         assert!(down.contains("DELETE FROM sys_config WHERE config_key = 'erp.cost.enabled'"));
     }
 }

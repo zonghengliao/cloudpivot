@@ -33,14 +33,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// 用 `const fn new()` 支持 `static` 初始化（`static GATE: InvalidationGate =
 /// InvalidationGate::new();`）。
 #[derive(Debug)]
-pub(crate) struct InvalidationGate {
+pub struct InvalidationGate {
     /// `true` = 上次失效失败，缓存里可能还留着旧值。
     dirty: AtomicBool,
 }
 
 impl InvalidationGate {
     /// 新建闸门（初始「净」：进程刚起来时缓存里没有本进程写过的值）。
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             dirty: AtomicBool::new(false),
         }
@@ -52,7 +52,7 @@ impl InvalidationGate {
     ///
     /// - `true`：上次失效成功（或从未失败），读缓存安全；
     /// - `false`：上次失效失败，缓存里可能是旧值，调用方必须跳过缓存。
-    pub(crate) fn cache_readable(&self) -> bool {
+    pub fn cache_readable(&self) -> bool {
         !self.dirty.load(Ordering::Acquire)
     }
 
@@ -61,13 +61,13 @@ impl InvalidationGate {
     /// # 参数
     ///
     /// - `ok`：`true` = 缓存侧动作成功（缓存可信）；`false` = 失败（缓存欠账）。
-    pub(crate) fn record(&self, ok: bool) {
+    pub fn record(&self, ok: bool) {
         self.dirty.store(!ok, Ordering::Release);
     }
 
     /// 仅供单元测试：把闸门直接置成「欠账」，模拟「上一次失效失败了」。
-    #[cfg(test)]
-    pub(crate) fn mark_dirty_for_test(&self) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn mark_dirty_for_test(&self) {
         self.dirty.store(true, Ordering::Release);
     }
 }

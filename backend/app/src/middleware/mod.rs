@@ -57,7 +57,7 @@ pub mod json_rejection {
     use axum::response::{IntoResponse, Response};
     use nik::prelude::*;
 
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
 
     /// 拒绝体最大读取量（真实拒绝体 < 1 KB；设上限是为了不被畸形请求撑大内存）。
     const MAX_REJECTION_BYTES: usize = 8 * 1024;

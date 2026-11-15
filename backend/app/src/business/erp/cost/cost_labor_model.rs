@@ -38,8 +38,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cost::cost_labor_dto::{self, CostLaborFilter, CostLaborSpec};
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 表名。
 pub const LABOR_TABLE: &str = "biz_cost_labor";
@@ -571,7 +571,7 @@ pub async fn dept_refs_by_keys(keys: &[String]) -> DbResult<Vec<(Uuid, String, S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::shared::scope::SCOPED_TABLES;
+    use cloudpivot_kernel::business::shared::scope::SCOPED_TABLES;
 
     fn id(seed: u128) -> Uuid {
         Uuid::from_u128(seed)
@@ -624,11 +624,14 @@ mod tests {
     fn page_base_sql_has_single_filter_marker_before_business_params() {
         let sql = page_base_sql();
         assert_eq!(
-            sql.matches(crate::business::shared::scope::FILTER_MARKER).count(),
+            sql.matches(cloudpivot_kernel::business::shared::scope::FILTER_MARKER)
+                .count(),
             1,
             "必须恰好一个 {{FILTER}}：{sql}"
         );
-        let marker = sql.find(crate::business::shared::scope::FILTER_MARKER).expect("标记");
+        let marker = sql
+            .find(cloudpivot_kernel::business::shared::scope::FILTER_MARKER)
+            .expect("标记");
         // 标记之前不许出现业务 `?`（第一个 `?` 必须排在标记之后）
         if let Some(first) = sql.find('?') {
             assert!(first > marker, "{{FILTER}} 必须在第一个业务 ? 之前：{sql}");

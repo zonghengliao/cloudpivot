@@ -31,7 +31,7 @@ use nik::uuid::Uuid;
 
 use super::*;
 use crate::business::erp::voucher;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 // ---------- 夹具 ----------
 
@@ -507,7 +507,7 @@ async fn dc13_negative_stock_is_blocked_and_rolled_back() {
     assert_eq!(error.status, 409, "负库存拦截必须是 409");
     assert_eq!(
         error.code,
-        crate::shared::error_code::ERP_STOCK_OUT_NEGATIVE,
+        cloudpivot_kernel::shared::error_code::ERP_STOCK_OUT_NEGATIVE,
         "必须用 66034 而不是通用冲突码"
     );
     assert!(error.msg.contains("DC13-M2"), "报文必须点名物料编码：{}", error.msg);

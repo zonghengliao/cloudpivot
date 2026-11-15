@@ -19,18 +19,18 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::scope;
-use crate::shared::constants;
-use crate::shared::constants::EnableStatus;
 use crate::support::dict::dto::DictItemRes;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::utils;
 
 /// `sys_dict_type` 表对应的强类型模型（字典类型）。
 ///
 /// # 唯一性与软删
 ///
 /// `dict_code` 的部分唯一索引带 `WHERE deleted_at IS NULL`；基础字典编码见
-/// [`crate::shared::constants`]（`user_status` / `menu_type` / `config_type`
+/// [`cloudpivot_kernel::shared::constants`]（`user_status` / `menu_type` / `config_type`
 /// / `job_status`）。
 #[derive(Debug, Clone, Model)]
 #[table("sys_dict_type")]

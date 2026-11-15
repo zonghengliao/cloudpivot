@@ -30,7 +30,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::period;
 use crate::business::erp::period::period_test_support as base;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 本年（被年结的年度）。
 pub const YEAR: i16 = 2037;

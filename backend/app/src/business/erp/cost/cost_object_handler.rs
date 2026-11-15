@@ -79,9 +79,9 @@ use crate::business::erp::cost::cost_object_dto::{
 };
 use crate::business::erp::cost::cost_object_model::{self as model, CostObjectRow};
 use crate::business::erp::voucher;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与设计 §5.3 逐字一致） ====================
 
@@ -778,7 +778,7 @@ pub async fn set_output(
 
 /// 列表分页（数据权限：按车间裁剪）。
 pub async fn page_objects(
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
     query: CostObjectPageQuery,
 ) -> std::result::Result<PageData<Vec<CostObjectListRes>>, ApiError> {
     let filter = filter_of(&query)?;
@@ -833,7 +833,7 @@ pub async fn cost_object_page_api(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<CostObjectPageQuery>,
 ) -> ResResult<PageData<Vec<CostObjectListRes>>> {
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     Ok(Res::ok(page_objects(&principal, query).await?))
 }
 

@@ -22,10 +22,10 @@ use axum::Json;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
 use crate::system::setup::dto;
 use crate::system::setup::model;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 1. 自检 ====================
 
@@ -136,7 +136,7 @@ pub async fn assign(Json(req): Json<dto::SetupAssignReq>) -> ResResult<dto::Setu
     // ④ 权限变更立即生效：清主体缓存 + 推进令牌版本（旧令牌里的权限码已过期）
     for user_id in &existing {
         crate::system::auth::model::invalidate_user_principal(user_id).await;
-        crate::business::shared::guard::invalidate_user_scope(user_id).await;
+        cloudpivot_kernel::business::shared::guard::invalidate_user_scope(user_id).await;
         if let Err(error) = crate::system::user::model::bump_token_version(user_id).await {
             // 失效失败不该让「已经加进角色」这件事回滚：下一次登录自然拿到新权限
             tracing::warn!(user_id = %user_id, error = %error, "指派成员后推进令牌版本失败");

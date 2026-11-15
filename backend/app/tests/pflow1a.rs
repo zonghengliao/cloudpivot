@@ -42,7 +42,7 @@ use cloudpivot::business::flow::task_node::{self, SpawnOutcome};
 use cloudpivot::business::flow::{dto as flow_dto, handler as flow_handler, model as flow_model};
 use cloudpivot::business::task::{dto as task_dto, handler as task_handler};
 use cloudpivot::business::taskflow::spawn as taskflow_spawn;
-use cloudpivot::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 连库 ====================
 

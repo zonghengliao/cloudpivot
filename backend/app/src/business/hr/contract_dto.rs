@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::hr::contract_model::{ContractRow, ContractWrite};
 use crate::business::hr::employee_dto::{self, EmployeeContractRes};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// `contract_no VARCHAR(32)`。
 pub const MAX_CONTRACT_NO: usize = 32;

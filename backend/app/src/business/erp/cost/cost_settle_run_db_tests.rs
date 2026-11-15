@@ -37,7 +37,7 @@ mod db {
     use crate::business::erp::cost::cost_settle_run::{self as run, ASSERT_IDS, ASSERT_NAMES, SettleInput};
     use crate::business::erp::cost::cost_settle_voucher as cv;
     use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher, STATUS_POSTED};
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
     use nik::prelude::chrono::{NaiveDate, Utc};
     use nik::prelude::rust_decimal::Decimal;
     use tokio::sync::OnceCell;

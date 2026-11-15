@@ -51,9 +51,9 @@ use crate::business::help::dto::{
     HelpDocDetailRes, HelpReadRes, HelpSearchHitRes, HelpSearchQuery, HelpTocRes, HelpVersionRes,
 };
 use crate::business::help::model::{self, DocFilter, DocInput, HelpError, SearchFilter};
-use crate::business::shared::content::{self, Recipe};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::content::{self, Recipe};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 管理侧列表权限码（决定能否看见未发布文档）。
 const PERM_DOC_LIST: &str = "system:help:doc:list";
@@ -445,7 +445,7 @@ pub async fn doc_versions(Path(id): Path<String>) -> ResResult<Vec<HelpVersionRe
         .map_err(|error| utils::db_error(error, "查询帮助文档版本"))?;
     let mut list: Vec<HelpVersionRes> = rows.iter().map(HelpVersionRes::from_row).collect();
     // AUD-02：整份版本列表一次查回所有操作人（逐行查 = 版本越多越慢）
-    crate::business::shared::user_name::fill_person_names(&mut list)
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
     Ok(Res::ok(list))

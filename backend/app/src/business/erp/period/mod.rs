@@ -125,9 +125,9 @@ use self::period_items::{BlockingItem, OwnerResolver};
 use crate::business::erp::dto::PeriodRes;
 use crate::business::erp::model::{self, PeriodRow};
 use crate::business::erp::voucher;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 口径常量 ====================
 
@@ -2838,7 +2838,7 @@ mod tests {
         assert_eq!(err.status, 409, "{} / {}", err.code, err.msg);
         assert_eq!(
             err.code,
-            crate::shared::error_code::RESOURCE_CONFLICT,
+            cloudpivot_kernel::shared::error_code::RESOURCE_CONFLICT,
             "必须是 10003（状态冲突），不是 10001（参数错误）：{}",
             err.msg
         );

@@ -44,7 +44,7 @@ use nik::prelude::*;
 
 use crate::business::erp::price::price_dto::{PriceResolveQuery, PriceResolveReq, PriceResolveRes};
 use crate::business::erp::price::price_model::{self as model, ResolveOutcome};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 权限码（与 V0307 的 sys_menu.auth_code 逐字一致） ====================
 

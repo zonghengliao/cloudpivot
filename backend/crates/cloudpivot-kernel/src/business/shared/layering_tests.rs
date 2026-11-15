@@ -46,9 +46,22 @@ const MIN_DOMAINS: usize = 18;
 /// 扫描面硬断言：这些文件必须真的被扫到（防「路径基准变了 → 扫 0 个文件 → 静默变绿」）。
 const REQUIRED_FILES: [&str; 5] = ["mod.rs", "state_machine.rs", "scope.rs", "principal.rs", "guard.rs"];
 
-/// `backend/src/business/` 下除 `shared` 之外的业务域名。
+/// `backend/app/src/business/` 下除 `shared` 之外的业务域名。
+///
+/// # 为什么跨目录读应用 crate（P2-59 · C1）
+///
+/// 本文件随 `business/shared` 一起搬进了 `crates/cloudpivot-kernel`，但「业务域清单」的
+/// **唯一真源仍是应用 crate 的目录列表**（域都还在 `backend/app/src/business/` 下）。
+/// 若改成读内核自己的 `src/business/`，那里只有 `shared` 一个目录 ⇒ 禁区为空 ⇒
+/// 护栏静默变绿（这正是本文件 `MIN_DOMAINS` 断言要防的形态）。
+/// 路径锚在 `CARGO_MANIFEST_DIR` 上，所以 `cargo test -p cloudpivot-kernel` 在任何 cwd 下都成立。
 fn business_domains() -> Vec<String> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("business");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("app")
+        .join("src")
+        .join("business");
     let entries = std::fs::read_dir(&dir).unwrap_or_else(|err| panic!("读不到 business 目录 {}：{err}", dir.display()));
     let mut domains: Vec<String> = Vec::new();
     for entry in entries {

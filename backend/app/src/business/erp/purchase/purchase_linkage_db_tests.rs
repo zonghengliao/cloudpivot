@@ -39,7 +39,7 @@ use crate::business::erp::linkage;
 use crate::business::erp::linkage::spec;
 use crate::business::erp::purchase::purchase_dto::PurchaseOrderStatusReq;
 use crate::business::erp::purchase::{purchase_handler, purchase_model};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 夹具规则的命名前缀（本卡专用，与其它卡 / 生产的规则互不影响）。
 ///

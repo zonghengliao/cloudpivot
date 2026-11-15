@@ -40,15 +40,15 @@ use nik::prelude::*;
 
 use std::net::SocketAddr;
 
-use crate::business::shared::user_name;
 use crate::business::storage;
 use crate::business::storage::handler::{
     declared_content_length, download_response, server_size_error, server_upload_limit_bytes, store_server_upload,
 };
-use crate::shared::error_code;
 use crate::support::log;
 use crate::support::log::model::OperationLogModel;
-use crate::utils;
+use cloudpivot_kernel::business::shared::user_name;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 use super::dto::{
     self, DocAttachmentDeleteRes, DocAttachmentItemRes, DocAttachmentListRes, DocAttachmentQuery,
@@ -1067,7 +1067,7 @@ pub const OP_DOWNLOAD: &str = "DOC_ATTACHMENT_DOWNLOAD";
 ///
 /// # 为什么自己写一行而不是等全局中间件
 ///
-/// 全局 `operation_log` 中间件只记 [`crate::shared::constants::AUDITED_METHODS`]
+/// 全局 `operation_log` 中间件只记 [`cloudpivot_kernel::shared::constants::AUDITED_METHODS`]
 /// （POST / PUT / PATCH / DELETE）：下载是 `GET`，不会留下任何痕迹。而「谁把发票影像
 /// 拷走了」恰是最需要留痕的读操作。
 ///

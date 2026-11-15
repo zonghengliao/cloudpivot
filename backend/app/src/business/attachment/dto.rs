@@ -23,7 +23,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 use super::model::{DocAttachmentRow, DocKind, FileRole, ListOrder};
 
@@ -735,7 +735,7 @@ pub fn can_delete(claims: &TokenClaims, uploaded_by: Option<Uuid>, can_view_doc:
     if claims.has_permission(PERM_DELETE) {
         return can_view_doc;
     }
-    match (uploaded_by, crate::utils::current_user_uuid(claims)) {
+    match (uploaded_by, cloudpivot_kernel::utils::current_user_uuid(claims)) {
         (Some(owner), Some(me)) => owner == me,
         _ => false,
     }

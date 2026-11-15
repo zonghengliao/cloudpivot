@@ -34,7 +34,7 @@ mod db {
     use super::*;
     use crate::business::hr::employee_handler as handler;
     use crate::business::hr::employee_no;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::uuid::Uuid;
     use tokio::sync::OnceCell;
 

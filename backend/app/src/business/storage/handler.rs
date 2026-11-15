@@ -36,7 +36,6 @@ use tokio_util::io::ReaderStream;
 
 use std::net::SocketAddr;
 
-use crate::business::shared::principal;
 use crate::business::storage::cipher::{self, MasterKey};
 use crate::business::storage::dto::{
     StorageCompleteReq, StorageConfigPageQuery, StorageConfigRes, StorageConfigSaveReq, StorageFilePageQuery,
@@ -51,10 +50,11 @@ use crate::business::storage::store::{ObjectStore, StoreError};
 use crate::business::storage::{
     ensure_router, global_router, reload_router_best_effort, router as storage_router, sigv4, store,
 };
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
 use crate::support::log;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 存储配置 ====================
 
@@ -1011,7 +1011,7 @@ pub async fn file_page(
         .map_err(|error| utils::db_error(error, "分页查询文件"))?;
     let mut list = result.list.iter().map(StorageFileRes::from_model).collect::<Vec<_>>();
     // AUD-02：整页一次 `WHERE id = ANY(...)`；失败只降级为空串（前端显示 `—`，不显示 UUID）
-    crate::business::shared::user_name::fill_person_names(&mut list)
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
     Ok(Res::page(list, result.total, result.page, result.size))

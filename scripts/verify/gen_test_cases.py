@@ -257,7 +257,7 @@ def render_cases(sections, st):
     L.append("")
     L.append("| 项 | 口径 |")
     L.append("|---|---|")
-    L.append("| 状态机的合法边 | 抄自代码，不是我编的：`backend/app/src/business/shared/state_machine.rs`（STOCK_IN 3 / TRANSFER 6 / PURCHASE_ORDER 10 / PAYABLE 4）、"
+    L.append("| 状态机的合法边 | 抄自代码，不是我编的：`backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs`（STOCK_IN 3 / TRANSFER 6 / PURCHASE_ORDER 10 / PAYABLE 4）、"
              "`task/state.rs::TRANSITIONS`（`[Transition; 10]`）、`serial_model.rs`（3） |")
     L.append("| 非法边断言 | 409 + 具体错误码 + 文案**必须点名当前态可选去向**：任务 `63010`、ERP 四单 `10003`、序列号 `66008` |")
     L.append("| 审批流场景 | 接口与常量来自 `flow/handler.rs` / `flow/dto.rs` / `flow/timeout.rs` / `flow/task_bridge.rs`，错误码逐个核对 |")

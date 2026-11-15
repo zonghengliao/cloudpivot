@@ -42,7 +42,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::hr::attendance_period_dto::{PeriodTotals, normalize_page};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 每页默认条数（与考勤期间列表同口径）。
 pub const DEFAULT_PAGE_SIZE: u64 = 20;

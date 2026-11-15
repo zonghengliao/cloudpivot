@@ -40,7 +40,7 @@ use nik::uuid::Uuid;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 值域（与 V0370 的 CHECK 逐字一致） ====================
 

@@ -34,7 +34,7 @@ use crate::business::erp::asset::asset_compute::{
 use crate::business::erp::asset::asset_model::{
     self, AssetChangeRow, AssetRow, CategoryRow, DepBatchRow, DepDetailRow,
 };
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 默认每页条数。
 pub const DEFAULT_PAGE_SIZE: u64 = 20;

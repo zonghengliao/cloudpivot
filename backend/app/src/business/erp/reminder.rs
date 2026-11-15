@@ -93,10 +93,10 @@ use crate::business::erp::period;
 use crate::business::erp::{reminder_contract, reminder_payable, reminder_purchase, reminder_stock};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, DispatchError, NoticeDraft, NoticeTarget};
-use crate::shared::error_code;
 use crate::support::config::model::SysConfigModel;
 use crate::task::Scheduler;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 手动触发提醒的权限码（定时任务本身不需要：后台任务没有请求者）。
 pub const PERM_RUN: &str = "business:erp:reminder:run";

@@ -32,8 +32,8 @@ use nik::uuid::Uuid;
 use crate::business::flow::edge_admin::{
     self, ChangeVerdict, EdgeChange, EdgeChangeRes, EdgeDeleteQuery, EdgeUpsertReq, StateEdgeQuery,
 };
-use crate::business::shared::state_machine::{self, Entity};
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine::{self, Entity};
+use cloudpivot_kernel::shared::error_code;
 
 /// 用例串行锁（改全局配置的用例必须排队）。
 static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -1107,7 +1107,7 @@ async fn offline_flow_falls_back_to_explicit_skip() {
     assert_eq!(without_skip.status, 409, "报文：{}", without_skip.msg);
     assert_eq!(
         without_skip.code,
-        crate::shared::error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+        cloudpivot_kernel::shared::error_code::APPROVAL_FLOW_NOT_CONFIGURED,
         "要点名「没有已发布的审批流程」"
     );
     assert_eq!(short_reason.status, 400, "报文：{}", short_reason.msg);

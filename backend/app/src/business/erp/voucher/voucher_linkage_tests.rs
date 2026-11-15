@@ -37,9 +37,9 @@ use super::voucher_write::{
 };
 use crate::business::erp::linkage::{model as linkage_model, spec};
 use crate::business::erp::voucher;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::shared::test_helpers as seed_guard;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::shared::test_helpers as seed_guard;
 
 /// 本文件造的所有夹具摘要前缀（清场口径）。
 const TAG: &str = "LNK06";

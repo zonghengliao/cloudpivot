@@ -350,13 +350,18 @@ biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc"
 BATCHB_GATE2_BASELINE=21
 
 # 闸① 白名单：scope::paginate 自身的实现文件（B2 落地）
-BATCHB_GATE1_WHITELIST="business/shared/scope.rs"
+# P2-59（C1）：`scope.rs` 已随内核抽到 `backend/crates/cloudpivot-kernel/src/`，
+# 白名单用**仓库相对全路径**，与 grep 输出的绝对路径做子串匹配（两边都带这个尾巴）。
+BATCHB_GATE1_WHITELIST="backend/crates/cloudpivot-kernel/src/business/shared/scope.rs"
 
 # warn 模式下用来记住「门禁按告警处理」的条数（0 = 没有告警）
 BATCHB_GATE_WARNED=0
 
 batchb_gates() {
     local src="$ROOT/backend/app/src"
+    # P2-59（C1）：`scope.rs`（`paginate_with_params` 的唯一合法出现地）已搬进内核 crate，
+    # 扫描根必须跟着加，否则闸① 因为「扫不到」而静默变绿。
+    local kernel_src="$ROOT/backend/crates/cloudpivot-kernel/src"
     local failed=0
     local gate1_out gate1_n i t f gate2_n gate2_out
 
@@ -364,7 +369,7 @@ batchb_gates() {
     echo "    白名单：$BATCHB_GATE1_WHITELIST（+ 注释行不计）"
     # 注意写法：这里不能用 `! grep ...`（「找不到」时反而命中 → 门禁永远报错，
     # 是这类脚本最常见的自伤）；统一用变量 + 空判。
-    gate1_out=$(grep -rn "paginate_with_params" "$src" --include=*.rs \
+    gate1_out=$(grep -rn "paginate_with_params" "$src" "$kernel_src" --include=*.rs \
         | grep -v "$BATCHB_GATE1_WHITELIST" \
         | grep -v -E "^[^:]+:[0-9]+: *(//|\*)" || true)
     if [ -n "$gate1_out" ]; then
@@ -453,6 +458,9 @@ batchc_strip_comments() {
 
 batchc_gates() {
     local src="$ROOT/backend/app/src"
+    # P2-59（C1）：`scope.rs`（`paginate_with_params` 的唯一合法出现地）已搬进内核 crate，
+    # 扫描根必须跟着加，否则闸① 因为「扫不到」而静默变绿。
+    local kernel_src="$ROOT/backend/crates/cloudpivot-kernel/src"
     local failed=0
     local out n
 

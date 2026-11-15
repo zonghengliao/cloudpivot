@@ -144,7 +144,7 @@ mod db {
             sweep_leftovers().await;
             let suffix = uniq();
             let year = next_year();
-            let dept = crate::shared::test_helpers::ensure_any_dept().await;
+            let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
             let unit: Uuid = db()
                 .scalar_with_params("SELECT id FROM biz_unit WHERE deleted_at IS NULL LIMIT 1", vec![])
                 .await

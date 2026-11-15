@@ -181,7 +181,7 @@ fn month_summary_agrees_with_guard_month_gate() {
 /// ③ 状态常量与 DDL / 状态机一致（防三处漂移）。
 #[test]
 fn status_constants_match_state_machine() {
-    let edges = crate::business::shared::state_machine::Entity::Budget.edges();
+    let edges = cloudpivot_kernel::business::shared::state_machine::Entity::Budget.edges();
     let mut nodes: Vec<&str> = Vec::new();
     for (from, to) in edges {
         nodes.push(from);
@@ -244,7 +244,7 @@ mod db {
 
     /// 取一个部门 id：**库里有就用，没有就造夹具部门**（TST-02b A 方案）。
     async fn any_dept() -> Uuid {
-        crate::shared::test_helpers::ensure_any_dept().await
+        cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await
     }
 
     /// 取 5602.02 科目 id（V0226 迁移种子；查不到 = 库版本不对）。
@@ -415,22 +415,22 @@ mod db {
         }
         // 库里只有一个部门（很可能就是 `TST-DEPT`）⇒ 造另一个夹具部门；
         // 若那个「唯一部门」恰好是 `TST-DEPT-2`，就反过来造 `TST-DEPT`。
-        let (code, name) = if crate::shared::test_helpers::fixture_uuid(&format!(
+        let (code, name) = if cloudpivot_kernel::shared::test_helpers::fixture_uuid(&format!(
             "dept:{}",
-            crate::shared::test_helpers::FIXTURE_DEPT2_CODE
+            cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT2_CODE
         )) == exclude
         {
             (
-                crate::shared::test_helpers::FIXTURE_DEPT_CODE,
-                crate::shared::test_helpers::FIXTURE_DEPT_NAME,
+                cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT_CODE,
+                cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT_NAME,
             )
         } else {
             (
-                crate::shared::test_helpers::FIXTURE_DEPT2_CODE,
-                crate::shared::test_helpers::FIXTURE_DEPT2_NAME,
+                cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT2_CODE,
+                cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT2_NAME,
             )
         };
-        let id = crate::shared::test_helpers::ensure_dept(code, name).await;
+        let id = cloudpivot_kernel::shared::test_helpers::ensure_dept(code, name).await;
         assert_ne!(id, exclude, "第二个部门必须与第一个不同");
         id
     }
@@ -688,7 +688,8 @@ mod db {
         for (name, filter) in cases {
             let (sql, params) = budget_page_sql(&filter);
             assert_eq!(
-                sql.matches(crate::business::shared::scope::FILTER_MARKER).count(),
+                sql.matches(cloudpivot_kernel::business::shared::scope::FILTER_MARKER)
+                    .count(),
                 1,
                 "【{name}】预算分页 base_sql 必须恰好一个 {{FILTER}}：{sql}"
             );
@@ -698,12 +699,12 @@ mod db {
                 "【{name}】`?` 个数必须等于参数个数：{sql}"
             );
             let marker = sql
-                .find(crate::business::shared::scope::FILTER_MARKER)
+                .find(cloudpivot_kernel::business::shared::scope::FILTER_MARKER)
                 .expect("标记位置");
             if let Some(first) = sql.find('?') {
                 assert!(marker < first, "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}");
             }
-            crate::business::shared::scope::ensure_injection_point(&sql, params.len())
+            cloudpivot_kernel::business::shared::scope::ensure_injection_point(&sql, params.len())
                 .unwrap_or_else(|err| panic!("【{name}】注入位置契约校验失败：{err}"));
         }
     }

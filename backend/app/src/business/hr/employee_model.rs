@@ -74,10 +74,10 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::hr::model::{SENTINEL_ORG_ID, TABLE_EMPLOYEE};
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 员工主档表名（与 [`TABLE_EMPLOYEE`] 同一常量，这里只是本文件的可读别名）。
 pub const TABLE: &str = TABLE_EMPLOYEE;

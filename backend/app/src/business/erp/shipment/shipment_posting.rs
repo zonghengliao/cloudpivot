@@ -52,9 +52,9 @@ use crate::business::erp::stockout::stockout_base::{
 };
 use crate::business::erp::stockout::stockout_handler;
 use crate::business::erp::stockout::stockout_model::{self as stock_out, MaterialInfo};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 过账成功后的业务结果（供 handler 打日志 / 回显）。
 #[derive(Debug)]

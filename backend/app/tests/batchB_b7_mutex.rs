@@ -37,7 +37,7 @@
 //! 重复跑不会积累垃圾，也不会影响库里其它数据（只删自己插入的行）。
 
 use cloudpivot::business::mutex::{checker, guard, model};
-use cloudpivot::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 

@@ -35,7 +35,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 常量（与 DDL / 设计逐字对齐） ====================
 

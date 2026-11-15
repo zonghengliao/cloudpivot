@@ -113,7 +113,7 @@ mod db {
             let period = format!("{year:04}-{month:02}");
             Self::reset_period(&period).await;
 
-            let dept = crate::shared::test_helpers::ensure_any_dept().await;
+            let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
             let dept_name: String = db()
                 .scalar_with_params(
                     "SELECT dept_name FROM sys_dept WHERE id = ?::uuid",
@@ -121,7 +121,7 @@ mod db {
                 )
                 .await
                 .expect("取部门名");
-            let reporter = crate::shared::test_helpers::ensure_any_user().await;
+            let reporter = cloudpivot_kernel::shared::test_helpers::ensure_any_user().await;
 
             Self {
                 suffix: format!("{}{slot}", period.replace('-', "")),

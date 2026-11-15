@@ -81,9 +81,9 @@ use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::voucher::{
     self, ACCOUNT_AR, ACCOUNT_MAIN_COST, ACCOUNT_OUTPUT_TAX, ACCOUNT_REVENUE, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO,
 };
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量 ====================
 

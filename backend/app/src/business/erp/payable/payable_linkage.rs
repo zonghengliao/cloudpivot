@@ -92,7 +92,7 @@ impl PayableStatusChange {
         draft.force = false;
         draft.idempotency_key = Some(format!("LNK:PAYABLE:{}:{}", self.status, self.payable_id));
         linkage::LinkageContext::new(
-            crate::business::shared::state_machine::ENTITY_PAYABLE,
+            cloudpivot_kernel::business::shared::state_machine::ENTITY_PAYABLE,
             &self.status,
             self.payable_id,
             &self.payable_no,

@@ -78,7 +78,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
          ON CONFLICT DO NOTHING",
         vec![
             Value::from(&me),
-            Value::Text(crate::shared::constants::SUPER_ADMIN_ROLE_CODE.to_string()),
+            Value::Text(cloudpivot_kernel::shared::constants::SUPER_ADMIN_ROLE_CODE.to_string()),
         ],
     )
     .await

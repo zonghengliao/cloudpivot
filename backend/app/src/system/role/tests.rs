@@ -37,11 +37,11 @@
 
 use nik::prelude::*;
 
-use crate::shared::constants;
-use crate::shared::error_code;
 use crate::system::role::dto::{RoleMenuAssignReq, RoleSaveReq};
 use crate::system::role::handler;
 use crate::system::tests_support as ts;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::error_code;
 
 /// 「库里真实持有 SUPER_ADMIN」的操作者声明 —— 直接用内置管理员（见文件头夹具说明）。
 async fn admin_operator() -> AuthClaims {

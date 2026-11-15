@@ -91,7 +91,7 @@ use nik::prelude::*;
 // P2-B 解环（卡 `t_3442b4fb`）：取号引擎是**纯 `biz_seq` 读写**，与业务表无关，
 // 已下移到跨域基座。这里再导出，ERP 侧 40 余处 `seq::xxx` 调用点一行都不用改。
 // 本文件**只保留 ERP 自己的东西**：六张主档的查重 SQL + 用它们的四个便捷入口。
-pub use crate::business::shared::seq::{
+pub use cloudpivot_kernel::business::shared::seq::{
     DEFAULT_PAD_WIDTH, FREE_CODE_MAX_ATTEMPTS, MASTER_CODE_TYPES, MAX_MANUAL_CODE_LEN, MAX_PAD_WIDTH, MIN_PAD_WIDTH,
     code_taken, format_master_code, is_master_code_type, manual_code, next_master_code, next_master_code_free_with,
     next_master_code_global, peek_master_code_with, resolve_manual_code, validate_manual_code,

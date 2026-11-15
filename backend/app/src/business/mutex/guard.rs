@@ -29,8 +29,8 @@ use nik::uuid::Uuid;
 
 use crate::business::mutex::checker;
 use crate::business::mutex::model::{self, PairHit};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 规范化互斥对：按 UUID 字节序返回 `(小, 大)`。
 ///

@@ -45,7 +45,7 @@ use crate::business::flow::task_port::{self, SpawnTaskSpec};
 use crate::business::flow::template_vars;
 use crate::business::notice::dto::ContentFormat;
 use crate::business::notice::render;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// `biz_task.source` 的流程值（`V0177` 扩的第 5 个值）。
 pub const FLOW_SOURCE: &str = "FLOW";

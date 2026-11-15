@@ -24,7 +24,7 @@
 use nik::prelude::*;
 
 use crate::system::badge::model::{self, BadgeCounts};
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 当前登录用户的四类徽标计数。
 ///

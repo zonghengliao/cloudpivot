@@ -23,14 +23,14 @@
 //! 「这条待办是不是你的」由 engine::approve/reject 逐条判（403 + 65028），批量层不越权放行。
 //! ```
 
-use crate::utils;
 use axum::extract::Path;
 use axum::{Extension, Json};
+use cloudpivot_kernel::utils;
 use nik::prelude::*;
 
 use crate::business::flow::dto::{ApproveReq, RejectReq};
 use crate::business::flow::handler::{approve_task, reject_task};
-use crate::business::shared::batch::{self, BatchResult};
+use cloudpivot_kernel::business::shared::batch::{self, BatchResult};
 
 /// 批量审批的权限码（与单条 `/approve`、`/reject` 一致）。
 pub const PERM_APPROVE: &str = "business:flow:approve";

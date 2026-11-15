@@ -20,9 +20,9 @@ use crate::business::erp::stockin::stockin_model::{
     self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, STATUS_POSTED, can_transition,
     transition_rejected_message,
 };
-use crate::business::shared::separation;
-use crate::business::shared::state_machine;
-use crate::utils;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::utils;
 
 /// 状态流转核心逻辑（handler 与单测共用的**系统路径**）。
 ///

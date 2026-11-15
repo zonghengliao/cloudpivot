@@ -78,7 +78,7 @@ impl MutexRes {
 }
 
 /// AUD-02：创建人姓名回填（`create_by` → `create_by_name`）。
-impl crate::business::shared::user_name::PersonNameRow for MutexRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for MutexRes {
     fn person_ids(&self, out: &mut Vec<uuid::Uuid>) {
         if let Some(id) = self
             .create_by

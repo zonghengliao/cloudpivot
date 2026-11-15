@@ -26,7 +26,7 @@
 //! （`count_scoped` / `fetch_scoped`），任务本身的读回仍走 impexp 的现有入口。
 //! ```
 
-use crate::utils;
+use cloudpivot_kernel::utils;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -34,7 +34,7 @@ use crate::business::impexp::definition::{self, ExportFilter};
 use crate::business::impexp::model::{self, NewExportTask};
 use crate::business::impexp::registry::global_registry;
 use crate::business::impexp::worker;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 批量导出统一出 `XLSX`（勾选场景行数少，XLSX 对业务用户更友好）。
 pub const FORMAT: &str = "XLSX";

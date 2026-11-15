@@ -47,7 +47,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== source 域值（与 ARCH-7 §15.3.3 逐字对应） ====================
 

@@ -11,9 +11,9 @@
 use nik::prelude::nik_plugin::scheduler::CronSchedule;
 use nik::prelude::*;
 
-use crate::business::shared::scope;
-use crate::shared::constants::EnableStatus;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::utils;
 
 /// 定时任务执行状态。
 ///

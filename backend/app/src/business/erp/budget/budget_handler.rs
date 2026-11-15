@@ -48,9 +48,9 @@ use crate::business::erp::budget::budget_model::{
     self, CHANGE_ADJUST, CHANGE_ORIGINAL, STATUS_ACTIVE, STATUS_DRAFT, STATUS_SUBMITTED,
 };
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
     utils::current_user_uuid(claims)
@@ -141,7 +141,7 @@ pub async fn budget_page(
     // 于是闸① 强制走 `scope::paginate(…, &principal)`（`paginate_unscoped` 会直接报错）。
     // 基础版没有配置部门数据范围时 principal 展开为「全部」，行为与不裁剪一致；
     // 专业版一旦给角色配了部门范围，预算列表自动跟着裁剪 —— 这正是会计科目的部门口径要的。
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let (rows, total) = budget_model::budget_page(&query, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询预算"))?;

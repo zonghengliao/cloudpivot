@@ -45,7 +45,7 @@ mod db {
     };
     use crate::business::hr::salary_sheet_handler;
     use crate::business::hr::salary_sheet_model;
-    use crate::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
     use tokio::sync::OnceCell;
 
     /// 薪资期间（`ck_biz_sal_sheet_code` 只认 `yyyy-MM`）。

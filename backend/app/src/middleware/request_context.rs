@@ -34,13 +34,13 @@
 //! 2. **响应头注入 / 放大**：超长值或控制字符会让 `HeaderValue::from_str` 失败或撑爆日志。
 //!
 //! 因此只接受「≤ [`MAX_INCOMING_LEN`] 字节、且只含 `[A-Za-z0-9._:-]`」的值，
-//! 其余一律丢弃并改用服务端生成的 UUID v7（与 [`crate::utils::request_id`] 同口径）。
+//! 其余一律丢弃并改用服务端生成的 UUID v7（与 [`cloudpivot_kernel::utils::request_id`] 同口径）。
 //!
 //! # 为什么是 UUID v7 而不是 v4
 //!
 //! v7 前 48 位是毫秒时间戳，**按字典序 = 按时间序**：日志检索时同一个 ID 天然相邻，
 //! 也让 `operation_logs.request_id` 这类入库值具备时间局部性。仓内
-//! [`crate::utils::request_id`] 与各单据 `request_id` 早已统一用 v7，此处保持一致。
+//! [`cloudpivot_kernel::utils::request_id`] 与各单据 `request_id` 早已统一用 v7，此处保持一致。
 
 use std::time::Instant;
 

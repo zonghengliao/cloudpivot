@@ -15,8 +15,8 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
 
 use crate::business::notice::model::{DeliverySummaryRow, MyNoticeRow, SysNoticeModel, SysNoticeTemplateModel};
 

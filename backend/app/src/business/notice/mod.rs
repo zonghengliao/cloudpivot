@@ -87,8 +87,8 @@ use serde::Serialize;
 
 use crate::business::notice::dto::{CHANNEL_INBOX, ContentFormat, NoticeLevel, NoticeType, channel_mask_of_csv};
 use crate::business::notice::model::Executor;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 对外发送草稿（C / D 批次的入参结构，字段与架构文档 §4.4 一致）。
 #[derive(Debug, Clone)]

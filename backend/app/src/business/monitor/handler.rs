@@ -23,7 +23,7 @@ use nik::uuid::Uuid;
 use crate::business::monitor::diagnostic::{self, OP_DIAGNOSTIC};
 use crate::business::monitor::dto::{self, ServerStatusRes};
 use crate::business::monitor::model;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 服务器运行状态（CPU / 内存 / 磁盘 / 数据库 / Redis）。
 ///

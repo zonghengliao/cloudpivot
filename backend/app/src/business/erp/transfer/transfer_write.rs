@@ -11,7 +11,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 use super::transfer_base::*;
 use super::transfer_settle::uuid_text;

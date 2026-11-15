@@ -8,10 +8,13 @@
 //! ├── support/      # 业务容器二：支撑功能模块（健康检查、字典、参数、文件、日志）
 //! ├── middleware/   # 自定义中间件（横切关注点，位于业务容器之外）
 //! ├── task/         # 定时/后台任务（横切关注点，位于业务容器之外）
-//! ├── utils/        # 项目内纯工具函数（横切关注点，位于业务容器之外）
-//! ├── shared/       # 跨模块共享的类型与常量（横切关注点，位于业务容器之外）
+//! ├── business/     # 二开业务容器（erp / flow / hr / task / impexp …）
 //! └── bootstrap.rs  # 启动引导：全局资源就绪后的业务初始化
 //! ```
+//!
+//! 跨域基座（`shared` / `utils` / `business::shared`）已抽成独立 crate `cloudpivot-kernel`
+//! （P2-59 · C1）—— 依赖方向是 `cloudpivot → cloudpivot-kernel → cloudpivot-doc`，
+//! **内核不反向依赖本包**。
 //!
 //! # 约定
 //!
@@ -32,24 +35,26 @@ use nik::prelude::*;
 pub mod bootstrap;
 pub mod business;
 pub mod middleware;
-pub mod shared;
 pub mod support;
 pub mod system;
 pub mod task;
-pub mod utils;
+
+/// 跨轴一致性用例（P2-59 · C1）：内核基座 ⇄ 业务实现的契约断言（装配层才看得到两侧）。
+#[cfg(test)]
+mod kernel_axis_tests;
 
 /// 构建并启动 HTTP 服务。
 ///
 /// 启动链按固定顺序装配：
 ///
-/// 1. **启动预检**（[`shared::startup_guard::preflight`]）：在框架初始化任何资源之前，
+/// 1. **启动预检**（[`cloudpivot_kernel::shared::startup_guard::preflight`]）：在框架初始化任何资源之前，
 ///    先拒绝「认证已开启但 JWT 签名密钥为空 / 过短」的启动，避免裸 `cargo run` 先死在
 ///    数据库连接失败、把真正原因掩盖掉；
 /// 2. [`App::new`] 读取 `config/config.toml` 与对应 profile 覆盖，并初始化日志；
 /// 3. [`App::parse_cli`] 解析 `gen-config` / `print-config` / `profile=xxx` 等命令行参数；
 /// 4. [`App::on_startup`] 注册启动钩子，在全局资源就绪、插件启动之前执行业务初始化
 ///    （其中包含从 `sys_job` 装载定时任务）；
-/// 5. [`App::plugin`] 注册自定义插件：启动守卫（[`shared::startup_guard::AuthSecretGuardPlugin`]，
+/// 5. [`App::plugin`] 注册自定义插件：启动守卫（[`cloudpivot_kernel::shared::startup_guard::AuthSecretGuardPlugin`]，
 ///    用框架权威配置再校验一次，认证已开启而密钥为空 / 过短时在此中止启动）、日志总线
 ///    （[`support::log::plugin::LogPlugin`]）与调度器（[`task::scheduler`]）；
 /// 6. [`App::layer_from_fn`] 注入链外层中间件（覆盖整站，含 401 / 403 / 429 与 404 兜底）：
@@ -69,7 +74,7 @@ pub async fn run() -> Result<()> {
     // 启动预检：必须在 App::new() 之前。App::start() 的顺序是「先连数据库/缓存 →
     // 再挂启动钩子 → 再启插件」，而裸 `cargo run`（没注入 NIK_MIDDLEWARE_AUTH_JWT_SECRET）
     // 会先死在数据库连接失败上，掩盖「密钥未注入」这个真正原因。
-    if let Err(violation) = shared::startup_guard::preflight() {
+    if let Err(violation) = cloudpivot_kernel::shared::startup_guard::preflight() {
         // 此刻日志订阅者尚未初始化（App::new() 里才装 tracing），
         // 因此必须直写标准错误，否则这条「为什么拒绝启动」会彻底丢失。
         eprintln!("FATAL: {violation}");
@@ -101,7 +106,7 @@ pub async fn run() -> Result<()> {
         })
         // 启动守卫必须**注册在最前**：插件按注册顺序（无依赖者）依次启动，
         // 密钥不合格时会在其余插件启动之前就中止启动，绝不带着空签名密钥对外提供服务
-        .plugin(shared::startup_guard::AuthSecretGuardPlugin::new())
+        .plugin(cloudpivot_kernel::shared::startup_guard::AuthSecretGuardPlugin::new())
         .plugin(support::log::plugin::LogPlugin::new())
         .plugin(task::scheduler())
         // 会话守卫走 `route_layer`（链内）：认证层注入 `AuthClaims` 之后才执行，
@@ -122,7 +127,9 @@ pub async fn run() -> Result<()> {
         // 同样走 `route_layer`（链内）：未登录访问这些接口仍然先被认证层回 401（不泄露
         // 「模块是否存在」），已登录才是本层的「模块未启用」。
         // 只对命中路径前缀的请求读参数快照，其余请求零开销（一次字符串前缀比较）。
-        .route_layer(axum::middleware::from_fn(business::shared::cost_switch::guard))
+        .route_layer(axum::middleware::from_fn(
+            cloudpivot_kernel::business::shared::cost_switch::guard,
+        ))
         // 任务级令牌（T5b）必须挂在**最外层**（`layer_from_fn`，位于框架认证层之外）：
         // AI 的令牌不是 JWT，若让它先过认证层，框架会先回 401「Token 无效」——
         // 那样「白名单外的端点也要 403 + 63304」就永远测不到，而且 AI 也无法自助排错。

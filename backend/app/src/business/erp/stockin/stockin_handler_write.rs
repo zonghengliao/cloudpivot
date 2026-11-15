@@ -19,9 +19,9 @@ use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInDetail
 use crate::business::erp::stockin::stockin_model::{
     self, NewStockIn, NewStockInLine, STATUS_DRAFT, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, Totals, status_label,
 };
-use crate::business::shared::separation;
-use crate::business::shared::state_machine;
-use crate::utils;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::utils;
 
 /// ★ P3-07 采购 ≠ 验收：把采购单挂到收货单上（建单 / 改单）时，操作人不能是该采购单的**采购员**。
 ///

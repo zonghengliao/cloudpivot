@@ -61,10 +61,10 @@ use crate::business::hr::attendance_record_dto::{
     self, AttendanceRecordRes, RecordPageQuery, RecordPatchReq, RecordPatchRes,
 };
 use crate::business::hr::attendance_record_model as model;
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::state_machine::Operator;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::state_machine::Operator;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 考勤记录维护（台账列表 + 单行修正）。与 `V0387` 的 `sys_menu.auth_code` 逐字一致。
 pub const PERM_RECORD: &str = "business:hr:attendance:record";

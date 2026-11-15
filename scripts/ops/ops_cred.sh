@@ -5,7 +5,7 @@
 # 背景（卡 t_d4e92b99）：`/etc/cloudpivot/cloudpivot.env` 里的
 # `NIK_ADMIN_PASSWORD` 只是「空库首启时 admin 的初始口令」种子，**不是** admin
 # 现在用的口令。拿它去登 `admin` 必然 401；而 `sys_user.login_fail_count` 攒到 5
-# 就把账号锁 30 分钟（backend/app/src/shared/constants.rs：MAX_LOGIN_FAIL_COUNT=5、
+# 就把账号锁 30 分钟（backend/crates/cloudpivot-kernel/src/shared/constants.rs：MAX_LOGIN_FAIL_COUNT=5、
 # LOCK_MINUTES=30），再叠加 60 秒内 10 次的登录限流（LOGIN_RATE_MAX_ATTEMPTS=10）。
 # 所以：**脚本不许猜口令、不许重试**。
 #

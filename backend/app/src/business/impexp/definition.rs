@@ -24,7 +24,7 @@ use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveDateTime};
 use nik::prelude::*;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 错误分类 ====================
 
@@ -922,7 +922,7 @@ pub trait ExportDefinition: Send + Sync {
     async fn count_scoped(
         &self,
         filter: &ExportFilter,
-        principal: Option<&crate::business::shared::principal::ScopedPrincipal>,
+        principal: Option<&cloudpivot_kernel::business::shared::principal::ScopedPrincipal>,
     ) -> std::result::Result<i64, DbError> {
         let _ = principal;
         self.count(filter).await
@@ -941,7 +941,7 @@ pub trait ExportDefinition: Send + Sync {
         filter: &ExportFilter,
         after_id: Option<&str>,
         limit: u32,
-        principal: Option<&crate::business::shared::principal::ScopedPrincipal>,
+        principal: Option<&cloudpivot_kernel::business::shared::principal::ScopedPrincipal>,
     ) -> std::result::Result<Vec<(String, HashMap<&'static str, String>)>, DbError> {
         let _ = principal;
         self.fetch(filter, after_id, limit).await

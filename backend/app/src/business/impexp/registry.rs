@@ -196,7 +196,7 @@ pub fn ensure_mode_allowed(
     if mode == ImportMode::Partial && !allow_partial {
         return Err(nik::prelude::ApiError::new(
             400,
-            crate::shared::error_code::PARAM_INVALID,
+            cloudpivot_kernel::shared::error_code::PARAM_INVALID,
             "该导入未开启「允许部分导入」，请使用 STRICT 模式",
         ));
     }

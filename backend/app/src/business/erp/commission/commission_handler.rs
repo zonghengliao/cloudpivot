@@ -80,9 +80,9 @@ use crate::business::erp::commission::commission_model::{self as model, NewItem,
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::voucher::{self, EntryLine, PostVoucher};
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0310 的 sys_menu.auth_code 逐字一致） ====================
 
@@ -953,7 +953,7 @@ pub async fn commission_page_api(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<CommissionPageQuery>,
 ) -> ResResult<PageData<Vec<SettlementRes>>> {
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let ((rows, total), filter) = page(&principal, &query).await?;
     let mut list = Vec::with_capacity(rows.len());
     for (row, name, item_count) in rows {

@@ -65,11 +65,11 @@ use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
     self, OrderMetaField, TaskChecklistItem, TaskContext, TaskContextArgs, TaskSignCell,
 };
-use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::business::task::handler::{not_found, parse_uuid_field};
 use crate::business::task::model::{self, TaskCardRow, TaskDetailRow, TaskMemberRow};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 审计里的操作码。
 pub const EXPORT_OPERATION: &str = "EXPORT_TASK_PDF";
@@ -716,7 +716,7 @@ mod tests {
             Uuid::now_v7(),
             None,
             true,
-            crate::business::shared::scope::ScopeKind::All,
+            cloudpivot_kernel::business::shared::scope::ScopeKind::All,
             Vec::new(),
             false,
         );
@@ -749,7 +749,7 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use crate::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
 
     const OWNER: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0002);
     const CREATOR: Uuid = Uuid::from_u128(0x0f62_0000_0000_4000_8000_0000_0000_0003);

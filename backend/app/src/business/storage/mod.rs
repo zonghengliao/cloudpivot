@@ -37,8 +37,8 @@ use nik::prelude::ApiError;
 
 use crate::business::storage::cipher::MasterKey;
 use crate::business::storage::router::StorageRouter;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 路由表是否已成功装载。
 static ROUTER_LOADED: AtomicBool = AtomicBool::new(false);

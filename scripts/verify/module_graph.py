@@ -162,7 +162,9 @@ BACKEND_SCAN_DIRS = [
     "backend/app/src/support",
     "backend/app/src/middleware",
     "backend/app/src/task",
-    "backend/app/src/shared",
+    # P2-59（C1）：`shared` / `utils` / `business/shared` 已整体搬进内核 crate；
+    # 三个目录都要扫到（枚举整根），否则引用这几张表的模块从图里消失。
+    "backend/crates/cloudpivot-kernel/src",
 ]
 BACKEND_ROOT_FILES = ["backend/app/src/bootstrap.rs", "backend/app/src/lib.rs"]
 FRONTEND_SCAN_DIRS = ["frontend/src/api", "frontend/src/views"]

@@ -13,13 +13,7 @@ use axum::http::HeaderMap;
 use nik::prelude::*;
 use std::net::SocketAddr;
 
-use crate::business::shared::cost_switch;
-use crate::business::shared::principal;
 use crate::middleware::auth_guard;
-use crate::shared::ai_actor;
-use crate::shared::constants::{self, EnableStatus};
-use crate::shared::error_code;
-use crate::shared::token_revocation::{BlacklistKind, BlacklistReason};
 use crate::support::log::dto::LogPageQuery;
 use crate::support::log::model::{JsonLogTable, page_json_logs};
 use crate::support::log::{
@@ -33,7 +27,13 @@ use crate::system::auth::dto::{
 use crate::system::auth::model;
 use crate::system::menu::dto::MenuRes;
 use crate::system::user::model::SysUserModel;
-use crate::utils;
+use cloudpivot_kernel::business::shared::cost_switch;
+use cloudpivot_kernel::business::shared::principal;
+use cloudpivot_kernel::shared::ai_actor;
+use cloudpivot_kernel::shared::constants::{self, EnableStatus};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::shared::token_revocation::{BlacklistKind, BlacklistReason};
+use cloudpivot_kernel::utils;
 
 /// 令牌类型（固定 `Bearer`）。
 const TOKEN_TYPE: &str = "Bearer";
@@ -455,7 +455,7 @@ pub async fn refresh(
     // 旧刷新令牌一次性作废：必须在签发新令牌**之前**落地，且写失败即 500——
     // 「没记录作废就发新令牌」等于放过一次复用（CODE-16 B4 顺序第 5 步）。
     // 落库成功即算生效（缓存写失败只 warn），故这里判的是库写入。
-    crate::shared::token_revocation::revoke(
+    cloudpivot_kernel::shared::token_revocation::revoke(
         &old_jti,
         Some(claims.sub.as_str()),
         BlacklistKind::Refresh,
@@ -531,7 +531,7 @@ pub async fn logout(
     // 令牌并未失效。这里**显式**把 access `jti` 写进库侧吊销表：写不进去就 500，
     // 登录状态与「用户以为已经登出」保持一致。
     if let Some(jti) = claims.jti.as_deref().filter(|v| !v.is_empty()) {
-        crate::shared::token_revocation::revoke(
+        cloudpivot_kernel::shared::token_revocation::revoke(
             jti,
             Some(claims.sub.as_str()),
             BlacklistKind::Access,
@@ -570,7 +570,7 @@ pub async fn logout(
         .extra_str(constants::CLAIM_SESSION_ID)
         .filter(|value| !value.is_empty())
     {
-        crate::shared::idle_session::forget(&sid).await;
+        cloudpivot_kernel::shared::idle_session::forget(&sid).await;
     }
 
     // 同时吊销请求体带来的 refresh token（兼容只提交旧令牌的客户端）：
@@ -583,7 +583,7 @@ pub async fn logout(
                 if refresh_claims.token_type == Some(TokenType::Refresh) && refresh_claims.sub == claims.sub =>
             {
                 if let Some(jti) = refresh_claims.jti.as_deref()
-                    && let Err(e) = crate::shared::token_revocation::revoke(
+                    && let Err(e) = cloudpivot_kernel::shared::token_revocation::revoke(
                         jti,
                         Some(refresh_claims.sub.as_str()),
                         BlacklistKind::Refresh,
@@ -706,10 +706,10 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 #[nik::auth_only(path = "/system/auth/idle-policy", method = "GET")]
 #[nik::get("/system/auth/idle-policy")]
 pub async fn idle_policy(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<IdlePolicyRes> {
-    let timeout_minutes = crate::shared::idle_session::timeout_minutes().await;
+    let timeout_minutes = cloudpivot_kernel::shared::idle_session::timeout_minutes().await;
     Ok(Res::ok(IdlePolicyRes {
         timeout_minutes,
-        warn_seconds: crate::shared::idle_session::warn_seconds(timeout_minutes),
+        warn_seconds: cloudpivot_kernel::shared::idle_session::warn_seconds(timeout_minutes),
         is_super_admin: crate::support::config::handler::caller_is_super_admin(&claims).await?,
     }))
 }

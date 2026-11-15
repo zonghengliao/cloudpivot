@@ -483,7 +483,10 @@ mod db {
             .await
             .expect_err("审批中不许重复提交");
         assert_eq!(error.status, 409);
-        assert_eq!(error.code, crate::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD
+        );
 
         // 撤回之后（DRAFT）再撤 → 409 + 66073
         handler::withdraw_period(Some(uid(U_MAKER)), &id.to_string())
@@ -493,7 +496,10 @@ mod db {
             .await
             .expect_err("草稿不许撤回");
         assert_eq!(error.status, 409);
-        assert_eq!(error.code, crate::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD
+        );
 
         purge(PERIOD).await;
         purge_fixtures().await;

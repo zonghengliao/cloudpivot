@@ -59,7 +59,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 use super::model::DocKind;
 

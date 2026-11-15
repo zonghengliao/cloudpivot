@@ -141,7 +141,7 @@ impl Snapshot {
     /// 「指标名改了但脚本还在读旧名」这类漂移在 CI 里就会被抓住。
     #[must_use]
     pub fn gauges(&self) -> Vec<(&'static str, f64)> {
-        use crate::shared::observability as obs;
+        use cloudpivot_kernel::shared::observability as obs;
         let value = |v: Option<i64>| v.map_or(UNKNOWN, |v| v as f64);
         let mut out = vec![
             (obs::IMPEXP_IMPORT_PENDING, value(self.import_pending)),
@@ -344,7 +344,7 @@ pub fn parse_invariant(raw: Option<&str>) -> Option<InvariantRow> {
 ///
 /// 本次快照（供任务日志与单测使用；单条查询失败不影响返回）。
 pub async fn run_once() -> Snapshot {
-    use crate::shared::observability as obs;
+    use cloudpivot_kernel::shared::observability as obs;
 
     let snapshot = read_snapshot().await;
     for (name, value) in snapshot.gauges() {
@@ -426,7 +426,7 @@ pub fn parse_pool_activity(raw: Option<&str>) -> Option<DbPoolActivity> {
 /// `None`（查不到 / 非 PG）时**什么都不写**：宁可这一分钟没有序列，
 /// 也不要写一个 0 —— 0 会让「池空了」和「池没采样」看起来一样。
 pub fn write_pool_gauges(activity: Option<&DbPoolActivity>) {
-    use crate::shared::observability as obs;
+    use cloudpivot_kernel::shared::observability as obs;
 
     if let Some(activity) = activity {
         obs::set_gauge_labeled(obs::DB_POOL_CONNECTIONS, &[("state", "idle")], activity.idle as f64);
@@ -636,7 +636,7 @@ mod tests {
     /// 连接池两条指标必须在目录里（否则导出文本会缺 HELP / TYPE）。
     #[test]
     fn pool_metric_names_are_registered() {
-        use crate::shared::observability as obs;
+        use cloudpivot_kernel::shared::observability as obs;
         for name in [obs::DB_POOL_CONNECTIONS, obs::DB_POOL_MAX_CONNECTIONS] {
             assert!(obs::is_registered(name), "{name} 未登记在 observability::CATALOG");
         }

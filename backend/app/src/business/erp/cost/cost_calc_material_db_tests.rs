@@ -134,7 +134,7 @@ mod db {
             // 跨次运行的残留先清掉（期间槽位会复用），否则候选集里会混进上次的领料单
             Self::reset_period_for(&period).await;
 
-            let dept = crate::shared::test_helpers::ensure_any_dept().await;
+            let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
             let dept_name: String = db()
                 .scalar_with_params(
                     "SELECT dept_name FROM sys_dept WHERE id = ?::uuid",
@@ -864,7 +864,7 @@ mod db {
             .await
             .expect_err("非法期间必须报错");
         assert_eq!(error.status, 400);
-        assert_eq!(error.code, crate::shared::error_code::PARAM_INVALID);
+        assert_eq!(error.code, cloudpivot_kernel::shared::error_code::PARAM_INVALID);
         fx.cleanup(&[], &[]).await;
     }
 }

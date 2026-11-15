@@ -61,8 +61,8 @@ use crate::business::pdf::template::{
     self, ApprovalContext, ApprovalContextArgs, ApprovalSignSlot, ApprovalTrace, OrderMetaField, format_money,
     yuan_to_fen,
 };
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 审计里的操作码。
 pub const EXPORT_OPERATION: &str = "EXPORT_FLOW_INSTANCE_PDF";
@@ -201,7 +201,7 @@ fn decimal_of(value: &Json) -> Option<Decimal> {
         Json::Number(number) => number.to_string().parse::<Decimal>().ok(),
         Json::String(text) => {
             let trimmed = text.trim();
-            if crate::business::shared::separation::is_decimal_literal(trimmed) {
+            if cloudpivot_kernel::business::shared::separation::is_decimal_literal(trimmed) {
                 trimmed.parse::<Decimal>().ok()
             } else {
                 None

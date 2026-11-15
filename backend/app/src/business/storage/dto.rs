@@ -98,7 +98,7 @@ impl StorageConfigSaveReq {
             (Some(ak), Some(sk)) => Ok(Some((ak.to_string(), sk.to_string()))),
             _ => Err(ApiError::new(
                 400,
-                crate::shared::error_code::PARAM_INVALID,
+                cloudpivot_kernel::shared::error_code::PARAM_INVALID,
                 "AccessKey 与 SecretKey 必须同时提供（或都不提供表示不修改）",
             )),
         }
@@ -487,7 +487,7 @@ impl StorageFileRes {
 }
 
 /// AUD-02：列表「上传人姓名」回填（`uploaded_by` → `uploader_name`）。
-impl crate::business::shared::user_name::PersonNameRow for StorageFileRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for StorageFileRes {
     fn person_ids(&self, out: &mut Vec<Uuid>) {
         if let Ok(id) = Uuid::parse_str(&self.uploaded_by) {
             out.push(id);
@@ -535,7 +535,7 @@ pub struct StorageRebindReq {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::constants::EnableStatus;
+    use cloudpivot_kernel::shared::constants::EnableStatus;
 
     /// 构造一条已配置密钥的 S3 后端配置。
     fn s3_config(key: &MasterKey) -> SysStorageConfigModel {

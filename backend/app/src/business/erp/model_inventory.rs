@@ -12,7 +12,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::dto::{InventoryFilter, InventoryLocationFilter, InventoryTxnFilter};
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 use super::model_base::*;
 

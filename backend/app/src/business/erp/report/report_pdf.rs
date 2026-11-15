@@ -79,7 +79,7 @@ use crate::business::pdf::template::{
     self, AmountReportContext, AmountReportRow, BalanceReportContext, BalanceReportRow, ReportCell, ReportCheckBlock,
     ReportHead,
 };
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 路由权限码（与三张报表的 xlsx 导出同一个动作码，见模块注释）。
 pub const PERMISSION: &str = "business:erp:report:export";
@@ -716,7 +716,7 @@ fn audit(
     started: Instant,
 ) {
     doc_pdf_model::ExportLogOwned {
-        user_id: crate::utils::current_user_uuid(claims),
+        user_id: cloudpivot_kernel::utils::current_user_uuid(claims),
         username: claims.username.clone(),
         operation: EXPORT_OPERATION.to_string(),
         target_type: TARGET_TYPE.to_string(),
@@ -735,8 +735,8 @@ fn audit(
         bytes: rendered.bytes.len(),
         duration_ms: started.elapsed().as_millis() as u64,
         request_path: format!("/api/business/erp/report/{}/pdf", kind.slug()),
-        client_ip: crate::utils::client_ip(headers, Some(connect_info)),
-        user_agent: crate::utils::user_agent(headers),
+        client_ip: cloudpivot_kernel::utils::client_ip(headers, Some(connect_info)),
+        user_agent: cloudpivot_kernel::utils::user_agent(headers),
         request_id: Uuid::now_v7(),
     }
     .spawn();

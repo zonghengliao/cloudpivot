@@ -41,7 +41,7 @@ use crate::business::erp::contract::contract_dto::{ContractDetailRes, ContractSt
 use crate::business::erp::contract::contract_handler::{contract_change_status, contract_create};
 use crate::business::erp::contract::contract_model;
 use crate::business::flow::engine;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 采购经理角色（`V0182` 种子里的固定 UUID）。
 pub(crate) const ROLE_PM: &str = "20000000-0000-4000-8000-0000000f0002";

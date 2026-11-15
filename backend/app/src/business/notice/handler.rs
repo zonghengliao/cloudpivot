@@ -53,11 +53,11 @@ use crate::business::notice::model::{self, TemplateFields};
 use crate::business::notice::render;
 use crate::business::notice::sse_hub;
 use crate::business::notice::{DispatchError, DispatchResult, NoticeDraft, NoticeTarget, dispatch};
-use crate::business::shared::principal;
-use crate::shared::constants;
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 发送与查询 ====================
 

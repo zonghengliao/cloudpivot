@@ -59,7 +59,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 折旧批次通知的 `biz_type`（与凭证来源类型 `DEPRECIATION` 同字，便于按批次追通知）。
 const NOTICE_BIZ_TYPE: &str = "DEPRECIATION";

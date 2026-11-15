@@ -117,8 +117,8 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::voucher::voucher_query::is_month_key;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 子模块（P2-22：`erp/report_*.rs` 拆入 `erp/report/`） ====================
 // 本文件是报表域的 **facade**（拆目录前叫 `erp/report.rs`），对外路径 `erp::report::*` 一字未变；

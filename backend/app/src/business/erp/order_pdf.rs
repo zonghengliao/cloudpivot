@@ -54,8 +54,8 @@ use crate::business::pdf::template::{
     yuan_to_fen,
 };
 use crate::business::pdf::{engine, handler as pdf_handler};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 公共小工具 ====================
 

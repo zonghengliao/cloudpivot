@@ -83,7 +83,7 @@ use crate::business::erp::model::{
     PurchaseOrderItemRow, PurchaseOrderRow, purchase_order_find_by_id, purchase_order_items,
 };
 use crate::business::erp::serial_model::period_key_of;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 // LNK-02：采购单状态变更的跨单据联动接线（`purchase_linkage.rs`）。
 //

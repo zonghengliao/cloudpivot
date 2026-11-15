@@ -34,8 +34,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::shared::doc_lines;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::doc_lines;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 域常量 ====================
 

@@ -51,8 +51,8 @@ use crate::business::flow::engine;
 use crate::business::flow::graph::{self, Snapshot};
 use crate::business::flow::notify::{FlowEvent, FlowNotice};
 use crate::business::notice;
-use crate::shared::error_code;
 use crate::task::Scheduler;
+use cloudpivot_kernel::shared::error_code;
 
 /// 任务名（调度器里的唯一 key）。
 pub const TASK_FLOW_TIMEOUT: &str = "flow_timeout_scan";

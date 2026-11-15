@@ -78,7 +78,7 @@ esac
 
 TOTAL="$(q "SELECT count(*) FROM biz_flow_critical_edge;" 2>/dev/null)"
 [ -z "$TOTAL" ] && { echo "✗ 读 biz_flow_critical_edge 失败" >&2; exit 2; }
-echo "    主链路白名单：$TOTAL 条（真相在 backend/app/src/business/shared/state_machine.rs::CRITICAL_EDGES）"
+echo "    主链路白名单：$TOTAL 条（真相在 backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs::CRITICAL_EDGES）"
 
 # ② 被禁用的主链路边（唯一判红条件）
 DISABLED="$(q "

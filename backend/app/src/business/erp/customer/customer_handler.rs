@@ -61,8 +61,8 @@ use crate::business::erp::customer::customer_model::{
     self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status, normalize_code,
 };
 use crate::business::erp::seq;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0261 的 sys_menu.auth_code 逐字一致） ====================
 

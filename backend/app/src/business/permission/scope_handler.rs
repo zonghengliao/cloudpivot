@@ -17,7 +17,7 @@
 //!    裁剪逻辑在 [`scope_model::find_visible_depts`] + [`scope_model::crop_to_visible`]，
 //!    本文件不允许出现「查全部部门再过滤」的写法。
 //! 2. **不可授出超过自身可见范围**：`PUT` 先过
-//!    [`crate::business::shared::guard::ensure_scope_grant_allowed`]（集合包含关系，
+//!    [`cloudpivot_kernel::business::shared::guard::ensure_scope_grant_allowed`]（集合包含关系，
 //!    B2 的单一权威），再过 [`scope_model::ensure_kind_grantable`]（范围**形态**的上限：
 //!    「仅本人」的管理员不能把角色设成「全部」——集合校验对空集合恒通过，这条是补漏）。
 //! 3. **`data_scope=5` 必须带非空集合**：配错不能静默降级（B2 的 S10 在解析侧降级为
@@ -41,14 +41,14 @@ use crate::business::permission::dto::{
     DeptTreeRes, RoleScopeRes, SelfCheckRes, SetRoleScopeReq, SetRoleScopeRes, UncoveredTablesRes,
 };
 use crate::business::permission::scope_model;
-use crate::business::shared::guard;
-use crate::business::shared::principal::{self, cache_stats, current_epoch};
-use crate::business::shared::scope::{SCOPED_TABLES, ScopeKind, filter_for};
-use crate::shared::ai_actor;
-use crate::shared::constants;
-use crate::shared::error_code;
 use crate::support::log;
-use crate::utils;
+use cloudpivot_kernel::business::shared::guard;
+use cloudpivot_kernel::business::shared::principal::{self, cache_stats, current_epoch};
+use cloudpivot_kernel::business::shared::scope::{SCOPED_TABLES, ScopeKind, filter_for};
+use cloudpivot_kernel::shared::ai_actor;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 数据权限配置的审计快照（N-7 ①）。
 ///

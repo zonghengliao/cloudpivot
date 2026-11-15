@@ -46,7 +46,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::PeriodRow;
 use crate::business::erp::period;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 真库用例串行跑的**共享锁**：本文件、`period::tests`、`stocktake_tests`
 /// 三处夹具都在 `2033-xx` 上工作（期间 / 凭证 / 单据），必须拿**同一个对象**。

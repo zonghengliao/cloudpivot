@@ -14,9 +14,6 @@ use std::net::SocketAddr;
 
 use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::mutex;
-use crate::business::shared::{guard as scope_guard, principal};
-use crate::shared::constants::EnableStatus;
-use crate::shared::{constants, error_code};
 use crate::support::log::{self, PasswordChangeLogInput};
 use crate::system::dept::model::SysDeptModel;
 use crate::system::role::model::SysRoleModel;
@@ -26,7 +23,10 @@ use crate::system::user::dto::{
 };
 use crate::system::user::guard;
 use crate::system::user::model::{self, SysUserModel, SysUserRoleModel};
-use crate::utils;
+use cloudpivot_kernel::business::shared::{guard as scope_guard, principal};
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::{constants, error_code};
+use cloudpivot_kernel::utils;
 
 // ==================== 接口 ====================
 

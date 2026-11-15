@@ -70,8 +70,8 @@ use crate::business::erp::purchase::purchase_dto::{CreatePurchaseOrderReq, Purch
 use crate::business::erp::purchase::purchase_handler;
 use crate::business::erp::purchase::purchase_model::{self, PRICE_MODE_EXCL};
 use crate::business::erp::unit_guard;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0321 的 sys_menu.auth_code 逐字一致） ====================
 

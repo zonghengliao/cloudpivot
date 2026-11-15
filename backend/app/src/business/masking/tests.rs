@@ -236,11 +236,11 @@ async fn m03_exempt_principal_sees_plaintext() {
     .await;
 
     // ① 超管：principal.is_super = true
-    let super_principal = crate::business::shared::principal::ScopedPrincipal::for_test(
+    let super_principal = cloudpivot_kernel::business::shared::principal::ScopedPrincipal::for_test(
         uuid::Uuid::now_v7(),
         None,
         true,
-        crate::business::shared::scope::ScopeKind::All,
+        cloudpivot_kernel::business::shared::scope::ScopeKind::All,
         Vec::new(),
         false,
     );
@@ -258,11 +258,11 @@ async fn m03_exempt_principal_sees_plaintext() {
 
     // ② 持 system:field-mask:plain 的用户：claims 命中明版权限码 → 豁免
     let plain_claims = ts::claims(&holder.to_string(), "plain", &["system:field-mask:plain"]);
-    let normal_principal = crate::business::shared::principal::ScopedPrincipal::for_test(
+    let normal_principal = cloudpivot_kernel::business::shared::principal::ScopedPrincipal::for_test(
         holder,
         None,
         false,
-        crate::business::shared::scope::ScopeKind::All,
+        cloudpivot_kernel::business::shared::scope::ScopeKind::All,
         Vec::new(),
         false,
     );
@@ -352,11 +352,11 @@ async fn m05_list_and_detail_share_same_ruleset() {
     let (fx, role_id, holder, _) = setup("M05").await;
     create_rule(&ts::super_claims(), &role_id.to_string(), MOBILE, &fx.name("同源校验")).await;
 
-    let principal = crate::business::shared::principal::ScopedPrincipal::for_test(
+    let principal = cloudpivot_kernel::business::shared::principal::ScopedPrincipal::for_test(
         holder,
         None,
         false,
-        crate::business::shared::scope::ScopeKind::All,
+        cloudpivot_kernel::business::shared::scope::ScopeKind::All,
         Vec::new(),
         false,
     );

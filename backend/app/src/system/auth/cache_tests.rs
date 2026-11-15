@@ -27,9 +27,9 @@
 
 use nik::prelude::*;
 
-use crate::shared::constants;
 use crate::system::auth::model;
 use crate::system::tests_support as ts;
+use cloudpivot_kernel::shared::constants;
 
 // ==================== C01 三个键 ====================
 

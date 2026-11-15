@@ -1,0 +1,89 @@
+# cloudpivot-kernel —— 云枢内核（基座）crate
+#
+# P2-59（C1 · 2026-11-15）：`shared` + `utils` + `business/shared` 三个目录**同一个包**。
+#
+# ⚠ 为什么三者必须一个包（不是三张卡）
+#   三者同属一个 24 节点强连通分量：`business/shared → shared` 13 行、`business/shared → utils` 6 行、
+#   `utils → shared` 3 行（共 22 行内部边）。单抽任何一个，另外两个就成了「包级环」——
+#   `cargo build --workspace` 直接报 cyclic package dependency。
+#
+# ⚠ 依赖方向铁律：本 crate **只许依赖 `cloudpivot-doc` 与框架**。
+#   任何 `cloudpivot_kernel → 业务域` 的边都会让下游 14 张抽包卡无法落地（域包要么反向依赖单体，
+#   要么复制一份基座）。出边从 10 行降到 0 的处置见 `docs/architecture/P2-59-kernel抽crate收口.md`：
+#     - 配置读取 → `shared::config_port`（实现在 support::config，启动期安装）
+#     - 会话字段 → `shared::session_flags_port`（实现在 system::user::model，启动期安装）
+#     - 主密钥解析 → 上提到 `shared::master_key`（AES 加解密仍留 storage::cipher）
+#     - AI 安全红线巡检 → 下移到 `business::aiagent::safety`（启动链调用）
+#     - 菜单 DTO → `cost_switch::MenuNode` trait（域侧 6 行 impl，判定逻辑仍在基座）
+#     - 两条跨轴一致性用例 → 应用侧 `src/kernel_axis_tests.rs`
+#
+# ⚠ `test-support` feature
+#   `shared::test_helpers`（真库用例的前置体检）是**测试专用**代码，但它是被**依赖方**（域包）
+#   在测试配置下使用的 —— `#[cfg(test)]` 在依赖配置下为假，符号根本不存在。所以改成
+#   `#[cfg(any(test, feature = "test-support"))]`，域包在 `[dev-dependencies]` 打开本 feature。
+#   生产构建（`cargo build --release`）里该符号不存在，符号面与改造前一致。
+
+[package]
+name = "cloudpivot-kernel"
+description = "云枢内核（基座）：跨模块共享类型 / 常量 / 错误码 / 数据权限基座 / 状态机 / 纯工具函数"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+publish = false
+
+[features]
+default = []
+# 测试夹具（`shared::test_helpers`）：只给 `[dev-dependencies]` 打开，生产构建里不存在。
+# 它需要 `sha2`（夹具账号的口令摘要），所以把 sha2 也做成随本 feature 才引入的可选依赖。
+test-support = ["dep:sha2"]
+
+[dependencies]
+# 门面依赖：只声明 `nik` 一个框架 crate，能力靠 feature 点单（与 app 同一条铁律）。
+nik = { path = "../../vendor/nik", features = [
+    "db",
+    "postgres",
+    # `shared::session_cache` 的 60 s 会话字段缓存
+    "cache",
+    # `shared::startup_guard` 的 `AuthSecretGuardPlugin`（`impl Plugin`）
+    "plugin",
+    "chrono",
+    "uuid",
+    "json",
+    # `business::shared::voucher_port` 的借贷金额（`NUMERIC(18,4)`）
+    "rust_decimal",
+    # `shared::observability` 的 `install_prometheus` 用例（未装 recorder 时是 no-op）
+    "metrics-prometheus",
+] }
+
+# 门面 prelude 未转发 UA 解析（`utils::client_ip` 用 `nik_utils::extract_client_ip`），
+# 按「必要时可声明 nik-utils」的约定直接依赖（与 nik 同源，不会引入第二份实例）。
+nik-utils = { path = "../../vendor/nik-utils" }
+
+# 业务类型词表（L0，零依赖）：`state_machine` / `layering_tests` 等用它做类型唯一真相。
+cloudpivot-doc = { path = "../cloudpivot-doc" }
+
+# `voucher_port` 的接缝 trait 是异步 trait（框架未重导出 async_trait）。
+async-trait = "0.1"
+# `cost_switch::guard`（成本模块 403 闸）与 `utils::client_ip`（`HeaderMap`）。
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# `shared::observability`：业务指标埋点（未装 recorder 时 no-op）。
+metrics = "0.24"
+# `business::shared::content`：Markdown 渲染 + 净化（公告 / 帮助文档的统一入口）。
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+ammonia = "4.2"
+# 只被 `test_helpers`（`test-support` feature）用的口令摘要；不开该 feature 时**完全不进编译**。
+sha2 = { version = "0.10", optional = true }
+
+[dev-dependencies]
+# `shared::test_helpers` 在本 crate 自己的 `cargo test` 里靠 `cfg(test)` 编译（feature 不必打开），
+# 但它要用 sha2；而**依赖方**（域包）编译本 crate 时 `cfg(test)` 为假，靠 `test-support` feature
+# 把上面那个可选 sha2 拉进来。两处指向同一版本，依赖树里只有一份。
+sha2 = "0.10"
+# `business::shared::principal` 的 epoch 缓存用例直连 Redis（`B2_REDIS_URL`）；
+# 版本与 features 与 nik-cache 内部声明一致，依赖树里只有一份。
+redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }

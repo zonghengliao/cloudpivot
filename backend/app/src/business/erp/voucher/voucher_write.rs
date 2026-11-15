@@ -77,10 +77,10 @@ use crate::business::erp::voucher::voucher_linkage;
 use crate::business::erp::voucher::voucher_query::{self, VoucherDetailRes};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::separation;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 入参 ====================
 
@@ -2403,7 +2403,7 @@ mod tests {
     // 不自己复写 `WHERE status='POSTED'`：要证的是**生产报表不认草稿**，自己写一遍等于自己验自己。
 
     /// 状态日志（走生产查询 `trail_of_no`）。
-    async fn trail(voucher_no: &str) -> Vec<crate::business::shared::state_machine::StatusLogRow> {
+    async fn trail(voucher_no: &str) -> Vec<cloudpivot_kernel::business::shared::state_machine::StatusLogRow> {
         state_machine::trail_of_no(db(), voucher_no)
             .await
             .expect("查凭证状态日志失败")
@@ -2857,7 +2857,7 @@ mod tests {
     /// ⑿ 状态机注册表（纯逻辑）：凭证三条边，一条不多一条不少；`DRAFT → POSTED` 不存在。
     #[test]
     fn p4a_voucher_state_machine_registry() {
-        use crate::business::shared::state_machine::Entity;
+        use cloudpivot_kernel::business::shared::state_machine::Entity;
         assert_eq!(Entity::Voucher.edges(), &voucher::LEGAL_EDGES[..]);
         assert_eq!(Entity::Voucher.edges().len(), 3, "凭证只认三条边");
 
@@ -2890,7 +2890,7 @@ mod tests {
     /// ⒀ 只有反审核需要 reason（审核的 remark 可空、记账不需要原因）。
     #[test]
     fn p4a_only_un_audit_needs_reason() {
-        use crate::business::shared::state_machine::Entity;
+        use cloudpivot_kernel::business::shared::state_machine::Entity;
         assert!(Entity::Voucher.needs_reason("AUDITED", "DRAFT"));
         assert!(!Entity::Voucher.needs_reason("DRAFT", "AUDITED"));
         assert!(!Entity::Voucher.needs_reason("AUDITED", "POSTED"));
@@ -2915,7 +2915,7 @@ mod tests {
     /// ⒁ 入账态：POSTED / AUDITED 锁，DRAFT 可编辑。
     #[test]
     fn p4a_locked_statuses_are_posted_and_audited() {
-        use crate::business::shared::state_machine::Entity;
+        use cloudpivot_kernel::business::shared::state_machine::Entity;
         assert!(Entity::Voucher.is_locked("POSTED"));
         assert!(Entity::Voucher.is_locked("AUDITED"), "审 A 改 B 必须被锁");
         assert!(!Entity::Voucher.is_locked("DRAFT"), "草稿必须能改");

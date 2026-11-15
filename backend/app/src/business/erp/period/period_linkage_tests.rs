@@ -38,7 +38,7 @@ use crate::business::erp::linkage;
 use crate::business::erp::linkage::spec;
 use crate::business::erp::period;
 use crate::business::erp::period::period_test_support as support;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 结账用例的期间。
 const PERIOD_CLOSE: &str = "2033-10";

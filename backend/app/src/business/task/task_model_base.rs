@@ -11,9 +11,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::task_model_rows::*;
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
 use crate::business::task::state::{self, ChildSnapshot, TaskStatus};
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 // ==================== 数据权限锚点 ====================
 

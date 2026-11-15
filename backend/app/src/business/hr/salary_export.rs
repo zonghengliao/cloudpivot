@@ -74,8 +74,8 @@ use crate::business::hr::salary_item_dto::ITEM_TYPE_SUMMARY;
 use crate::business::hr::salary_item_model;
 use crate::business::hr::salary_sheet_dto::{self as dto, SalaryTotalsRes};
 use crate::business::hr::salary_sheet_model::{self as model, SalaryExportDetailRow, SalaryExportItemRow};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量 ====================
 

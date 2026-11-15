@@ -41,7 +41,7 @@ use super::*;
 use crate::business::erp::linkage;
 use crate::business::erp::linkage::spec;
 use crate::business::erp::payable::payable_payment::{self, PayPayableReq};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 夹具规则的命名前缀（与其它卡 / 生产的规则互不影响）。
 const RULE_PREFIX: &str = "LNK03";

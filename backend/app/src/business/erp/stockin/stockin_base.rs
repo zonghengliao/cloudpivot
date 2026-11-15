@@ -13,9 +13,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::serial_model;
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
 use cloudpivot_doc::DocSubtype;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 金额 / 单价舍入策略：**四舍五入**（与 PG `ROUND(numeric, n)` 同口径）。
 ///
@@ -83,7 +83,7 @@ pub const STATUS_PENDING_POST: &str = "PENDING_POST";
 
 /// 本卡负责的合法边（卡面 §二）。
 ///
-/// P10 起**唯一真相在 [`crate::business::shared::state_machine`]**：这里只是同一份
+/// P10 起**唯一真相在 [`cloudpivot_kernel::business::shared::state_machine`]**：这里只是同一份
 /// 常量数组的别名，`state_machine::transition` 还会核对两者一致 ——
 /// 想在调用点偷偷多放一条边会立刻 500，而不是静默绕过状态机。
 pub const LEGAL_EDGES: [(&str, &str); 10] = state_machine::STOCK_IN_EDGES;

@@ -9,7 +9,7 @@
 //!
 //! `is_encrypted = true` 时，写入前用 [`nik_utils::Crypto`]（AES-256-GCM）加密
 //! `config_value`，读取 / 列表 / 详情 / 按键取值时统一解密后下发；密钥由环境变量
-//! [`crate::shared::constants::ENV_CONFIG_SECRET_KEY`] 注入，未配置时加密写入返回
+//! [`cloudpivot_kernel::shared::constants::ENV_CONFIG_SECRET_KEY`] 注入，未配置时加密写入返回
 //! 500，绝不静默明文落库。加解密实现集中在 [`crate::support::config::model`]。
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
@@ -21,12 +21,12 @@ use nik::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use crate::shared::constants::{self, EnableStatus};
-use crate::shared::error_code;
 use crate::support::config::dto::{ConfigPageQuery, ConfigRes, ConfigSaveReq};
 use crate::support::config::model::{self, ConfigFilter, SysConfigModel};
 use crate::support::log;
-use crate::utils;
+use cloudpivot_kernel::shared::constants::{self, EnableStatus};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 接口 ====================
 
@@ -524,10 +524,10 @@ pub async fn reload() -> ResResult<Vec<String>> {
 ///
 /// # 返回值
 ///
-/// 统一响应体，`data` 为「枚举名 → 枚举项数组」，结构见 [`crate::shared::enums`]。
+/// 统一响应体，`data` 为「枚举名 → 枚举项数组」，结构见 [`cloudpivot_kernel::shared::enums`]。
 #[nik::permission(path = "/support/config/enums", method = "GET", permission = "support:config:list")]
 #[nik::get("/support/config/enums")]
-pub async fn enums() -> Res<crate::shared::enums::EnumsRes> {
+pub async fn enums() -> Res<cloudpivot_kernel::shared::enums::EnumsRes> {
     Res::ok(crate::support::config::model::enums())
 }
 

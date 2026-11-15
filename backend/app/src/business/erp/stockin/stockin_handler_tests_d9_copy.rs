@@ -14,7 +14,7 @@ use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::stockin::stockin_model::{STATUS_DRAFT, STATUS_POSTED};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// ① 复制一张已过账收货单：新单号 + `DRAFT` + 明细/金额/入库日期口径一致。
 #[tokio::test]

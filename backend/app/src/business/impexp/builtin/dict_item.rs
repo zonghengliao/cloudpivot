@@ -330,7 +330,7 @@ impl ExportDefinition for DictItemExport {
              WHERE i.deleted_at IS NULL AND t.deleted_at IS NULL",
         );
         let mut params: Vec<Value> = Vec::new();
-        if let Some(pattern) = crate::utils::like_pattern(filter.keyword.as_deref()) {
+        if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref()) {
             sql.push_str(" AND (t.dict_code LIKE ? OR i.item_value LIKE ? OR i.item_label LIKE ?)");
             params.push(Value::from(pattern.clone()));
             params.push(Value::from(pattern.clone()));
@@ -360,7 +360,7 @@ impl ExportDefinition for DictItemExport {
              WHERE i.deleted_at IS NULL AND t.deleted_at IS NULL",
         );
         let mut params: Vec<Value> = Vec::new();
-        if let Some(pattern) = crate::utils::like_pattern(filter.keyword.as_deref()) {
+        if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref()) {
             sql.push_str(" AND (t.dict_code LIKE ? OR i.item_value LIKE ? OR i.item_label LIKE ?)");
             params.push(Value::from(pattern.clone()));
             params.push(Value::from(pattern.clone()));

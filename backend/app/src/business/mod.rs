@@ -43,7 +43,6 @@ pub mod notice;
 pub mod pdf;
 pub mod permission;
 pub mod project;
-pub mod shared;
 pub mod storage;
 pub mod task;
 /// 任务 ⇄ 审批流 的**接线域**（P2-38 · P2-B 解环）：两边都认识、两边都不认识它，

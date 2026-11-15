@@ -50,7 +50,7 @@ use nik::uuid::Uuid;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 值域（与 V0370 的 CHECK 逐字一致） ====================
 
@@ -364,7 +364,7 @@ pub fn map_write_error(err: DbError, lot_no: &str, material_label: &str, ctx: &s
                 constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
-        _ => crate::utils::db_error(err, ctx),
+        _ => cloudpivot_kernel::utils::db_error(err, ctx),
     }
 }
 

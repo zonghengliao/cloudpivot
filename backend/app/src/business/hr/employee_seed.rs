@@ -87,10 +87,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::hr::employee_model::{self, EmployeeWrite};
 use crate::business::hr::employee_no;
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::scope;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 契约常量 ====================
 

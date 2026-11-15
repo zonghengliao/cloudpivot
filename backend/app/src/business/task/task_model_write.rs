@@ -220,7 +220,7 @@ pub async fn update_task(ex: &Transaction, id: Uuid, patch: &TaskPatch, operator
 /// `biz_task_dependency` 的两个外键都写了 `ON DELETE CASCADE`，但任务是**软删**
 /// （`deleted_at`），CASCADE 只在**物理**删除时触发 —— 所以软删会把依赖行留成孤儿
 /// （指向一条已删任务）。孤儿不影响读路径（所有依赖查询都 `JOIN biz_task … AND
-/// deleted_at IS NULL`），但它会永久累积，且让启动自检（[`crate::shared::startup_guard`]）
+/// deleted_at IS NULL`），但它会永久累积，且让启动自检（[`cloudpivot_kernel::shared::startup_guard`]）
 /// 报警。
 ///
 /// 依赖关系本身**没有历史价值**（谁依赖谁随时可按业务重建），且该表没有 `deleted_at`

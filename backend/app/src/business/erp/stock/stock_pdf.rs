@@ -52,7 +52,7 @@ use crate::business::pdf::template::{
     format_quantity, yuan_to_fen,
 };
 use crate::business::pdf::{engine, handler as pdf_handler};
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 出库单来源类型：销售发货（SO-10，`source_id` = `biz_shipment.id`）。
 pub const SOURCE_TYPE_SALES: &str = "SALES";
@@ -247,7 +247,7 @@ pub fn location_summary(locations: &[String]) -> String {
 ///
 /// # 异常情况
 ///
-/// - 404 [`crate::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
+/// - 404 [`cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
 /// - 500：数据库异常。
 pub async fn stock_in_context(id: Uuid) -> std::result::Result<StockContext, ApiError> {
     let row = stockin_model::find_stock_in(id)
@@ -356,7 +356,7 @@ pub async fn stock_in_context(id: Uuid) -> std::result::Result<StockContext, Api
 ///
 /// # 异常情况
 ///
-/// - 404 [`crate::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
+/// - 404 [`cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
 /// - 500：数据库异常。
 pub async fn stock_out_context(id: Uuid) -> std::result::Result<StockContext, ApiError> {
     let row = stockout_model::find(id)
@@ -494,9 +494,9 @@ pub struct RenderedStock {
 ///
 /// # 异常情况
 ///
-/// - 422 [`crate::shared::error_code::PDF_TEMPLATE_INVALID`]：模板渲染失败；
-/// - 503 [`crate::shared::error_code::PDF_RENDER_UNAVAILABLE`]：Chromium 不可用；
-/// - 504 [`crate::shared::error_code::PDF_RENDER_TIMEOUT`]：渲染超时。
+/// - 422 [`cloudpivot_kernel::shared::error_code::PDF_TEMPLATE_INVALID`]：模板渲染失败；
+/// - 503 [`cloudpivot_kernel::shared::error_code::PDF_RENDER_UNAVAILABLE`]：Chromium 不可用；
+/// - 504 [`cloudpivot_kernel::shared::error_code::PDF_RENDER_TIMEOUT`]：渲染超时。
 pub async fn render_stock_pdf(
     kind: StockDocKind,
     context: &StockContext,
@@ -541,7 +541,7 @@ fn context_total(context: &StockContext) -> Decimal {
 ///
 /// # 异常情况
 ///
-/// - 400 [`crate::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
+/// - 400 [`cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
 /// - 404：单据不存在；
 /// - 422 / 503 / 504：同 [`render_stock_pdf`]。
 pub async fn export_stock_in(id_raw: &str) -> std::result::Result<RenderedStock, ApiError> {
@@ -566,7 +566,7 @@ pub async fn export_stock_out(id_raw: &str) -> std::result::Result<RenderedStock
 /// # 异常情况
 ///
 /// - 401：未登录；
-/// - 403 [`crate::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:stock-in:list`；
+/// - 403 [`cloudpivot_kernel::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:stock-in:list`；
 /// - 400 / 404 / 422 / 503 / 504：见 [`export_stock_in`]。
 #[nik::permission(
     path = "/business/erp/stock-in/{id}/pdf",
@@ -588,7 +588,7 @@ pub async fn stock_in_pdf(
 /// # 异常情况
 ///
 /// - 401：未登录；
-/// - 403 [`crate::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:stock-out:list`；
+/// - 403 [`cloudpivot_kernel::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:stock-out:list`；
 /// - 400 / 404 / 422 / 503 / 504：见 [`export_stock_out`]。
 #[nik::permission(
     path = "/business/erp/stock-out/{id}/pdf",
@@ -1349,7 +1349,7 @@ mod db_tests {
         }
         let error = export_stock_out("not-a-uuid").await.expect_err("必须 400");
         assert_eq!(error.status, 400);
-        assert_eq!(error.code, crate::shared::error_code::ERP_FILTER_INVALID);
+        assert_eq!(error.code, cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID);
     }
 
     /// 审计 detail 必须带 `source` 标记（日志页按它区分 PDF-02 / PDF-03 两批导出）。

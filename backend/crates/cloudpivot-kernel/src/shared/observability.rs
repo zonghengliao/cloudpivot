@@ -421,18 +421,8 @@ mod tests {
         }
     }
 
-    /// 采样器真正写入的每一个名字都必须在目录里 —— 否则「暴露出来了但没有说明」。
-    #[test]
-    fn every_sampler_metric_is_registered() {
-        let emitted = crate::task::metrics_sampler::Snapshot::default().gauges();
-        assert!(!emitted.is_empty(), "采样器不应一个指标都不写");
-        for (name, _) in emitted {
-            assert!(
-                is_registered(name),
-                "采样器写入了未登记的指标 {name}：请补到 observability::CATALOG"
-            );
-        }
-    }
+    // 跨轴一致性用例（采样器 ⇄ 指标目录）已搬到应用侧：`src/kernel_axis_tests.rs`
+    //（P2-59 · C1 —— 内核不能反向依赖 `task`，否则是包级环）。
 
     /// 进程内只装一次 recorder（全局只能有一个）。
     fn ensure_recorder() -> bool {

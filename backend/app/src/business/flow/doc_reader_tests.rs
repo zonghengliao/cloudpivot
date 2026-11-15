@@ -27,7 +27,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::flow::doc_reader::{self, DocReader, DocRegistry, DocSnapshot, GLOBAL_LOCK};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // 用例串行锁在 `doc_reader` 里（注册表的持有者）；`erp::doc_reader_impl_tests` 也拿同一把。
 

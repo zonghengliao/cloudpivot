@@ -40,7 +40,7 @@ use crate::business::erp::cost::cost_labor_collect_dto::{self as dto, LaborColle
 use crate::business::erp::cost::cost_rate_dto::{self as rate_dto, RATE_TYPE_LABOR, RateRequest, RateSubject};
 use crate::business::erp::cost::cost_rate_handler;
 use crate::business::erp::ledger;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 期间编码形态校验（`yyyy-MM`）：在**开事务之前**判，非法直接 400。
 pub fn ensure_period_code(period_code: &str) -> std::result::Result<(), ApiError> {

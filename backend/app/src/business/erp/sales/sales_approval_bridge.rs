@@ -42,8 +42,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::sales::sales_order_model::{self as model, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
-use crate::business::shared::separation;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::shared::error_code;
 
 /// 销售订单审批的业务类型（与 `V0281__sales_order_flow` 种子 / handler 同口径）。
 ///
@@ -242,7 +242,7 @@ async fn settle(instance_id: Uuid, verdict: SoVerdict) -> DbResult<Option<Uuid>>
     // 「能接受这个审批结论」的合法路径上（状态机边 `SUBMITTED → APPROVED|DRAFT`）。
     if !settle_guard::gate(
         &instance,
-        crate::business::shared::state_machine::Entity::SaleOrder,
+        cloudpivot_kernel::business::shared::state_machine::Entity::SaleOrder,
         &row.so_no,
         &row.status,
         STATUS_SUBMITTED,
@@ -255,15 +255,15 @@ async fn settle(instance_id: Uuid, verdict: SoVerdict) -> DbResult<Option<Uuid>>
     let now = Utc::now();
     let tx = db().begin().await?;
     let outcome = async {
-        crate::business::shared::state_machine::transition(
+        cloudpivot_kernel::business::shared::state_machine::transition(
             &tx,
-            crate::business::shared::state_machine::ENTITY_SALES_ORDER,
+            cloudpivot_kernel::business::shared::state_machine::ENTITY_SALES_ORDER,
             order_id,
             &row.so_no,
             &model::LEGAL_EDGES,
             STATUS_SUBMITTED,
             to_status,
-            crate::business::shared::state_machine::Operator::of(approver),
+            cloudpivot_kernel::business::shared::state_machine::Operator::of(approver),
             Some(&reason),
             Some((BIZ_TYPE, instance.instance_no.as_str())),
         )

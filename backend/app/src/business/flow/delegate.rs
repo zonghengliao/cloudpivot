@@ -43,7 +43,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 「管全部委托」的权限码（`:save` / `:delete` 的行级判定用它短路）。
 pub const PERM_ADMIN: &str = "business:flow:admin";

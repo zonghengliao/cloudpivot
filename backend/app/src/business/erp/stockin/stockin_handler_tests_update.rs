@@ -16,7 +16,7 @@ use crate::business::erp::stockin::stockin_dto::StockInLineSerials;
 use crate::business::erp::stockin::stockin_dto::StockInStatusReq;
 use crate::business::erp::stockin::stockin_model::{self, STATUS_CANCELLED, STATUS_POSTED};
 use crate::business::flow::model as flow_model;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// ⑧ DRAFT 改单：能改，明细整单重建、汇总重算。
 #[tokio::test]

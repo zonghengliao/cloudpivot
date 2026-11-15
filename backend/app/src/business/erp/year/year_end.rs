@@ -131,9 +131,9 @@ use crate::business::erp::opening;
 use crate::business::erp::period;
 use crate::business::erp::period::period_items::{self, BlockingItem, OwnerResolver};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 use super::year_end_linkage;
 

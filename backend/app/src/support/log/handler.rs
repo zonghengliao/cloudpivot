@@ -8,12 +8,12 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal;
-use crate::shared::constants;
-use crate::shared::error_code;
 use crate::support::log::dto::{CleanQuery, CleanRes, LogDetailRes, LogPageQuery, LogRes};
 use crate::support::log::model::{self, JsonLogTable, OperationLogModel};
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 接口 ====================
 

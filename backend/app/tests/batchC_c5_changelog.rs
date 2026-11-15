@@ -39,7 +39,7 @@ use cloudpivot::business::changelog::diff;
 use cloudpivot::business::changelog::mask;
 use cloudpivot::business::changelog::model;
 use cloudpivot::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput, RecordOutcome};
-use cloudpivot::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde_json::Value as Json;

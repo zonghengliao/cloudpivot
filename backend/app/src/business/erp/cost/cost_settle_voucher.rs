@@ -69,8 +69,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher, STATUS_POSTED};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量（与 §4.7 / V0375 科目表逐字对齐，单测钉死） ====================
 

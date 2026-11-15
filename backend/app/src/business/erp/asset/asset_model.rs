@@ -39,7 +39,7 @@ use crate::business::erp::asset::asset_dto::{
     AssetFilter, CategoryFilter, CategorySpec, CreateAssetSpec, DepBatchFilter,
 };
 use crate::business::erp::voucher::{self, SeqSpec};
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 资产分类表名。
 pub const CATEGORY_TABLE: &str = "biz_asset_category";

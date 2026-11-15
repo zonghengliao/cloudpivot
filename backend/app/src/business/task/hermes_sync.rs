@@ -46,12 +46,12 @@ use nik::uuid::Uuid;
 use crate::business::aiagent::hermes::{Hermes, KanbanCreate, KanbanSnapshot};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
-use crate::business::shared::user_name;
 use crate::business::storage;
 use crate::business::task::model::{self, SyncTargetRow, TaskDetailRow};
-use crate::shared::error_code;
 use crate::task::Scheduler;
-use crate::utils;
+use cloudpivot_kernel::business::shared::user_name;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 派活时写进 `biz_task.hermes_board` 的看板 slug（默认 `dev`）。
 ///

@@ -13,9 +13,9 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 /// `operation_logs` 表对应的强类型模型（操作日志）。
 ///

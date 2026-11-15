@@ -1,0 +1,30 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -15,11 +15,14 @@
+ 
+ ## 目录
+ ```
+-backend/src/
++backend/
++  app/src/                  # 主 binary crate（P2-40 起的 workspace 布局）
++  crates/cloudpivot-doc/    # L0 词表 crate（零依赖）
++  crates/cloudpivot-kernel/ # L1 内核 crate（P2-59 · C1）：shared / utils / business/shared
+   system/   support/      # 底座两个容器：每模块 mod+handler+dto+model（不设 service 层）
+   business/               # 二开业务容器（与上面平级，不侵入底座）：erp / flow / task / impexp / im / pdf / hr …
+                           #   同样四件套；HR 见下方「人力资源模块（HR）口径」
+-  middleware/ task/ utils/ shared/ bootstrap.rs
++  middleware/ task/ bootstrap.rs        # utils/ 与 shared/ 已进 crates/cloudpivot-kernel
+   lib.rs                    # 启动链 App::new()?...scan().start()
+ frontend/src/
+   api/{system,support,business}/   views/{system,support,business}/
+@@ -196,8 +199,8 @@
+ - 差额 8 个码 = 设计 §3.2 ④ 单列而 §5.2 无接口的 3 个（上「决定不接路由」）+ `V0401` 解耦新增的 5 个 `*:page`。
+ - 设计文档自身 3 处口径偏差（**只报不改**，以本表与迁移为准）：① §5.2 表头写「42 条」，正文编号到 46、脚注也写 46 → **实际 46**（`ROUTE_CONTRACT` 50 = 46 + HR-19 补 3 + HR-41 补 `/leave/my`）；② §5.2 脚注「4 处 `/my`」只列了 2 个（第 3 个 `/leave/my` 由 HR-41 补；第 4 处「我的档案」`GET /employee/{my_employee_id}` 至今无卡、无码、无路由）；③ §5.2 说「权限码共 30 个」指业务按钮码，`V0401` 解耦后全量 **40** 个。
+ 
+-- **错误码段 `68001~68012`**（`shared/error_code.rs` 的 68xxx HR 段）：加新码从 `68013` 续，禁跨段复用。
+-- **数据范围**：列表走 `scope::paginate`（`shared/scope.rs` 的 `SCOPED_TABLES` 登记 + `guard.rs` 条数断言）；单条入口同一份探针，不可见报 404（不是 403）。
++- **错误码段 `68001~68012`**（`crates/cloudpivot-kernel/src/shared/error_code.rs` 的 68xxx HR 段）：加新码从 `68013` 续，禁跨段复用。
++- **数据范围**：列表走 `scope::paginate`（`crates/cloudpivot-kernel/src/business/shared/scope.rs` 的 `SCOPED_TABLES` 登记 + `guard.rs` 条数断言）；单条入口同一份探针，不可见报 404（不是 403）。
+ - **门禁/验收**（改权限或动业务后）：`cargo test --lib system::menu::permission_audit_tests` + `cargo test --lib business::hr::perm_matrix_tests` + `bash scripts/verify/menu_invariants.sh <库>` + `bash scripts/verify/hr/hr_permission_matrix.sh --fresh` + `bash scripts/verify/hr_invariants.sh`；上线前跑 `bash scripts/verify/hr/hr_49_release_drill.sh fresh`，业务链路跑 `bash scripts/verify/hr/hr_salary_e2e.sh --fresh`。
+ - **演练库只建在 145（`172.18.10.145`）**，99 是 Agent 主机；库名必须含 `drill`/`e2e`/`test`，脚本自己 DROP。
+ 

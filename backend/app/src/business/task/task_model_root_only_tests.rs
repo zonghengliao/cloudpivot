@@ -9,8 +9,8 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 use super::*;
 

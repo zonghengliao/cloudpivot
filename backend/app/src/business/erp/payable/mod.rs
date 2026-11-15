@@ -42,7 +42,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::stockin::stockin_model::StockInRow;
 use crate::business::erp::voucher::{self, SeqSpec};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 // ==================== 子模块（P2-16：`erp/payable_*.rs` 拆入 `erp/payable/`） ====================
 // 本文件是应付域的 **facade**（拆目录前叫 `erp/payable.rs`），对外路径 `erp::payable::*` 一字未变；

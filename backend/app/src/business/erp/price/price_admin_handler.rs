@@ -48,8 +48,8 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::price::price_admin_model::{self as model, AgreedRow, AgreedWrite, TierRow, TierWrite};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0308 的 sys_menu.auth_code 逐字一致） ====================
 

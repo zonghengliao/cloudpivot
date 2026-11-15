@@ -33,8 +33,8 @@ use super::dto::{self, RuleSaveReq};
 use super::model::{self, RuleRow};
 use crate::business::attachment::model::{DocKind, FileRole};
 use crate::business::attachment::rule::{self as att_rule, RequiredAt};
-use crate::shared::constants::SUPER_ADMIN_ROLE_CODE;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::constants::SUPER_ADMIN_ROLE_CODE;
+use cloudpivot_kernel::shared::error_code;
 
 // ---------- 纯逻辑 ----------
 

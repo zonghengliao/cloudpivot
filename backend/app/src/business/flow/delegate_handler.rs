@@ -33,8 +33,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::flow::{delegate, dto};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 当前用户 id。
 fn me_of(claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {

@@ -40,8 +40,8 @@ use crate::business::erp::asset::asset_model::{self, AssetInsert};
 use crate::business::erp::linkage;
 use crate::business::erp::linkage::spec;
 use crate::business::erp::period::period_test_support as support;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 /// 本卡独占的夹具年度（见文件头）。
 const YEAR: i16 = 2047;
@@ -172,10 +172,10 @@ async fn open_month(month: i16) -> String {
 ///
 /// 真库夹具库常常是「只跑了迁移」的空库（LNK-09 那台 `cloudpivot_lnk09n` 就没有 sys_dept），
 /// 而资产卡片 `use_dept_id` 是硬外键 ⇒ 走 TST-02b 的统一夹具
-/// （[`crate::shared::test_helpers::ensure_any_dept`]：固定 UUID + `ON CONFLICT DO NOTHING`，
+/// （[`cloudpivot_kernel::shared::test_helpers::ensure_any_dept`]：固定 UUID + `ON CONFLICT DO NOTHING`，
 /// 重复跑不会多行）。[`purge`] 里那句 `DELETE … dept_code = 'LNK10-DEPT'` 只清老残留。
 async fn any_dept() -> Uuid {
-    crate::shared::test_helpers::ensure_any_dept().await
+    cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await
 }
 
 /// 取一个启用中的资产分类（V0229 种子）。

@@ -30,8 +30,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::model_base::{find_by_id, page_of};
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 /// 分页口径（默认 20 / 上限 200 / `page_size = 0` 回落）复用底座。
 pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalize_page};

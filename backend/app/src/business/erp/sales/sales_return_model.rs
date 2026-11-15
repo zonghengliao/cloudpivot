@@ -48,7 +48,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model_base::{find_by_id, page_of};
 use crate::business::erp::serial_model::period_key_of;
-use crate::business::shared::{scope, state_machine};
+use cloudpivot_kernel::business::shared::{scope, state_machine};
 
 /// 分页口径（默认 20 / 上限 200 / `page_size = 0` 回落）直接复用底座。
 pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalize_page};
@@ -790,7 +790,7 @@ pub async fn return_page(
 ) -> DbResult<(Vec<ReturnRow>, i64)> {
     let mut sql = format!("SELECT {RETURN_COLUMNS} FROM {TABLE} WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
-    if let Some(pattern) = crate::utils::like_pattern(return_no) {
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(return_no) {
         sql.push_str(" AND return_no LIKE ?");
         params.push(Value::from(pattern));
     }

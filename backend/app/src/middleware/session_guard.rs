@@ -27,11 +27,11 @@
 //! 4. **空闲超时**（AUTO-LOGOUT，2026-11-10）：会话按 `sid` 记「最后一次用户操作」，
 //!    超过 `sys_config.auth.idle_timeout_minutes` 未操作 → `401 + 20009`，并吊销该会话
 //!    名下的 refresh 令牌。**只有用户操作（写方法 / 带 `x-user-active: 1` 的请求）才续期**，
-//!    自动轮询（GET）不续期 —— 见 [`crate::shared::idle_session`]。
+//!    自动轮询（GET）不续期 —— 见 [`cloudpivot_kernel::shared::idle_session`]。
 //!
 //! # 值从哪里读（FIX-05 的性能改造）
 //!
-//! 会话字段经 [`crate::shared::session_cache`] 读取：优先 `uv:{user_id}` 缓存（TTL 60 s），
+//! 会话字段经 [`cloudpivot_kernel::shared::session_cache`] 读取：优先 `uv:{user_id}` 缓存（TTL 60 s），
 //! 未命中 / 缓存不可用 / 缓存失效欠账时回查 `sys_user`。**库是唯一真源**：
 //! 所有推进 `token_version` 的写点都在事务提交后删除缓存键，所以「撤销权限 → 旧令牌立刻 401」
 //! 不依赖 TTL；缓存只省掉「正常请求」的那一次主键点查。
@@ -45,8 +45,8 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 
-use crate::shared::{constants, error_code, idle_session, session_cache};
 use crate::system::user::model;
+use cloudpivot_kernel::shared::{constants, error_code, idle_session, session_cache};
 
 /// 会话守卫本体（用 `axum::middleware::from_fn` 包一层后交给 `App::route_layer`）。
 ///

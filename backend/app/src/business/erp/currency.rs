@@ -30,7 +30,7 @@ use nik::prelude::chrono::NaiveDate;
 use nik::prelude::rust_decimal::{Decimal, RoundingStrategy};
 use nik::prelude::*;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 取汇率用的报价类型（与 `ck_biz_exchange_rate_type` 的 SPOT 逐字一致）。
 pub const RATE_TYPE_SPOT: &str = "SPOT";

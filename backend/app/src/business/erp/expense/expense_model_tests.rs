@@ -74,12 +74,12 @@ mod db {
 
     /// 取一个部门 id：**库里有就用，没有就造夹具部门**（TST-02b A 方案）。
     async fn any_dept() -> Uuid {
-        crate::shared::test_helpers::ensure_any_dept().await
+        cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await
     }
 
     /// 取一个用户 id（报销人）：库里有就用，没有就造夹具账号。
     async fn any_user() -> Uuid {
-        crate::shared::test_helpers::ensure_any_user().await
+        cloudpivot_kernel::shared::test_helpers::ensure_any_user().await
     }
 
     /// 取一条费用类型（V0242 迁移种子；`TRAVEL` 优先）。查不到 = 库版本不对。
@@ -435,7 +435,10 @@ mod db {
         row.total_with_tax = dec!(9999);
         let err = crate::business::erp::expense::expense_bridge::check_totals(&row, &items).expect_err("必须报错");
         assert_eq!(err.status, 422);
-        assert_eq!(err.code, crate::shared::error_code::ERP_EXPENSE_TOTAL_MISMATCH);
+        assert_eq!(
+            err.code,
+            cloudpivot_kernel::shared::error_code::ERP_EXPENSE_TOTAL_MISMATCH
+        );
         cleanup(&[id]).await;
     }
 
@@ -938,7 +941,7 @@ mod db {
                 assert!(marker < first, "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}");
             }
             // 真机上 500 的那道守卫：直接跑一遍，任何组合都不许被拒。
-            crate::business::shared::scope::ensure_injection_point(&sql, params.len())
+            cloudpivot_kernel::business::shared::scope::ensure_injection_point(&sql, params.len())
                 .unwrap_or_else(|err| panic!("【{name}】注入位置契约校验失败：{err}"));
         }
     }
@@ -948,7 +951,7 @@ mod db {
     #[test]
     fn old_shape_without_marker_is_rejected_by_guard() {
         let old = "SELECT 1 FROM biz_expense_report e WHERE e.deleted_at IS NULL AND e.status = ?";
-        let error = crate::business::shared::scope::ensure_injection_point(old, 1)
+        let error = cloudpivot_kernel::business::shared::scope::ensure_injection_point(old, 1)
             .expect_err("带业务参数却没有 {FILTER} 必须报错");
         let text = format!("{error}");
         assert!(text.contains("{FILTER}"), "错误信息要点名标记，便于定位：{text}");
@@ -977,16 +980,16 @@ mod db {
         while ids.len() < n {
             seq += 1;
             let code = if seq == 1 {
-                crate::shared::test_helpers::FIXTURE_DEPT_CODE.to_string()
+                cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT_CODE.to_string()
             } else {
-                format!("{}-{seq}", crate::shared::test_helpers::FIXTURE_DEPT_CODE)
+                format!("{}-{seq}", cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT_CODE)
             };
             let name = if seq == 1 {
-                crate::shared::test_helpers::FIXTURE_DEPT_NAME.to_string()
+                cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT_NAME.to_string()
             } else {
-                format!("{}{seq}", crate::shared::test_helpers::FIXTURE_DEPT_NAME)
+                format!("{}{seq}", cloudpivot_kernel::shared::test_helpers::FIXTURE_DEPT_NAME)
             };
-            let id = crate::shared::test_helpers::ensure_dept(&code, &name).await;
+            let id = cloudpivot_kernel::shared::test_helpers::ensure_dept(&code, &name).await;
             if !ids.contains(&id) {
                 ids.push(id);
             }
@@ -1000,8 +1003,8 @@ mod db {
     #[tokio::test]
     async fn page_with_filters_is_scoped_and_never_fails() {
         use crate::business::erp::expense::expense_dto::ReportFilter;
-        use crate::business::shared::principal::ScopedPrincipal;
-        use crate::business::shared::scope::ScopeKind;
+        use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+        use cloudpivot_kernel::business::shared::scope::ScopeKind;
         if !ensure_db().await {
             return;
         }

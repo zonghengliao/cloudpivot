@@ -254,7 +254,7 @@ async fn p10_partial_receipt_advances_to_partial_received() {
         )
         .await
         .unwrap();
-    let trail = crate::business::shared::state_machine::trail_of_no(db(), &order_no)
+    let trail = cloudpivot_kernel::business::shared::state_machine::trail_of_no(db(), &order_no)
         .await
         .unwrap();
     assert_eq!(trail.len(), 1);

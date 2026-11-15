@@ -25,9 +25,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::voucher;
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
 use cloudpivot_doc::{DocSubtype, TxnBizType, TxnDocType};
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
 
 // ==================== 表名 / 常量 ====================
 

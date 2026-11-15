@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::budget::budget_guard::{BudgetVerdict, ControlMode, UsageRow};
 use crate::business::erp::budget::budget_model::{self, BudgetRow, MapRow, PeriodRow, ReportRow};
 use crate::business::erp::dto::MATERIAL_TYPES;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 默认每页条数。
 pub const DEFAULT_PAGE_SIZE: u64 = 20;

@@ -86,8 +86,8 @@ pub struct InstancePage {
 }
 
 /// 实例可见性目标（`initiator_dept_id` 走数据范围、`initiator_id` 走「仅本人」降级）。
-pub const INSTANCE_TARGET: crate::business::shared::scope::ScopeTarget =
-    crate::business::shared::scope::ScopeTarget::new(
+pub const INSTANCE_TARGET: cloudpivot_kernel::business::shared::scope::ScopeTarget =
+    cloudpivot_kernel::business::shared::scope::ScopeTarget::new(
         "biz_flow_instance",
         "i",
         Some("initiator_dept_id"),
@@ -113,11 +113,11 @@ pub struct VisibilityClause {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn instance_visibility(
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
 ) -> DbResult<VisibilityClause> {
     let user_id = principal.user_id();
     let mine = my_instance_ids(user_id).await?;
-    let scope = crate::business::shared::scope::filter_for(principal, INSTANCE_TARGET);
+    let scope = cloudpivot_kernel::business::shared::scope::filter_for(principal, INSTANCE_TARGET);
     let scope_sql = scope.sql().trim().trim_start_matches("AND ").trim().to_string();
     let mut params: Vec<Value> = scope.params().to_vec();
     params.push(Value::from(&user_id));
@@ -138,7 +138,7 @@ pub async fn instance_visibility(
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn page_instances(
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
     filter: &InstanceFilter,
     page: u64,
     page_size: u64,

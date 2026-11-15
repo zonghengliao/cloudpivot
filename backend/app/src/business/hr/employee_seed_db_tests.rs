@@ -34,9 +34,9 @@ use nik::prelude::*;
 mod db {
     use super::*;
     use crate::business::hr::employee_seed::{self, EmployeeSeedReq};
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::uuid::Uuid;
     use tokio::sync::OnceCell;
 

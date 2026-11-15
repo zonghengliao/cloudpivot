@@ -62,8 +62,8 @@ use crate::business::erp::linkage;
 use crate::business::erp::voucher::{self, VoucherRow};
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
-use crate::business::shared::state_machine;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::utils;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 

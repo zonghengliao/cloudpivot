@@ -39,7 +39,7 @@ use crate::business::erp::credit;
 use crate::business::erp::currency;
 use crate::business::erp::model_base::{find_by_id, page_of};
 use crate::business::erp::sales::sales_model as base;
-use crate::business::shared::{scope, state_machine};
+use cloudpivot_kernel::business::shared::{scope, state_machine};
 
 /// 分页口径（默认 20 / 上限 200 / `page_size = 0` 回落）直接复用底座。
 pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalize_page};
@@ -383,7 +383,7 @@ pub async fn order_page(
 ) -> DbResult<(Vec<SalesOrderRow>, i64)> {
     let mut sql = format!("SELECT {ORDER_COLUMNS} FROM {ORDER_TABLE} WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
-    if let Some(pattern) = crate::utils::like_pattern(so_no) {
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(so_no) {
         sql.push_str(" AND so_no LIKE ?");
         params.push(Value::from(pattern));
     }
@@ -816,7 +816,7 @@ pub struct ApplyStatusWithInstanceInput<'a> {
 /// | 其它（`APPROVED` 等） | **保留**（详情页仍要能显示「审批通过 FLW-xxx」，审计用） |
 ///
 /// `reason` 只在**回草稿**时追加进 `remark`（审批意见要让人一眼看到为什么被打回）；
-/// 其它迁移的 reason 已经由 [`crate::business::shared::state_machine::transition`]
+/// 其它迁移的 reason 已经由 [`cloudpivot_kernel::business::shared::state_machine::transition`]
 /// 写进 `biz_status_log`，不再重复堆进备注。
 ///
 /// 调用方必须先过 `state_machine::transition`（边表校验 + 写 `biz_status_log`）。

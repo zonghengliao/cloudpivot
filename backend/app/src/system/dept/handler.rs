@@ -11,14 +11,14 @@ use axum::http::HeaderMap;
 use nik::prelude::*;
 use std::net::SocketAddr;
 
-use crate::business::shared::{guard as scope_guard, principal, scope};
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
 use crate::support::log;
 use crate::system::dept::dto::{DeptDetailRes, DeptMigrateReq, DeptNode, DeptSaveReq, DeptTreeQuery};
 use crate::system::dept::model::{self, SysDeptModel};
 use crate::system::user::model::SysUserModel;
-use crate::utils;
+use cloudpivot_kernel::business::shared::{guard as scope_guard, principal, scope};
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 接口 ====================
 

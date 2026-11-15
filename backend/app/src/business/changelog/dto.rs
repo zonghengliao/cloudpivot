@@ -97,7 +97,7 @@ pub enum Action {
 /// # 取值
 ///
 /// 与 `sys_user.user_type` 逐字一致（`HUMAN` / `ROBOT`），库侧有 CHECK 兜底；
-/// 判定入口是 [`crate::shared::ai_actor::is_robot`]（严格等于 `ROBOT`）。
+/// 判定入口是 [`cloudpivot_kernel::shared::ai_actor::is_robot`]（严格等于 `ROBOT`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum OperatorType {
     /// 人类账号（默认）。
@@ -126,7 +126,7 @@ impl OperatorType {
     /// 因为一个无法解释的枚举把整条业务事务打回滚（日志写不进去 → 业务失败）。
     /// 数据一致性由迁移里的 CHECK 与启动自检负责，不靠这里容错。
     pub fn from_user_type(user_type: Option<&str>) -> Self {
-        if crate::shared::ai_actor::is_robot(user_type) {
+        if cloudpivot_kernel::shared::ai_actor::is_robot(user_type) {
             OperatorType::Robot
         } else {
             OperatorType::Human
@@ -213,7 +213,7 @@ pub struct ChangeCtx<'a> {
     /// （卡面验收 8），而调用点有十几个，靠每个调用点自觉填一定漏。
     /// 查库走的是**同一个业务事务的执行器**，成本是一次主键查找（亚毫秒）。
     pub operator_type: Option<OperatorType>,
-    /// 客户端 IP（按 [`crate::utils::client_ip`] 的口径解析，与中间件一致）。
+    /// 客户端 IP（按 [`cloudpivot_kernel::utils::client_ip`] 的口径解析，与中间件一致）。
     pub client_ip: Option<&'a str>,
     /// 业务发生时刻；`None` 表示「就是现在」。
     ///

@@ -43,8 +43,8 @@ mod db {
     use crate::business::hr::salary_sheet_dto::{SalaryManualReq, SalarySheetCalcReq};
     use crate::business::hr::salary_sheet_handler;
     use crate::business::hr::salary_sheet_model;
-    use crate::business::shared::state_machine::Operator;
     use calamine::{Data, Reader, Xlsx};
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
     use nik::prelude::chrono::NaiveDate;
     use nik::prelude::rust_decimal::Decimal;
     use std::io::Cursor;

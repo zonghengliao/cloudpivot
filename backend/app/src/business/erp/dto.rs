@@ -46,7 +46,7 @@ use crate::business::erp::model::{
     MaterialRow, PeriodRow, PurchaseOrderItemRow, PurchaseOrderRow, SeqRow, SupplierRow, UnitRow, WarehouseRow,
 };
 use crate::business::erp::tax_rate as tax_rate_mod;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 枚举白名单（与 DB 的 CHECK 逐字一致） ====================
 
@@ -3400,7 +3400,7 @@ impl From<&InventoryTxnRow> for InventoryTxnRes {
 }
 
 /// AUD-02：库存流水「操作人姓名」回填（`operator_id` → `operator_name`）。
-impl crate::business::shared::user_name::PersonNameRow for InventoryTxnRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for InventoryTxnRes {
     fn person_ids(&self, out: &mut Vec<Uuid>) {
         if let Some(id) = self.operator_id.as_deref().and_then(|raw| Uuid::parse_str(raw).ok()) {
             out.push(id);
@@ -4020,9 +4020,9 @@ mod tests {
         assert_eq!(filter.page_size, DEFAULT_PAGE_SIZE, "缺省每页条数走模块口径");
 
         // 空白关键词在 model 侧归一成「不加条件」（不是 `%  %`）
-        assert_eq!(crate::utils::like_pattern(Some("   ")), None);
+        assert_eq!(cloudpivot_kernel::utils::like_pattern(Some("   ")), None);
         assert_eq!(
-            crate::utils::like_pattern(Some(" demo-p1 ")).as_deref(),
+            cloudpivot_kernel::utils::like_pattern(Some(" demo-p1 ")).as_deref(),
             Some("%demo-p1%"),
             "去空格后包 %…%（大小写交给 SQL 的 ILIKE）"
         );

@@ -67,8 +67,8 @@ use tokio_util::io::ReaderStream;
 use crate::business::aiagent::hermes::HermesConfig;
 use crate::business::task::collab::visible_task;
 use crate::business::task::handler::parse_uuid_field;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量（上限 / 白名单，唯一来源） ====================
 

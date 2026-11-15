@@ -53,6 +53,21 @@ pub struct MenuRes {
     pub children: Vec<MenuRes>,
 }
 
+/// 成本核算开关的菜单判定视图（P2-59 · C1 解环）：基座
+/// [`cloudpivot_kernel::business::shared::cost_switch`] 只认 `MenuNode`，不认本 DTO。
+///
+/// 域侧只回答两个字段，判定逻辑（`business:erp:cost-*` 前缀表 + 6 条 page path 兜底）
+/// 仍然只有基座那一份 —— 两边不会各长一套口径。
+impl cloudpivot_kernel::business::shared::cost_switch::MenuNode for MenuRes {
+    fn auth_code(&self) -> &str {
+        &self.auth_code
+    }
+
+    fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+}
+
 impl From<&SysMenuModel> for MenuRes {
     /// 由模型构造响应（`children` 初始为空）。
     ///

@@ -62,7 +62,7 @@ use std::result::Result;
 
 use nik::uuid::Uuid;
 
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 参数类型（第 2 层校验用）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

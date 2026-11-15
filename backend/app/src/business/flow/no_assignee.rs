@@ -54,7 +54,7 @@ use serde_json::{Value as Json, json};
 
 use crate::business::flow::assignee::{self, Candidate};
 use crate::business::flow::graph::{AssigneeKind, SnapshotNode};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 信号（解析期已经算出来的计数） ====================
 

@@ -37,7 +37,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::voucher::{self, VoucherBizCtx};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 use super::engine::LinkageContext;
 use super::model::LinkageRuleRow;

@@ -12,9 +12,9 @@
 
 use nik::prelude::*;
 
-use crate::shared::cache_gate::InvalidationGate;
-use crate::shared::constants::{self, EnableStatus};
-use crate::utils;
+use cloudpivot_kernel::shared::cache_gate::InvalidationGate;
+use cloudpivot_kernel::shared::constants::{self, EnableStatus};
+use cloudpivot_kernel::utils;
 
 /// 菜单类型。
 ///
@@ -68,7 +68,7 @@ impl MenuType {
             3 => Ok(MenuType::button),
             _ => Err(ApiError::new(
                 400,
-                crate::shared::error_code::PARAM_INVALID,
+                cloudpivot_kernel::shared::error_code::PARAM_INVALID,
                 "菜单类型只能为 1（目录）/ 2（菜单）/ 3（按钮）",
             )),
         }
@@ -200,7 +200,7 @@ pub(crate) async fn find_menu_list(filter: &MenuTreeFilter) -> std::result::Resu
 /// 失效失败（无 Redis / 抖动）时业务照常成功，但旧树还留在缓存里；`TTL` 是
 /// [`constants::CACHE_HOT_QUERY_TTL_SECS`]（3600 s），不记账就等于「删了还在一小时」。
 /// 记账后：读缓存前先看它，欠账期间跳过缓存直接查库并补失效（见
-/// [`crate::shared::cache_gate`]）。
+/// [`cloudpivot_kernel::shared::cache_gate`]）。
 static TREE_CACHE_GATE: InvalidationGate = InvalidationGate::new();
 
 /// 读取缓存的全量菜单树。

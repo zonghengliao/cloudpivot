@@ -41,9 +41,9 @@ use crate::business::mutex::dto::{
 };
 use crate::business::mutex::guard;
 use crate::business::mutex::model::{self, MutexRow, RoleBrief};
-use crate::shared::error_code;
 use crate::support::log;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 分页 ====================
 
@@ -51,7 +51,7 @@ use crate::utils;
 ///
 /// 失败只降级为空（前端显示 `—`），不因为一句人名把写操作打成 500。
 async fn filled(mut res: MutexRes) -> MutexRes {
-    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut res))
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut res))
         .await
         .unwrap_or_default();
     res
@@ -97,7 +97,7 @@ pub async fn page(Query(query): Query<MutexPageQuery>) -> ResResult<PageData<Vec
         .map_err(|error| utils::db_error(error, "分页查询互斥规则"))?;
     let mut list: Vec<MutexRes> = rows.iter().map(MutexRes::from_row).collect();
     // AUD-02：创建人姓名，整页一次
-    crate::business::shared::user_name::fill_person_names(&mut list)
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
     Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page_no, page_size))

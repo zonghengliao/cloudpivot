@@ -8,7 +8,7 @@
 //! `model.rs` 的职责在 C5 就写死了：「只做把一行写进去 / 按对象读回来」，而且它是
 //! **写入路径**的一部分（每个函数都只吃 `&impl SqlExecutor`，为了 D11 的同事务语义）。
 //! 查询是另一件事：它要处理时间窗、过滤条件、分页、聚合，且读路径允许拿全局连接
-//! （见 [`crate::business::shared::conn`]）。把两类 SQL 混在一个文件里，评审时
+//! （见 [`cloudpivot_kernel::business::shared::conn`]）。把两类 SQL 混在一个文件里，评审时
 //! 「这条 SELECT 会不会破坏同事务」就要逐条重看；分文件后 C5 的写入契约一眼可辨。
 //!
 //! # 分区的两条硬约束（架构 §4.3.1 / §4.8，写在这里防止被"优化"掉）
@@ -31,8 +31,8 @@ use nik::uuid::Uuid;
 use serde_json::Value as Json;
 
 use crate::business::changelog::diff;
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 /// 默认检索窗口（天）。
 ///

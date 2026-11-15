@@ -14,7 +14,7 @@ use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::stockin::stockin_model::{self, STATUS_DRAFT, STATUS_POSTED};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// DC-09（P0 单位止血 · 收货单侧）：物料挂折算单位「箱」（1 箱 = 12 个）→ 400 + 折算建议，
 /// 单头与明细**一行都不落库**（过账更是无从发生）。

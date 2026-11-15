@@ -21,7 +21,7 @@
 
 use crate::business::erp::linkage;
 use crate::business::notice::{self, dto::NoticeLevel, dto::NoticeType};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 // 注意：本文件是 `stockout_handler::linkage_hook` 子模块（由 handler 里的
 // `#[path = "stockout_linkage.rs"] mod linkage_hook;` 挂上），`super` 是 handler 而非 `erp`，

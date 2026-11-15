@@ -25,10 +25,10 @@ use crate::business::erp::stockin::stockin_model::{
 };
 use crate::business::erp::voucher;
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::separation;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 过账所需的**输入快照**（明细 / 一物一码开关 / 序列号请求）。
 ///

@@ -28,8 +28,8 @@ use crate::business::impexp::definition::{ColumnKind, ExportColumn};
 use crate::business::impexp::engine::format_export_rows;
 use crate::business::masking::dto::FieldMaskCreateReq;
 use crate::business::masking::{handler as mask_handler, registry};
-use crate::shared::error_code;
 use crate::system::tests_support as ts;
+use cloudpivot_kernel::shared::error_code;
 
 /// 夹具前缀族（子表头；真正身份由 [`ts::Fixture`] 生成）。
 const PREFIX: &str = "tc_x_mask";

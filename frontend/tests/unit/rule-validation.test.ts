@@ -281,7 +281,7 @@ function rust(relative: string): string {
 /** 读 error_code.rs */
 function errorCodeSource(): string {
   return readFileSync(
-    fileURLToPath(new URL('../../../backend/app/src/shared/error_code.rs', import.meta.url)),
+    fileURLToPath(new URL('../../../backend/crates/cloudpivot-kernel/src/shared/error_code.rs', import.meta.url)),
     'utf8',
   );
 }

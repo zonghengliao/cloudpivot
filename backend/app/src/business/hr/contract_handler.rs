@@ -39,7 +39,7 @@
 //!
 //! 合法边（`ACTIVE → EXPIRED/TERMINATED/RENEWED`、`EXPIRED → RENEWED`）、
 //! `biz_status_log`、CAS 回写全在
-//! [`crate::business::shared::state_machine::transition`]（HR-08 已注册
+//! [`cloudpivot_kernel::business::shared::state_machine::transition`]（HR-08 已注册
 //! `ENTITY_EMPLOYEE_CONTRACT`）。本文件只做**字段级守卫**（`contract_dto` 里那些纯函数）。
 
 use axum::Json;
@@ -53,10 +53,10 @@ use crate::business::hr::contract_dto::{
 use crate::business::hr::contract_model;
 use crate::business::hr::employee_dto::{self, EmployeeContractRes};
 use crate::business::hr::{employee_handler, employee_model};
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::state_machine::{self, Operator};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::state_machine::{self, Operator};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0387 的 sys_menu.auth_code 逐字一致） ====================
 

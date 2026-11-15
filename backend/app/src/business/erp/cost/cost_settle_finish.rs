@@ -65,10 +65,10 @@ use nik::uuid::Uuid;
 use crate::business::erp::inventory_writer::{self, TxnRecord};
 use crate::business::erp::stockin::stockin_base::{AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN};
 use crate::business::erp::stockin::stockin_model;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
 use cloudpivot_doc::TxnBizType;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量（与迁移逐字对齐，单测钉死） ====================
 

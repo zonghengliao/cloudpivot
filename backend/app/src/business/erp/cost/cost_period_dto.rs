@@ -39,7 +39,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 值域（与 V0373 的 CHECK 逐字一致） ====================
 
@@ -540,7 +540,7 @@ mod tests {
     fn only_draft_is_writable() {
         assert_eq!(WRITABLE_STATUSES, ["DRAFT"]);
         // 状态机侧的只读清单必须正好是「除 DRAFT 之外的 6 个」
-        let locked = crate::business::shared::state_machine::COST_PERIOD_LOCKED;
+        let locked = cloudpivot_kernel::business::shared::state_machine::COST_PERIOD_LOCKED;
         assert_eq!(locked.len(), STATUSES.len() - 1);
         for status in STATUSES {
             assert_eq!(

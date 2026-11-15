@@ -32,9 +32,9 @@
 
 use nik::prelude::*;
 
-use crate::shared::constants;
-use crate::shared::error_code;
 use crate::system::tests_support as ts;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 源码注解解析 ====================
 
@@ -348,8 +348,8 @@ async fn o04_warehouse_cannot_read_finance_report() {
 #[tokio::test]
 async fn o05_finance_cannot_see_other_dept_rows() {
     use crate::business::permission::scope_model;
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
 
     let dept_a = uuid::Uuid::now_v7();
     let dept_b = uuid::Uuid::now_v7();
@@ -579,11 +579,11 @@ async fn o09_forged_claims_do_not_grant_db_side_privileges() {
     assert!(real.is_empty(), "无角色用户库侧权限应为空，实际 {real:?}");
 
     // ② 库侧角色判定：不是超管
-    let principal = crate::business::shared::principal::ScopedPrincipal::for_test(
+    let principal = cloudpivot_kernel::business::shared::principal::ScopedPrincipal::for_test(
         user_id,
         None,
         false,
-        crate::business::shared::scope::ScopeKind::SelfOnly,
+        cloudpivot_kernel::business::shared::scope::ScopeKind::SelfOnly,
         Vec::new(),
         true,
     );
@@ -696,8 +696,8 @@ async fn o10_privilege_cap_blocks_cross_user_escalation() {
 #[tokio::test]
 async fn o11_cross_dept_write_rejected() {
     use crate::business::permission::scope_model;
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
 
     let mine = uuid::Uuid::now_v7();
     let others = [uuid::Uuid::now_v7(), uuid::Uuid::now_v7()];

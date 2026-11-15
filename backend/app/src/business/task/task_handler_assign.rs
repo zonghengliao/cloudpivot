@@ -14,15 +14,15 @@ use nik::uuid::Uuid;
 use super::task_handler_common::*;
 use super::task_handler_notice::*;
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
-use crate::business::shared::principal::{self};
 use crate::business::task::dto::{
     self, TaskAssignReq, TaskAssignRes, TaskMemberAddReq, TaskMemberAddRes, TaskMemberRemoveRes, TaskMemberRes,
     TaskMembersRes,
 };
 use crate::business::task::model::{self};
-use crate::shared::ai_actor;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self};
+use cloudpivot_kernel::shared::ai_actor;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 当前账号与任务的关系（分派 / 协作人的权限矩阵只看它 + 权限码）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,7 +93,7 @@ pub(super) fn protected_member(user_id: Uuid, creator_id: Uuid, owner_id: Uuid) 
 
 /// 当前账号的 `sys_user.user_type`（`HUMAN` / `ROBOT`；读不到就是 `None`）。
 ///
-/// 判定统一交给 [`crate::shared::ai_actor`]：本模块只负责「把类型读出来」，
+/// 判定统一交给 [`cloudpivot_kernel::shared::ai_actor`]：本模块只负责「把类型读出来」，
 /// 不自己写 `== "ROBOT"`（四处入口各写一遍，文案与状态码必然漂移）。
 pub(super) async fn user_type_of(user_id: Uuid) -> std::result::Result<Option<String>, ApiError> {
     model::user_type_of(user_id)

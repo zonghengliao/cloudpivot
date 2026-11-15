@@ -37,8 +37,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::purchase::purchase_model::{self, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
-use crate::business::shared::separation;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::shared::error_code;
 
 /// 采购订单审批的业务类型（与 V0182 种子 / `purchase_handler::submit_approval` 同口径）。
 pub const BIZ_TYPE: &str = "PO_APPROVE";
@@ -202,7 +202,7 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
     //   路径推走 → 不落状态 + WARN + 审批实例留痕（审批单本身仍是它自己的结论）。
     if !settle_guard::gate(
         &instance,
-        crate::business::shared::state_machine::Entity::PurchaseOrder,
+        cloudpivot_kernel::business::shared::state_machine::Entity::PurchaseOrder,
         &row.order_no,
         &row.status,
         STATUS_SUBMITTED,
@@ -219,9 +219,9 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
     let mut linkage_outbox = purchase_model::LinkageOutbox::default();
     let tx = db().begin().await?;
     let outcome = async {
-        crate::business::shared::state_machine::transition(
+        cloudpivot_kernel::business::shared::state_machine::transition(
             &tx,
-            crate::business::shared::state_machine::ENTITY_PURCHASE_ORDER,
+            cloudpivot_kernel::business::shared::state_machine::ENTITY_PURCHASE_ORDER,
             order_id,
             &row.order_no,
             &purchase_model::LEGAL_EDGES,

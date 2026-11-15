@@ -72,10 +72,10 @@ use crate::business::erp::contract::contract_dto::{
 use crate::business::erp::contract::contract_linkage;
 use crate::business::erp::contract::contract_model::{self, ContractMut, STATUS_DRAFT};
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine;
-use crate::business::shared::user_name;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::user_name;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 合同列表 / 详情（`sys_menu` 里是 menu_type=2 的菜单节点）。
 pub const PERM_LIST: &str = "business:erp:contract:list";
@@ -1424,7 +1424,7 @@ mod tests {
     /// 因此在兼容期内继续命中。
     #[test]
     fn contract_legacy_codes_alias_both_ways() {
-        use crate::shared::permission_alias;
+        use cloudpivot_kernel::shared::permission_alias;
         assert_eq!(LEGACY_PERMISSIONS.len(), PERMISSIONS.len());
         for (i, canonical) in PERMISSIONS.iter().enumerate() {
             let legacy = LEGACY_PERMISSIONS[i];
@@ -1803,7 +1803,7 @@ mod tests {
     /// 改名后立刻取新名（实时 join，不是快照）；一次详情只发 **1** 条取名字的 SQL。
     #[tokio::test]
     async fn detail_fills_person_names_and_follows_rename() {
-        use crate::business::shared::user_name::stats;
+        use cloudpivot_kernel::business::shared::user_name::stats;
 
         let Some(_guard) = setup().await else { return };
         // 三个账号分别占三个字段：负责人 / 制单人 / 修改人

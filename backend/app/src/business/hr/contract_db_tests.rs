@@ -33,10 +33,10 @@ mod db {
     use crate::business::hr::employee_dto;
     use crate::business::hr::employee_handler;
     use crate::business::hr::employee_model;
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::chrono::{Duration, NaiveDate};
     use tokio::sync::OnceCell;
 

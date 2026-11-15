@@ -21,9 +21,9 @@ use crate::business::erp::stockin::stockin_dto::{
 use crate::business::erp::stockin::stockin_model::{self, NewStockInLine};
 use crate::business::erp::unit_guard;
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 共用辅助 ====================
 
@@ -220,7 +220,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
     // 来源采购单号（F3）：详情页要显示「来源采购单：PO-xxx」并可点回采购单。
     let mut header = StockInRes::from(&row);
     // AUD-02：制单人姓名（单条也是同一入口，1 条 SQL）
-    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut header))
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut header))
         .await
         .unwrap_or_default();
     let mut contract_no = None;

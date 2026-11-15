@@ -155,7 +155,7 @@ pub fn zip_entries(entries: &[(&str, String)]) -> std::result::Result<Vec<u8>, A
 fn zip_error(action: &str, error: impl std::fmt::Display) -> ApiError {
     ApiError::new(
         500,
-        crate::shared::error_code::INTERNAL_ERROR,
+        cloudpivot_kernel::shared::error_code::INTERNAL_ERROR,
         format!("诊断包生成失败（{action}）：{error}"),
     )
 }

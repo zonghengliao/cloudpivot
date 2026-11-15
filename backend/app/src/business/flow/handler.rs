@@ -50,8 +50,8 @@ use crate::business::flow::{
 };
 use crate::business::notice::dto::ContentFormat;
 use crate::business::notice::render;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 use serde_json::{Map, Value};
 
 // ==================== 小工具 ====================
@@ -1527,7 +1527,7 @@ pub async fn page_instances(
     Query(query): Query<dto::InstancePageQuery>,
 ) -> ResResult<dto::InstancePageRes> {
     let me = me_of(&claims)?;
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let status = match query.status.as_deref() {
         None => None,
         Some(raw) if raw.trim().is_empty() => None,
@@ -2605,7 +2605,7 @@ pub async fn stats_overview(
 ) -> ResResult<StatsOverviewRes> {
     me_of(&claims)?;
     let window = stats_window(&query)?;
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let rows = model::efficiency_rows(&principal, window)
         .await
         .map_err(|error| utils::db_error(error, "统计审批总览"))?;
@@ -2643,7 +2643,7 @@ pub async fn stats_efficiency(
 ) -> ResResult<StatsEfficiencyRes> {
     me_of(&claims)?;
     let window = stats_window(&query)?;
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let rows = model::efficiency_rows(&principal, window)
         .await
         .map_err(|error| utils::db_error(error, "统计流程效率"))?;
@@ -2686,7 +2686,7 @@ pub async fn stats_node_bottleneck(
 ) -> ResResult<StatsBottleneckRes> {
     me_of(&claims)?;
     let window = stats_window(&query)?;
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
     let rows = model::bottleneck_rows(&principal, window, model::BOTTLENECK_TOP)
         .await
         .map_err(|error| utils::db_error(error, "统计流程卡点"))?;
@@ -2853,8 +2853,8 @@ pub async fn stats_self_approval(
 ) -> ResResult<SelfApprovalRes> {
     me_of(&claims)?;
     let window = self_approval::Window::parse(query.month.as_deref(), chrono::Utc::now()).map_err(field_invalid)?;
-    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
-    let threshold = crate::business::shared::separation::self_approval_max_amount().await;
+    let principal = cloudpivot_kernel::business::shared::principal::resolve_for_claims(&claims).await?;
+    let threshold = cloudpivot_kernel::business::shared::separation::self_approval_max_amount().await;
     let biz_type = query
         .biz_type
         .as_deref()

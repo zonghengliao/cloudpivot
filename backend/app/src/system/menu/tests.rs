@@ -24,10 +24,10 @@
 
 use nik::prelude::*;
 
-use crate::shared::error_code;
 use crate::system::menu::dto::{MenuCreateReq, MenuQuery, MenuUpdateReq};
 use crate::system::menu::{handler, model};
 use crate::system::tests_support as ts;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 夹具 ====================
 
@@ -927,7 +927,7 @@ async fn n13_permission_change_invalidates_tokens_in_db() {
     let bystander = create_user(&format!("{prefix}_bystander")).await;
     let admin_id: uuid::Uuid = ts::scalar_text(
         "SELECT id::text AS v FROM sys_user WHERE username = ?",
-        vec![Value::from(crate::shared::constants::ADMIN_USERNAME)],
+        vec![Value::from(cloudpivot_kernel::shared::constants::ADMIN_USERNAME)],
     )
     .await
     .expect("库里必须有内置管理员 admin")

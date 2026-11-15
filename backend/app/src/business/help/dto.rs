@@ -16,7 +16,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::help::model::{self, CategoryRow, DocCardRow, DocDetailRow, SearchHitRow, VersionRow};
-use crate::business::shared::content::TocNode;
+use cloudpivot_kernel::business::shared::content::TocNode;
 
 // ==================== 请求：分类 ====================
 
@@ -405,7 +405,7 @@ impl HelpVersionRes {
 }
 
 /// AUD-02：版本列表的「操作人姓名」回填（`create_by` → `create_by_name`）。
-impl crate::business::shared::user_name::PersonNameRow for HelpVersionRes {
+impl cloudpivot_kernel::business::shared::user_name::PersonNameRow for HelpVersionRes {
     fn person_ids(&self, out: &mut Vec<uuid::Uuid>) {
         if let Ok(id) = uuid::Uuid::parse_str(&self.create_by) {
             out.push(id);
@@ -447,7 +447,7 @@ pub struct HelpSearchHitRes {
 impl HelpSearchHitRes {
     /// 由命中行构造（片段与命中词在应用层算，避免把 `content_md` 的 20 KB 直接下发）。
     pub fn from_row(row: &SearchHitRow, terms: &[String]) -> Self {
-        let plain = crate::business::shared::content::to_plain_text(&row.content_md);
+        let plain = cloudpivot_kernel::business::shared::content::to_plain_text(&row.content_md);
         let (snippet, matched_terms) = model::make_snippet(&plain, terms);
         Self {
             id: row.id.to_string(),

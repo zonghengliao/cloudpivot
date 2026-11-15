@@ -13,7 +13,7 @@
 //!
 //! # 两条不变量（C2/C3 都必须遵守）
 //!
-//! 1. **渲染与净化统一走** [`crate::business::shared::content`]（`Recipe::Announcement`），
+//! 1. **渲染与净化统一走** [`cloudpivot_kernel::business::shared::content`]（`Recipe::Announcement`），
 //!    不允许在这里另写一套 Markdown 渲染 —— 一个渲染器一套 bug；**禁止**用 Markdown
 //!    原文拼 HTML（架构 §2.4.2）；
 //! 2. 公告的**三张新表有意不登记** `shared/scope.rs` 的 `SCOPED_TABLES`（全局内容 / 审计

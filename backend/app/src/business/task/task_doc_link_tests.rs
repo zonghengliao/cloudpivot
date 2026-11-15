@@ -15,10 +15,10 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
 use crate::business::task::doc_ref;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
 
 use super::*;
 

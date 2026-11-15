@@ -34,8 +34,8 @@
 //! 可见性由权限码控制（与单条接口同一套码），不做行级范围裁剪。
 //! ```
 
-use crate::utils;
 use axum::{Extension, Json};
+use cloudpivot_kernel::utils;
 use nik::prelude::*;
 
 use crate::business::erp::approval_gate;
@@ -50,7 +50,7 @@ use crate::business::erp::transfer::transfer_dto::TransferStatusReq;
 use crate::business::erp::transfer::transfer_handler::change_transfer_status;
 use crate::business::impexp::batch_export::{self, BatchExportTask};
 use crate::business::impexp::definition::ExportFilter;
-use crate::business::shared::batch::{self, BatchResult};
+use cloudpivot_kernel::business::shared::batch::{self, BatchResult};
 
 // ==================== 权限码（与单条接口逐字一致） ====================
 
@@ -212,7 +212,7 @@ pub async fn batch_transfer_status(
     let operator = utils::current_user_uuid(claims).ok_or_else(|| {
         ApiError::new(
             400,
-            crate::shared::error_code::PARAM_INVALID,
+            cloudpivot_kernel::shared::error_code::PARAM_INVALID,
             "无法从令牌解析当前用户：批量状态流转需要记录操作人",
         )
     })?;
@@ -607,7 +607,7 @@ mod tests {
             invoice_received: true,
             remark: Some("D7 批量测试"),
         };
-        let operator = crate::business::shared::state_machine::Operator::named(
+        let operator = cloudpivot_kernel::business::shared::state_machine::Operator::named(
             Some(Uuid::parse_str(OPERATOR).expect("operator")),
             "d7-batch",
         );
@@ -732,7 +732,7 @@ mod tests {
         for item in &outcome.failed {
             assert_eq!(
                 item.code,
-                crate::shared::error_code::RESOURCE_CONFLICT,
+                cloudpivot_kernel::shared::error_code::RESOURCE_CONFLICT,
                 "状态不对是冲突（10003）：{item:?}"
             );
             assert!(
@@ -789,7 +789,7 @@ mod tests {
         assert_eq!(failed.id, ghost.to_string());
         assert_eq!(
             failed.code,
-            crate::shared::error_code::RESOURCE_NOT_FOUND,
+            cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND,
             "不存在是 404 + 10002：{failed:?}"
         );
         assert!(failed.no.is_none(), "不存在的单据没有单号");
@@ -857,7 +857,7 @@ mod tests {
         assert_eq!(second.success_count, 0, "重复点不能把库存加两遍");
         assert_eq!(second.fail_count, 2);
         for item in &second.failed {
-            assert_eq!(item.code, crate::shared::error_code::RESOURCE_CONFLICT);
+            assert_eq!(item.code, cloudpivot_kernel::shared::error_code::RESOURCE_CONFLICT);
             assert!(item.error.contains("已过账"), "幂等失败原因要可读：{}", item.error);
         }
         // 单据仍是已过账（一次生效）

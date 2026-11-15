@@ -36,9 +36,9 @@
 
 use std::collections::BTreeSet;
 
-use cloudpivot::business::shared::principal::{self, ScopedPrincipal};
-use cloudpivot::business::shared::scope::{self, ScopeTarget};
-use cloudpivot::business::shared::{guard, scope::ScopeKind};
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::scope::{self, ScopeTarget};
+use cloudpivot_kernel::business::shared::{guard, scope::ScopeKind};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -381,9 +381,9 @@ async fn b2_real_database_acceptance() {
     // 登记表的每一行」而不是硬编码条数 —— 写死 10 会在任何新表接进来时假红（实测 11）。
     assert_eq!(
         report.checked_tables,
-        cloudpivot::business::shared::scope::SCOPED_TABLES.len(),
+        cloudpivot_kernel::business::shared::scope::SCOPED_TABLES.len(),
         "自检必须覆盖登记表的每一行（当前 {} 张）",
-        cloudpivot::business::shared::scope::SCOPED_TABLES.len()
+        cloudpivot_kernel::business::shared::scope::SCOPED_TABLES.len()
     );
 
     // ---------- ⑩ 范围上限（S14）：真解析出的操作者 + 越界部门 ----------

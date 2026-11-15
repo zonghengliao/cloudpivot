@@ -52,8 +52,8 @@ use crate::business::erp::asset::asset_model::{self, DepBatchRow, DepDetailRow, 
 use crate::business::erp::depreciation::depreciation_linkage;
 use crate::business::erp::voucher;
 use crate::business::erp::voucher::voucher_multi;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
 
 /// 折旧凭证的来源类型。
 pub const SOURCE_DEPRECIATION: &str = "DEPRECIATION";

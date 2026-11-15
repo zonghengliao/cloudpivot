@@ -33,11 +33,11 @@ use nik::prelude::*;
 use crate::shared::cache_gate::InvalidationGate;
 
 /// 缓存键前缀（`uv` = user version，卡面口径 `uv:{user_id}`）。
-pub(crate) const CACHE_KEY_PREFIX: &str = "uv:";
+pub const CACHE_KEY_PREFIX: &str = "uv:";
 
 /// 缓存 TTL（秒）。60 s 是卡面口径：既能把「每请求一次点查」降为「每分钟一次」，
 /// 又能把最坏残留窗口压到一分钟以内。
-pub(crate) const CACHE_TTL_SECS: u64 = 60;
+pub const CACHE_TTL_SECS: u64 = 60;
 
 /// 失效「欠账」闸门（`DEL` 失败 → 本进程不再读缓存）。
 static GATE: InvalidationGate = InvalidationGate::new();
@@ -51,7 +51,7 @@ static GATE: InvalidationGate = InvalidationGate::new();
 /// # 返回值
 ///
 /// `uv:{user_id}`。
-pub(crate) fn cache_key(user_id: &uuid::Uuid) -> String {
+pub fn cache_key(user_id: &uuid::Uuid) -> String {
     format!("{CACHE_KEY_PREFIX}{user_id}")
 }
 
@@ -87,7 +87,7 @@ fn decode(raw: &str) -> Option<(i32, bool)> {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（缓存侧错误一律降级为查库，不向上传播）。
-pub(crate) async fn load_session_flags(user_id: &uuid::Uuid) -> std::result::Result<Option<(i32, bool)>, DbError> {
+pub async fn load_session_flags(user_id: &uuid::Uuid) -> std::result::Result<Option<(i32, bool)>, DbError> {
     let key = cache_key(user_id);
     // 缓存只是加速：读失败、未命中、闸门欠账都直接回查库（库是唯一真源）
     if GATE.cache_readable()
@@ -107,7 +107,7 @@ pub(crate) async fn load_session_flags(user_id: &uuid::Uuid) -> std::result::Res
         }
     }
 
-    let flags = crate::system::user::model::load_session_flags(user_id).await?;
+    let flags = crate::shared::session_flags_port::load_session_flags(user_id).await?;
     if let Some((token_version, must_change_password)) = flags {
         fill(&key, token_version, must_change_password).await;
     }
@@ -145,7 +145,7 @@ async fn fill(key: &str, token_version: i32, must_change_password: bool) {
 ///
 /// 必须在业务事务**提交之后**调用：在事务内删，别的实例可能读到未提交的旧值并把它
 /// 回填进缓存，提交后就变成「旧值又活了 60 s」。
-pub(crate) async fn invalidate(user_id: &uuid::Uuid) {
+pub async fn invalidate(user_id: &uuid::Uuid) {
     let key = cache_key(user_id);
     let Some(store) = try_cache() else {
         // 没有缓存就没有脏值
@@ -178,7 +178,7 @@ pub(crate) async fn invalidate(user_id: &uuid::Uuid) {
 /// - 这类操作是**低频管理动作**（改菜单 / 改角色授权），不是热路径；
 /// - 键空间只包含「最近 60 s 内有请求的用户」，规模与在线用户数同阶；
 /// - 语义上最安全：宁可让所有人多查一次库，也不能让任何人继续命中旧版本号。
-pub(crate) async fn invalidate_all() {
+pub async fn invalidate_all() {
     let Some(store) = try_cache() else {
         GATE.record(true);
         return;

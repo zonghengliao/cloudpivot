@@ -6,7 +6,7 @@
 //!
 //! | 层 | 落点 | 回答什么问题 |
 //! |----|------|--------------|
-//! | ① 金额上限 | [`crate::business::shared::separation::self_approval_max_amount`] + [`demote_over_limit`] | 大额单据还能不能自审（默认不限额） |
+//! | ① 金额上限 | [`cloudpivot_kernel::business::shared::separation::self_approval_max_amount`] + [`demote_over_limit`] | 大额单据还能不能自审（默认不限额） |
 //! | ② 审计留痕 | `operation_logs`（[`record`] / 三个 `OP_*` 操作码） | 谁、何时、哪张单、哪个节点、多少钱、为什么允许 |
 //! | ③ 月度报表 | [`monthly_report`]（`GET /business/flow/stats/self-approval`） | 本月自审占比多少、谁在自审、多少被阈值拦下 |
 //!
@@ -52,7 +52,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde_json::Value as Json;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 操作码（报表与日志页都按它检索，不许改字面量） ====================
 
@@ -100,7 +100,7 @@ fn numeric(value: &Json) -> Option<f64> {
             let trimmed = text.trim();
             // 与 `separation::parse_amount` **同一份口径**：只认十进制字面量，
             // 不猜千分位 / 货币符号 / 科学计数法（SQL 侧的正则也是同一条规则）
-            if !crate::business::shared::separation::is_decimal_literal(trimmed) {
+            if !cloudpivot_kernel::business::shared::separation::is_decimal_literal(trimmed) {
                 return None;
             }
             trimmed.parse::<f64>().ok().filter(|v| v.is_finite())
@@ -473,7 +473,7 @@ const AMOUNT_SQL: &str = "CASE \
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn monthly_report(
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
     window: &Window,
     biz_type: Option<&str>,
     threshold: f64,
@@ -712,7 +712,7 @@ pub fn over_limit_message(node_name: &str, amount: f64, threshold: f64, dispatch
          请把该节点的审批岗位指派给发起人以外的人，或在系统参数「{}」里调整上限（0 = 不限额）。",
         format_amount(amount),
         format_amount(threshold),
-        crate::business::shared::separation::SELF_APPROVAL_MAX_AMOUNT_KEY
+        cloudpivot_kernel::business::shared::separation::SELF_APPROVAL_MAX_AMOUNT_KEY
     )
 }
 
@@ -854,7 +854,7 @@ mod tests {
         assert!(text.contains("超出自审金额上限"), "{text}");
         assert!(text.contains("兜底人未配置"), "{text}");
         assert!(
-            text.contains(crate::business::shared::separation::SELF_APPROVAL_MAX_AMOUNT_KEY),
+            text.contains(cloudpivot_kernel::business::shared::separation::SELF_APPROVAL_MAX_AMOUNT_KEY),
             "{text}"
         );
         assert_eq!(over_limit_error("x").code, error_code::FLOW_SELF_APPROVAL_AMOUNT_LIMIT);

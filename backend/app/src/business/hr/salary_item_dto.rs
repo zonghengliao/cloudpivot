@@ -40,7 +40,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::hr::salary_item_formula as formula;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 域的取值（与 V0383 的 CHECK 逐字一致） ====================
 

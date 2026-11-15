@@ -36,7 +36,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 状态域（与 V0383 的 ck_biz_att_period_status 逐字一致） ====================
 

@@ -48,7 +48,7 @@ use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
     self, OrderMetaField, StockTakeContext, StockTakeContextArgs, StockTakeItem, format_quantity,
 };
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 审计里的操作码。
 pub const EXPORT_OPERATION: &str = "EXPORT_STOCK_TAKE_PDF";
@@ -107,7 +107,7 @@ pub fn build_stock_take_items(
 ///
 /// # 异常情况
 ///
-/// - 404 [`crate::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
+/// - 404 [`cloudpivot_kernel::shared::error_code::RESOURCE_NOT_FOUND`]：单据不存在 / 已软删；
 /// - 500：数据库异常。
 pub async fn stock_take_context(id: Uuid) -> std::result::Result<StockTakeContext, ApiError> {
     let row = stocktake_model::find(db(), id)
@@ -196,7 +196,7 @@ pub async fn stock_take_context(id: Uuid) -> std::result::Result<StockTakeContex
 ///
 /// # 异常情况
 ///
-/// - 400 [`crate::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
+/// - 400 [`cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
 /// - 404：单据不存在；
 /// - 422 / 503 / 504：模板 / 渲染引擎异常。
 pub async fn export_stock_take(id_raw: &str) -> std::result::Result<RenderedDoc, ApiError> {
@@ -231,7 +231,7 @@ fn context_total(context: &StockTakeContext) -> Decimal {
 /// # 异常情况
 ///
 /// - 401：未登录；
-/// - 403 [`crate::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:stock-take:list`；
+/// - 403 [`cloudpivot_kernel::shared::error_code::PERMISSION_DENIED`]：缺 `business:erp:stock-take:list`；
 /// - 400 / 404 / 422 / 503 / 504：见 [`export_stock_take`]。
 #[nik::permission(
     path = "/business/erp/stock-take/{id}/pdf",
@@ -713,6 +713,6 @@ mod db_tests {
         }
         let error = export_stock_take("not-a-uuid").await.expect_err("必须 400");
         assert_eq!(error.status, 400);
-        assert_eq!(error.code, crate::shared::error_code::ERP_FILTER_INVALID);
+        assert_eq!(error.code, cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID);
     }
 }

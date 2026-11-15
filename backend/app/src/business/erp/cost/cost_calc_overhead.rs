@@ -40,7 +40,7 @@ use crate::business::erp::cost::cost_collect_model;
 use crate::business::erp::cost::cost_overhead_collect_dto::{self as dto, OverheadCollectOutcome, PoolAmount};
 use crate::business::erp::cost::cost_overhead_collect_model as model;
 use crate::business::erp::ledger;
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 期间编码形态校验（`yyyy-MM`）：在**开事务之前**判，非法直接 400。
 pub fn ensure_period_code(period_code: &str) -> std::result::Result<(), ApiError> {

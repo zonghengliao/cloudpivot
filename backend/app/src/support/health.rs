@@ -25,7 +25,7 @@ use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 use std::time::Instant;
 
-use crate::shared::observability;
+use cloudpivot_kernel::shared::observability;
 
 /// 健康检查响应体。
 #[derive(serde::Serialize)]
@@ -194,7 +194,7 @@ pub async fn probe_deps() -> HealthDepsRes {
     // 放在这里而不是每请求路径：readiness 探针是低频的，而 count(*) 在这张
     // 「短命行」表上量级很小（稳态与活跃会话同阶）。查失败不影响健康判定。
     if db_status.ok
-        && let Ok(rows) = crate::shared::token_revocation::row_count().await
+        && let Ok(rows) = cloudpivot_kernel::shared::token_revocation::row_count().await
     {
         observability::set_gauge(observability::TOKEN_BLACKLIST_ROWS, rows as f64);
     }

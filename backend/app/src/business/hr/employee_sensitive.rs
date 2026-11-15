@@ -76,9 +76,9 @@ use crate::business::hr::employee_dto;
 use crate::business::hr::employee_handler;
 use crate::business::hr::employee_model::{self, EmployeeRow};
 use crate::business::masking::MaskSet;
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量（与迁移 / 契约逐字一致） ====================
 

@@ -21,9 +21,9 @@
 
 use nik::prelude::*;
 
-use crate::shared::constants;
 use crate::system::role::model::SysRoleModel;
 use crate::system::user::model::{SysUserModel, SysUserRoleModel};
+use cloudpivot_kernel::shared::constants;
 
 /// P2-33（P2-B 解环）：把 ERP 的 16 个单据查询器注册进 `flow` 的进程级注册表。
 ///
@@ -167,7 +167,7 @@ fn register_task_approval_port() {
 fn register_voucher_port() {
     match crate::business::erp::voucher::voucher_port_impl::install() {
         Ok(()) => tracing::info!(
-            port = crate::business::shared::voucher_port::port_name().unwrap_or(""),
+            port = cloudpivot_kernel::business::shared::voucher_port::port_name().unwrap_or(""),
             "凭证写入接缝安装完成（P2-B 解环）：hr 的工资过账 / 红冲改走 shared::voucher_port"
         ),
         Err(error) => {
@@ -180,6 +180,53 @@ fn register_voucher_port() {
             panic!("{message}");
         }
     }
+}
+
+/// 内核基座的两条读取接缝（P2-59 · C1）：系统参数读取 / 会话安全字段读取。
+///
+/// # 为什么要装
+///
+/// 基座（`cloudpivot-kernel`）里的空闲超时、成本核算开关、内控开关、会话字段缓存都要
+/// 读「属于平台层」的数据（`sys_config` / `sys_user`），抽包后基座不能反向依赖
+/// `support` / `system`，所以实现留在域里、启动期装进注册表。
+///
+/// # 装不上的语义
+///
+/// - 配置读取：未装 = 读参数一律 `None`（各调用点都有自己的兜底），所以这里**必须**
+///   装成功，装不上按「启动链缺陷」处理（prod `exit(1)`、其余 profile `panic`）；
+/// - 会话字段读取：未装 = 鉴权路径**大声失败**（`DbError::InvalidValue`），
+///   同样必须启动期装好。
+fn register_kernel_ports() {
+    use std::sync::Arc;
+
+    match cloudpivot_kernel::shared::config_port::install(Arc::new(crate::support::config::model::SysConfigReader)) {
+        Ok(()) => tracing::info!(
+            port = cloudpivot_kernel::shared::config_port::port_name().unwrap_or(""),
+            "配置读取接缝安装完成（P2-59）：空闲超时 / 成本开关 / 内控开关走 config_port"
+        ),
+        Err(error) => fatal_port_install("配置读取接缝", &error),
+    }
+
+    match cloudpivot_kernel::shared::session_flags_port::install(Arc::new(
+        crate::system::user::model::SessionFlagsReader,
+    )) {
+        Ok(()) => tracing::info!(
+            port = cloudpivot_kernel::shared::session_flags_port::port_name().unwrap_or(""),
+            "会话字段读取接缝安装完成（P2-59）：shared::session_cache 未命中时回到 system::user"
+        ),
+        Err(error) => fatal_port_install("会话字段读取接缝", &error),
+    }
+}
+
+/// 接缝安装失败的处理（与 [`register_voucher_port`] 同口径）：prod `exit(1)`，其余 `panic`。
+fn fatal_port_install(what: &str, error: &str) {
+    let message = format!("{what}安装失败（注册表不完整）：{error}");
+    tracing::error!("{message}");
+    if is_prod_profile() {
+        eprintln!("FATAL: {message}");
+        std::process::exit(1);
+    }
+    panic!("{message}");
 }
 
 /// 测试用接线（`#[cfg(test)]`）：lib 单测没有启动链，跨域接缝的实现只能在用例里显式装。
@@ -196,7 +243,7 @@ fn register_voucher_port() {
 pub(crate) fn install_voucher_port_for_tests() {
     static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     ONCE.get_or_init(|| {
-        let port = crate::business::shared::voucher_port::is_installed();
+        let port = cloudpivot_kernel::business::shared::voucher_port::is_installed();
         match crate::business::erp::voucher::voucher_port_impl::install() {
             Ok(()) => {}
             // 已被别的用例装过：正常（注册表是进程级）
@@ -253,6 +300,9 @@ pub async fn bootstrap() {
     // 凭证写入接缝（P2-B 解环 · t_3442b4fb）：hr 的工资过账 / 红冲只认 shared::voucher_port，
     // 实现在凭证域里。漏装 = 过账直接 500（大声失败），所以启动期就装、装不上就退出。
     register_voucher_port();
+    // 内核基座读取接缝（P2-59 · C1）：配置读取 / 会话字段读取。必须早于任何一次
+    // 参数读取（空闲超时 / 成本开关 / 内控开关）与会话字段回源。
+    register_kernel_ports();
 
     tokio::join!(
         async {
@@ -447,8 +497,8 @@ async fn ensure_accounting_periods() {
 ///
 /// 查库失败（连不上 / 权限不足）只记 `warn` 并继续启动。
 async fn test_residue_guard() {
-    match crate::shared::startup_guard::count_test_residue().await {
-        Ok(residue) => match crate::shared::startup_guard::test_residue_warning(residue) {
+    match cloudpivot_kernel::shared::startup_guard::count_test_residue().await {
+        Ok(residue) => match cloudpivot_kernel::shared::startup_guard::test_residue_warning(residue) {
             Some(message) => tracing::warn!("{message}"),
             None => tracing::info!("测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"),
         },
@@ -470,8 +520,8 @@ async fn test_residue_guard() {
 ///
 /// 查库失败（连不上 / 权限不足）只记 `warn` 并继续启动：这一项不该成为启动的单点故障。
 async fn orphan_dependency_guard() {
-    match crate::shared::startup_guard::count_orphan_task_dependencies().await {
-        Ok(count) => match crate::shared::startup_guard::orphan_dependency_warning(count) {
+    match cloudpivot_kernel::shared::startup_guard::count_orphan_task_dependencies().await {
+        Ok(count) => match cloudpivot_kernel::shared::startup_guard::orphan_dependency_warning(count) {
             Some(message) => tracing::warn!("{message}"),
             None => tracing::info!("孤儿任务依赖自检通过：0 条"),
         },
@@ -499,7 +549,11 @@ async fn orphan_dependency_guard() {
 ///   带病上线比不启动更危险；
 /// - 其余 profile 只告警，便于开发/测试环境先修数据。
 async fn ai_agent_invariant_guard() {
-    match crate::shared::startup_guard::check_ai_agent_invariant().await {
+    // E15 安全红线巡检（P2-59 · C1）：随 `aiagent` 域走，启动链在这里调一次。
+    // 放在不变式判定之前：不变式坏了也要把「哪些 profile 没有红线」一起点出来
+    // （与改造前 `check_ai_agent_invariant` 内部的调用顺序一致）。
+    crate::business::aiagent::safety::warn_missing_safety_block().await;
+    match cloudpivot_kernel::shared::startup_guard::check_ai_agent_invariant().await {
         Ok(()) => {}
         Err(error) => {
             let message = format!("AI 用户不变式自检不通过：{error}");
@@ -527,13 +581,13 @@ async fn ai_agent_invariant_guard() {
 ///   [`ensure_admin_user`] 缺初始口令的处理同口径）；
 /// - 其它 profile：只记 `error` 日志并继续（开发 / 测试环境需要能带着不完整的
 ///   登记表启动来调试；且 `cargo test` 的
-///   [`crate::business::shared::guard`] 单测不依赖真库）。
+///   [`cloudpivot_kernel::business::shared::guard`] 单测不依赖真库）。
 ///
 /// # 异常情况
 ///
 /// 查库失败（连不上 / 权限不足）与「自检不健康」同样处理：prod 拒启动，其余告警。
 async fn preflight_permission_guard() {
-    let report = match crate::business::shared::guard::preflight_permission().await {
+    let report = match cloudpivot_kernel::business::shared::guard::preflight_permission().await {
         Ok(report) => report,
         Err(e) => {
             let message = format!("数据权限自检无法完成（查库失败）：{e}");

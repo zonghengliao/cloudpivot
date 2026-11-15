@@ -43,8 +43,8 @@ use nik::uuid::Uuid;
 use super::super::inventory_writer::{self, TxnRecord};
 use crate::business::erp::stockin::stockin_base::{CostBasis, InventorySnapshot};
 use crate::business::erp::{stockin::stockin_cancel, stockin::stockin_write, stockout::stockout_model, voucher};
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
 
 // ==================== 表名 / 常量 ====================
 

@@ -47,7 +47,7 @@ use super::stocktake_model::{self as model, STATUS_CANCELLED, STATUS_DRAFT, STAT
 use crate::business::erp::linkage;
 use crate::business::erp::linkage::spec;
 use crate::business::flow::engine;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ---------- 夹具常量 ----------
 
@@ -496,7 +496,7 @@ async fn voucher_entries(voucher_id: &str) -> Vec<(String, Decimal, Decimal)> {
 /// ① 状态白名单 / 中文名 / 边表与状态机同源。
 #[test]
 fn status_and_edges_are_consistent() {
-    use crate::business::shared::state_machine;
+    use cloudpivot_kernel::business::shared::state_machine;
     assert_eq!(model::status_label(STATUS_DRAFT), "草稿");
     assert_eq!(model::status_label(STATUS_PENDING_POST), "待过账");
     assert_eq!(model::status_label(STATUS_POSTED), "已过账");
@@ -1382,7 +1382,7 @@ async fn lnk04_excluded_inventory_actions_do_not_double_write() {
         .expect("读盘点单")
         .expect("盘点单存在");
     let ctx = linkage::LinkageContext::new(
-        crate::business::shared::state_machine::ENTITY_STOCK_TAKE,
+        cloudpivot_kernel::business::shared::state_machine::ENTITY_STOCK_TAKE,
         STATUS_POSTED,
         row.id,
         &row.take_no,

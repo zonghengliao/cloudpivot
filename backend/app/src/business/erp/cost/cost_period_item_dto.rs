@@ -45,7 +45,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 金额 / 数量的小数位（库列 `NUMERIC(18,4)`）。
 pub const MONEY_SCALE: u32 = 4;

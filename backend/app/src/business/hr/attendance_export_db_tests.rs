@@ -44,11 +44,11 @@ mod db {
     use crate::business::hr::attendance_record_dto::{RecordFilter, RecordNumbers};
     use crate::business::hr::attendance_record_model as model;
     use crate::business::hr::model::SENTINEL_ORG_ID;
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::ScopeKind;
-    use crate::business::shared::state_machine::Operator;
-    use crate::shared::test_helpers;
     use calamine::{Data, Reader, Xlsx};
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::ScopeKind;
+    use cloudpivot_kernel::business::shared::state_machine::Operator;
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::chrono::{Duration, NaiveDate};
     use nik::prelude::rust_decimal::Decimal;
     use std::io::Cursor;

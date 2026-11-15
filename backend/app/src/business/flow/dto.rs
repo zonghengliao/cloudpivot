@@ -31,7 +31,7 @@ use crate::business::flow::expression;
 use crate::business::flow::graph::{
     self, ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, Issue, NodeSpec, NodeType,
 };
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 常量 ====================
 
@@ -2512,7 +2512,7 @@ mod tests {
 #[cfg(test)]
 mod expression_tests {
     use super::*;
-    use crate::shared::error_code;
+    use cloudpivot_kernel::shared::error_code;
     use serde_json::json;
 
     fn save_req(expression: serde_json::Value) -> GraphSaveReq {

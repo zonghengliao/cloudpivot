@@ -36,7 +36,7 @@ use crate::business::erp::purchase::purchase_return_dto::{
     ReturnFilter, ReturnItemRes, ReturnRowRes, STATUS_APPROVED, STATUS_CANCELLED, STATUS_CONFIRMED, STATUS_DRAFT,
 };
 use crate::business::erp::voucher::{self, SeqSpec};
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 // ==================== 表名 / 常量 ====================
 
@@ -392,7 +392,7 @@ pub async fn page_returns(filter: &ReturnFilter) -> DbResult<(Vec<ReturnRow>, u6
         sql.push_str(" AND r.return_date <= NULLIF(?::text,'')::date");
         params.push(Value::Text(to.to_string()));
     }
-    if let Some(pattern) = crate::utils::like_pattern(filter.keyword.as_deref()) {
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref()) {
         let like = Value::Text(pattern);
         sql.push_str(
             " AND (r.return_no LIKE ? OR COALESCE(si.in_no, '') LIKE ? \

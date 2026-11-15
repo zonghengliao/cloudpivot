@@ -231,7 +231,7 @@ if [ "$run_rc" -ne 0 ] || [ "$failed" -ne 0 ]; then
     bad "干净检出任有 $failed 条单测失败（这正是「干净检出必红」）"
     grep -E '^test .* FAILED|^---- .* stdout' "$run_log" | head -20 | sed 's/^/    /' >&2
     echo "    完整日志：$run_log（--keep 可保留干净树排查）" >&2
-    echo "    修法：把测试改成「私有文件在就断言它，不在就断言 *.example.toml」（范本：backend/app/src/shared/startup_guard.rs）" >&2
+    echo "    修法：把测试改成「私有文件在就断言它，不在就断言 *.example.toml」（范本：backend/crates/cloudpivot-kernel/src/shared/startup_guard.rs）" >&2
     exit 1
 fi
 

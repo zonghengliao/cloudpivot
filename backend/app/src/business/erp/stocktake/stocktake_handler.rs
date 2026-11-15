@@ -38,10 +38,10 @@ use crate::business::erp::approval_gate;
 use crate::business::erp::stockout::stockout_model;
 use crate::business::flow::engine;
 use crate::business::flow::model as flow_model;
-use crate::business::shared::separation;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::separation;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 use super::stocktake_bridge as bridge;
 // 联动 hook（LNK-04）。`#[path]` 写在本文件而不是挂到 `erp/mod.rs`：多 worker 并行时
@@ -1138,7 +1138,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockTakeDetailRes, ApiE
     let mut detail = StockTakeDetailRes::of(&row, &pairs, &edges);
     fill_voucher_nos(std::slice::from_mut(&mut detail.header)).await?;
     // AUD-02：制单人姓名（单条同一入口）
-    crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut detail.header))
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut detail.header))
         .await
         .unwrap_or_default();
     Ok(detail)
@@ -1153,7 +1153,7 @@ pub async fn page_of(q: &StockTakePageQuery) -> std::result::Result<StockTakePag
     let mut list: Vec<StockTakeRes> = rows.iter().map(StockTakeRes::of).collect();
     fill_voucher_nos(&mut list).await?;
     // AUD-02：制单人姓名，整页一次
-    crate::business::shared::user_name::fill_person_names(&mut list)
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
     Ok(StockTakePageRes {

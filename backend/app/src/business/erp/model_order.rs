@@ -12,8 +12,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::dto::{PurchaseOrderFilter, PurchaseOrderItemFilter};
-use crate::business::shared::scope;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::utils;
 
 use super::model_base::*;
 

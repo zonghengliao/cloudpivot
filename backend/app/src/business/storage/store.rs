@@ -78,7 +78,7 @@ pub struct PresignedUpload {
 /// 存储操作错误。
 ///
 /// 与 `ApiError` 分开：本层不认识 HTTP，由 handler 统一翻译成
-/// [`crate::shared::error_code`] 里的业务码，避免「SDK 原文直接透给前端」。
+/// [`cloudpivot_kernel::shared::error_code`] 里的业务码，避免「SDK 原文直接透给前端」。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
     /// 该后端不支持该操作（如本地后端的预签名上传）。

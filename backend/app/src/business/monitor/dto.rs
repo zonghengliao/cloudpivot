@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use nik::prelude::*;
 
-use crate::shared::constants::SUPER_ADMIN_ROLE_CODE;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::constants::SUPER_ADMIN_ROLE_CODE;
+use cloudpivot_kernel::shared::error_code;
 
 /// 超管判定（诊断包**只有超管能下**）。
 ///

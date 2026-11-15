@@ -31,7 +31,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::lot::lot_dto::{self, LotFilter, LotSpec};
-use crate::business::shared::scope;
+use cloudpivot_kernel::business::shared::scope;
 
 /// 表名。
 pub const LOT_TABLE: &str = "biz_lot";

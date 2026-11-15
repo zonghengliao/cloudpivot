@@ -19,7 +19,7 @@
 //!
 //! 三层是**同一条规则的三处落点**，不是三套规则：
 //! 判定只看 `biz_attendance_period.status`，`LOCKED` 是唯一不可写状态
-//! （[`crate::business::shared::state_machine::ATTENDANCE_PERIOD_LOCKED`] 是唯一真相，
+//! （[`cloudpivot_kernel::business::shared::state_machine::ATTENDANCE_PERIOD_LOCKED`] 是唯一真相，
 //! 单测交叉验证本文件的 [`WRITABLE_STATUSES`] 与它互补）。
 //!
 //! # 为什么 `SUBMITTED` 可写
@@ -52,8 +52,8 @@ use nik::uuid::Uuid;
 
 use crate::business::hr::attendance_period_dto::{STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::hr::attendance_period_model::{self as period_model, AttendancePeriodRow};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 逃生门 GUC 名（**事务级**，只许用 `SET LOCAL`）。
 ///
@@ -214,7 +214,7 @@ mod tests {
     use super::*;
     use crate::business::hr::attendance_period_dto::{STATUS_LOCKED, STATUS_VALUES};
     use crate::business::hr::handler::{ROUTE_CONTRACT, RouteSpec};
-    use crate::business::shared::state_machine::{
+    use cloudpivot_kernel::business::shared::state_machine::{
         ATTENDANCE_PERIOD_EDGES, ATTENDANCE_PERIOD_LOCKED, ATTENDANCE_PERIOD_REASON_EDGES,
     };
 

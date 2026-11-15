@@ -53,9 +53,9 @@ use crate::business::erp::cost::cost_reverse_run;
 use crate::business::erp::cost::cost_settle_run;
 use crate::business::flow::engine;
 use crate::business::flow::model as flow_model;
-use crate::business::shared::state_machine;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::state_machine;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与设计 §5.3 / V0378 的 auth_code 逐字一致） ====================
 
@@ -1299,6 +1299,6 @@ mod tests {
         let theirs = crate::business::erp::cost::cost_object_dto::bad_request("x");
         assert_eq!(ours.status, theirs.status);
         assert_eq!(ours.code, theirs.code);
-        assert_eq!(ours.code, crate::shared::error_code::PARAM_INVALID);
+        assert_eq!(ours.code, cloudpivot_kernel::shared::error_code::PARAM_INVALID);
     }
 }

@@ -12,7 +12,7 @@
 //! # 它自己不会被开关拦住
 //!
 //! 路径落在 `/business/erp/cost-` 前缀里，但
-//! [`crate::business::shared::cost_switch::SWITCH_PROBE_PATH`] 在中间件里被显式豁免
+//! [`cloudpivot_kernel::business::shared::cost_switch::SWITCH_PROBE_PATH`] 在中间件里被显式豁免
 //! （否则关掉开关就再也问不到「开关是关的」，前端只能猜）。
 //!
 //! # 接口一览
@@ -24,7 +24,7 @@
 use nik::prelude::*;
 use serde::Serialize;
 
-use crate::business::shared::cost_switch;
+use cloudpivot_kernel::business::shared::cost_switch;
 
 /// 开关状态响应。
 ///

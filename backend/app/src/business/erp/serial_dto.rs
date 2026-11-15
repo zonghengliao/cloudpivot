@@ -501,12 +501,12 @@ impl From<&SerialScanRow> for SerialScanRes {
 
 /// 参数错误码（`10001`，与其余模块一致）。
 fn error_code_param() -> i32 {
-    crate::shared::error_code::PARAM_INVALID
+    cloudpivot_kernel::shared::error_code::PARAM_INVALID
 }
 
 /// 状态流转错误码（`66008`）。
 fn error_code_status() -> i32 {
-    crate::shared::error_code::ERP_SERIAL_STATUS_INVALID
+    cloudpivot_kernel::shared::error_code::ERP_SERIAL_STATUS_INVALID
 }
 
 /// 去空白 + 空串归一成 `None`。
@@ -523,7 +523,7 @@ fn require_uuid(value: &str, field: &str) -> std::result::Result<(), ApiError> {
     if nik::uuid::Uuid::parse_str(text).is_err() {
         return Err(ApiError::new(
             400,
-            crate::shared::error_code::ERP_FILTER_INVALID,
+            cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID,
             format!("{field} 不是合法的 UUID：{text}"),
         ));
     }
@@ -537,7 +537,7 @@ fn check_optional_uuid(value: Option<&str>, field: &str) -> std::result::Result<
     {
         return Err(ApiError::new(
             400,
-            crate::shared::error_code::ERP_FILTER_INVALID,
+            cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID,
             format!("{field} 不是合法的 UUID：{text}"),
         ));
     }
@@ -670,7 +670,7 @@ mod tests {
         let mut req = batch_req(1);
         req.material_id = "not-a-uuid".to_string();
         let err = req.validate().expect_err("非法 UUID 必须拒");
-        assert_eq!(err.code, crate::shared::error_code::ERP_FILTER_INVALID);
+        assert_eq!(err.code, cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID);
         assert!(err.msg.contains("不是合法的 UUID"), "{}", err.msg);
 
         let mut req = batch_req(1);
@@ -712,7 +712,10 @@ mod tests {
         };
         let err = in_stock.target_status().expect_err("IN_STOCK 不是合法目标");
         assert_eq!(err.status, 400);
-        assert_eq!(err.code, crate::shared::error_code::ERP_SERIAL_STATUS_INVALID);
+        assert_eq!(
+            err.code,
+            cloudpivot_kernel::shared::error_code::ERP_SERIAL_STATUS_INVALID
+        );
         assert!(err.msg.contains("新的序列号"), "{}", err.msg);
 
         let bogus = SerialStatusReq {
@@ -768,7 +771,7 @@ mod tests {
         };
         let err = filter.validated().expect_err("非法 UUID 必须拒");
         assert_eq!(err.status, 400);
-        assert_eq!(err.code, crate::shared::error_code::ERP_FILTER_INVALID);
+        assert_eq!(err.code, cloudpivot_kernel::shared::error_code::ERP_FILTER_INVALID);
 
         let filter = SerialFilter {
             warehouse_id: Some("  ".to_string()),

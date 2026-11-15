@@ -24,7 +24,7 @@ use crate::business::impexp::builtin::hr::employee::EMPLOYEE_BIZ_TYPE;
 use crate::business::impexp::handler::xlsx_response;
 use crate::business::impexp::registry::global_registry;
 use crate::business::impexp::template;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 模板下载路由（不含 `/api`，由 `[router].prefix` 注入）。
 pub const TEMPLATE_ROUTE: &str = "/business/hr/employee/import-template";

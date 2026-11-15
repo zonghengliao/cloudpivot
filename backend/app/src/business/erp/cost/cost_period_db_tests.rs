@@ -36,7 +36,7 @@ mod db {
     };
     use crate::business::erp::cost::cost_period_handler as handler;
     use crate::business::erp::cost::cost_period_model as model;
-    use crate::business::shared::state_machine;
+    use cloudpivot_kernel::business::shared::state_machine;
     use tokio::sync::OnceCell;
 
     /// 连库（进程内只做一次初始化）。`false` = 没配 `ERP_DB_URL`，用例直接跳过。
@@ -258,7 +258,10 @@ mod db {
         .await
         .expect_err("已作废不能再作废");
         assert_eq!(again.status, 409);
-        assert_eq!(again.code, crate::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD);
+        assert_eq!(
+            again.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD
+        );
 
         purge(period).await;
     }
@@ -279,7 +282,10 @@ mod db {
             .await
             .expect_err("同期间第二条必须被拦");
         assert_eq!(error.status, 409);
-        assert_eq!(error.code, crate::shared::error_code::ERP_COST_PERIOD_DUPLICATE);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_PERIOD_DUPLICATE
+        );
         assert!(
             error.msg.contains(&first.batch_no),
             "报文要点名占位的那一批：{}",

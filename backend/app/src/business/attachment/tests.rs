@@ -31,7 +31,7 @@ use nik::uuid::Uuid;
 use super::dto;
 use super::model::{self, DocKind, FileRole};
 use super::rule::{self as att_rule, AttachRuleError, RequiredAt};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ---------- 纯逻辑 ----------
 
@@ -759,7 +759,7 @@ fn can_view_doc_truth_table() {
 fn doc_forbidden_names_the_missing_permission() {
     let error = dto::doc_forbidden(DocKind::Payable);
     assert_eq!(error.status, 403);
-    assert_eq!(error.code, crate::shared::error_code::PERMISSION_DENIED);
+    assert_eq!(error.code, cloudpivot_kernel::shared::error_code::PERMISSION_DENIED);
     assert!(error.msg.contains("应付单"), "{}", error.msg);
     assert!(
         error.msg.contains("business:erp:payable:list"),
@@ -1914,7 +1914,7 @@ fn parse_sort_order_rejects_unknown() {
 
     let error = dto::parse_sort_order(Some("uploaded_at")).expect_err("未知值必须拒绝");
     assert_eq!(error.status, 400);
-    assert_eq!(error.code, crate::shared::error_code::PARAM_INVALID);
+    assert_eq!(error.code, cloudpivot_kernel::shared::error_code::PARAM_INVALID);
     assert!(error.msg.contains("time"), "消息要列出可选值：{}", error.msg);
     assert!(error.msg.contains("manual"), "消息要列出可选值：{}", error.msg);
 }

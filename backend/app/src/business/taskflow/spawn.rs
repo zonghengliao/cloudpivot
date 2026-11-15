@@ -29,7 +29,7 @@ use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInpu
 use crate::business::flow::task_node::{self, FLOW_SOURCE};
 use crate::business::flow::task_port::{FlowTaskPort, SpawnOutcome, SpawnTaskSpec};
 use crate::business::task::model as task_model;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 流程任务接缝的实现（`bootstrap::register_flow_task_port` 安装）。
 #[derive(Debug, Default)]

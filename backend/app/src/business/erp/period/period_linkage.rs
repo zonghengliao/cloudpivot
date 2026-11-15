@@ -61,7 +61,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 期间状态通知的 `biz_type`（与催办 `period_remind` 的 `biz_type` 区分开：
 /// 一个是被联动发的状态通知，一个是结账预检的催办）。

@@ -40,7 +40,7 @@ use crate::shared::constants;
 /// 库侧**不加 CHECK**（见 V0176 头注释）：诊断字段，给它加约束等于把「枚举没同步」
 /// 升级成「登出 500」。取值由本枚举收敛。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BlacklistKind {
+pub enum BlacklistKind {
     /// 访问令牌（`token_type = access`）。
     Access,
     /// 刷新令牌（`token_type = refresh`）。
@@ -49,7 +49,7 @@ pub(crate) enum BlacklistKind {
 
 impl BlacklistKind {
     /// 落库取值（`varchar(8)`）。
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Access => "access",
             Self::Refresh => "refresh",
@@ -62,7 +62,7 @@ impl BlacklistKind {
 /// 同样**不加库侧 CHECK**（理由见 [`BlacklistKind`]）：新增原因只需加一个变体，
 /// 不需要迁移；库侧出现未知取值也不会让认证路径报错。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BlacklistReason {
+pub enum BlacklistReason {
     /// 用户主动登出。
     Logout,
     /// 刷新令牌轮换（旧 refresh 一次作废）。
@@ -73,7 +73,7 @@ pub(crate) enum BlacklistReason {
 
 impl BlacklistReason {
     /// 落库取值（`varchar(32)`）。
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Logout => "logout",
             Self::Rotate => "rotate",
@@ -110,7 +110,7 @@ impl BlacklistReason {
 ///
 /// `ON CONFLICT (jti) DO NOTHING`——登出重试 / 轮换重放写同一 `jti` 不报错
 /// （实测同 `jti` 连插两次 → 1 行）。
-pub(crate) async fn revoke(
+pub async fn revoke(
     jti: &str,
     user_id: Option<&str>,
     kind: BlacklistKind,
@@ -193,7 +193,7 @@ pub(crate) async fn revoke(
 /// - `Ok(false)`：未命中，或命中但已过期（清理任务还没回收的行不算吊销——
 ///   `expire_at > now()` 必须是查询的一部分，否则「删过期行」的动作会变成 401）；
 /// - `Err(_)`：查库失败。调用方必须按 fail-closed 处理（401），**不许放行**。
-pub(crate) async fn is_revoked(jti: &str) -> DbResult<bool> {
+pub async fn is_revoked(jti: &str) -> DbResult<bool> {
     if jti.trim().is_empty() {
         return Ok(false);
     }
@@ -211,7 +211,7 @@ pub(crate) async fn is_revoked(jti: &str) -> DbResult<bool> {
 /// # 返回值
 ///
 /// 行数；查库失败返回 `Err`。
-pub(crate) async fn row_count() -> DbResult<i64> {
+pub async fn row_count() -> DbResult<i64> {
     db().scalar_with_params("SELECT count(*) FROM sys_token_blacklist", vec![])
         .await
 }

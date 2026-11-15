@@ -14,7 +14,7 @@ use super::stockin_handler_common::*;
 use crate::business::erp::model;
 use crate::business::erp::stockin::stockin_dto::{StockInDetailRes, StockInPageQuery, StockInRes};
 use crate::business::erp::stockin::stockin_model::{self};
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 收货入库单分页。
 #[nik::permission(
@@ -57,7 +57,7 @@ pub async fn stock_in_page(Query(query): Query<StockInPageQuery>) -> ResResult<P
         }
     }
     // AUD-02：制单人姓名。整页一次 `WHERE id = ANY(...)`（与供应商名同一套批量口径）
-    crate::business::shared::user_name::fill_person_names(&mut list)
+    cloudpivot_kernel::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
     Ok(page_body(list, total, page, page_size))

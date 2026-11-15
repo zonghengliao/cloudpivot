@@ -23,8 +23,8 @@ use crate::business::erp::asset::asset_dto::{
     normalize_page, parse_uuid_text,
 };
 use crate::business::erp::depreciation::depreciation_model;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 批次分页。
 #[nik::permission(

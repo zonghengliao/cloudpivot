@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use nik::prelude::*;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 毫米 → 英寸的换算常数（1 英寸 = 25.4 毫米）。
 const MM_PER_INCH: f64 = 25.4;

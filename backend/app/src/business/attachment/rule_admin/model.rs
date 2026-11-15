@@ -23,8 +23,8 @@ use chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 use super::super::model::DocKind;
 use super::super::rule::RequiredAt;

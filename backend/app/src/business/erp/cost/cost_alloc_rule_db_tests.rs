@@ -104,7 +104,7 @@ mod db {
     impl Fixture {
         async fn build() -> Self {
             let suffix = uniq();
-            let dept = crate::shared::test_helpers::ensure_any_dept().await;
+            let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
             let unit: Uuid = db()
                 .scalar_with_params("SELECT id FROM biz_unit WHERE deleted_at IS NULL LIMIT 1", vec![])
                 .await
@@ -771,7 +771,10 @@ mod db {
             .await
             .expect_err("无在产对象");
         assert_eq!(error.status, 409, "{}", error.msg);
-        assert_eq!(error.code, crate::shared::error_code::ERP_COST_ALLOC_NO_OBJECT);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_ALLOC_NO_OBJECT
+        );
         assert!(error.msg.contains("4000"), "{}", error.msg);
 
         // (b) 有对象、有工时，但规则按机器工时摊而机器工时全是 0
@@ -793,7 +796,10 @@ mod db {
         .await
         .expect_err("机器工时基数全 0");
         assert_eq!(error.status, 409, "{}", error.msg);
-        assert_eq!(error.code, crate::shared::error_code::ERP_COST_ALLOC_BASIS_ZERO);
+        assert_eq!(
+            error.code,
+            cloudpivot_kernel::shared::error_code::ERP_COST_ALLOC_BASIS_ZERO
+        );
         assert!(error.msg.contains("机器工时"), "{}", error.msg);
         assert!(
             error.msg.contains(&object_no) || error.msg.contains("基数合计为 0"),

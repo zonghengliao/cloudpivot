@@ -50,9 +50,9 @@ use crate::business::hr::salary_sheet_dto::{
     SalaryDeptSummaryRes, SalaryDetailFilter, SalaryDetailRes, SalaryItemLineRes, SalaryItemTypeTotalsRes,
     SalarySheetCardRes, SalarySheetFilter, SalarySheetHeaderRes, SalaryTotalsRes,
 };
-use crate::business::shared::scope;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 单头表名（与 `hr::model` 的表名单同源；这里只是本文件的可读别名）。
 pub const TABLE_SHEET: &str = "biz_salary_sheet";
@@ -861,7 +861,7 @@ pub async fn detail_in_scope(
     ex: &impl SqlExecutor,
     sheet_id: Uuid,
     detail_id: Uuid,
-    principal: &crate::business::shared::principal::ScopedPrincipal,
+    principal: &cloudpivot_kernel::business::shared::principal::ScopedPrincipal,
 ) -> DbResult<bool> {
     let filter = scope::filter_for(principal, DETAIL_SCOPE_TARGET);
     let (sql, params) = scope_probe_query(sheet_id, detail_id, &filter);
@@ -1441,8 +1441,8 @@ mod tests {
     /// 片段与参数错位是「越权闸反向」的典型成因：多绑定一个就把 `id` 顶进了部门位。
     #[test]
     fn scope_probe_placeholder_count_matches_params() {
-        use crate::business::shared::principal::ScopedPrincipal;
-        use crate::business::shared::scope::ScopeKind;
+        use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+        use cloudpivot_kernel::business::shared::scope::ScopeKind;
 
         let cases = [
             ScopedPrincipal::for_test(Uuid::now_v7(), None, true, ScopeKind::All, Vec::new(), false),

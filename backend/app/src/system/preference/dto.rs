@@ -34,7 +34,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 /// 偏好值：任意 JSON 形态（`string` / `number` / `boolean` / 对象 / 数组）。
 pub type PrefValue = serde_json::Value;

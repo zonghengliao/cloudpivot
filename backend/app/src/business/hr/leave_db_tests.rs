@@ -40,9 +40,9 @@ mod db {
         STATUS_DRAFT, STATUS_SUBMITTED,
     };
     use crate::business::hr::leave_model::{self as model, LeaveInsert};
-    use crate::business::shared::principal::ScopedPrincipal;
-    use crate::business::shared::scope::{SCOPED_TABLES, ScopeKind};
-    use crate::shared::test_helpers;
+    use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+    use cloudpivot_kernel::business::shared::scope::{SCOPED_TABLES, ScopeKind};
+    use cloudpivot_kernel::shared::test_helpers;
     use nik::prelude::chrono::{DateTime, Duration, FixedOffset, Utc};
     use nik::prelude::rust_decimal::Decimal;
     use tokio::sync::OnceCell;

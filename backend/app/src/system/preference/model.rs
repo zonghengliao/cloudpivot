@@ -30,8 +30,8 @@ use nik::uuid::Uuid;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 
-use crate::shared::error_code;
 use crate::system::preference::dto::PreferenceRes;
+use cloudpivot_kernel::shared::error_code;
 
 /// 字典读取 SQL：只取启用项，按 `sort_order` 升序（= 前端设置页展示顺序）。
 const DEF_SELECT: &str = "SELECT pref_key, pref_name, value_type, default_value::text AS default_value, \

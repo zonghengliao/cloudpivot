@@ -41,8 +41,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cost::cost_period_dto::{self, CostPeriodFilter, CostPeriodSummary, CostSheetItemRes};
-use crate::business::shared::scope;
-use crate::business::shared::state_machine;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::business::shared::state_machine;
 
 /// 表名。
 pub const TABLE: &str = "biz_cost_period";

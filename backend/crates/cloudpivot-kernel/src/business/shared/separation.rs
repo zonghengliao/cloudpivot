@@ -62,8 +62,8 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::shared::config_port;
 use crate::shared::error_code;
-use crate::support::config::model::{self as config_model, SysConfigModel};
 
 /// 总闸：一键把未单独配置的项默认成「开」（`true` 只升不降）。
 pub const MASTER_KEY: &str = "erp.separation_of_duties.enabled";
@@ -210,7 +210,7 @@ pub struct Resolution {
 pub fn resolve(duty: Duty, own: Option<&str>, master: Option<&str>) -> Resolution {
     let mut invalid: Option<String> = None;
     if let Some(text) = own {
-        match config_model::parse_bool(text) {
+        match config_port::parse_bool(text) {
             Some(enabled) => {
                 return Resolution {
                     enabled,
@@ -222,7 +222,7 @@ pub fn resolve(duty: Duty, own: Option<&str>, master: Option<&str>) -> Resolutio
         }
     }
     if let Some(text) = master {
-        match config_model::parse_bool(text) {
+        match config_port::parse_bool(text) {
             // 总闸只升不降：`false` 不覆盖本项默认值（否则种子里的 false 会关掉内控）
             Some(true) => {
                 return Resolution {
@@ -256,8 +256,8 @@ pub fn resolve(duty: Duty, own: Option<&str>, master: Option<&str>) -> Resolutio
 ///
 /// 生效的布尔值；参数缺失 / 停用 / 解析失败时回退 [`Duty::default_enabled`]。
 pub async fn enabled(duty: Duty) -> bool {
-    let own = SysConfigModel::read_text(duty.key()).await;
-    let master = SysConfigModel::read_text(MASTER_KEY).await;
+    let own = config_port::read_text(duty.key()).await;
+    let master = config_port::read_text(MASTER_KEY).await;
     let resolution = resolve(duty, own.as_deref(), master.as_deref());
     if let Some(raw) = resolution.invalid.as_deref() {
         tracing::warn!(
@@ -584,7 +584,7 @@ pub fn parse_amount(raw: &str) -> Option<f64> {
 /// 与布尔开关「解析失败当 false = 关掉内控」的方向相反，这里回退到默认值不会
 /// 让任何本来被拦的动作变成放行（阈值只在 ALLOW 上起作用）。
 pub async fn self_approval_max_amount() -> f64 {
-    let Some(raw) = SysConfigModel::read_text(SELF_APPROVAL_MAX_AMOUNT_KEY).await else {
+    let Some(raw) = config_port::read_text(SELF_APPROVAL_MAX_AMOUNT_KEY).await else {
         return SELF_APPROVAL_MAX_AMOUNT_DEFAULT;
     };
     match parse_amount(&raw) {

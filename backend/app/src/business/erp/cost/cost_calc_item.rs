@@ -35,7 +35,7 @@ use crate::business::erp::cost::cost_period_item_dto::{
     self as dto, BegCost, ItemCalc, ItemInput, ItemRunOutcome, OutputInput, PriorItem, SkippedObject,
 };
 use crate::business::erp::cost::cost_period_item_model::{self as model, ItemRow};
-use crate::utils;
+use cloudpivot_kernel::utils;
 
 /// 算当期全部成本对象的计算单（calc 第 6 段，自开事务）。
 ///

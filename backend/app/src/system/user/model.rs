@@ -14,10 +14,10 @@
 
 use nik::prelude::*;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
-use crate::shared::constants::{self, EnableStatus};
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
+use cloudpivot_kernel::shared::constants::{self, EnableStatus};
+use cloudpivot_kernel::utils;
 
 /// `sys_user` 表对应的强类型模型（用户）。
 ///
@@ -620,7 +620,7 @@ pub(crate) async fn bump_token_version(user_id: &uuid::Uuid) -> std::result::Res
         .ok_or_else(|| DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败")))?;
     // FIX-05：库侧已推进 → 立刻删掉该用户的会话字段缓存（`uv:{user_id}`），
     // 让下一个请求直接读到新版本号（不等 60 s TTL）。失效失败只降级为本实例直查库。
-    crate::shared::session_cache::invalidate(user_id).await;
+    cloudpivot_kernel::shared::session_cache::invalidate(user_id).await;
     Ok(bumped)
 }
 
@@ -773,4 +773,28 @@ pub(crate) async fn load_session_flags(user_id: &uuid::Uuid) -> std::result::Res
         row.get_typed::<i32>("token_version")?,
         row.get_typed::<bool>("must_change_password")?,
     )))
+}
+
+// ==================== 基座会话字段读取接缝的实现（P2-59 · C1 解环） ====================
+
+/// `sys_user` 会话安全字段的读取实现：基座 [`cloudpivot_kernel::shared::session_flags_port`] 的**唯一**实现。
+///
+/// # 为什么只有这一份
+///
+/// `token_version` / `must_change_password` 是鉴权字段，读取口径（列名、软删过滤、
+/// 类型映射）一旦出现第二份，就会在某条路径上悄悄分叉（典型：漏 `deleted_at IS NULL`
+/// ⇒ 删号用户的旧令牌继续有效）。基座的缓存层未命中时通过接缝回到这里。
+pub struct SessionFlagsReader;
+
+#[async_trait::async_trait]
+impl cloudpivot_kernel::shared::session_flags_port::SessionFlagsReader for SessionFlagsReader {
+    /// 读取会话字段（实现即本文件的 [`load_session_flags`]）。
+    async fn load_session_flags(&self, user_id: &uuid::Uuid) -> std::result::Result<Option<(i32, bool)>, DbError> {
+        load_session_flags(user_id).await
+    }
+
+    /// 实现方自报名字（启动日志里打一行）。
+    fn name(&self) -> &'static str {
+        "system::user::model::SessionFlagsReader"
+    }
 }

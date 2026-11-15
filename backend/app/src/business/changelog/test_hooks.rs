@@ -39,7 +39,7 @@
 
 use nik::prelude::*;
 
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 use super::{ChangeCtx, ChangeTarget, DiffInput, RecordOutcome, model, record_in};
 

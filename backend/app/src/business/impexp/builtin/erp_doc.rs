@@ -561,7 +561,7 @@ impl ExportDefinition for ErpDocExport {
 /// 现在只认文本码 `status_code`（白名单校验在 `definition::check_export_filter`），拼
 /// `AND {status_expr} = ANY(?::text[])`，与列表页 `status` 过滤同口径。
 fn push_filters(sql: &mut String, params: &mut Vec<Value>, spec: &DocSpec, filter: &ExportFilter) {
-    if let Some(pattern) = crate::utils::like_pattern(filter.keyword.as_deref())
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref())
         && !spec.keyword_exprs.is_empty()
     {
         sql.push_str(" AND (");
@@ -811,7 +811,7 @@ mod tests {
         };
         let error = check_export_filter(&voucher, &mut filter).expect_err("PAID 不是凭证状态");
         assert_eq!(error.status, 422);
-        assert_eq!(error.code, crate::shared::error_code::PARAM_INVALID);
+        assert_eq!(error.code, cloudpivot_kernel::shared::error_code::PARAM_INVALID);
         for code in voucher.status_codes() {
             assert!(
                 error.msg.contains(code),

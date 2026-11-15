@@ -13,15 +13,15 @@ use nik::uuid::Uuid;
 
 use super::task_handler_assign::*;
 use super::task_handler_common::*;
-use crate::business::shared::principal::{self};
 use crate::business::task::dep;
 use crate::business::task::dto::{
     self, GanttBarRes, GanttDepRes, GanttRangeRes, GanttTaskRes, TaskDependenciesRes, TaskDependencyAddReq,
     TaskDependencyAddRes, TaskDependencyItemRes, TaskDependencyRemoveRes, TaskGanttQuery, TaskGanttRes,
 };
 use crate::business::task::model::{self};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 /// 依赖管理权的行级矩阵（与分派同一套 `ActorRole`）。
 ///

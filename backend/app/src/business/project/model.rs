@@ -28,9 +28,9 @@ use nik::prelude::chrono::NaiveDate;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope;
 use crate::business::task::model as task_model;
+use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
+use cloudpivot_kernel::business::shared::scope;
 
 // ==================== 数据权限锚点 ====================
 

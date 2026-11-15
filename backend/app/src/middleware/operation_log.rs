@@ -23,7 +23,7 @@
 //! # 客户端 IP
 //!
 //! 从 `ConnectInfo<SocketAddr>` 取连接对端地址，连同请求头交给
-//! [`crate::utils::client_ip`] 解析真实客户端 IP（`X-Real-IP` → `X-Forwarded-For`
+//! [`cloudpivot_kernel::utils::client_ip`] 解析真实客户端 IP（`X-Real-IP` → `X-Forwarded-For`
 //! 末段 → 连接对端 IP），以适配多层代理并防止伪造首段。
 //!
 //! # 容错
@@ -46,10 +46,10 @@ use axum::middleware::Next;
 use axum::response::Response;
 use nik::prelude::*;
 
-use crate::shared::constants;
 use crate::support::log::bus;
 use crate::support::log::model::OperationLogModel;
-use crate::utils;
+use cloudpivot_kernel::shared::constants;
+use cloudpivot_kernel::utils;
 
 // ==================== 脱敏与捕获配置 ====================
 

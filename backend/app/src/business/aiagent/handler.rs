@@ -60,11 +60,11 @@ use crate::business::aiagent::model::{self, AiAgentRow, AiUserBrief};
 use crate::business::aiagent::safety;
 use crate::business::changelog::dto::{Action, TraceSource};
 use crate::business::changelog::model as changelog_model;
-use crate::shared::ai_actor;
-use crate::shared::constants::EnableStatus;
-use crate::shared::error_code;
 use crate::system::user::model::{self as user_model, SysUserModel, SysUserRoleModel};
-use crate::utils;
+use cloudpivot_kernel::shared::ai_actor;
+use cloudpivot_kernel::shared::constants::EnableStatus;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 创建 ====================
 

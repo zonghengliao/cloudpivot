@@ -58,7 +58,7 @@ use nik::uuid::Uuid;
 
 use crate::business::flow::assignee::{ESCALATION_MAX_LEVELS, array_param};
 use crate::business::flow::graph::{AssigneeKind, FlowGraph, Issue, NodeSpec};
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 阶段 ====================
 

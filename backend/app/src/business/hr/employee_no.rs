@@ -88,9 +88,9 @@
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::shared::seq;
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::seq;
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 常量（与设计 / 迁移逐字一致） ====================
 

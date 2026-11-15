@@ -1802,7 +1802,7 @@ def group_j():
 #
 # 背景：库里「谁能看哪些行」只有两个载体 —— `sys_role.data_scope`
 # （1 全部 / 2 本部门 / 3 本部门及以下 / 4 仅本人 / 5 自定义集合）与
-# `sys_role_dept`（仅 5 生效）。解析链见 `business/shared/principal.rs::RESOLVE_SQL`
+# `sys_role_dept`（仅 5 生效）。解析链见 `backend/crates/cloudpivot-kernel/src/business/shared/principal.rs::RESOLVE_SQL`
 # → `shared/scope.rs::filter_for`。全库都停在默认值 1 时，每个人拿到的片段都是
 # `AND 1 = 1`：功能没坏、接口没报错，**但「数据权限」这件事等于没做** —— 这是
 # 典型的静默失效（比报错更难发现，因为看板上一切正常）。

@@ -82,10 +82,10 @@ use crate::business::hr::leave_dto::{
     LeaveDetailRes, LeavePageQuery, LeaveRes, LeaveSubmitReq, LeaveUpdateReq,
 };
 use crate::business::hr::leave_model::{self as model, LeaveInsert};
-use crate::business::shared::principal::{self, ScopedPrincipal};
-use crate::business::shared::state_machine::{self, Operator};
-use crate::shared::error_code;
-use crate::utils;
+use cloudpivot_kernel::business::shared::principal::{self, ScopedPrincipal};
+use cloudpivot_kernel::business::shared::state_machine::{self, Operator};
+use cloudpivot_kernel::shared::error_code;
+use cloudpivot_kernel::utils;
 
 // ==================== 权限码（与 V0387 的 sys_menu.auth_code 逐字一致） ====================
 

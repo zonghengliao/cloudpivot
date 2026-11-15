@@ -50,7 +50,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::cost::cost_labor_dto;
-use crate::shared::error_code;
+use cloudpivot_kernel::shared::error_code;
 
 // ==================== 值域（与 V0371 的 CHECK 逐字一致） ====================
 
@@ -574,7 +574,7 @@ pub fn map_write_error(err: DbError, spec: &CostOverheadSpec, ctx: &str) -> ApiE
                     .unwrap_or_default()
             ),
         ),
-        _ => crate::utils::db_error(err, ctx),
+        _ => cloudpivot_kernel::utils::db_error(err, ctx),
     }
 }
 
