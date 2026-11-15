@@ -1,4 +1,5 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios';
+import { resolveErrorMessage } from '@/constants/error-messages';
 import { offerAssigneeFix } from '@/utils/flow-assignee-guard';
 import {
   broadcastLogout,
@@ -47,7 +48,7 @@ const REFRESH_PATH = '/api/system/auth/refresh';
 
 /**
  * 后端错误码：会话因长时间未操作已自动退出（`AUTH_IDLE_TIMEOUT`，见
- * `backend/app/src/shared/error_code.rs`）。
+ * `backend/crates/cloudpivot-kernel/src/shared/error_code.rs`）。
  *
  * 这类 401 **不能走刷新流程**：服务端在判超时的同时已经吊销了该会话名下的 refresh
  * 令牌（`revoke_refresh_by_sid`），刷新必然失败；而且用户要看到的是「因长时间未操作
@@ -260,37 +261,40 @@ function redirectToLogin(reason?: 'idle'): void {
   window.location.replace(reason ? `${LOGIN_PATH}?reason=${reason}` : LOGIN_PATH);
 }
 
-/** 把 axios 的各类失败（网络、超时、非 2xx）转换为带可读消息的 ApiError */
+/**
+ * 把 axios 的各类失败（网络、超时、非 2xx）转换为带可读消息的 ApiError。
+ *
+ * # 文案（P3-01：错误码 → 人话）
+ *
+ * 展示文案统一由 {@link resolveErrorMessage} 决定，本函数只负责**取料**：
+ * 业务码（`body.code`）、HTTP 状态、后端 `msg`。规则见
+ * `constants/error-messages.ts` 文件头 —— 一句话：**后端原文说得清就用原文（它带这一单的
+ * 票数 / 节点名），说不清 / 没有才用码表里的「现象 + 该怎么办」，任何分支都不会把裸码
+ * 甩给用户**。
+ */
 function toApiError(error: AxiosError<ApiResult>): ApiError {
   const body = error.response?.data;
   const status = error.response?.status;
   // 后端回传的 x-request-id 优先；网络层失败时退回我们自己发出去的那个
   const requestId = resolveRequestId(error.response?.headers, error.config?.headers?.[REQUEST_ID_HEADER]);
-  // 后端在 401/403/500 等错误路径上也返回统一响应体，优先采用其 msg
-  if (body && typeof body === 'object' && typeof body.msg === 'string' && body.msg) {
-    if (status === 401) {
-      clearTokens();
-    }
-    return new ApiError(
-      typeof body.code === 'number' ? body.code : -1,
-      body.msg,
-      status,
-      // 65018 这类错误带结构化载荷（见 ApiError.data 的注释）；其它错误为 undefined
-      (body as { data?: unknown }).data,
-      requestId,
-    );
-  }
+  // 令牌失效（401）要清本地令牌，与文案无关，先做
   if (status === 401) {
     clearTokens();
-    return new ApiError(-1, '登录状态已失效，请重新登录', status, undefined, requestId);
   }
-  if (status === 403) {
-    return new ApiError(-1, '权限不足', status, undefined, requestId);
-  }
-  if (error.code === 'ECONNABORTED') {
-    return new ApiError(-1, '请求超时，请稍后重试', undefined, undefined, requestId);
-  }
-  return new ApiError(-1, error.message || '网络异常，请检查服务是否可用', undefined, undefined, requestId);
+  // 后端在 401/403/409/500 等错误路径上也返回统一响应体；取不到就按「网络层失败」处理
+  const hasBody = Boolean(body && typeof body === 'object');
+  const code = hasBody && typeof (body as ApiResult).code === 'number' ? (body as ApiResult).code : -1;
+  const backendMessage = hasBody && typeof (body as ApiResult).msg === 'string' ? (body as ApiResult).msg : '';
+  // 请求超时（axios ECONNABORTED）自己就是一句人话，交给同一个解析器统一判重
+  const message = backendMessage || (error.code === 'ECONNABORTED' ? '请求超时，请稍后重试' : error.message);
+  return new ApiError(
+    code,
+    resolveErrorMessage({ code, status, message }).message,
+    status,
+    // 65018 这类错误带结构化载荷（见 ApiError.data 的注释）；其它错误为 undefined
+    (body as { data?: unknown } | undefined)?.data,
+    requestId,
+  );
 }
 
 /** 清除本地令牌（登出或令牌失效时调用） */
@@ -326,7 +330,14 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
     throw new ApiError(-1, '响应体格式不符合统一响应规范', response.status, undefined, requestId);
   }
   if (body.code !== 0) {
-    throw new ApiError(body.code, body.msg, response.status, (body as { data?: unknown }).data, requestId);
+    // 文案统一走码表（P3-01）：HTTP 2xx 但业务码非 0 的失败也要能看懂
+    throw new ApiError(
+      body.code,
+      resolveErrorMessage({ code: body.code, status: response.status, message: body.msg }).message,
+      response.status,
+      (body as { data?: unknown }).data,
+      requestId,
+    );
   }
   return body.data;
 }
