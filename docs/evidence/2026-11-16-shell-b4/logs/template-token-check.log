@@ -1,0 +1,20 @@
+-          <span class="panel-head__title">预算科目映射</span>
++          <span class="panel-head__title panel-head__title--lg">预算科目映射</span>
+-          <span class="panel-head__title">预算执行</span>
++          <span class="panel-head__title panel-head__title--lg">预算执行</span>
+-        <span class="panel-head__title">未归集清单</span>
++        <span class="panel-head__title panel-head__title--lg">未归集清单</span>
+-              <span class="panel-head__side">
++              <span class="panel-head__side panel-head__side--loose">
+-          <span class="panel-head__title">取价查询</span>
++          <span class="panel-head__title panel-head__title--lg">取价查询</span>
+-          <span class="panel-head__title">取价结果</span>
++          <span class="panel-head__title panel-head__title--lg">取价结果</span>
+-        <t-card :bordered="false" class="tool-card">
++        <t-card :bordered="false" class="tool-card ar-aging-tool">
+-          <span class="panel-head__title">{{ activeReportName }}</span>
++          <span class="panel-head__title panel-head__title--lg">{{ activeReportName }}</span>
+-      <t-card :bordered="false" class="list-card">
++      <t-card :bordered="false" class="list-card list-card--side">
+-              <span class="panel-head__title">逐人核对</span>
++              <span class="panel-head__title panel-head__title--lg">逐人核对</span>

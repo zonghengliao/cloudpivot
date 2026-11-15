@@ -1,0 +1,39 @@
+business_erp_account.png  差异像素 0（mask 内）  有意义 0
+business_erp_account.toolrow.png  差异像素 0（mask 内）  有意义 0
+business_erp_asset.png  差异像素 10（mask 内）  有意义 0  maxΔ=1  bbox=[1135,88,1232,89]  y 区间=[[88,89]]
+business_erp_asset.toolrow.png  差异像素 10（mask 内）  有意义 0  maxΔ=1  bbox=[1135,16,1232,17]  y 区间=[[16,17]]
+business_erp_budget_mapping.png  差异像素 0（mask 内）  有意义 0
+business_erp_budget_mapping.toolrow.png  差异像素 0（mask 内）  有意义 0
+business_erp_budget_report.png  差异像素 0（mask 内）  有意义 0
+business_erp_budget_report.toolrow.png  差异像素 0（mask 内）  有意义 0
+business_erp_cost-period.png  差异像素 6709（mask 内）  有意义 6120  maxΔ=204  bbox=[536,78,1511,232]  y 区间=[[78,78],[80,80],[212,232]]
+business_erp_cost-period.toolrow.png  差异像素 5（mask 内）  有意义 0  maxΔ=1  bbox=[1280,6,1511,8]  y 区间=[[6,6],[8,8]]
+business_erp_inventory.png  差异像素 0（mask 内）  有意义 0
+business_erp_inventory.toolrow.png  差异像素 0（mask 内）  有意义 0
+business_erp_ledger.png  差异像素 0（mask 内）  有意义 0
+business_erp_ledger.toolrow.png  差异像素 0（mask 内）  有意义 0
+business_erp_opening.png  差异像素 148591（mask 内）  有意义 127443  maxΔ=206  bbox=[245,88,1586,738]  y 区间=[[88,123],[126,167],[184,205],[213,215],[221,223],[229,250],[269,290],[293,294],[301,302],[305,344],[351,382],[391,391]]
+business_erp_opening.toolrow.png  差异像素 5060（mask 内）  有意义 3500  maxΔ=206  bbox=[25,0,1586,63]  y 区间=[[0,47],[54,63]]
+business_erp_price.png  差异像素 6339（mask 内）  有意义 5686  maxΔ=204  bbox=[245,70,1586,247]  y 区间=[[70,83],[89,106],[191,204],[231,247]]
+business_erp_receivable.png  差异像素 15981（mask 内）  有意义 13066  maxΔ=13  bbox=[23,19,1567,267]  y 区间=[[19,32],[41,41],[146,157],[164,166],[193,195],[202,215],[222,233],[246,267]]
+business_erp_receivable.toolrow.png  差异像素 128（mask 内）  有意义 0  maxΔ=8  bbox=[264,0,1567,63]  y 区间=[[0,9],[16,18],[45,47],[54,63]]
+business_erp_report_report-item.png  差异像素 19196（mask 内）  有意义 9201  maxΔ=129  bbox=[245,70,1586,496]  y 区间=[[70,83],[238,251],[258,271],[308,309],[323,339],[354,356],[407,423],[481,496]]
+business_erp_report_report-item.toolrow.png  差异像素 87（mask 内）  有意义 6  maxΔ=11  bbox=[245,0,1586,11]  y 区间=[[0,11]]
+business_erp_sales-order.png  差异像素 0（mask 内）  有意义 0
+business_erp_sales-order.toolrow.png  差异像素 0（mask 内）  有意义 0
+business_erp_sales-return.png  差异像素 18（mask 内）  有意义 4  maxΔ=22  bbox=[879,7,1398,105]  y 区间=[[7,8],[104,105]]
+business_erp_sales-return.toolrow.png  差异像素 10（mask 内）  有意义 0  maxΔ=1  bbox=[879,16,976,17]  y 区间=[[16,17]]
+business_erp_shipment.png  差异像素 10（mask 内）  有意义 0  maxΔ=1  bbox=[879,104,976,105]  y 区间=[[104,105]]
+business_erp_shipment.toolrow.png  差异像素 10（mask 内）  有意义 0  maxΔ=1  bbox=[879,16,976,17]  y 区间=[[16,17]]
+business_erp_stock-out.png  差异像素 4（mask 内）  有意义 0  maxΔ=1  bbox=[1227,88,1244,89]  y 区间=[[88,89]]
+business_erp_stock-out.toolrow.png  差异像素 4（mask 内）  有意义 0  maxΔ=1  bbox=[1227,16,1244,17]  y 区间=[[16,17]]
+business_erp_transfer.png  差异像素 25（mask 内）  有意义 4  maxΔ=22  bbox=[721,7,1398,89]  y 区间=[[7,8],[88,89]]
+business_erp_transfer.toolrow.png  差异像素 17（mask 内）  有意义 0  maxΔ=1  bbox=[721,16,954,17]  y 区间=[[16,17]]
+business_erp_year-end.png  差异像素 0（mask 内）  有意义 0
+business_erp_year-end.toolrow.png  差异像素 0（mask 内）  有意义 0
+business_hr_salary.png  差异像素 17239（mask 内）  有意义 14134  maxΔ=204  bbox=[736,603,1583,725]  y 区间=[[603,604],[614,629],[641,643],[654,671],[682,682],[684,684],[695,712],[723,723],[725,725]]
+business_hr_salary.toolrow.png  差异像素 0（mask 内）  有意义 0
+help.png  差异像素 0（mask 内）  有意义 0
+support_config.png  差异像素 0（mask 内）  有意义 0
+
+共 37 页；有差异的页 20 页；diff 图目录 /root/.hermes/profiles/frontend-developer/cache/scratch/b4/shoots/diff-1600

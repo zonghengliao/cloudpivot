@@ -1,0 +1,21 @@
+{
+  "views/business/erp/budget/mapping.vue::panel-head__title": { "font-size": "16px" },
+  "views/business/erp/budget/report.vue::panel-head__title": { "font-size": "16px" },
+  "views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head__title": { "font-size": "16px" },
+  "views/business/erp/price/index.vue::panel-head__title": { "font-size": "16px" },
+  "views/business/erp/report/report-item/index.vue::panel-head__title": { "font-size": "16px" },
+  "views/business/hr/salary/index.vue::panel-head__title": { "font-size": "16px" },
+  "views/business/erp/ledger/index.vue::panel-head__side": {
+    "display": "inline-flex",
+    "align-items": "baseline",
+    "gap": "12px",
+    "flex-wrap": "wrap"
+  },
+  "views/business/help/center/index.vue::list-card": {
+    "flex": "0 0 320px",
+    "width": "320px",
+    "display": "flex",
+    "flex-direction": "column",
+    "min-height": "0"
+  }
+}

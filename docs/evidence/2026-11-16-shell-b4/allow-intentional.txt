@@ -1,0 +1,55 @@
+# B4 有意变化白名单（`equivalence-b4.mjs --allow`）
+#
+# 每行：`LOST|CHANGED|NEW  [file::]cls.prop`。全部 37 条都能在
+# docs/evidence/2026-11-16-shell-b4/README.md 的「逐页裁定表」里找到同一行依据，
+# 分四组：① 死代码（页面 scoped 从未命中，实测 before 已是基线值）
+#         ② 档位归一（15→16px 字号 / 8→10px 圆角 / 8|12→10px 头间距）
+#         ③ 间距改由页面自有类或容器 `gap` 承担
+#         ④ 装饰归一（内边距 / 背景 / 圆角回落到 TDesign 默认 = 邻居的值）
+
+# ① 死代码：DOM 属于 ListPage 组件或 `.list-card` 选择器在本页无匹配
+CHANGED views/business/erp/asset/index.vue::panel-head.margin-bottom
+CHANGED views/business/erp/asset/index.vue::panel-head__title.font-size
+CHANGED views/business/erp/sales-order/index.vue::panel-head.margin-bottom
+CHANGED views/business/erp/sales-order/index.vue::panel-head__title.font-size
+CHANGED views/business/erp/sales-return/index.vue::panel-head.margin-bottom
+CHANGED views/business/erp/sales-return/index.vue::panel-head__title.font-size
+CHANGED views/business/erp/shipment/index.vue::panel-head.margin-bottom
+CHANGED views/business/erp/shipment/index.vue::panel-head__title.font-size
+LOST views/business/erp/sales-order/index.vue::list-card.border-radius
+LOST views/business/erp/sales-return/index.vue::list-card.border-radius
+LOST views/business/erp/shipment/index.vue::list-card.border-radius
+
+# ② 档位归一（有意变化表 §2.4 的两档制与圆角/间距归一）
+CHANGED views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head__title.font-size
+CHANGED views/business/erp/price/index.vue::panel-head__title.font-size
+CHANGED views/business/erp/report/report-item/index.vue::panel-head__title.font-size
+CHANGED views/business/erp/report/report-item/index.vue::panel-head.margin-bottom
+CHANGED views/business/erp/report/report-item/index.vue::panel-head.align-items
+CHANGED views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head.align-items
+CHANGED views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head.gap
+CHANGED views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head__main.align-items
+CHANGED views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head__main.gap
+CHANGED views/business/hr/salary/index.vue::panel-head.align-items
+CHANGED views/business/hr/salary/index.vue::panel-head.margin-bottom
+LOST views/business/erp/receivable/index.vue::tool-card.border-radius
+LOST views/business/erp/receivable/index.vue::list-card.border-radius
+LOST views/business/erp/report/report-item/index.vue::tool-card.border-radius
+LOST views/business/erp/report/report-item/index.vue::list-card.border-radius
+
+# ③ 间距改由页面自有类 / 容器 gap 承担（`.ar-aging-tool`、`.year-end-page{gap}`、`.config-page{gap}`）
+LOST views/business/erp/receivable/index.vue::tool-card.margin-bottom
+LOST views/business/erp/receivable/index.vue::list-card.margin-bottom
+LOST views/business/erp/year-end/index.vue::tool-card.margin-bottom
+LOST views/support/config/index.vue::list-card.margin-top
+
+# ④ `flex-wrap` 实测从未触发（1280 / 1600 两档卡片头都是单行）→ 不立 `--wrap` 变体
+LOST views/business/erp/account/index.vue::panel-head.flex-wrap
+LOST views/business/erp/account/index.vue::panel-head__main.flex-wrap
+LOST views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head.flex-wrap
+LOST views/business/erp/cost-period/steps/UncollectedPanel.vue::panel-head__main.flex-wrap
+
+# ⑤ 装饰归一：内边距 / 背景回落（TDesign 默认 = 全站其它卡片的值）
+LOST views/business/erp/opening/index.vue::tool-card.padding
+LOST views/business/erp/price/index.vue::tool-card.background
+LOST views/business/erp/price/index.vue::tool-card.border-radius

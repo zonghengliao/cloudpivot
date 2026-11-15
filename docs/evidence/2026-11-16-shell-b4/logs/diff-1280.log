@@ -1,0 +1,54 @@
+对比元素 184 个；几何/结构差异 32 条；样式值差异 47 条
+
+几何/结构差异：
+  10×  - · CLASS
+  3×  panel-head__main · w
+  3×  panel-head__title · w
+  2×  panel-head__meta · x
+  2×  tool-row__spacer · y
+  1×  panel-head__main · y
+  1×  panel-head__main · h
+  1×  panel-head__title · y
+  1×  tool-card · h
+  1×  tool-row · x
+  1×  tool-row · y
+  1×  tool-row · w
+  1×  tool-row__period · x
+  1×  tool-row__period · y
+  1×  tool-row__spacer · x
+  1×  tool-row__spacer · w
+  1×  list-card · h
+
+样式值差异：
+  4×  panel-head__title · font-size
+  3×  panel-head · align-items
+  3×  panel-head__main · width
+  3×  panel-head__title · width
+  3×  tool-card · border-radius
+  2×  panel-head · flex-wrap
+  2×  panel-head__main · flex-wrap
+  2×  list-card · border-radius
+  2×  panel-head · margin-bottom
+  1×  panel-head · gap
+  1×  panel-head · row-gap
+  1×  panel-head · column-gap
+  1×  panel-head__main · align-items
+  1×  panel-head__main · gap
+  1×  panel-head__main · row-gap
+  1×  panel-head__main · column-gap
+  1×  panel-head__main · height
+  1×  panel-head__ops · margin-left
+  1×  tool-card · padding-top
+  1×  tool-card · padding-right
+  1×  tool-card · padding-bottom
+  1×  tool-card · padding-left
+  1×  tool-card · height
+  1×  tool-row · width
+  1×  tool-row__spacer · width
+  1×  list-card · margin-bottom
+  1×  list-card · height
+  1×  tool-card · margin-bottom
+  1×  tool-card · min-width
+  1×  tool-card · min-height
+  1×  list-card · margin-top
+  1×  list-card · min-height

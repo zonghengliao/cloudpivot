@@ -1,0 +1,42 @@
+比对 17 个「有壳类声明被删」的文件 / 53 个类（变体表 8 条）
+回归：LOST=0  CHANGED=0  NEW=0
+有意变化（白名单命中）：37 条
+
+— 有意变化明细 —
+  {"file":"views/business/erp/account/index.vue","cls":"panel-head","kind":"LOST","prop":"flex-wrap","before":"wrap"}
+  {"file":"views/business/erp/account/index.vue","cls":"panel-head__main","kind":"LOST","prop":"flex-wrap","before":"wrap"}
+  {"file":"views/business/erp/asset/index.vue","cls":"panel-head","kind":"CHANGED","prop":"margin-bottom","before":"12px","after":"10px"}
+  {"file":"views/business/erp/asset/index.vue","cls":"panel-head__title","kind":"CHANGED","prop":"font-size","before":"16px","after":"14px"}
+  {"file":"views/business/erp/cost-period/steps/UncollectedPanel.vue","cls":"panel-head","kind":"CHANGED","prop":"align-items","before":"center","after":"baseline"}
+  {"file":"views/business/erp/cost-period/steps/UncollectedPanel.vue","cls":"panel-head","kind":"CHANGED","prop":"gap","before":"8px","after":"12px"}
+  {"file":"views/business/erp/cost-period/steps/UncollectedPanel.vue","cls":"panel-head","kind":"LOST","prop":"flex-wrap","before":"wrap"}
+  {"file":"views/business/erp/cost-period/steps/UncollectedPanel.vue","cls":"panel-head__main","kind":"CHANGED","prop":"align-items","before":"center","after":"baseline"}
+  {"file":"views/business/erp/cost-period/steps/UncollectedPanel.vue","cls":"panel-head__main","kind":"CHANGED","prop":"gap","before":"8px","after":"10px"}
+  {"file":"views/business/erp/cost-period/steps/UncollectedPanel.vue","cls":"panel-head__main","kind":"LOST","prop":"flex-wrap","before":"wrap"}
+  {"file":"views/business/erp/cost-period/steps/UncollectedPanel.vue","cls":"panel-head__title","kind":"CHANGED","prop":"font-size","before":"15px","after":"16px"}
+  {"file":"views/business/erp/opening/index.vue","cls":"tool-card","kind":"LOST","prop":"padding","before":"4px 8px"}
+  {"file":"views/business/erp/price/index.vue","cls":"tool-card","kind":"LOST","prop":"background","before":"var(--td-bg-color-container)"}
+  {"file":"views/business/erp/price/index.vue","cls":"tool-card","kind":"LOST","prop":"border-radius","before":"var(--td-radius-medium)"}
+  {"file":"views/business/erp/price/index.vue","cls":"panel-head__title","kind":"CHANGED","prop":"font-size","before":"15px","after":"16px"}
+  {"file":"views/business/erp/receivable/index.vue","cls":"tool-card","kind":"LOST","prop":"margin-bottom","before":"12px"}
+  {"file":"views/business/erp/receivable/index.vue","cls":"tool-card","kind":"LOST","prop":"border-radius","before":"8px"}
+  {"file":"views/business/erp/receivable/index.vue","cls":"list-card","kind":"LOST","prop":"margin-bottom","before":"12px"}
+  {"file":"views/business/erp/receivable/index.vue","cls":"list-card","kind":"LOST","prop":"border-radius","before":"8px"}
+  {"file":"views/business/erp/report/report-item/index.vue","cls":"tool-card","kind":"LOST","prop":"border-radius","before":"8px"}
+  {"file":"views/business/erp/report/report-item/index.vue","cls":"list-card","kind":"LOST","prop":"border-radius","before":"8px"}
+  {"file":"views/business/erp/report/report-item/index.vue","cls":"panel-head","kind":"CHANGED","prop":"align-items","before":"flex-end","after":"baseline"}
+  {"file":"views/business/erp/report/report-item/index.vue","cls":"panel-head","kind":"CHANGED","prop":"margin-bottom","before":"12px","after":"10px"}
+  {"file":"views/business/erp/report/report-item/index.vue","cls":"panel-head__title","kind":"CHANGED","prop":"font-size","before":"15px","after":"16px"}
+  {"file":"views/business/erp/sales-order/index.vue","cls":"list-card","kind":"LOST","prop":"border-radius","before":"8px"}
+  {"file":"views/business/erp/sales-order/index.vue","cls":"panel-head","kind":"CHANGED","prop":"margin-bottom","before":"8px","after":"10px"}
+  {"file":"views/business/erp/sales-order/index.vue","cls":"panel-head__title","kind":"CHANGED","prop":"font-size","before":"16px","after":"14px"}
+  {"file":"views/business/erp/sales-return/index.vue","cls":"list-card","kind":"LOST","prop":"border-radius","before":"8px"}
+  {"file":"views/business/erp/sales-return/index.vue","cls":"panel-head","kind":"CHANGED","prop":"margin-bottom","before":"8px","after":"10px"}
+  {"file":"views/business/erp/sales-return/index.vue","cls":"panel-head__title","kind":"CHANGED","prop":"font-size","before":"16px","after":"14px"}
+  {"file":"views/business/erp/shipment/index.vue","cls":"list-card","kind":"LOST","prop":"border-radius","before":"8px"}
+  {"file":"views/business/erp/shipment/index.vue","cls":"panel-head","kind":"CHANGED","prop":"margin-bottom","before":"8px","after":"10px"}
+  {"file":"views/business/erp/shipment/index.vue","cls":"panel-head__title","kind":"CHANGED","prop":"font-size","before":"16px","after":"14px"}
+  {"file":"views/business/erp/year-end/index.vue","cls":"tool-card","kind":"LOST","prop":"margin-bottom","before":"12px"}
+  {"file":"views/business/hr/salary/index.vue","cls":"panel-head","kind":"CHANGED","prop":"align-items","before":"center","after":"baseline"}
+  {"file":"views/business/hr/salary/index.vue","cls":"panel-head","kind":"CHANGED","prop":"margin-bottom","before":"12px","after":"10px"}
+  {"file":"views/support/config/index.vue","cls":"list-card","kind":"LOST","prop":"margin-top","before":"16px"}

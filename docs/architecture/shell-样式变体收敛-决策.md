@@ -94,6 +94,11 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > B3 已落（2026-11-16，卡 `t_84bc7f25`）：16 块 / 13 文件删净，**199 块 / 62 文件 / 约 1110 行**。
 > 逐批复核：B0 4、**B1 0、B2 0、B3 0**、B4 33、B5 136、B6 26 —— 只有 B3 归零。
 > 同时 `shell.less` 由 32 类扩到 **34 类**（新增 `--lg`、`hint--right`；`--dense` 与 `__main/__title/__meta` 三处基线补属性）。
+>
+> B4 已落（2026-11-16，卡 `t_6cec42fc`）：33 块 / 17 文件删净，**166 块 / 55 文件 / 约 932 行**。
+> 逐批复核：B0 4、**B1 0、B2 0、B3 0、B4 0**、B5 136、B6 26 —— 只有 B1–B4 归零。
+> `shell.less` 34 → **36 类**（`--side` 补全 5 属性、新增 `--side--loose`；`--lg` 挂到 6 页）。
+> 裁定 A 25 块 / B 8 块 / **C 0 块**；§4.5 记录本批推翻的三处卡面前提。
 
 ---
 
@@ -158,7 +163,7 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | `.tool-row--dense` | 紧凑工具行（成本/预算类页面，筛选项多、需要一行塞下） | **7**（B2 落 3；B3 加 4：cost-alloc-rule / cost-labor / cost-overhead / ledger，另 receipt-refund 只吃宽度那半） | `gap:8px`；`__period`/`__date` 收窄 140px（B3 已落）。**ListPage 系页面把类挂在 `<ListPage>` 根节点**：那些页的筛选行是组件自持的 `.lp__filter-row`（不是 `.tool-row`），后代选择器照样命中宽度那条、`gap` 那条不生效 |
 | `.tool-row--second` | 工具行第二排（单据类页面的第二行筛选） | 4 | `margin-top:8px` |
 | `.tool-row--filter` | 报表页筛选条 | 1 | `margin-top:12px` |
-| `.panel-head__title--lg` | 大卡片标题 | 10（B3 只**定义**，不改页面；三个 15px 页在 B4 挂类） | `font-size:16px` |
+| `.panel-head__title--lg` | 大卡片标题 | 10（B3 只**定义**，不改页面；B4 已挂 **6 页 / 7 个元素**：mapping、report、UncollectedPanel、price×2、report-item、hr-salary。`asset`/`sales-order`/`sales-return`/`shipment` 的标题属 ListPage 组件，页面挂不上也无需挂） | `font-size:16px` |
 | `.panel-head__tip--end` | 提示推到卡片头右侧 | 3（receipt / receivable / invoice） | `margin-left:auto` |
 | `.panel-head__hint--end` | 同上，作用于 `__hint` | 3（sales-order / sales-return / shipment） | `margin-left:auto` |
 | `.panel-head__tip--right` | 提示仅右对齐、不推位（长 tip 换行后不要居中/靠左） | 3（budget/index、budget/mapping、invoice） | `text-align:right` |
@@ -169,7 +174,8 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | `.panel-empty--file` | 导入导出/存储类空态（标题更大、说明更粗） | 4 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 15px/primary/margin 12px 0 4px；desc 13px/secondary/margin 0 0 16px |
 | `.panel-empty--doc` | 单据类空态（居中标题 + 说明） | 6 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 14px/600/primary/margin 8px 0 4px；desc 12px/placeholder |
 | `.panel-empty--inline` | 卡片内嵌小空态（薪资审批详情） | 1 | `display:block; text-align:center; padding:16px 12px; font-size:13px` |
-| `.list-card--side` | 侧栏卡（帮助中心，固定 320px） | 1 | `flex:0 0 320px; width:320px` |
+| `.list-card--side` | 固定宽度侧栏卡（帮助中心三栏布局的 320px 中列；卡内要自己滚、pager 沉底） | 1（help/center；B4 落） | `flex:0 0 320px; width:320px; display:flex; flex-direction:column; min-height:0`（5 条写全） |
+| `.panel-head__side--loose` | 卡片头右侧槽的松排（ledger 的「当前科目 + 余额口径说明」：12px 间距、文字基线对齐、窄窗可换行） | 1（erp/ledger；B4 落） | `display:inline-flex; align-items:baseline; gap:12px; flex-wrap:wrap`（4 条写全；`inline-flex` 在 flex 父里会被 blockify 成 `flex`，实测如此） |
 
 `panel-head__main{min-width:0}`、`panel-head__title/meta{white-space:nowrap}` 这两条**提进基线**
 （不是变体：所有 `__main` 都该能收缩防溢出，所有卡片标题都该防断行）。
@@ -282,6 +288,9 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > 但**只定义不挂类** —— 那三个 15px 页（`cost-period/steps/UncollectedPanel`、`price`、`report/report-item`）
 > 的 `panel-head__title` 块同时缺基线属性，归 B4 一起处理（避免两卡改同一文件冲突）。
 > B3 只把 `hr/salary` 的 `panel-head__meta` 13px 归一到 12px（实测渲染 13→12、宽 39→36，无换行）。
+> B4 已把 `--lg` 挂到 6 页 7 个元素（三个 15px 页 15→16px 属有意变化，实测标题宽 +4~5px、
+> 卡片头行高不变）；`asset`/`sales-order`/`sales-return`/`shipment` 的标题模板属 ListPage 组件，
+> 页面挂不上 —— 它们的本地块本来就是死代码，实测渲染一直是 14px。
 
 ### 4.3 颜色：角色色，不按页面偏好
 
@@ -307,6 +316,32 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > mapping `__type` 150→140、report `__keyword` 200→220、transfer `__status` 140→130、stock-out `__range` 240→250、
 > payable-aging period 200→220 / date 180→150。**换行点实测零变化**（22 条采集路由逐页比工具行行数与每行成员，全同）。
 
+### 4.5 卡片 / 卡片头的「半变体」（B4 实测口径）
+
+B4 批（33 块）里**没有一块需要把属性补进壳类**：`tool-card{flex}`、`list-card{flex;min-width}`、
+`panel-head*` 的缺项，**基线今天就已经在补**（CSS 按属性级联）。所以这批的真实内容是三类：
+
+1. **死代码**：`asset` / `sales-order` / `sales-return` / `shipment` 的 `panel-head`、`panel-head__title`、
+   `list-card` —— DOM 属 ListPage 组件模板（`lp__list-card`）或由组件自带同名规则，
+   页面 scoped 从未命中（before 探针实测 `margin-bottom:10px`、`font-size:14px`）。删块 = 零观感。
+2. **档位归一**：`panel-head__title` 15→16px（走 `--lg`，B4 挂 6 页 7 个元素）、
+   卡片圆角 8|6→10px（TDesign 默认，与全站其它卡一致）、卡片头 `margin-bottom` 12|8→10px、
+   `align-items` center|flex-end→baseline。
+3. **装载性间距不许删**：`receivable`（账龄 Tab 两卡 12px）、`year-end`（12px）、`support/config`（16px）
+   的卡片间距原本挂在壳类 `margin` 上，删了卡会贴在一起。按 §2.2 末行「装饰留在页面」，
+   改由**页面自有类 / 容器 `gap`** 承接（`.ar-aging-tool`、`.year-end-page{gap:12}`、`.config-page{gap:16}`），
+   壳类只吃基线 —— 这是「页面差异的第二种合法出口」：**布局间距属于页面，不属于壳**。
+
+> **已落（B4，卡 `t_6cec42fc`）**：33 块 / 17 文件删净（199 → **166** 块，B4 归零），
+> `shell.less` 34 → **36 类**（`--side` 补全为 5 属性、新增 `--side--loose`）。
+> 裁定：**A 25 块 / 10 页、B 8 块 / 7 页、C 0 块**。逐页表见
+> `docs/evidence/2026-11-16-shell-b4/README.md` §3，实测数字见同目录 `logs/`。
+> **卡面三处前提被实测推翻**：① `tool-card` 的 `flex` 并不缺（5 页实测早就是 `0 0 auto`）；
+> ② 4 页的 `panel-head__title` 是死代码，`--lg` 只可能挂 6 页；③ `account` / `UncollectedPanel` 的
+> `flex-wrap:wrap` 在 1280/1600 从未触发，故不立 `--wrap` 变体。
+> **帮助中心的 `.list-card` 不是右侧栏**，是三栏布局的 320px 中列，必须连
+> `display:flex;flex-direction:column;min-height:0` 一起写全，否则内部不滚、pager 不沉底。
+
 ---
 
 ## 5. 分批与实施卡
@@ -320,7 +355,7 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | B1 | 20 | 16 | 75 | 本地 == 基线（14 块）+ `flex:1` ≡ `1 1 auto`（5 块）+ `panel-empty__icon` 同值（2 块）；**同时落 lint（allowlist 快照档）** | 零 | **卡 ①** 纯冗余删除 + 门禁建立 |
 | B2 | 38 | 24 | 273 | gap/margin/color/text-align 归一 + `--end` 变体 | 2px 级 + 提示色变淡 | **卡 ②** 间距与颜色归一 |
 | B3 | 16 | 13 | 61 | 控件宽度归一 + `--dense` 变体 + `--lg` 标题 | 宽度变化 | **卡 ③** 尺寸与字号档位（已落 `t_84bc7f25`：**B3=0**，199 块） |
-| B4 | 33 | 17 | 245 | 缺基线属性的「半个变体」：`panel-head__title`×10、`panel-head`×8、`list-card`×7、`tool-card`×5 | 补属性会变 → 逐页裁定 | **卡 ④** 半变体补全 |
+| B4 | 33 | 17 | 245 | 缺基线属性的「半个变体」：`panel-head__title`×10、`panel-head`×8、`list-card`×7、`tool-card`×5 | 补属性会变 → 逐页裁定 | **卡 ④** 半变体补全（已落 `t_6cec42fc`：**B4=0**，166 块） |
 | B5 | 136 | 46 | 808 | 空态/标签变体族（4 个空态变体 + `--sm` 标签） | 9 条接受的观感变化 | **卡 ⑤** 空态与标签收敛 |
 | B6 | 26 | 20 | 105 | 单页专有壳类：提为基线类（`--second`/`--filter`/`--inline` 登记）或改名去壳前缀 | 视裁定 | **卡 ⑥** 单页专有类处置 |
 
@@ -365,6 +400,9 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 - **B4（卡④）**：这批的每一条都是「删本地会补属性」，**不能批量删**。逐页裁定：
   补的属性是想要的 → 删本地；不想要 → 提命名变体；都不行 → 进白名单并写明理由。
   `list-card` 里 `help/center` 是 320px 侧栏卡（`flex:0 0 320px; width:320px`）→ `.list-card--side`。
+  > 已落（`t_6cec42fc`）：33 块删净、C（白名单）**0 块**。实测推翻三处前提（`tool-card` 的 flex 早就是基线值、
+  > 4 页标题属 ListPage 是死代码、`flex-wrap` 在两页从未触发），另发现 3 处「卡片间距」是装载性的，
+  > 改由页面自有类/容器 `gap` 承接（§4.5）。逐页裁定表见 `docs/evidence/2026-11-16-shell-b4/README.md` §3。
 - **B5（卡⑤）**：37 页模板要加 `--rich`/`--file`/`--doc` 类。模板改动要让 DOM 结构**逐字节不变**
   （只在 `class` 属性里追加 token），否则像素 diff 会混入 DOM 变化无法归因。
 - **B6（卡⑥）**：`tool-row--second`（4 文件 2 个值）先统一到 8px 再收进 `shell.less`；

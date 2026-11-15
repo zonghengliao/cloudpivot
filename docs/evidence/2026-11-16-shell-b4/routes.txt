@@ -1,0 +1,26 @@
+# B4 采集路由（探针 / 截图同一份；17 个改动文件 + 3 个「相邻页面」基准）
+#
+# 第 1 组：B4 的 17 个文件（1 页可能有多块）
+/business/erp/account
+/business/erp/asset
+/business/erp/budget/mapping
+/business/erp/budget/report
+/business/erp/cost-period
+/business/erp/ledger
+/business/erp/opening
+/business/erp/price
+/business/erp/receivable
+/business/erp/report/report-item
+/business/erp/sales-order
+/business/erp/sales-return
+/business/erp/shipment
+/business/erp/year-end
+/help
+/business/hr/salary
+/support/config
+#
+# 第 2 组：相邻页面基准（本批**不改**，用来证明「删掉本地后补进来的值 = 邻居的值」）
+#   inventory / transfer 是 panel-head 自有模板的页，stock-out 是单据类页
+/business/erp/inventory
+/business/erp/transfer
+/business/erp/stock-out
