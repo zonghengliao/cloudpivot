@@ -1,0 +1,30 @@
+==== 172.18.10.145 ====
+== 检查（只读）==
+→ 集群 18/main :5432  conf=/etc/postgresql/18/main/postgresql.conf  log=/var/log/postgresql/postgresql-18-main.log
+① postgresql.conf 托管块
+  ✗ postgresql.conf 里没有托管块
+  ✗ 托管块唯一：期望 [1] 实得 [0]
+  ✗ 应匹配 /^log_min_duration_statement = 1000([[:space:]]|$)/（实得 []）
+  ✗ 应包含 [log_line_prefix = '%m [%p] %q%u@%d ']（实得 []）
+② 生效值（pg_settings）
+  ✗ log_min_duration_statement 生效值：期望 [1000ms] 实得 [-1ms]
+  ✗ log_min_duration_statement 来源：期望 [configuration file] 实得 [default]
+  ✓ log_min_duration_statement 无待重启项（false）
+  ✓ log_min_duration_statement 仅超级用户可改（context=superuser）（superuser）
+  ✓ log_line_prefix 生效值（%m [%p] %q%u@%d ）
+  ✓ log_line_prefix 来源（configuration file）
+  ✓ log_line_prefix 无待重启项（false）
+③ postgresql.auto.conf 无覆盖
+  ✓ auto.conf 不存在（无 ALTER SYSTEM 覆盖）
+④ 日志落点
+  ✓ PG 日志文件存在：/var/log/postgresql/postgresql-18-main.log（13956 行）
+  ✓ 匹配 /stderr/
+
+== 汇总：通过 8 / 失败 6 ==
+  失败项：
+    - postgresql.conf 里没有托管块
+    - 托管块唯一：期望 [1] 实得 [0]
+    - 应匹配 /^log_min_duration_statement = 1000([[:space:]]|$)/（实得 []）
+    - 应包含 [log_line_prefix = '%m [%p] %q%u@%d ']（实得 []）
+    - log_min_duration_statement 生效值：期望 [1000ms] 实得 [-1ms]
+    - log_min_duration_statement 来源：期望 [configuration file] 实得 [default]

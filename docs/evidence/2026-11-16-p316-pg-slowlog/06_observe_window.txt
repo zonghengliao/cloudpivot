@@ -1,0 +1,20 @@
+=== 观测窗口：00:18:00 → 00:20:44（约 2 分钟真实流量）
+
+--- 172.18.10.144 慢查询行（duration:）:
+2026-11-16 00:19:19.402 CST [1006257] postgres@postgres LOG:  duration: 2004.974 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+--- 计数:
+1
+--- 后台进程行（%q 仍静默 user@db）:
+2026-11-16 00:19:11.279 CST [1005787] postgres@postgres ERROR:  syntax error at or near ")" at character 74
+2026-11-16 00:19:11.279 CST [1005787] postgres@postgres STATEMENT:  select datname|| - ||coalesce(pg_size_pretty(pg_database_size(datname)),-) from pg_database where not datistemplate order by 1
+2026-11-16 00:19:16.013 CST [507425] LOG:  received SIGHUP, reloading configuration files
+
+--- 172.18.10.145 慢查询行（duration:）:
+2026-11-16 00:18:50.806 CST [1387947] postgres@cloudpivot_test LOG:  duration: 2009.065 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+2026-11-16 00:19:25.064 CST [1388426] postgres@cloudpivot_test LOG:  duration: 2002.946 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+--- 计数:
+2
+--- 后台进程行（%q 仍静默 user@db）:
+2026-11-16 00:20:01.580 CST [1388563] cpb@cloudpivot_base STATEMENT:  SELECT r.status || '|' || r.blockers || '|' || r.failed || '|' || GREATEST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - r.run_at))::bigint, 0) || '|' || GREATEST(COALESCE((SELECT max(CASE WHEN applied_at > 100000000000 THEN applied_at / 1000 ELSE applied_at END) FROM schema_migrations WHERE success), 0) - EXTRACT(EPOCH FROM r.run_at)::bigint, 0) FROM sys_invariant_result r ORDER BY r.run_at DESC LIMIT 1
+2026-11-16 00:20:21.471 CST [790109] LOG:  checkpoint starting: time
+2026-11-16 00:20:21.690 CST [790109] LOG:  checkpoint complete: wrote 2 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.208 s, sync=0.005 s, total=0.219 s; sync files=1, longest=0.003 s, average=0.003 s; distance=15 kB, estimate=17351 kB; lsn=3/9E79AAE0, redo lsn=3/9E79AA88

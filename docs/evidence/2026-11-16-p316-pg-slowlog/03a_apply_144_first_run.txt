@@ -1,0 +1,38 @@
+==== 172.18.10.144 ====
+== 落地 ==
+→ 集群 18/main :5432
+→ 配置 /etc/postgresql/18/main/postgresql.conf
+→ 备份 /etc/postgresql/18/main/postgresql.conf.bak-p316.20261116001902
+→ 新配置尾部：
+    
+    # >>> cloudpivot P3-16 pg slowlog (managed by scripts/ops/postgres/pg_slowlog.sh) >>>
+    # 卡片 P3-16：慢查询（>=1000ms）进 PG 日志。由 scripts/ops/postgres/pg_slowlog.sh 托管，手改会被覆盖。
+    log_min_duration_statement = 1000		# 记录执行 >= 1000ms 的语句（-1 = 关闭）
+    log_line_prefix = '%m [%p] %q%u@%d '	# 会话行 = 时间 [pid] user@db；%q 只抑制后台进程的空 user@db
+    # <<< cloudpivot P3-16 pg slowlog <<<
+  ✓ 除托管块外与备份逐字节一致（可精确回滚）（363b6fad602546c078397b19e0679f94a5c35ecb8ee519018568d94f732ea74c）
+  postgres -C 预校验通过：log_min_duration_statement=1000
+→ reload（sighup 级参数，不需 restart，不打断连接）
+→ 检查
+→ 集群 18/main :5432  conf=/etc/postgresql/18/main/postgresql.conf  log=/var/log/postgresql/postgresql-18-main.log
+① postgresql.conf 托管块
+  ✓ 托管块标记存在（1 块）
+  ✓ 托管块唯一（1）
+  ✓ 匹配 /^log_min_duration_statement = 1000([[:space:]]|$)/
+  ✓ 包含 [log_line_prefix = '%m [%p] %q%u@%d ']
+② 生效值（pg_settings）
+  ✓ log_min_duration_statement 生效值（1000ms）
+  ✓ log_min_duration_statement 来源（configuration file）
+  ✓ log_min_duration_statement 无待重启项（false）
+  ✓ log_min_duration_statement 仅超级用户可改（context=superuser）（superuser）
+  ✓ log_line_prefix 生效值（%m [%p] %q%u@%d ）
+  ✓ log_line_prefix 来源（configuration file）
+  ✓ log_line_prefix 无待重启项（false）
+③ postgresql.auto.conf 无覆盖
+  ✓ auto.conf 不存在（无 ALTER SYSTEM 覆盖）
+④ 日志落点
+  ✓ PG 日志文件存在：/var/log/postgresql/postgresql-18-main.log（48 行）
+  ✓ 匹配 /stderr/
+→ 探针
+→ 跑慢查询：select pg_backend_pid(), pg_sleep(2)  （库 cloudpivot_test）
+psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  database "cloudpivot_test" does not exist

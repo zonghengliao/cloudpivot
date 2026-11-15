@@ -1,0 +1,9 @@
+== 自证（临时目录，不碰真实配置）==
+  ✓ 跑两遍幂等：只有 1 块（1）
+  ✓ 只有 1 条 log_min_duration_statement（1）
+  ✓ 托管块在文件末尾（后出现者生效）（# <<< cloudpivot P3-16 pg slowlog <<<）
+  ✓ strip 后与原文逐字节一致（可回滚）（a2a059b265e590f21808a7869ef851b305cae32372f21d4ce3106898662e5b59）
+  ✓ 匹配 /^log_min_duration_statement = 1000/
+  ✓ 包含 [log_line_prefix = '%m [%p] %q%u@%d ']
+
+== 汇总：通过 6 / 失败 0 ==

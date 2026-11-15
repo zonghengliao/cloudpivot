@@ -1,0 +1,15 @@
+=== 落地前基线（用备份文件复现：把 config_file 指向 .bak-p316 跑 postgres -C）
+
+--- 172.18.10.145
+备份文件：/etc/postgresql/18/main/postgresql.conf.bak-p316.20261116001847
+落地前 log_min_duration_statement = -1
+落地前 conf 内两行原文：
+561:#log_min_duration_statement = -1	# -1 is disabled, 0 logs all statements
+605:log_line_prefix = '%m [%p] %q%u@%d '		# special values:
+
+--- 172.18.10.144
+备份文件：/etc/postgresql/18/main/postgresql.conf.bak-p316.20261116001902
+落地前 log_min_duration_statement = -1
+落地前 conf 内两行原文：
+561:#log_min_duration_statement = -1	# -1 is disabled, 0 logs all statements
+605:log_line_prefix = '%m [%p] %q%u@%d '		# special values:

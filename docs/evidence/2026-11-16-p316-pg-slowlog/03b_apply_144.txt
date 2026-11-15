@@ -1,0 +1,49 @@
+==== 172.18.10.144 ====
+== 落地 ==
+→ 集群 18/main :5432
+→ 配置 /etc/postgresql/18/main/postgresql.conf
+→ 已有托管块（重复执行），本次不新增备份
+→ 新配置尾部：
+    
+    # >>> cloudpivot P3-16 pg slowlog (managed by scripts/ops/postgres/pg_slowlog.sh) >>>
+    # 卡片 P3-16：慢查询（>=1000ms）进 PG 日志。由 scripts/ops/postgres/pg_slowlog.sh 托管，手改会被覆盖。
+    log_min_duration_statement = 1000		# 记录执行 >= 1000ms 的语句（-1 = 关闭）
+    log_line_prefix = '%m [%p] %q%u@%d '	# 会话行 = 时间 [pid] user@db；%q 只抑制后台进程的空 user@db
+    # <<< cloudpivot P3-16 pg slowlog <<<
+  postgres -C 预校验通过：log_min_duration_statement=1000
+→ reload（sighup 级参数，不需 restart，不打断连接）
+→ 检查
+→ 集群 18/main :5432  conf=/etc/postgresql/18/main/postgresql.conf  log=/var/log/postgresql/postgresql-18-main.log
+① postgresql.conf 托管块
+  ✓ 托管块标记存在（1 块）
+  ✓ 托管块唯一（1）
+  ✓ 匹配 /^log_min_duration_statement = 1000([[:space:]]|$)/
+  ✓ 包含 [log_line_prefix = '%m [%p] %q%u@%d ']
+② 生效值（pg_settings）
+  ✓ log_min_duration_statement 生效值（1000ms）
+  ✓ log_min_duration_statement 来源（configuration file）
+  ✓ log_min_duration_statement 无待重启项（false）
+  ✓ log_min_duration_statement 仅超级用户可改（context=superuser）（superuser）
+  ✓ log_line_prefix 生效值（%m [%p] %q%u@%d ）
+  ✓ log_line_prefix 来源（configuration file）
+  ✓ log_line_prefix 无待重启项（false）
+③ postgresql.auto.conf 无覆盖
+  ✓ auto.conf 不存在（无 ALTER SYSTEM 覆盖）
+④ 日志落点
+  ✓ PG 日志文件存在：/var/log/postgresql/postgresql-18-main.log（58 行）
+  ✓ 匹配 /stderr/
+→ 探针
+  ! 本机没有库 cloudpivot_test（卡片说的模板库不在这台），改用 postgres 库探针（不碰任何业务库）
+→ 跑慢查询：select pg_backend_pid(), pg_sleep(2)  （库 postgres）
+  backend pid = 1007702
+  日志行数：58 → 59
+  ✓ 日志里有 pid=1007702 的慢查询行
+  ✓ 匹配 /\[1007702\] [a-z_]+@postgres LOG:  duration: 2[0-9]{3}\.[0-9]+ ms  statement: select pg_backend_pid\(\) as pid, pg_sleep\(2\);/
+  ✓ 慢查询阈值确实 >= 1000ms（duration: 2xxx）
+  backend pid = 1007739（0.4s 查询）→ 日志命中：无
+  ✓ 0.4s 查询未进日志（1000ms 门限生效，不是 log_statement=all）
+
+  日志样例：
+  2026-11-16 00:21:54.810 CST [1007702] postgres@postgres LOG:  duration: 2002.880 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+
+== 汇总：通过 18 / 失败 0 ==

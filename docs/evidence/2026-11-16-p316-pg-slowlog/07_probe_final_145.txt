@@ -1,0 +1,15 @@
+==== 172.18.10.145 ====
+== 慢查询探针 ==
+→ 跑慢查询：select pg_backend_pid(), pg_sleep(2)  （库 cloudpivot_test）
+  backend pid = 1388886
+  日志行数：13964 → 13965
+  ✓ 日志里有 pid=1388886 的慢查询行
+  ✓ 匹配 /\[1388886\] [a-z_]+@cloudpivot_test LOG:  duration: 2[0-9]{3}\.[0-9]+ ms  statement: select pg_backend_pid\(\) as pid, pg_sleep\(2\);/
+  ✓ 慢查询阈值确实 >= 1000ms（duration: 2xxx）
+  backend pid = 1388919（0.4s 查询）→ 日志命中：无
+  ✓ 0.4s 查询未进日志（1000ms 门限生效，不是 log_statement=all）
+
+  日志样例：
+  2026-11-16 00:20:53.365 CST [1388886] postgres@cloudpivot_test LOG:  duration: 2010.945 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+
+== 汇总：通过 4 / 失败 0 ==
