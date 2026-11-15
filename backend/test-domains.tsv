@@ -1,0 +1,44 @@
+# 测试分域登记表（P2-61）—— `scripts/test_domain.py` 的**唯一**输入
+#
+# 为什么需要它：
+#   全量 lib 套件是**一个** target（`cargo test -p cloudpivot --lib`，5448 条），
+#   一次跑完只能串行、一处红要全跑、也没法并行。本表把「哪些用例属于哪个域」钉死，
+#   于是可以 `--package <域>` 单独跑一套、也可以几套并行跑（每套一份自己的库克隆）。
+#
+# 格式（TAB 分隔，`#` 开头是注释，空行忽略）：
+#   <域>	<crate>	<过滤前缀…（空格分隔；`-` = 整个 crate）>	<说明>
+#
+# 归属规则（脚本与门禁同一份实现，见 scripts/test_domain.py `resolve_owner`）：
+#   · 过滤前缀是**测试全路径的前缀**（必须带尾部 `::`，否则 `business::task::` 会误吞
+#     `business::taskflow::`）；一个域可以有多个前缀（OR）。
+#   · 同 crate 内多个域都命中时，**最长前缀者胜**。于是 `erp`（`business::erp::`）天然是
+#     erp 的兜底域，其余 `erp-*` 域切出去的部分会在跑 `erp` 时被自动 `--skip` 掉。
+#   · 门禁 `scripts/verify/test_domains_gate.sh` 断言：**每个用例恰好落一个域**（无遗漏、
+#     无两侧同时命中）、每个域非空、`crate` 在 workspace 里真实存在。
+#     新增模块/子目录后若忘了登记，门禁会点名到具体前缀 —— 这是故意的（漏登记 =
+#     分域跑时静默少跑一批用例）。
+#
+# crate 列现在只有 `cloudpivot` / `cloudpivot-kernel` / `cloudpivot-doc` 三个真 crate
+# （P2-C 的 15 张域包卡还没落）。域包落地后**只改这一列**（例如 `hr` → `cloudpivot-hr`、
+# 前缀列改 `-`），命令行 `--package hr` 不变。
+#
+# 现在：2026-11-15（P2-60 之后，`cargo test -p cloudpivot --lib` = 5448 条）
+kernel	cloudpivot-kernel	-	内核 crate 全部用例（shared/utils/business-shared 的接缝与真库用例）
+doc	cloudpivot-doc	-	词表 crate（DocKind 等，零依赖）
+system	cloudpivot	system::	系统域（用户/角色/菜单/字典/配置/日志/会话/权限授予）
+support	cloudpivot	support::	支撑域（附件存储/任务调度/通知等 support 容器）
+platform	cloudpivot	middleware:: task:: kernel_axis_tests:: bootstrap::	平台层：中间件、顶层任务、跨轴用例、启动链
+erp	cloudpivot	business::erp::	ERP 兜底域（未切给下面 erp-* 子域的一切：单据头/模型/DTO/联动/余额等）
+erp-cost	cloudpivot	business::erp::cost::	成本域（成本对象/归集/分配/差异/期间）
+erp-inventory	cloudpivot	business::erp::stockin:: business::erp::stockout:: business::erp::transfer:: business::erp::stock:: business::erp::stocktake:: business::erp::lot:: business::erp::serial_handler:: business::erp::serial_model:: business::erp::serial_dto:: business::erp::batch:: business::erp::inventory_audit:: business::erp::shipment::	库存域（出入库/调拨/盘点/批次序列号/发运）
+erp-procure	cloudpivot	business::erp::purchase:: business::erp::price:: business::erp::order_pdf:: business::erp::order_pdf_model:: business::erp::requisition_bridge::	采购域（采购单/价格/请购）
+erp-sales	cloudpivot	business::erp::sales:: business::erp::commission:: business::erp::receivable:: business::erp::receipt:: business::erp::receipt_refund:: business::erp::receipt_refund_bridge:: business::erp::credit:: business::erp::invoice:: business::erp::reminder:: business::erp::reminder_payable:: business::erp::reminder_stock:: business::erp::reminder_purchase:: business::erp::reminder_contract::	销售域（销售单/佣金/应收/收款/退款/信用/开票/提醒）
+erp-finance	cloudpivot	business::erp::voucher:: business::erp::payable:: business::erp::period:: business::erp::year:: business::erp::ledger:: business::erp::opening:: business::erp::income_statement:: business::erp::cash_flow:: business::erp::statement:: business::erp::fx_revaluation:: business::erp::currency:: business::erp::currency_admin_handler:: business::erp::currency_admin_model:: business::erp::depreciation:: business::erp::report:: business::erp::asset:: business::erp::budget:: business::erp::expense:: business::erp::contract:: business::erp::approval_gate::	财务域（凭证/应付/期间/账簿/报表/汇率/资产/预算/报销/合同/审批闸）
+hr	cloudpivot	business::hr::	人力资源域（员工/考勤/请假/薪资，P2-C C11 将成 cloudpivot-hr）
+flow	cloudpivot	business::flow::	工作流域（流程定义/实例/任务/表达式）
+task-biz	cloudpivot	business::task::	业务任务域（任务/看板/依赖）
+impexp	cloudpivot	business::impexp::	导入导出域
+attachment	cloudpivot	business::attachment:: business::storage::	附件与本地存储域
+docpdf	cloudpivot	business::pdf:: business::docpdf::	PDF 打印域
+notice	cloudpivot	business::notice:: business::announcement::	通知与公告域
+business-misc	cloudpivot	business::changelog:: business::taskflow:: business::masking:: business::aiagent:: business::monitor:: business::permission:: business::help:: business::mutex:: business::project:: business::dashboard::	业务容器其余模块（变更日志/任务流桥/脱敏/AI/监控/权限/帮助/互斥/项目/仪表盘）

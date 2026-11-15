@@ -56,10 +56,18 @@ REPO=${REPO:-$(git -C "$SCRIPT_DIR/../.." rev-parse --show-toplevel 2>/dev/null)
 REPO=${REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}
 DB=${ERP_DB:-cloudpivot_test_full}
 PORT=${PORT:-18242}
-PGHOST=${PGHOST:-127.0.0.1}
+# 99 本机 PG 已 purge：默认连 145；145 本机走 loopback。判据是「本机有没有 172.18.10.145 这个地址」，
+# 不看连通性（99 上的 127.0.0.1:5432 其实是到 145 的转发，卡面禁止用它做 PG）。
+if [ -z "${PGHOST:-}" ]; then
+  if hostname -I 2>/dev/null | tr ' ' '\n' | grep -qx '172.18.10.145'; then
+    PGHOST=127.0.0.1
+  else
+    PGHOST=172.18.10.145
+  fi
+fi
 PGPORT=${PGPORT:-5432}
-DB_USER=${DB_USER:-alun}
-DB_PASS=${DB_PASS:-alun}
+DB_USER=${DB_USER:-cloudpivot}
+DB_PASS=${DB_PASS:-fbb1263691ff75c31ec99eaf258138b4}
 OWNER=${OWNER:-}
 BIN=${BIN:-$REPO/backend/target/debug/cloudpivot}
 LOG=${LOG:-/root/make_full_suite_db.log}
@@ -75,7 +83,7 @@ psql_q() { PGPASSWORD="$DB_PASS" psql -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d
 [ -d "$REPO/backend/app/migrations" ] || die "迁移目录不存在：$REPO/backend/app/migrations"
 [ -x "$BIN" ] || die "二进制不存在：$BIN（先 cargo build --bin cloudpivot，或用 BIN=… 指定）"
 
-# ---------- 1) owner（role "cloudpivot" 在 99 上不存在，实际 owner 是 alun） ----------
+# ---------- 1) owner（从既有库的 sys_menu 表属主反推；99 上已统一为 cloudpivot） ----------
 if [ -z "$OWNER" ]; then
   for probe in cloudpivot_test cloudpivot_dev cloudpivot; do
     OWNER=$(psql_q "$probe" "select tableowner from pg_tables where tablename='sys_menu'" 2>/dev/null | head -1)
@@ -88,15 +96,26 @@ say "==> 二进制 $BIN（migrations 编译期内嵌，必须是被测树自己�
 say "==> 库 $DB 表属主 $OWNER"
 
 # ---------- 2) 建库（默认先删后建 ⇒ 重跑结果完全一致） ----------
+# 本机 PG（145）走 `su - postgres`（socket 免密，能指定 owner）；
+# 远端 PG（99 → 145）没有 postgres 系统用户可用，只能 `-h/-U cloudpivot`（它本身是 owner）。
+pg_local() { [ "$PGHOST" = "127.0.0.1" ] || [ "$PGHOST" = "localhost" ]; }
+db_drop() {
+  if pg_local; then su - postgres -c "dropdb --force $DB"
+  else PGPASSWORD="$DB_PASS" dropdb -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" --if-exists --force "$DB"; fi
+}
+db_create() {
+  if pg_local; then su - postgres -c "createdb -O $OWNER $DB"
+  else PGPASSWORD="$DB_PASS" createdb -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -O "$OWNER" "$DB"; fi
+}
 exists=$(psql_q postgres "select 1 from pg_database where datname='$DB'" || true)
 if [ "${KEEP_DB:-0}" = "1" ] && [ "$exists" = "1" ]; then
   say "==> KEEP_DB=1：复用已有库 $DB（种子按 username/dept_code 判重，幂等）"
 else
   if [ "$exists" = "1" ]; then
-    su - postgres -c "dropdb --force $DB" || die "dropdb 失败：$DB"
+    db_drop || die "dropdb 失败：$DB"
     say "==> 已删除旧库 $DB"
   fi
-  su - postgres -c "createdb -O $OWNER $DB" || die "createdb 失败：$DB"
+  db_create || die "createdb 失败：$DB"
   say "==> 已建空库 $DB（owner=$OWNER）"
 fi
 
@@ -196,7 +215,8 @@ if [ "$fail" != 0 ]; then
   die "自检未过（上面标 ✗ 的项），库 $DB 不可用于全量套件"
 fi
 
-URL="postgres://$DB_USER:$DB_PASS@$PGHOST:$PGPORT/$DB"
+URL="postgres://$DB_USER:***@$PGHOST:$PGPORT/$DB"
+REAL_URL="postgres://$DB_USER:$DB_PASS@$PGHOST:$PGPORT/$DB"
 cat <<EOF
 
 ==> 就绪：$DB
@@ -207,9 +227,13 @@ cat <<EOF
   export TASK_DB_URL="\$ERP_DB_URL"
   export P0FIX_DB_URL="\$ERP_DB_URL"
 
-全量套件（串行；不许 --skip / --ignored）：
-  cd $REPO/backend
-  cargo test --lib -- --test-threads=1
+全量套件（串行；不许 --skip / --ignored）—— **CWD 必须是 backend/app**
+（business::permission::scope_model 的登记表用例扫相对路径 src/，在 backend/ 跑会红）：
+  cd $REPO/backend/app
+  cargo test -p cloudpivot --lib -- --test-threads=1
+
+按域跑（P2-61，并行 + 每域一份库克隆；本库可直接当模板）：
+  TPL=$DB python3 $REPO/scripts/test_domain.py run --package all --jobs 4
 
 口径文档：docs/测试库口径-全量套件.md
 EOF
@@ -218,11 +242,11 @@ EOF
 if [ "${RUN:-0}" = "1" ]; then
   say ""
   say "==> RUN=1：开始跑全量 lib 套件（日志 $LOG.suite）"
-  ( cd "$REPO/backend" || exit 1
-    ERP_DB_URL="$URL" SYS_DB_URL="$URL" TASK_DB_URL="$URL" P0FIX_DB_URL="$URL" \
+  ( cd "$REPO/backend/app" || exit 1
+    ERP_DB_URL="$REAL_URL" SYS_DB_URL="$REAL_URL" TASK_DB_URL="$REAL_URL" P0FIX_DB_URL="$REAL_URL" \
     NIK_PROFILE=test NIK_DATABASE_HOST="$PGHOST" NIK_DATABASE_PORT="$PGPORT" \
     NIK_DATABASE_USER="$DB_USER" NIK_DATABASE_PASSWORD="$DB_PASS" NIK_DATABASE_NAME="$DB" \
-    cargo test --lib -- --test-threads=1 2>&1 | tee "$LOG.suite" | tail -40 )
+    cargo test -p cloudpivot --lib -- --test-threads=1 2>&1 | tee "$LOG.suite" | tail -40 )
   rc=${PIPESTATUS[0]}
   grep -a '^test result:' "$LOG.suite" | tail -1
   [ "$rc" = 0 ] || die "全量套件没跑绿（rc=$rc，日志 $LOG.suite）"

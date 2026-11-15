@@ -27,6 +27,7 @@
 | **[architecture/ARCH-9-人力资源模块设计.md](./architecture/ARCH-9-人力资源模块设计.md)** | 架构 / 后端 / 前端 / AI | **人力资源模块（HR）定稿设计**：10 张表 DDL（真库跑通）、业务规则（薪资公式 DSL / 考勤口径 / 工资凭证勾稽 / §4.9 的 10 条巡检断言）、46 条设计接口（落地 50 条路由 / 40 个权限码）、5 个页面与关键交互、迁移号段（含四次撞号顺延的经过）、50 张卡的落地记录。**改 HR 任何东西前先读它** |
 | [architecture/PERM-01-页面码与接口码解耦-决策.md](./architecture/PERM-01-页面码与接口码解耦-决策.md) | 架构 / 后端 / 前端 / AI | **页面显形码 `*:page` 与全量接口码 `*:list` 为什么必须分开**、HR 试点的逐角色决策理由、其它模块的过渡期条款与解耦顺序 |
 | [architecture/P0-V0397-迁移号段撞车-决策.md](./architecture/P0-V0397-迁移号段撞车-决策.md) | 架构 / 后端 / AI | **HR-40 的 `business/V0397` 与主题配色 `system/V0397` 同号**的处置：改哪条（配色改 V0399、HR 不动）、已应用库要不要指纹处置、生产 144 为何「一发布就炸」，以及新增门禁 `migration_version_unique.py`（判据 A–E + 红绿自测语料）挂 `check.sh` L0 |
+| [architecture/P2-61-按域拆分测试套件.md](./architecture/P2-61-按域拆分测试套件.md) | 后端 / AI | **按域跑后端 lib 测试**：`backend/test-domains.tsv` 19 个域 + `scripts/test_domain.py run --package <域>`（可并行、每域一份库克隆），全量 5707 条从 2m50s → 42s；为什么必须 `--exact`（libtest 过滤器是子串，实测多跑 252 条）、门禁 `test_domains_gate.sh` 的红绿反证、与 P2-C 域包落地的衔接条款 |
 | [architecture/流程画布-VueFlow迁移与清理计划.md](./architecture/流程画布-VueFlow迁移与清理计划.md) | 前端 / 架构 / 运维 / AI | 流程画布为什么换成 Vue Flow、引擎开关与三条回退方法、双引擎回归证据指针、老画布清理计划 |
 | [测试卫生-真库单测分库跑法.md](./测试卫生-真库单测分库跑法.md) | 后端 / AI | 真库 lib 单测**为什么必须按模块分库+分进程**跑（同库串跑会 60+ 条假红）、`scripts/verify/run_lib_tests_by_module.sh` 用法、`RUNS=2` 幂等性守门、写"全库口径"断言前的自查清单 |
 | [测试卫生-真库连库入口清单.md](./测试卫生-真库连库入口清单.md) | 后端 / AI | 全仓 43 处「读 `xxx_DB_URL` + `try_db().is_some()` 就复用全局 `db()`」的入口逐处判定：哪处可复用、哪处必须独占进程、统一收口建议与迁移顺序 |

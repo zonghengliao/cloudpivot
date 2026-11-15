@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
-#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码
+#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
 #                                       / cargo check（三条都在 workspace 根，P2-40 起覆盖 app + crates/*）
@@ -107,6 +107,7 @@ plan_all() {
         plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
         plan L0 "/metrics 端点存活 + cloudpivot_ 指标非空" "bash scripts/verify/metrics_gate.sh ${METRICS_GATE:-auto}（auto：有部署证据才真跑；SKIP_METRICS_CHECK=1 跳过）"
         plan L0 "kanban assignee 必须是真实 profile" "python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）"
+        plan L0 "测试分域登记表自洽（域↔crate、前缀尾 ::）" "python3 scripts/test_domain.py check --manifest-only（完整性另跑 scripts/verify/test_domains_gate.sh）"
     fi
     if want L2; then
         plan L2 "闸③ ERP 账务不变量" "python3 scripts/verify/erp_invariants.py"
@@ -1090,6 +1091,26 @@ role_code_gate() {
 
 if want L0; then
 if ! role_code_gate; then
+    exit 1
+fi
+fi
+
+# ======================================================================
+# L0 · 测试分域登记表自洽（P2-61）
+#
+# 为什么进 L0：`scripts/test_domain.py run --package <域>` 是「只跑这一段」的入口，
+# 而它的域划分完全来自 `backend/test-domains.tsv`。登记表写坏（crate 名拼错、前缀漏了
+# 尾部 `::`、域名重复）时，分域跑会报错或**静默串域**（前缀 `business::task` 会吞
+# `business::taskflow`）。本档只校登记表本身（秒级、不编译、不连库）：
+#   · crate 列必须是 workspace 里真实存在的包名（`cargo metadata --no-deps`，不编译）；
+#   · 每个前缀必须以 `::` 结尾；域名唯一；不能为空表。
+# 完整性（每条用例恰好落一个域）要比对 `--list` 输出，档位在：
+#   bash scripts/verify/test_domains_gate.sh
+# ======================================================================
+if want L0; then
+echo "==> 测试分域登记表自洽（backend/test-domains.tsv ↔ workspace crate）"
+if ! python3 "$ROOT/scripts/test_domain.py" check --manifest-only; then
+    echo "==> 门禁未通过：登记表坏了（crate 名写错 / 前缀没带尾部 :: / 域名重复）" >&2
     exit 1
 fi
 fi
