@@ -1,0 +1,98 @@
+{
+ "width": 1600,
+ "shots": {
+  "/business/erp/account": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_account.png",
+  "/business/erp/budget/mapping": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_budget_mapping.png",
+  "/business/erp/budget/report": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_budget_report.png",
+  "/business/erp/cost-object": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_cost-object.png",
+  "/business/erp/cost-overhead": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_cost-overhead.png",
+  "/business/erp/cost-period": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_cost-period.png",
+  "/business/erp/expense/pay": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_expense_pay.png",
+  "/business/erp/inventory": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_inventory.png",
+  "/business/erp/inventory?audit=1": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_inventory_audit_1.png",
+  "/business/erp/invoice": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_invoice.png",
+  "/business/erp/ledger": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_ledger.png",
+  "/business/erp/location": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_location.png",
+  "/business/erp/receipt-refund": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_receipt-refund.png",
+  "/business/erp/receipt": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_receipt.png",
+  "/business/erp/receivable": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_receivable.png",
+  "/business/erp/report/report-item": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_report_report-item.png",
+  "/business/erp/serial": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_serial.png",
+  "/business/erp/transfer": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_transfer.png",
+  "/business/erp/warehouse": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_warehouse.png",
+  "/business/erp/year-end": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_year-end.png",
+  "/help": "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/help.png"
+ },
+ "bands": {
+  "/business/erp/account": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_account.toolband.png",
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_account.headband.png"
+  ],
+  "/business/erp/budget/mapping": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_budget_mapping.toolband.png",
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_budget_mapping.headband.png"
+  ],
+  "/business/erp/budget/report": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_budget_report.toolband.png",
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_budget_report.headband.png"
+  ],
+  "/business/erp/cost-object": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_cost-object.headband.png"
+  ],
+  "/business/erp/cost-overhead": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_cost-overhead.headband.png"
+  ],
+  "/business/erp/cost-period": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_cost-period.headband.png",
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_cost-period.headband2.png"
+  ],
+  "/business/erp/expense/pay": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_expense_pay.headband.png"
+  ],
+  "/business/erp/inventory": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_inventory.headband.png"
+  ],
+  "/business/erp/inventory?audit=1": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_inventory_audit_1.headband.png"
+  ],
+  "/business/erp/invoice": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_invoice.headband.png"
+  ],
+  "/business/erp/ledger": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_ledger.headband.png"
+  ],
+  "/business/erp/location": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_location.headband.png"
+  ],
+  "/business/erp/receipt-refund": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_receipt-refund.headband.png"
+  ],
+  "/business/erp/receipt": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_receipt.headband.png"
+  ],
+  "/business/erp/receivable": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_receivable.headband.png"
+  ],
+  "/business/erp/report/report-item": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_report_report-item.toolband.png",
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_report_report-item.toolband2.png",
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_report_report-item.headband.png"
+  ],
+  "/business/erp/serial": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_serial.headband.png"
+  ],
+  "/business/erp/transfer": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_transfer.headband.png"
+  ],
+  "/business/erp/warehouse": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_warehouse.headband.png",
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_warehouse.headband2.png"
+  ],
+  "/business/erp/year-end": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/business_erp_year-end.toolband.png"
+  ],
+  "/help": [
+   "/opt/cloudpivot/docs/evidence/2026-11-16-shell-b6/shots/before-1600/help.pager.png"
+  ]
+ }
+}

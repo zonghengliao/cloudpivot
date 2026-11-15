@@ -105,6 +105,14 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > 剩 B6（26 块 / 20 文件）与 B0 组件自持 4 块。`shell.less` 36 → **47 类**（空态 1 基线 + 4 变体 + 2 个图标修饰、
 > 标签 1 基线 + 1 变体）。37 页模板加了类 token、1 页进白名单、1 页（`erp/price-inquiry`）首次吃到基线。
 > 裁定与本批实测口径见 §4.6；有意变化 11 条全部落实 + 6 条新登记（§3.3）。
+>
+> B6 已落（2026-11-16，卡 `t_55000083`）：26 块 / 20 文件处置完毕，**6 块 / 2 文件 / 约 31 行**
+> （= B0 组件自持 4 + B5 白名单 2）—— **B1–B6 全部归零**，页面壳类声明只剩两个登记例外。
+> 出路分布：**提基线 1**（`.tool-row--second{margin-top:12px}`，`--filter` 退役并入）、
+> **并入基线 2**（`__actions` / `__ops` → `panel-head__side`，0 新类）、**改名 19**（去 `tool-row__` /
+> `panel-head__` 前缀成页面私有类）、**弃用 4**（`.tool-row--second` 在 4 个页面是死代码，从没生效）。
+> `shell.less` 47 → **48 类**（只加 1 条）。逐条裁定表与验真（静态等价 7 条 / 字节级纯净性 47 hunk /
+> 探针 6612 元素 / 像素 49 张）见 `docs/evidence/2026-11-16-shell-b6/README.md`，实测口径见 §4.7。
 
 ---
 
@@ -167,8 +175,7 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | 变体 | 语义 | 页数 | 作用于 |
 |---|---|---|---|
 | `.tool-row--dense` | 紧凑工具行（成本/预算类页面，筛选项多、需要一行塞下） | **7**（B2 落 3；B3 加 4：cost-alloc-rule / cost-labor / cost-overhead / ledger，另 receipt-refund 只吃宽度那半） | `gap:8px`；`__period`/`__date` 收窄 140px（B3 已落）。**ListPage 系页面把类挂在 `<ListPage>` 根节点**：那些页的筛选行是组件自持的 `.lp__filter-row`（不是 `.tool-row`），后代选择器照样命中宽度那条、`gap` 那条不生效 |
-| `.tool-row--second` | 工具行第二排（单据类页面的第二行筛选） | 4 | `margin-top:8px` |
-| `.tool-row--filter` | 报表页筛选条 | 1 | `margin-top:12px` |
+| `.tool-row--second` | 工具行第二排（工具行 / 卡片头之下需要拉开一档） | **1**（`report-item`；B6 落：另外 4 页的 8/10px 是**死代码**，已删） | `margin-top:12px`（取唯一真在用的实测值，零观感变化） |
 | `.panel-head__title--lg` | 大卡片标题 | 10（B3 只**定义**，不改页面；B4 已挂 **6 页 / 7 个元素**：mapping、report、UncollectedPanel、price×2、report-item、hr-salary。`asset`/`sales-order`/`sales-return`/`shipment` 的标题属 ListPage 组件，页面挂不上也无需挂） | `font-size:16px` |
 | `.panel-head__tip--end` | 提示推到卡片头右侧 | 3（receipt / receivable / invoice） | `margin-left:auto` |
 | `.panel-head__hint--end` | 同上，作用于 `__hint` | 3（sales-order / sales-return / shipment） | `margin-left:auto` |
@@ -187,6 +194,13 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 
 `panel-head__main{min-width:0}`、`panel-head__title/meta{white-space:nowrap}` 这两条**提进基线**
 （不是变体：所有 `__main` 都该能收缩防溢出，所有卡片标题都该防断行）。
+
+> **B6 追加（2026-11-16，卡 `t_55000083`）**：卡片头右侧槽**不再新增族员** —— 原先各页写的
+> `.panel-head__actions`（budget/report）与 `.panel-head__ops`（cost-period/UncollectedPanel）
+> 都是「`__side` 的另一个名字」，两条已并入基线 `__side`（`gap` 8→6 属同族单值归一，
+> `margin-left:auto` 退休：`.panel-head` 本来就是 `space-between`）。
+> 全站「把内容推到卡片头右侧」只有一种写法：`space-between` + `__side`；需要松排用 `--side--loose`，
+> 需要推位的单元素用 `__tip--end` / `__hint--end`。
 > **已落（B3，卡 `t_84bc7f25`）**：三条全部进了 `shell.less` 基线。爆炸半径实测很小 ——
 > 全站只有 8 个页面在**自己的模板**里画 `class="panel-head"`（其余都走 ListPage 组件，而组件自持的
 > 同名规则本来就是 `min-width:0` + `nowrap`），这 8 页探针实测**几何零变化**，只有计算值从
@@ -389,6 +403,38 @@ B5（134 块 / 45 文件）没有一块需要「再立新变体」以外的动�
 
 ---
 
+### 4.7 单页专有壳类（B6 实测口径）
+
+B6（26 块 / 20 文件）**不是归一，是分类**：只有两种合法出路（提基线 / 改名去壳前缀），本次落成
+**提基线 1 / 并入基线 2 / 改名 19 / 弃用 4**。三条实测结论值得写进契约：
+
+1. **先证「在用」再谈归一**：`.tool-row--second` 在 4 个页面是**死代码**（模板里没有元素带这个类；
+   那 4 页的筛选行是 ListPage 的 `.lp__filter-row`）。所以「3 份 8px + 1 份 10px 已经漂移」这本账
+   不存在 —— 四份都是 0 生效。真正的第二排工具行只有 `report-item` 一页，12px 就是它的实测值。
+   → **死代码不进变体表**：给死代码登记一个变体，等于给后来者留一条假范例。
+2. **「全站会重复用」要先查基线**：`.panel-head__actions` / `__ops` 是 `__side` 的另两个名字。
+   新增族员前必须先问「基线里是否已经有这个槽」；有就并入（`gap` 2px 级差异按 §2.2 归一）。
+   B 组的答案是**一个新类都不加** —— 全站「推右侧」保持一种写法：`space-between` + `__side`。
+3. **同名不同值就是改名的最强理由**：`tool-row__dept`（180 / 160）、`tool-row__year`（112 / 160）
+   两页各一个值。宽度属页面裁量（§2.2），所以不强行统一，而是各归各页（`mapping-dept` / `report-dept`、
+   `report-year` / `yearend-year`）。
+
+**验真口径**（本批三件套全过，详见 `docs/evidence/2026-11-16-shell-b6/README.md`）：
+- 静态等价（A/B 组 7 条裁定）逐属性比 before/after 生效声明：`SAME 3 / CHANGED-INTENTIONAL 5 / DEAD-NOOP 4`，
+  `LOST / NEW / CHANGED-UNLISTED = 0`；
+- **C 组用字节证明**（`purity-b6.py`）：47 个 `git diff -U0` hunk 逐条断言「成对 hunk 把本批新旧类名
+  抹成占位符后逐字节相同」⇒ `<style>` 属性一字未改、模板只换 class token、无纯新增 hunk；
+- 探针（21 路由 × 1600px，**采集面 = 所有带 class 的元素 + `<code>`**，6612 元素）：20 个元素
+  **CLASS-ONLY**（class 变、44 个计算属性 + 几何全同）、`MISSING / ADDED = 0`、27 条差异全部归因
+  （19 条登记变化 + 8 条对照组复现的 TDesign loading 动画噪声）；
+- 像素（49 张）：**44 张逐像素 0 差异**，唯一有意义的差异是 B1/B2 的「按钮组整体右移 2px」
+  （budget/report 627px、cost-period 417px），transfer 4px / maxΔ=1 属抗锯齿噪声。
+
+> 采集面为什么要「全量」：C 组是**类名替换**，按壳前缀抓选择器会在 after 侧抓空，等于自证。
+> 元素身份必须按 CSS 路径对齐，`class` 属性只作为「应该变」的观测项，不参与对齐。
+
+---
+
 ## 5. 分批与实施卡
 
 **顺序**：B1 → B2 → B3 → B4 → B5 → B6（B0 不动）。理由：先做零风险与低风险，把「度量 + 门禁」建起来，
@@ -402,7 +448,7 @@ B5（134 块 / 45 文件）没有一块需要「再立新变体」以外的动�
 | B3 | 16 | 13 | 61 | 控件宽度归一 + `--dense` 变体 + `--lg` 标题 | 宽度变化 | **卡 ③** 尺寸与字号档位（已落 `t_84bc7f25`：**B3=0**，199 块） |
 | B4 | 33 | 17 | 245 | 缺基线属性的「半个变体」：`panel-head__title`×10、`panel-head`×8、`list-card`×7、`tool-card`×5 | 补属性会变 → 逐页裁定 | **卡 ④** 半变体补全（已落 `t_6cec42fc`：**B4=0**，166 块） |
 | B5 | 136 | 46 | 808 | 空态/标签变体族（4 个空态变体 + `--sm` 标签） | 11 条接受的观感变化 | **卡 ⑤** 空态与标签收敛（已落 `t_26cc85f5`：**B5=0**，32 块） |
-| B6 | 26 | 20 | 105 | 单页专有壳类：提为基线类（`--second`/`--filter`/`--inline` 登记）或改名去壳前缀 | 视裁定 | **卡 ⑥** 单页专有类处置 |
+| B6 | 26 | 20 | 105 | 单页专有壳类：提为基线类（`--second`/`--filter`/`--inline` 登记）或改名去壳前缀 | 视裁定 | **卡 ⑥** 单页专有类处置（已落 `t_55000083`：**B6=0**，6 块；提基线 1 / 并入基线 2 / 改名 19 / 弃用 4） |
 
 > 文件有重叠（同一页多个批），所以 4+16+24+13+17+46+20 = 140 ≠ 68 个唯一文件。
 > 每张卡的正文会带**该批的逐文件逐类清单**（由 `shell-variant-report.cjs --batch <批号> --md` 生成），

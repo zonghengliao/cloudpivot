@@ -45,7 +45,7 @@
         <t-tooltip content="只看「已发货但超过阈值天数仍未收货」的单；打开后状态筛选锁定为在途">
           <t-checkbox
             v-model="filter.in_transit_overdue"
-            class="tool-row__overdue"
+            class="transfer-overdue-toggle"
             data-testid="transfer-filter-overdue"
             @change="handleOverdueChange"
           >
@@ -84,7 +84,7 @@
           theme="danger"
           variant="light"
           size="small"
-          class="panel-head__overdue"
+          class="overdue-badge"
           data-testid="transfer-overdue-badge"
           @click="turnOnOverdueFilter"
         >
@@ -1877,13 +1877,13 @@ onMounted(async () => {
 }
 
 /* 超期在途开关：和状态下拉一个视觉分量，别让文案跟输入框粘在一起 */
-.tool-row__overdue {
+.transfer-overdue-toggle {
   margin-right: -2px;
   white-space: nowrap;
 }
 
 /* 超期角标：可点（点一下直接筛超期），hover 给手型 + 稍微提亮 */
-.panel-head__overdue {
+.overdue-badge {
   cursor: pointer;
   transition: filter 0.15s ease;
 

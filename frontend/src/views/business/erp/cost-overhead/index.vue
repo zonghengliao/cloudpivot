@@ -73,7 +73,7 @@
       <template #filter-expense_item>
         <DictSelect
           v-model="filter.expense_item"
-          class="tool-row__item"
+          class="coh-item"
           :dict-code="EXPENSE_ITEM_DICT_CODE"
           placeholder="全部费用项目"
           data-testid="co-filter-item"
@@ -520,7 +520,7 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row__item {
+.coh-item {
   width: 150px;
 }
 

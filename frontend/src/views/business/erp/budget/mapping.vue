@@ -41,7 +41,7 @@
         />
         <t-select
           v-model="filter.dept_id"
-          class="tool-row__dept"
+          class="mapping-dept"
           :options="deptOptions"
           placeholder="全部部门"
           clearable
@@ -610,7 +610,7 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row__dept {
+.mapping-dept {
   width: 180px;
 }
 

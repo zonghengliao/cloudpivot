@@ -2,15 +2,14 @@
   "_comment": "页面壳类声明存量快照（门禁 allowlist）。由 `node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write` 生成，勿手改。每落一批（B1…B6）后重新 --write，条目数只许降。终态只剩 B0 components/ListPage/index.vue。",
   "shellLess": {
     "file": "src/style/shell.less",
-    "classCount": 47,
-    "classesHash": "006eeafbadead124"
+    "classCount": 48,
+    "classesHash": "a9e62eafa2a27387"
   },
   "totals": {
-    "entries": 32,
+    "entries": 6,
     "byBatch": {
       "B0": 4,
-      "B5-ALLOW": 2,
-      "B6": 26
+      "B5-ALLOW": 2
     }
   },
   "entries": [
@@ -37,162 +36,6 @@
       "class": "panel-head__title",
       "selector": ".panel-head__title",
       "batch": "B0"
-    },
-    {
-      "file": "views/business/erp/account/index.vue",
-      "class": "tool-row__category",
-      "selector": ".tool-row__category",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/budget/mapping.vue",
-      "class": "tool-row__dept",
-      "selector": ".tool-row__dept",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/budget/report.vue",
-      "class": "panel-head__actions",
-      "selector": ".panel-head__actions",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/budget/report.vue",
-      "class": "tool-row__dept",
-      "selector": ".tool-row__dept",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/budget/report.vue",
-      "class": "tool-row__year",
-      "selector": ".tool-row__year",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/cost-object/index.vue",
-      "class": "tool-row__month",
-      "selector": ".tool-row__month",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/cost-overhead/index.vue",
-      "class": "tool-row__item",
-      "selector": ".tool-row__item",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
-      "class": "panel-head__ops",
-      "selector": ".panel-head__ops",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/expense/pay/index.vue",
-      "class": "tool-row__tip",
-      "selector": ".tool-row__tip",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/inventory/index.vue",
-      "class": "panel-head__tip",
-      "selector": ".panel-head__tip code",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/inventory/index.vue",
-      "class": "tool-row__switch",
-      "selector": ".tool-row__switch",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/invoice/index.vue",
-      "class": "tool-row--second",
-      "selector": ".tool-row--second",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/ledger/index.vue",
-      "class": "panel-head__account",
-      "selector": ".panel-head__account",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/location/index.vue",
-      "class": "panel-head__link",
-      "selector": ".panel-head__link",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/location/index.vue",
-      "class": "panel-head__link",
-      "selector": ".panel-head__link:hover",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/receipt-refund/index.vue",
-      "class": "tool-row--second",
-      "selector": ".tool-row--second",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/receipt/index.vue",
-      "class": "tool-row--second",
-      "selector": ".tool-row--second",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/receivable/index.vue",
-      "class": "tool-row--second",
-      "selector": ".tool-row--second",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/report/report-item/index.vue",
-      "class": "tool-row--filter",
-      "selector": ".tool-row--filter",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/serial/index.vue",
-      "class": "panel-head__warn",
-      "selector": ".panel-head__warn",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/transfer/index.vue",
-      "class": "panel-head__overdue",
-      "selector": ".panel-head__overdue",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/transfer/index.vue",
-      "class": "panel-head__overdue",
-      "selector": ".panel-head__overdue:hover",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/transfer/index.vue",
-      "class": "tool-row__overdue",
-      "selector": ".tool-row__overdue",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/warehouse/index.vue",
-      "class": "panel-head__sub",
-      "selector": ".panel-head__sub",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/year-end/index.vue",
-      "class": "tool-row__year",
-      "selector": ".tool-row__year",
-      "batch": "B6"
-    },
-    {
-      "file": "views/business/help/center/index.vue",
-      "class": "list-card__pager",
-      "selector": ".list-card__pager",
-      "batch": "B6"
     },
     {
       "file": "views/business/hr/salary/index.vue",

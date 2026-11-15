@@ -60,7 +60,7 @@
       <template #filter-month>
         <t-date-picker
           v-model="filter.month"
-          class="tool-row__month"
+          class="co-month"
           mode="month"
           value-type="YYYY-MM"
           format="YYYY-MM"
@@ -1502,7 +1502,7 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row__month {
+.co-month {
   width: 132px;
 }
 

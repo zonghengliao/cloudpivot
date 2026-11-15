@@ -21,7 +21,7 @@
         />
         <t-select
           v-model="categoryModel"
-          class="tool-row__category"
+          class="account-category"
           :options="categoryOptions"
           placeholder="全部类型"
           clearable
@@ -552,7 +552,7 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row__category {
+.account-category {
   width: 130px;
 }
 

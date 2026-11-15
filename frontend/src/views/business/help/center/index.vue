@@ -104,7 +104,7 @@
 
         <t-pagination
           v-if="!searchMode && pagination.total > pagination.pageSize"
-          class="list-card__pager"
+          class="list-pager"
           :current="pagination.current"
           :page-size="pagination.pageSize"
           :total="pagination.total"
@@ -408,7 +408,7 @@ onMounted(() => {
   color: var(--td-text-color-placeholder);
 }
 
-.list-card__pager {
+.list-pager {
   margin-top: 10px;
   display: flex;
   justify-content: center;

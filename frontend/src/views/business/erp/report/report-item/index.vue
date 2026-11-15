@@ -47,7 +47,7 @@
         <t-button variant="outline" data-testid="ri-btn-refresh" @click="refresh">刷新</t-button>
       </div>
 
-      <div class="tool-row tool-row--filter">
+      <div class="tool-row tool-row--second">
         <t-input
           v-model="keyword"
           class="ri-filter-keyword"
@@ -809,10 +809,6 @@ async function handleSave(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.tool-row--filter {
-  margin-top: 12px;
 }
 
 .ri-tab-count {

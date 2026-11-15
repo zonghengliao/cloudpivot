@@ -111,7 +111,7 @@
 
       <!-- 扫码命中的行不在当前页时提示「已按该号筛选」（改造前在面板头右侧） -->
       <template #head-extra>
-        <span v-if="scannedId && !scanHitOnPage" class="panel-head__warn" data-testid="serial-scan-offpage">
+        <span v-if="scannedId && !scanHitOnPage" class="serial-warn" data-testid="serial-scan-offpage">
           扫码命中的行不在当前页，已按该号筛选
         </span>
       </template>
@@ -1040,7 +1040,7 @@ onMounted(async () => {
 /* ==================== 列表 ==================== */
 
 /* 扫码命中行不在当前页的提示（ListPage 的 #head-extra 插槽） */
-.panel-head__warn {
+.serial-warn {
   font-size: 12px;
   color: var(--td-warning-color);
 }

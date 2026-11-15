@@ -58,7 +58,7 @@
       <div class="tool-row tool-row--dense">
         <t-select
           v-model="yearFilterValue"
-          class="tool-row__year"
+          class="report-year"
           :options="yearOptions"
           placeholder="全部年度"
           clearable
@@ -67,7 +67,7 @@
         />
         <t-select
           v-model="filter.dept_id"
-          class="tool-row__dept"
+          class="report-dept"
           :options="deptOptions"
           placeholder="全部部门"
           clearable
@@ -99,7 +99,7 @@
           <span class="panel-head__title panel-head__title--lg">预算执行</span>
           <span class="panel-head__meta" data-testid="budget-report-meta">共 {{ rows.length }} 个槽</span>
         </div>
-        <div class="panel-head__actions">
+        <div class="panel-head__side">
           <t-button size="small" variant="outline" data-testid="budget-report-toggle-all" @click="toggleAll">
             {{ allExpanded ? '全部收起' : '全部分月' }}
           </t-button>
@@ -454,11 +454,11 @@ onMounted(() => {
   }
 }
 
-.tool-row__year {
+.report-year {
   width: 112px;
 }
 
-.tool-row__dept {
+.report-dept {
   width: 160px;
 }
 
@@ -494,11 +494,6 @@ onMounted(() => {
 .period-note__body b {
   color: var(--td-text-color-primary);
   font-weight: 600;
-}
-
-.panel-head__actions {
-  display: flex;
-  gap: 8px;
 }
 
 .name-cell {

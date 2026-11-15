@@ -34,15 +34,17 @@ function permissionsOf(...codes: string[]): (code: string) => boolean {
   return (code: string) => codes.includes(code) || codes.includes('*:*:*');
 }
 
-test('权限码与后端 V0188 / V0207 逐字一致（四个码必须分开）', () => {
+test('权限码与后端 V0188 / V0207 / V0410 逐字一致（五个码必须分开）', () => {
   assert.equal(PERIOD_ACTION_PERMISSIONS.open, 'business:erp:period:open');
   assert.equal(PERIOD_ACTION_PERMISSIONS.close, 'business:erp:period:close');
   assert.equal(PERIOD_ACTION_PERMISSIONS.reopen, 'business:erp:period:reopen');
   // PERIOD-CLOSE：催办另立一码（能给处理人发催办 ≠ 有资格替他把单过账）
   assert.equal(PERIOD_ACTION_PERMISSIONS.remind, 'business:erp:period:remind');
-  // 四个值互不相同：能看列表 ≠ 能封账 ≠ 能撤封账 ≠ 能催办
+  // M1-05 / V0410：期末调汇另立一码（结账是封账开关，调汇是落一张可红冲的凭证）
+  assert.equal(PERIOD_ACTION_PERMISSIONS.fxReval, 'business:erp:period:fx-reval');
+  // 五个值互不相同：能看列表 ≠ 能封账 ≠ 能撤封账 ≠ 能催办 ≠ 能调汇
   const codes = Object.values(PERIOD_ACTION_PERMISSIONS);
-  assert.equal(new Set(codes).size, 4);
+  assert.equal(new Set(codes).size, 5);
 });
 
 test('状态 → 动作：CLOSED 只能反结账，OPEN 只能结账，NOT_OPENED 只能开账', () => {

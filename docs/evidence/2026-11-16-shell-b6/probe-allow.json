@@ -1,0 +1,20 @@
+{
+  "_comment": "B6 探针白名单：每条都是「登记的有意变化」或「对照组复现的噪声」。route/path/pathContains/cls/prop/from/to 同时给出即逐项匹配；不带 prop 的规则匹配该元素的所有差异。",
+  "rules": [
+    {
+      "route": "/business/erp/budget/report",
+      "pathContains": "div:nth-child(3)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)",
+      "why": "B1 裁定：panel-head__actions → 基线 panel-head__side。gap 8→6（同族单值）、新增 align-items:center、槽宽 120→118（两个按钮各少 1px 间隙）；两个按钮整体右移 2px。登记于证据 README §3"
+    },
+    {
+      "route": "/business/erp/cost-period",
+      "pathContains": "section:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)",
+      "why": "B2 裁定：panel-head__ops → 基线 panel-head__side。gap 8→6、新增 align-items:center、margin-left:auto 退休（space-between 本来就推右，几何不变）；槽宽 108→106。登记于证据 README §3"
+    },
+    {
+      "route": "/business/erp/warehouse",
+      "cls": "t-loading__gradient|t-loading__gradient-conic",
+      "why": "噪声：TDesign 表格加载指示器是 CSS 动画，同 dist 连拍两次自身就抖动（19 ↔ 21.9 ↔ 22.6px，x/y ±1.8px）—— 对照组 probe-control-1600.json 复现同样 8 条"
+    }
+  ]
+}

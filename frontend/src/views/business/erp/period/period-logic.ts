@@ -185,6 +185,13 @@ export const PERIOD_ACTION_PERMISSIONS = {
   reopen: 'business:erp:period:reopen',
   /** 催办（PERIOD-CLOSE）：能给处理人发催办 ≠ 有资格替他把单过账，所以另立一码 */
   remind: 'business:erp:period:remind',
+  /**
+   * 期末调汇（M1-05 / V0410）：按外币科目余额生成汇兑损益凭证。
+   *
+   * 与 `close` 分开一个码：结账是封账开关（进这一步期间只读，撤回走反结账），
+   * 调汇是**落一张凭证**（做错可红冲再跑）——合成一个码就得让「只想调汇的人」连封账权一起拿。
+   */
+  fxReval: 'business:erp:period:fx-reval',
 } as const;
 
 /** 期间行上可用的动作 */

@@ -123,7 +123,7 @@
         <div class="panel-head">
           <div class="panel-head__main">
             <span class="panel-head__title">库位列表</span>
-            <span class="panel-head__sub" data-testid="selected-title">{{ selectedTitle }}</span>
+            <span class="selected-warehouse" data-testid="selected-title">{{ selectedTitle }}</span>
           </div>
           <t-space size="small">
             <t-button
@@ -589,7 +589,7 @@ defineExpose({ toggleNode });
   flex: 0 0 340px;
 }
 
-.panel-head__sub {
+.selected-warehouse {
   font-size: 12px;
   color: var(--td-text-color-secondary);
   overflow: hidden;

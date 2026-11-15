@@ -1,0 +1,26 @@
+# B6 采集路由（探针 / 截图同一份）：20 个改动文件逐页（inventory 占 2 条：列表 Tab + 巡检模式）
+#
+/business/erp/account
+/business/erp/budget/mapping
+/business/erp/budget/report
+/business/erp/cost-object
+/business/erp/cost-overhead
+# cost-period：UncollectedPanel 在向导步 ②，探针先点「新建」(cp-btn-new) 再点「下一步」(cp-btn-next)
+/business/erp/cost-period
+/business/erp/expense/pay
+# inventory：列表 Tab（`.tool-row__switch` → `.inv-only-toggle`）
+/business/erp/inventory
+# inventory 巡检模式（`?audit=1`，面板头 tip 里的 `<code>` → `.inv-code`）
+/business/erp/inventory?audit=1
+/business/erp/invoice
+/business/erp/ledger
+/business/erp/location
+/business/erp/receipt-refund
+/business/erp/receipt
+/business/erp/receivable
+/business/erp/report/report-item
+/business/erp/serial
+/business/erp/transfer
+/business/erp/warehouse
+/business/erp/year-end
+/help

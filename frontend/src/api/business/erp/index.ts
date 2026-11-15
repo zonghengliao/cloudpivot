@@ -3144,6 +3144,77 @@ export function reopenPeriod(id: string, reason: string): Promise<AccountPeriodR
 }
 
 /**
+ * 期末调汇（M1-05）的一条科目结论。
+ *
+ * 金额列一律是**定点字符串**（后端 `Decimal::to_string()`，如 `"-30.0000"`）：
+ * 拿 `Number()` 转一下再展示会把 4 位小数抹成浮点尾数，差额看着就「对不上」了。
+ */
+export interface FxRevalLine {
+  /** 科目 id */
+  account_id: string;
+  /** 科目编码（如 `1122`） */
+  account_code: string;
+  /** 科目名称 */
+  account_name: string;
+  /** 科目主数据声明的核算币种（只做提示，不参与计算） */
+  account_currency: string;
+  /** 分录所在凭证的原币币种（真实核算币种） */
+  currency_code: string;
+  /** 原币余额（借方为正） */
+  fc_balance: string;
+  /** 账面本位币余额（借方为正，含历次调汇） */
+  book_balance: string;
+  /** 账面汇率（= 账面 / 原币，派生列） */
+  book_rate: string;
+  /** 期末 SPOT 汇率 */
+  close_rate: string;
+  /** 重估后本位币金额 */
+  revalued_base: string;
+  /** 差额（正 = 借 该科目 / 负 = 贷 该科目） */
+  diff: string;
+}
+
+/** 期末调汇响应（`POST /erp/period/{id}/fx-reval`）。 */
+export interface FxRevalResult {
+  /** 期间码 `yyyy-MM` */
+  period_code: string;
+  /** 期末日（取汇率日 = 凭证日期） */
+  period_end: string;
+  /** 账套本位币 */
+  base_currency: string;
+  /** 逐 `(科目, 币种)` 结论（差额不足 1 分的不进来） */
+  lines: FxRevalLine[];
+  /** 差额合计（正 = 净收益 / 负 = 净损失） */
+  net: string;
+  /** 本次是否只试算（`true` = 什么都没落库） */
+  dry_run: boolean;
+  /** 该期间已提过（幂等命中）⇒ `true` */
+  skipped: boolean;
+  /** 生成的调汇凭证 id（试算 / 无差额 / 已提过 ⇒ `null`） */
+  voucher_id: string | null;
+  /** 生成的调汇凭证号 */
+  voucher_no: string | null;
+  /** 不拦账的提示（科目声明币种与凭证币种不一致等） */
+  warnings: string[];
+}
+
+/**
+ * 期末调汇：按**外币科目余额**生成汇兑损益凭证（M1-05）。
+ *
+ * `POST /erp/period/{id}/fx-reval`，权限 `business:erp:period:fx-reval`。
+ *
+ * * `dryRun = true` → 只算不落账（试算）：返回同样的逐科目结论，`voucher_id` 为 `null`；
+ * * `dryRun = false` → 落一张**本位币**调汇凭证（借方=差额正的科目、贷方=差额负的科目、
+ *   净额进 5603 财务费用-汇兑损益），返回凭证号。
+ *
+ * 期间已结账 / 未开账 → **409**（先反结账 / 先开账）；期末取不到某币种 SPOT 牌价 →
+ * **400 + 66082**（去「币种 / 汇率」补牌价，不要把 rate 当成 1）。
+ */
+export function fxRevalPeriod(id: string, dryRun = false): Promise<FxRevalResult> {
+  return post<FxRevalResult>(`${BASE}/period/${encodeURIComponent(id)}/fx-reval`, { dry_run: dryRun });
+}
+
+/**
  * 催办：把挡路单据的待办发给处理人（PERIOD-CLOSE）。
  *
  * `POST /erp/period/{id}/remind`，权限 `business:erp:period:remind`。

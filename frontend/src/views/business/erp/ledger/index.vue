@@ -67,7 +67,7 @@
               <span class="panel-head__side panel-head__side--loose">
                 <span
                   v-if="currentAccountText"
-                  class="panel-head__account"
+                  class="ledger-account"
                   data-testid="ledger-current-account"
                 >
                   · {{ currentAccountText }}
@@ -568,7 +568,7 @@ watch(activeTab, (tab) => {
   gap: 8px;
 }
 
-.panel-head__account {
+.ledger-account {
   color: var(--td-text-color-secondary);
   font-weight: 400;
 }

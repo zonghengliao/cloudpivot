@@ -91,6 +91,8 @@
 // `crate::business::erp::period` 与拆前完全一致，只有搬走的兄弟模块多一层 `::period`
 // （`erp::period::period_items` 等）。
 // ==================== 期间校验明细 / 责任反查 / 催办 ====================
+/// M1-05 期末调汇：按**科目余额**生成汇兑损益凭证（口径、幂等、与 SO-41 的分工见文件头）。
+pub mod period_fx_reval;
 pub mod period_items;
 /// LNK-08 会计期间结账 / 反结账的联动 hook（唯一一份上下文 / 排除清单 / 幂等口径）。
 pub(crate) mod period_linkage;
@@ -137,18 +139,26 @@ pub const PERM_OPEN: &str = "business:erp:period:open";
 pub const PERM_CLOSE: &str = "business:erp:period:close";
 /// 反结账权限码（高危：撤销已封账的月份）。
 pub const PERM_REOPEN: &str = "business:erp:period:reopen";
-
-/// 四个权限码清单（`open/close/reopen` 与 `V0188__erp_period_close.up.sql` 逐字一致，
-/// `remind` 见 `V0207__erp_period_remind.up.sql`）。
+/// 期末调汇权限码（M1-05：按科目余额生成汇兑损益凭证）。
 ///
-/// 为什么三个动作各自一个码（卡面硬红线 4）：能看期间列表 ≠ 能封账 ≠ 能撤封账。
+/// 为什么与「结账」分两个码：结账是**封账开关**（进这一步期间就只读了，要撤回得走反结账），
+/// 调汇是**生成一张凭证**（做错了可以红冲再跑）。让「能调汇的会计」顺手拿到封账能力，
+/// 与 V0188「三个动作三个码」的理由相同；反过来只给结账的人也不该被逼着同时拥有调汇权。
+pub const PERM_FX_REVAL: &str = "business:erp:period:fx-reval";
+
+/// 五个权限码清单（`open/close/reopen/fx-reval` 与 `V0188__erp_period_close.up.sql` /
+/// `V0410__period_fx_revaluation.up.sql` 逐字一致，`remind` 见 `V0207__erp_period_remind.up.sql`）。
+///
+/// 为什么四个动作各自一个码（卡面硬红线 4）：能看期间列表 ≠ 能封账 ≠ 能撤封账 ≠ 能调汇。
 /// 只读的会计要 `period:list`（列在 V0141），不该顺手拿到封账能力；
 /// 反结账只给财务总监 / 超管，与「结账」再分一层。
 /// **催办另立一个码**：能给处理人发催办 ≠ 有资格替他把单过账。
-pub const PERIOD_PERMISSIONS: [(&str, &str); 4] = [
+/// **调汇另立一个码**：调汇会往账上落凭证（影响损益），必须能单独授 / 单独撤。
+pub const PERIOD_PERMISSIONS: [(&str, &str); 5] = [
     (PERM_OPEN, "开账（建期间 / 批量开账）"),
     (PERM_CLOSE, "结账（含结账预检）"),
     (PERM_REOPEN, "反结账（撤销已封账的期间）"),
+    (PERM_FX_REVAL, "期末调汇（按外币科目余额生成汇兑损益凭证）"),
     (
         crate::business::erp::period::period_remind::PERM_REMIND,
         "催办（把结账待办发给处理人）",
@@ -348,6 +358,103 @@ pub struct ReopenPeriodReq {
     /// 反结账原因（**必填，≥ 10 字**）。
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+/// 期末调汇入参（M1-05）。请求体必填但可为 `{}`（= 直接落账）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FxRevalReq {
+    /// 只试算不落账（默认 `false` = 真的生成调汇凭证）。
+    ///
+    /// 试算返回**同样的**逐 `(科目, 币种)` 结论，前端先给财务看差额，确认后再 `dry_run=false`
+    /// 落账 —— 调汇会直接改损益，不该点一下就落。
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// 一条科目调汇结论（金额列全部是定点字符串，避免 JSON 浮点丢精度）。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct FxRevalLineRes {
+    /// 科目 id。
+    pub account_id: String,
+    /// 科目编码。
+    pub account_code: String,
+    /// 科目名称。
+    pub account_name: String,
+    /// 科目主数据声明的核算币种（只用于提示，不参与计算）。
+    pub account_currency: String,
+    /// 分录所在凭证的原币币种。
+    pub currency_code: String,
+    /// 原币余额（借方为正）。
+    pub fc_balance: String,
+    /// 账面本位币余额（借方为正，含历次调汇）。
+    pub book_balance: String,
+    /// 账面汇率（= book / fc，派生列，给人对照）。
+    pub book_rate: String,
+    /// 期末 SPOT 汇率。
+    pub close_rate: String,
+    /// 重估后本位币金额。
+    pub revalued_base: String,
+    /// 差额（正 = 借 该科目 / 负 = 贷 该科目）。
+    pub diff: String,
+}
+
+/// 期末调汇响应。
+#[derive(Debug, Clone, Serialize)]
+pub struct FxRevalRes {
+    /// 期间码 `yyyy-MM`。
+    pub period_code: String,
+    /// 期末日（取汇率日 = 凭证日期）。
+    pub period_end: String,
+    /// 账套本位币。
+    pub base_currency: String,
+    /// 逐 `(科目, 币种)` 结论（差额不足 1 分的不进来）。
+    pub lines: Vec<FxRevalLineRes>,
+    /// 差额合计（正 = 净收益）。
+    pub net: String,
+    /// 是否试算（`true` = 本次什么都没落库）。
+    pub dry_run: bool,
+    /// 该期间已提过 ⇒ `true`（本次什么都没写）。
+    pub skipped: bool,
+    /// 生成的调汇凭证 id（试算 / 无差额 / 已提过 ⇒ `None`）。
+    pub voucher_id: Option<String>,
+    /// 生成的调汇凭证号。
+    pub voucher_no: Option<String>,
+    /// 不拦账的提示（科目声明币种与凭证币种不一致等）。
+    pub warnings: Vec<String>,
+}
+
+impl FxRevalRes {
+    /// 把调汇结论翻成接口响应。
+    pub fn from_outcome(outcome: &period_fx_reval::Outcome, dry_run: bool) -> Self {
+        Self {
+            period_code: outcome.period_code.clone(),
+            period_end: outcome.period_end.to_string(),
+            base_currency: outcome.base_currency.clone(),
+            lines: outcome
+                .rows
+                .iter()
+                .map(|row| FxRevalLineRes {
+                    account_id: row.account_id.to_string(),
+                    account_code: row.account_code.clone(),
+                    account_name: row.account_name.clone(),
+                    account_currency: row.account_currency.clone(),
+                    currency_code: row.currency_code.clone(),
+                    fc_balance: row.fc_balance.to_string(),
+                    book_balance: row.book_balance.to_string(),
+                    book_rate: row.book_rate().to_string(),
+                    close_rate: row.close_rate.to_string(),
+                    revalued_base: row.revalued_base.to_string(),
+                    diff: row.diff.to_string(),
+                })
+                .collect(),
+            net: outcome.net.to_string(),
+            dry_run,
+            skipped: outcome.skipped,
+            voucher_id: outcome.voucher_id.map(|id| id.to_string()),
+            voucher_no: outcome.voucher_no.clone(),
+            warnings: outcome.warnings.clone(),
+        }
+    }
 }
 
 /// 一个阻塞项。
@@ -1710,6 +1817,53 @@ async fn ex_update_reopen(ex: &impl SqlExecutor, id: Uuid, now: DateTime<Utc>) -
     .map_err(|error| db_error(error, "更新会计期间状态（反结账）"))
 }
 
+// ==================== ④ 期末调汇（M1-05） ====================
+
+/// 期末调汇：按**外币科目余额**生成汇兑损益凭证（可试算）。
+///
+/// # 事务与期间闸
+///
+/// * `SELECT … FOR UPDATE` 锁住期间行 ⇒ 两次点击被串行化，第二次在幂等闸上看见第一张凭证；
+/// * 已结账 ⇒ **409**（`RESOURCE_CONFLICT`）：调汇要往这个月落凭证，而封账期间只读，
+///   正确解法是反结账 → 调汇 → 重新结账（与手工凭证 409 的分界一致：面向人的表单提交）；
+/// * 未开账 ⇒ **409**：`NOT_OPENED` 期间还没有任何账，调汇没有意义（先开账）。
+///
+/// # 为什么不做「先结账再自动调汇」
+///
+/// 结账链路的第五条已经跑了 SO-41 的应收逐笔重估（`fx_revaluation::revalue_period`），
+/// 那里**不允许**因为「某个币种没维护期末牌价」而封不了账；而科目级调汇必须对缺牌价硬拒绝
+/// （否则整本账少调一个科目，静默错账，见错误码 `66082`）。两个诉求不能塞进同一个开关，
+/// 所以调汇是独立动作：财务先试算、看一眼、再落账，落完再结账。
+pub async fn fx_reval(id: Uuid, dry_run: bool, operator: state_machine::Operator) -> Result<FxRevalRes, ApiError> {
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| db_error(error, "开启期末调汇事务"))?;
+    let row = find_by_id_locked(&tx, id).await?.ok_or_else(not_found)?;
+    if row.status == STATUS_CLOSED {
+        return Err(conflict(format!(
+            "会计期间 {} 已结账（{} 结的）：期末调汇要往这个月落凭证，而封账期间只读。\
+             请先反结账，调汇后再重新结账",
+            row.period_code,
+            row.closed_at
+                .map(|value| value.format("%Y-%m-%d %H:%M").to_string())
+                .unwrap_or_else(|| "-".to_string())
+        )));
+    }
+    if row.status == STATUS_NOT_OPENED {
+        return Err(conflict(format!(
+            "会计期间 {} 还没有开账（状态 NOT_OPENED）：开账之后才有账簿可调，请先开账",
+            row.period_code
+        )));
+    }
+    let outcome = period_fx_reval::revalue(&tx, &row.period_code, row.end_date, dry_run, operator.id, now).await?;
+    let res = FxRevalRes::from_outcome(&outcome, dry_run);
+    // 试算与落账都提交：试算只读，提交把它自己的快照锁放掉，不留长事务。
+    tx.commit().await.map_err(|error| db_error(error, "提交期末调汇事务"))?;
+    Ok(res)
+}
+
 // ==================== 记账入口的期间闸 ====================
 
 /// 期间可写闸：已结账 → **400**（卡面 §一 ②「结账后」三条）。
@@ -1832,6 +1986,34 @@ pub async fn period_reopen_handler(
     let id = parse_period_id(&id)?;
     Ok(Res::ok(
         reopen_period(id, req.reason.as_deref(), state_machine::Operator::from(&claims)).await?,
+    ))
+}
+
+/// 期末调汇（M1-05）：按外币科目余额生成汇兑损益凭证。
+///
+/// | 项 | 值 |
+/// |----|----|
+/// | 方法 / 路径 | `POST /business/erp/period/{id}/fx-reval`（`/api` 前缀由 `[router].prefix` 注入） |
+/// | 权限码 | `business:erp:period:fx-reval`（V0410 种进 `sys_menu`） |
+/// | 入参 | `{ "dry_run": true/false }`（可省字段，但请求体必须有，可为 `{}`） |
+/// | 出参 | 逐 `(科目, 币种)` 的原币 / 账面 / 期末汇率 / 差额 + 凭证号（试算不带） |
+///
+/// 业务口径与幂等在 [`period_fx_reval`] 的文件头，事务与期间闸在 [`fx_reval`]。
+#[nik::permission(
+    path = "/business/erp/period/{id}/fx-reval",
+    method = "POST",
+    permission = "business:erp:period:fx-reval"
+)]
+#[nik::post("/business/erp/period/{id}/fx-reval")]
+pub async fn period_fx_reval_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<FxRevalReq>,
+) -> ResResult<FxRevalRes> {
+    ensure_permission(&claims, PERM_FX_REVAL, "期末调汇")?;
+    let id = parse_period_id(&id)?;
+    Ok(Res::ok(
+        fx_reval(id, req.dry_run, state_machine::Operator::from(&claims)).await?,
     ))
 }
 

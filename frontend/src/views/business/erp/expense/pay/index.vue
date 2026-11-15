@@ -35,7 +35,7 @@
     >
       <!-- 本页没有服务端筛选项：这一行只剩「刷新」+ 口径说明 -->
       <template #toolbar>
-        <span class="tool-row__tip">
+        <span class="pay-toolbar-tip">
           仅显示「已审批且未付清」的报销单（按审批通过时间升序，先批的先付）
         </span>
       </template>
@@ -304,7 +304,7 @@ function errorText(error: unknown): string {
   gap: 12px;
 }
 
-.tool-row__tip {
+.pay-toolbar-tip {
   color: var(--td-text-color-secondary);
   font-size: 12px;
 }

@@ -19,7 +19,7 @@
           本期还没有成本批次（点「计算」会自动建）
         </span>
       </div>
-      <div class="panel-head__ops">
+      <div class="panel-head__side">
         <t-button
           size="small"
           variant="outline"
@@ -445,12 +445,6 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.panel-head__ops {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
 }
 
 .panel-alert {

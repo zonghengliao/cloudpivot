@@ -1,0 +1,559 @@
+{
+  "generatedAt": "2026-11-15T21:23:01.958Z",
+  "baseline": {
+    "file": "style/shell.less",
+    "classes": {
+      "tool-card": {
+        "props": {
+          "flex": "0 0 auto"
+        },
+        "selector": ".tool-card"
+      },
+      "list-card": {
+        "props": {
+          "flex": "1 1 auto",
+          "min-width": "0"
+        },
+        "selector": ".list-card"
+      },
+      "panel-head": {
+        "props": {
+          "display": "flex",
+          "align-items": "baseline",
+          "justify-content": "space-between",
+          "gap": "12px",
+          "margin-bottom": "10px"
+        },
+        "selector": ".panel-head"
+      },
+      "panel-head__main": {
+        "props": {
+          "display": "flex",
+          "align-items": "baseline",
+          "gap": "10px",
+          "min-width": "0"
+        },
+        "selector": ".panel-head__main"
+      },
+      "panel-head__title": {
+        "props": {
+          "font-size": "14px",
+          "font-weight": "600",
+          "color": "var(--td-text-color-primary)",
+          "white-space": "nowrap"
+        },
+        "selector": ".panel-head__title"
+      },
+      "panel-head__meta": {
+        "props": {
+          "font-size": "12px",
+          "color": "var(--td-text-color-placeholder)",
+          "white-space": "nowrap"
+        },
+        "selector": ".panel-head__meta"
+      },
+      "panel-head__tip": {
+        "props": {
+          "font-size": "12px",
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".panel-head__tip"
+      },
+      "panel-head__hint": {
+        "props": {
+          "font-size": "12px",
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".panel-head__hint"
+      },
+      "panel-head__side": {
+        "props": {
+          "display": "flex",
+          "align-items": "center",
+          "gap": "6px"
+        },
+        "selector": ".panel-head__side"
+      },
+      "tool-row": {
+        "props": {
+          "display": "flex",
+          "align-items": "center",
+          "gap": "12px",
+          "flex-wrap": "wrap"
+        },
+        "selector": ".tool-row"
+      },
+      "tool-row__spacer": {
+        "props": {
+          "flex": "1 1 auto"
+        },
+        "selector": ".tool-row__spacer"
+      },
+      "tool-row__hint": {
+        "props": {
+          "color": "var(--td-text-color-placeholder)",
+          "font-size": "12px"
+        },
+        "selector": ".tool-row__hint"
+      },
+      "tool-row__sep": {
+        "props": {
+          "color": "var(--td-text-color-placeholder)",
+          "font-size": "12px"
+        },
+        "selector": ".tool-row__sep"
+      },
+      "tool-row__tilde": {
+        "props": {
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".tool-row__tilde"
+      },
+      "tool-row__label": {
+        "props": {
+          "color": "var(--td-text-color-secondary)"
+        },
+        "selector": ".tool-row__label"
+      },
+      "tool-row__label--sm": {
+        "props": {
+          "font-size": "13px",
+          "white-space": "nowrap"
+        },
+        "selector": ".tool-row__label--sm"
+      },
+      "tool-row__date": {
+        "props": {
+          "width": "140px"
+        },
+        "selector": ".tool-row__date"
+      },
+      "tool-row__period": {
+        "props": {
+          "width": "140px"
+        },
+        "selector": ".tool-row__period"
+      },
+      "tool-row__no": {
+        "props": {
+          "width": "220px"
+        },
+        "selector": ".tool-row__no"
+      },
+      "tool-row__keyword": {
+        "props": {
+          "width": "220px"
+        },
+        "selector": ".tool-row__keyword"
+      },
+      "tool-row__type": {
+        "props": {
+          "width": "140px"
+        },
+        "selector": ".tool-row__type"
+      },
+      "tool-row__status": {
+        "props": {
+          "width": "130px"
+        },
+        "selector": ".tool-row__status"
+      },
+      "tool-row__customer": {
+        "props": {
+          "width": "200px"
+        },
+        "selector": ".tool-row__customer"
+      },
+      "tool-row__supplier": {
+        "props": {
+          "width": "200px"
+        },
+        "selector": ".tool-row__supplier"
+      },
+      "tool-row__warehouse": {
+        "props": {
+          "width": "190px"
+        },
+        "selector": ".tool-row__warehouse"
+      },
+      "tool-row__material": {
+        "props": {
+          "width": "220px"
+        },
+        "selector": ".tool-row__material"
+      },
+      "tool-row__method": {
+        "props": {
+          "width": "130px"
+        },
+        "selector": ".tool-row__method"
+      },
+      "tool-row__range": {
+        "props": {
+          "width": "250px"
+        },
+        "selector": ".tool-row__range"
+      },
+      "tool-row--dense": {
+        "props": {
+          "gap": "8px"
+        },
+        "selector": ".tool-row--dense"
+      },
+      "tool-row--second": {
+        "props": {
+          "margin-top": "12px"
+        },
+        "selector": ".tool-row--second"
+      },
+      "list-card--side": {
+        "props": {
+          "flex": "0 0 320px",
+          "width": "320px",
+          "display": "flex",
+          "flex-direction": "column",
+          "min-height": "0"
+        },
+        "selector": ".list-card--side"
+      },
+      "panel-head__side--loose": {
+        "props": {
+          "display": "inline-flex",
+          "align-items": "baseline",
+          "gap": "12px",
+          "flex-wrap": "wrap"
+        },
+        "selector": ".panel-head__side--loose"
+      },
+      "panel-head__title--lg": {
+        "props": {
+          "font-size": "16px"
+        },
+        "selector": ".panel-head__title--lg"
+      },
+      "panel-head__tip--end": {
+        "props": {
+          "margin-left": "auto"
+        },
+        "selector": ".panel-head__tip--end"
+      },
+      "panel-head__tip--right": {
+        "props": {
+          "text-align": "right"
+        },
+        "selector": ".panel-head__tip--right"
+      },
+      "panel-head__hint--end": {
+        "props": {
+          "margin-left": "auto"
+        },
+        "selector": ".panel-head__hint--end"
+      },
+      "panel-head__hint--right": {
+        "props": {
+          "text-align": "right"
+        },
+        "selector": ".panel-head__hint--right"
+      },
+      "panel-head__main--nowrap": {
+        "props": {
+          "white-space": "nowrap"
+        },
+        "selector": ".panel-head__main--nowrap"
+      },
+      "panel-empty": {
+        "props": {
+          "display": "flex",
+          "flex-direction": "column",
+          "align-items": "center",
+          "gap": "4px",
+          "padding": "24px 0"
+        },
+        "selector": ".panel-empty"
+      },
+      "panel-empty__icon": {
+        "props": {
+          "font-size": "40px",
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".panel-empty .panel-empty__icon"
+      },
+      "panel-empty__title": {
+        "props": {
+          "margin": "8px 0 4px",
+          "font-size": "14px",
+          "color": "var(--td-text-color-primary)",
+          "font-weight": "600"
+        },
+        "selector": ".panel-empty__title"
+      },
+      "panel-empty__desc": {
+        "props": {
+          "margin": "0",
+          "font-size": "12px",
+          "color": "var(--td-text-color-placeholder)",
+          "max-width": "460px",
+          "line-height": "1.6"
+        },
+        "selector": ".panel-empty__desc"
+      },
+      "panel-empty--rich": {
+        "props": {
+          "display": "flex",
+          "flex-direction": "column",
+          "align-items": "center",
+          "justify-content": "center",
+          "gap": "6px",
+          "padding": "48px 16px",
+          "text-align": "center"
+        },
+        "selector": ".panel-empty--rich"
+      },
+      "panel-empty--file": {
+        "props": {
+          "display": "block",
+          "padding": "40px 0",
+          "text-align": "center"
+        },
+        "selector": ".panel-empty--file"
+      },
+      "panel-empty--doc": {
+        "props": {
+          "display": "block",
+          "padding": "40px 0",
+          "text-align": "center"
+        },
+        "selector": ".panel-empty--doc"
+      },
+      "panel-empty--inline": {
+        "props": {
+          "display": "block",
+          "text-align": "center",
+          "padding": "16px 12px",
+          "font-size": "13px",
+          "color": "var(--td-text-color-secondary)"
+        },
+        "selector": ".panel-empty--inline"
+      },
+      "panel-empty__icon--success": {
+        "props": {
+          "color": "var(--td-success-color)"
+        },
+        "selector": ".panel-empty .panel-empty__icon--success"
+      },
+      "panel-empty__icon--lg": {
+        "props": {
+          "font-size": "40px"
+        },
+        "selector": ".panel-empty--rich .panel-empty__icon--lg"
+      }
+    }
+  },
+  "totals": {
+    "blocks": 6,
+    "files": 2,
+    "estLines": 31
+  },
+  "batches": {
+    "B0": {
+      "label": "组件自持（allowlist，不动）",
+      "blocks": 4,
+      "files": [
+        "components/ListPage/index.vue"
+      ],
+      "estLines": 24,
+      "detail": [
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head",
+          "cls": "panel-head",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "align-items": "baseline",
+            "justify-content": "space-between",
+            "gap": "12px",
+            "margin-bottom": "10px"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        },
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__main",
+          "cls": "panel-head__main",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "align-items": "baseline",
+            "gap": "10px",
+            "min-width": "0"
+          },
+          "lines": 6,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        },
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__title",
+          "cls": "panel-head__title",
+          "direct": true,
+          "props": {
+            "font-size": "14px",
+            "font-weight": "600",
+            "color": "var(--td-text-color-primary)",
+            "white-space": "nowrap"
+          },
+          "lines": 6,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        },
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__meta",
+          "cls": "panel-head__meta",
+          "direct": true,
+          "props": {
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "white-space": "nowrap"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        }
+      ]
+    },
+    "B5-ALLOW": {
+      "label": "白名单（登记保留的页面声明，不算债）",
+      "blocks": 2,
+      "files": [
+        "views/business/hr/salary/index.vue"
+      ],
+      "estLines": 7,
+      "detail": [
+        {
+          "file": "views/business/hr/salary/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 16px",
+            "text-align": "center",
+            "font-size": "13px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 6,
+          "diff": {
+            "kind": "partial",
+            "missing": [
+              "display",
+              "flex-direction",
+              "align-items",
+              "gap"
+            ],
+            "extra": [
+              {
+                "prop": "text-align",
+                "local": "center"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": [
+              {
+                "prop": "padding",
+                "local": "40px 16px",
+                "base": "24px 0"
+              }
+            ]
+          },
+          "batch": "B5-ALLOW"
+        },
+        {
+          "file": "views/business/hr/salary/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "line-height": "20px",
+            "font-size": "13px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 1,
+          "diff": {
+            "kind": "partial",
+            "missing": [
+              "font-weight"
+            ],
+            "extra": [
+              {
+                "prop": "line-height",
+                "local": "20px"
+              }
+            ],
+            "changed": [
+              {
+                "prop": "margin",
+                "local": "0",
+                "base": "8px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px",
+                "base": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)",
+                "base": "var(--td-text-color-primary)"
+              }
+            ]
+          },
+          "batch": "B5-ALLOW"
+        }
+      ]
+    }
+  },
+  "failures": []
+}

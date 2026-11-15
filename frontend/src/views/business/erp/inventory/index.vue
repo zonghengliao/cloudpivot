@@ -59,9 +59,9 @@
                 </span>
               </div>
               <span class="panel-head__tip">
-                口径：<code>SUM(biz_inventory.qty)</code>（该物料×仓库的「所有桶之和」）对比
-                <code>biz_material_serial.status='IN_STOCK'</code> 的件数；修正走巡检接口
-                （<code>dry_run=false</code>，单桶按差额调整、多桶交人工），本页只读
+                口径：<code class="inv-code">SUM(biz_inventory.qty)</code>（该物料×仓库的「所有桶之和」）对比
+                <code class="inv-code">biz_material_serial.status='IN_STOCK'</code> 的件数；修正走巡检接口
+                （<code class="inv-code">dry_run=false</code>，单桶按差额调整、多桶交人工），本页只读
               </span>
             </div>
 
@@ -148,7 +148,7 @@
           >
             <!-- 「隐藏零库存」不是下拉 / 输入框：走 `custom` 筛选槽，重置时由组件写成 false -->
             <template #filter-only_nonzero>
-              <label class="tool-row__switch">
+              <label class="inv-only-toggle">
                 <t-switch v-model="stockFilter.only_nonzero" size="small" data-testid="stock-switch-nonzero" />
                 <span>隐藏零库存</span>
               </label>
@@ -252,7 +252,7 @@
           >
             <template #head-extra>
               <span class="panel-head__tip">
-                主表 <code>biz_inventory_location</code>；库位列为空 = 该仓未分配到具体库位的数量
+                主表 <code class="inv-code">biz_inventory_location</code>；库位列为空 = 该仓未分配到具体库位的数量
               </span>
             </template>
 
@@ -358,7 +358,7 @@
 
             <template #head-extra>
               <span class="panel-head__tip">
-                主表 <code>biz_inventory_txn</code>；数量恒为正，方向看「类型」；点行看 before/after 快照
+                主表 <code class="inv-code">biz_inventory_txn</code>；数量恒为正，方向看「类型」；点行看 before/after 快照
               </span>
             </template>
 
@@ -1212,7 +1212,7 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.tool-row__switch {
+.inv-only-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1221,7 +1221,7 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.panel-head__tip code {
+.inv-code {
   padding: 1px 4px;
   border-radius: 3px;
   background: var(--td-bg-color-container-hover);

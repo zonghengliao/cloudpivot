@@ -6,7 +6,7 @@
         <span class="tool-label">会计年度</span>
         <t-select
           v-model="yearModel"
-          class="tool-row__year"
+          class="yearend-year"
           :options="yearOptions"
           :loading="yearLoading"
           placeholder="选择年度"
@@ -484,7 +484,7 @@ onMounted(async () => {
 }
 /* 卡片间距走容器 `gap`（与 opening / price / account 同族写法）；`.tool-card,.main-card`
    上的 `margin-bottom:12px` 一并退役，否则最后一张卡会多出 12px 空档。 */
-.tool-row__year {
+.yearend-year {
   width: 160px;
 }
 .tool-label {

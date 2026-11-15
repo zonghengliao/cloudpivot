@@ -26,7 +26,7 @@
       <template #head-extra>
         <span class="panel-head__hint">
           单仓内的新建 / 删除也可在
-          <router-link class="panel-head__link" to="/business/erp/warehouse">仓库管理</router-link>
+          <router-link class="warehouse-link" to="/business/erp/warehouse">仓库管理</router-link>
           页操作
         </span>
       </template>
@@ -434,12 +434,12 @@ onMounted(async () => {
   flex: 1 1 auto;
 }
 
-.panel-head__link {
+.warehouse-link {
   color: var(--td-brand-color);
   text-decoration: none;
 }
 
-.panel-head__link:hover {
+.warehouse-link:hover {
   text-decoration: underline;
 }
 
