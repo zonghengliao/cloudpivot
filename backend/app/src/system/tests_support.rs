@@ -55,11 +55,22 @@ pub(crate) fn db_url() -> Option<String> {
 ///
 /// 修法：在一个常驻的专用 thread + runtime 里建连并把它留在那里
 /// （[`connect_in_dedicated_runtime`]），连接生命周期与任何用例的 runtime 解耦。
+///
+/// # 为什么测试期必须在这里装内核接缝
+///
+/// 见 [`crate::bootstrap::install_kernel_ports_for_tests`]：`session_flags_port` /
+/// `config_port` 只在 `bootstrap::bootstrap()`（生产启动链）里安装，而 lib 单测不跑启动链。
+/// 本函数是 `system::` 全部真库用例的**唯一公共入口**（`system::session_tests` 等
+/// 都先 `ts::ensure_db()`），所以在建连之前装一次（`Once` 幂等）：漏装的后果是
+/// `session_cache` 回源**大声失败**（s02 / s06 / s07 三条红），不是静黙降级。
 pub(crate) async fn ensure_db() -> bool {
     use tokio::sync::OnceCell;
     static READY: OnceCell<bool> = OnceCell::const_new();
     *READY
         .get_or_init(|| async {
+            // 内核基座读取接缝（P2-59 · C1）：先装接缝再连库 —— 装接缝本身不碰数据库，
+            // 但之后的任何一次会话字段回源都要求它已在注册表里。
+            crate::bootstrap::install_kernel_ports_for_tests();
             let Some(url) = db_url() else {
                 println!("SKIP: 未设置 SYS_DB_URL（不连真实数据库）");
                 return false;

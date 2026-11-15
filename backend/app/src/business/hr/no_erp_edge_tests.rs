@@ -39,6 +39,21 @@ fn src_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
+/// 基座 crate 的源码根：`backend/crates/cloudpivot-kernel/src`。
+///
+/// app 的 `CARGO_MANIFEST_DIR` 是 `backend/app`，基座是它的兄弟（workspace 成员
+/// `cloudpivot-kernel`），所以从这里退两级。根目录**自己先断言一次**：写错时
+/// `is_file()` 会全红，但报错只说「落点不见了」，分不清是「文件真被删了」还是「根写错了」。
+fn kernel_src_root() -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/cloudpivot-kernel/src");
+    assert!(
+        root.is_dir(),
+        "基座源码根不存在：{}（P2-59 · C1 抽 crate 后应在 backend/crates/cloudpivot-kernel/src）",
+        root.display()
+    );
+    root
+}
+
 /// 列出 `hr/` 下所有 `.rs`（含测试文件），并断言扫描面够大。
 fn hr_files() -> Vec<PathBuf> {
     fn walk(dir: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -107,17 +122,46 @@ fn hr_source_has_no_erp_references() {
 
 /// ② 中立落点必须**真实存在**：有人在重构里把接缝删了/改名了，这条会先红，
 /// 而不是等 `hr` 的编译错误（那时已经有人会「顺手把 import 指回 erp」了）。
+///
+/// # 路径要跟着搬家走（P2-59 · C1 内核抽 crate）
+///
+/// 4 个落点里有 3 个已随基座搬进 `backend/crates/cloudpivot-kernel/src/`：
+///
+/// | 落点 | 现在在哪 |
+/// |---|---|
+/// | 凭证写入接缝 | `crates/cloudpivot-kernel/src/business/shared/voucher_port.rs`（C1 搬走） |
+/// | 期间键 | `crates/cloudpivot-kernel/src/business/shared/period_key.rs`（C1 搬走） |
+/// | 取号引擎 | `crates/cloudpivot-kernel/src/business/shared/seq.rs`（C1 搬走） |
+/// | 审批闸 | 仍在 `app/src/business/flow/approval_gate.rs`（属审批域，不是基座） |
+///
+/// 判据不变（文件必须存在），只是**按 crate 分组断言**：给一个统一的相对根写死
+/// `business/shared/…` 会让搬走的那三个永远红在「文件不存在」上，而这恰恰是本卡的成因。
+/// 根目录本身也断言一次 —— 路径写错（比如多退一级）时 `is_file()` 会全红，但报错信息
+/// 只说「落点不见了」，分不清是「文件真被删了」还是「根写错了」。
 #[test]
 fn the_neutral_homes_still_exist() {
+    // 基座里的三个（C1 抽 crate 后随 `cloudpivot_kernel` 走）
+    let kernel_src = kernel_src_root();
     for relative in [
         "business/shared/voucher_port.rs",
         "business/shared/period_key.rs",
         "business/shared/seq.rs",
-        "business/flow/approval_gate.rs",
     ] {
-        let path = src_root().join(relative);
-        assert!(path.is_file(), "中立落点不见了：{relative}（hr 靠它解掉对 erp 的依赖）");
+        let path = kernel_src.join(relative);
+        assert!(
+            path.is_file(),
+            "中立落点不见了：cloudpivot-kernel/src/{relative}（hr 靠它解掉对 erp 的依赖）\n\
+             基座源码根：{}",
+            kernel_src.display()
+        );
     }
+
+    // 留在 app 里的一个（审批闸属审批域 `business::flow`，没进基座）
+    let approval_gate = src_root().join("business/flow/approval_gate.rs");
+    assert!(
+        approval_gate.is_file(),
+        "中立落点不见了：business/flow/approval_gate.rs（hr 靠它解掉对 erp 的依赖）"
+    );
 }
 
 /// ③ 凭证接缝的**实现**在凭证域里（不是 HR 自己实现，也不是基座实现）。

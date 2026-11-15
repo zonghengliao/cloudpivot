@@ -863,8 +863,22 @@ async fn bug02_repost_rejects_instance_still_pending() {
 }
 
 /// ⑥ 内控开关「制单 ≠ 过账」打开时：制单人调 repost 被拦（409 + 66013），换个人可以。
+///
+/// # 为什么这条用例要显式装内核接缝
+///
+/// 内控开关（`business::shared::separation`）的值走基座的
+/// `cloudpivot_kernel::shared::config_port`，而那条接缝只在**生产启动链**
+/// （`bootstrap::register_kernel_ports`）里安装；`cargo test --lib` 不跑启动链，
+/// 于是 `read_text` 恒 `None` ⇒ 开关恒「关」⇒ 下面 `set_sod_post(true)` 之后闸也不拦，
+/// 用例红在 `expect_err("内控开关打开时制单人不能自己过账")`（P2-59 遗留，与业务代码无关）。
+///
+/// `install_kernel_ports_for_tests()` 是 `#[cfg(test)]` 的接线入口（生产构建里不存在），
+/// 装的两条接缝读到的东西与「未装时的代码默认值」逐键相等 —— 逐条核对见该函数文档。
+/// 装在这里而不是夹具 `setup()` 里：**只有这条用例需要读「运行期被改过的」开关值**，
+/// 其余 stockin 用例读到的本就是默认值（装与不装一致），不必扩大接线面。
 #[tokio::test]
 async fn bug02_repost_blocked_by_separation_of_duties() {
+    crate::bootstrap::install_kernel_ports_for_tests();
     let _db = match setup().await {
         Some(guard) => guard,
         None => return,

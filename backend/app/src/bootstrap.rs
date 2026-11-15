@@ -253,6 +253,66 @@ pub(crate) fn install_voucher_port_for_tests() {
     });
 }
 
+/// 测试用接线（`#[cfg(test)]`）：内核基座的两条**读取接缝**（P2-59 · C1）在 lib 单测里
+/// 没有启动链可依 —— [`register_kernel_ports`] 只在 `bootstrap()`（`App::start()` 的钩子）
+/// 里跑，而 `cargo test --lib` 从不跑启动链。不装就跑出两类假红（与业务代码无关）：
+///
+/// - `session_flags_port` 未装 ⇒ `shared::session_cache` 未命中的回源**大声失败**
+///   （`DbError::InvalidValue("…接缝未安装实现…")`）⇒ `system::session_tests` 的
+///   s02 / s06 / s07 三条红；
+/// - `config_port` 未装 ⇒ 内控开关 / 成本开关 / 空闲超时一律回退代码默认值，
+///   而 `stockin_handler_tests_pflow3a::bug02` **靠运行期改开关**来证明内控闸真的接上了，
+///   读成 `None`（= 关）时闸永远不拦 ⇒ 该用例红（「内控开关打开时制单人不能自己过账」）。
+///
+/// # 为什么两条一起装（而不是「只给需要的那条用例装」）
+///
+/// 注册表是**进程级**的（`OnceLock` + `RwLock`，无卸载口）：用例里 `install` 一次，
+/// 同进程后续所有用例都看得见。只给一条用例装就等于「同一个进程里，排在前面的用例读代码
+/// 默认值、排在后面的用例读库值」—— 那是**顺序相关的抖动**，比确定性安装难查得多。
+/// 因此统一在这里装，并用「装与不装读到同一值」把影响面收干：模板库（
+/// `scripts/verify/make_full_suite_db.sh` 建的 `cloudpivot_test_full`，178 表 / 336 迁移）
+/// 的种子值与代码默认**逐键相等**，实测取值：
+///
+/// | 键（读者） | 种子（迁移 / 实测值） | 未装时的回退 |
+/// |---|---|---|
+/// | `auth.idle_timeout_minutes`（`idle_session`） | `15`（`S__config_data.sql`，实测 `15`） | `DEFAULT_IDLE_TIMEOUT_MINUTES = 15` |
+/// | `erp.cost.enabled`（`business::shared::cost_switch`） | `false`（实测 `false`） | `false`（读不到即关） |
+/// | `erp.separation_of_duties.enabled` / `.post` | `false`（V0196，实测 `false`） | `Duty::{Approve,Pay,…}::default_enabled()` 对应 `false` |
+/// | `erp.separation_of_duties.approve` / `.pay` | `true`（V0196，实测 `true`） | `true` |
+/// | `erp.separation_of_duties.{approve_execute,stocktake,purchase_accept}` | `false`（V0340，实测 `false`） | `false` |
+/// | `erp.separation_of_duties.self_approval_max_amount` | `0`（V0338，实测 `0`） | `SELF_APPROVAL_MAX_AMOUNT_DEFAULT = 0.0` |
+///
+/// 于是**唯一**的行为变化就是本卡要的那一处：`bug02` 运行期把 `.post` 改成 `true`
+/// 之后内控闸真的拦得住（这正是它要证明的事），其余用例读到的东西一字不差。
+///
+/// # 它为什么在 `bootstrap`
+///
+/// 与 [`install_voucher_port_for_tests`] 同理：`bootstrap` 同时看得到两侧
+/// （消费者 `system` / `erp`、实现者 `system::user::model` / `support::config::model`），
+/// 而它本身不是业务域 —— 用例 `use crate::bootstrap::…` 不会新增任何域间引用
+/// （`module_cycle_report` 连测试文件一起扫）。
+///
+/// 幂等：`std::sync::Once` 只执行一次；已被别处装过时跳过（注册表进程级，重复安装会报错）。
+/// 生产构建里符号不存在（`#[cfg(test)]`）。
+#[cfg(test)]
+pub(crate) fn install_kernel_ports_for_tests() {
+    use std::sync::{Arc, Once};
+
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        if !cloudpivot_kernel::shared::session_flags_port::is_installed() {
+            cloudpivot_kernel::shared::session_flags_port::install(Arc::new(
+                crate::system::user::model::SessionFlagsReader,
+            ))
+            .unwrap_or_else(|error| panic!("测试期安装会话字段读取接缝失败：{error}"));
+        }
+        if !cloudpivot_kernel::shared::config_port::is_installed() {
+            cloudpivot_kernel::shared::config_port::install(Arc::new(crate::support::config::model::SysConfigReader))
+                .unwrap_or_else(|error| panic!("测试期安装配置读取接缝失败：{error}"));
+        }
+    });
+}
+
 /// 启动钩子：完成业务侧初始化并输出启动摘要。
 ///
 /// # 异常情况
