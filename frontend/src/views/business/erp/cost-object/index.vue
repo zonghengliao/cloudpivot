@@ -1502,10 +1502,6 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
 .tool-row__month {
   width: 132px;
 }

@@ -1212,42 +1212,6 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-/* ==================== 工具栏 ==================== */
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin: 8px 0 12px;
-}
-
-.tool-row__select {
-  width: 220px;
-}
-
-.tool-row__type {
-  width: 140px;
-}
-
-.tool-row__doc {
-  width: 200px;
-}
-
-.tool-row__date {
-  width: 150px;
-}
-
-.tool-row__sep {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
 .tool-row__switch {
   display: inline-flex;
   align-items: center;
@@ -1255,38 +1219,6 @@ onMounted(async () => {
   font-size: 13px;
   color: var(--td-text-color-secondary);
   cursor: pointer;
-}
-
-/* ==================== 表头 ==================== */
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-head__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-head__tip code {
@@ -1365,11 +1297,6 @@ onMounted(async () => {
   align-items: center;
   gap: 4px;
   padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-empty__title {

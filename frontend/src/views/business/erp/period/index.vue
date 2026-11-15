@@ -859,39 +859,6 @@ onMounted(() => {
   width: 140px;
 }
 
-/* ==================== 列表 ==================== */
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-head__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 .list-alert {
   margin-bottom: 10px;
 }
@@ -934,11 +901,6 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-empty__title {

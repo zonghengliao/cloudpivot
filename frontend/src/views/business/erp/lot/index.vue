@@ -465,54 +465,6 @@ onMounted(() => {
   padding: 12px;
 }
 
-.tool-card,
-.list-card {
-  border-radius: 8px;
-}
-
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.tool-row__spacer {
-  flex: 1;
-}
-
-.tool-row__material {
-  width: 220px;
-}
-
-.tool-row__source,
-.tool-row__qc,
-.tool-row__status {
-  width: 130px;
-}
-
-.tool-row__keyword {
-  width: 240px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  margin-left: 8px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .panel-head__tip {
   color: var(--td-text-color-placeholder);
   font-size: 12px;

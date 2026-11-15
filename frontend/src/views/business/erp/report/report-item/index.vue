@@ -816,13 +816,6 @@ async function handleSave(): Promise<void> {
   border-radius: 8px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
 .tool-row--filter {
   margin-top: 12px;
 }
@@ -865,12 +858,6 @@ async function handleSave(): Promise<void> {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
 }
 
 .panel-head__title {

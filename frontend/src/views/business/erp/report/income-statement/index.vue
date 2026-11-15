@@ -344,15 +344,6 @@ onMounted(async () => {
   color: var(--td-text-color-secondary);
 }
 
-.tool-row__period {
-  width: 220px;
-}
-
-.tool-row__hint {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
 .is-alert {
   margin-bottom: 12px;
 }

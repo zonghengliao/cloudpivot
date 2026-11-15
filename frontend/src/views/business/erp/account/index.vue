@@ -420,40 +420,8 @@ onMounted(() => {
   gap: 12px;
 }
 
-/* ==================== 工具栏 ==================== */
-
-.tool-card {
-  flex: 0 0 auto;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
-.tool-row__keyword {
-  width: 220px;
-}
-
 .tool-row__category {
   width: 130px;
-}
-
-.tool-row__status {
-  width: 130px;
-}
-
-/* ==================== 科目树 ==================== */
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
 }
 
 .panel-head {
@@ -470,28 +438,6 @@ onMounted(() => {
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-head__side {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.panel-head__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
 }
 
 .list-alert {
@@ -516,11 +462,6 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-empty__title {

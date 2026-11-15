@@ -1631,30 +1631,6 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-
-  &__spacer {
-    flex: 1;
-  }
-
-  &__status {
-    width: 120px;
-  }
-
-  &__category,
-  &__dept {
-    width: 168px;
-  }
-
-  &__keyword {
-    width: 220px;
-  }
-}
-
 .list-alert {
   margin-bottom: 12px;
 }

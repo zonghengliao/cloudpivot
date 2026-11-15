@@ -978,12 +978,6 @@ watch(
   margin-bottom: 12px;
 }
 
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
 .panel-head__title {
   font-size: 16px;
   font-weight: 600;

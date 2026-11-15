@@ -589,19 +589,6 @@ defineExpose({ toggleNode });
   flex: 0 0 340px;
 }
 
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
 .panel-head__main {
   display: flex;
   align-items: baseline;

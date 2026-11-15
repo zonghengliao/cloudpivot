@@ -558,11 +558,6 @@ watch(activeTab, (tab) => {
   gap: 12px;
 }
 
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 /* ==================== 工具栏 ==================== */
 
 /* Tab1 的起止期间：两格 + 「到」包成一个 flex 项（换行时整体走） */
@@ -588,54 +583,13 @@ watch(activeTab, (tab) => {
   margin: 8px 0 12px;
 }
 
-.tool-row__account {
-  width: 240px;
-}
-
 .tool-row__period {
   width: 140px;
-}
-
-.tool-row__sep {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
-/* ==================== 表头 ==================== */
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
 }
 
 .panel-head__account {
   color: var(--td-text-color-secondary);
   font-weight: 400;
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-head__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
 }
 
 .list-alert {
@@ -674,11 +628,6 @@ watch(activeTab, (tab) => {
   align-items: center;
   gap: 4px;
   padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-empty__title {

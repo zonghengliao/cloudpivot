@@ -1948,72 +1948,6 @@ onMounted(() => {
   gap: 12px;
 }
 
-/* ==================== 工具栏 ==================== */
-
-.tool-card {
-  flex: 0 0 auto;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
-.tool-row__status {
-  width: 140px;
-}
-
-.tool-row__supplier {
-  width: 200px;
-}
-
-.tool-row__no {
-  width: 220px;
-}
-
-/* ==================== 列表 ==================== */
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-head__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 .list-alert {
   margin-bottom: 10px;
 }
@@ -2050,11 +1984,6 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-empty__title {

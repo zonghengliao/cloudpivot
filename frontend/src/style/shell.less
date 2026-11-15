@@ -1,0 +1,151 @@
+// =============================================================================
+// 列表页通用外壳（shell）—— 全局基线
+//
+// 来源：P3 壳样式下沉（卡 t_3a87ffac / 架构决策 `docs/architecture/P3-ListPage-页面边界-决策.md` §5）
+//
+// 为什么是「全局样式」而不是 `list-shell` 组件：
+//   40+ 页面的模板里已经写着 `<t-card class="tool-card">` / `<div class="panel-head">`，
+//   组件化要动 40+ 个模板、多一层 wrapper、还要适配各页不同的 t-card props 与插槽；
+//   样式下沉**不改模板、不改 DOM**，只把各页 `<style scoped>` 里逐字重复的定义收上来。
+//
+// 取值口径：每个类收「全站出现最多的那个变体」（`views/**` 全扫实测）。
+//   各页 `scoped` 选择器带 `[data-v-xxx]`，优先级高于这里的裸类（0,2,0 vs 0,1,0），
+//   所以页面想局部覆盖照样生效 —— 变体不一致的页面保留自己的定义即可，不会互相干扰。
+//
+// 与 ListPage 的关系：`components/ListPage` 自持 scoped 样式（组件要自包含），
+//   这里的全局壳只服务非 ListPage 页面；两者同名不冲突（local 覆盖 global）。
+// =============================================================================
+
+
+// ---------- 卡片外壳 ----------
+.tool-card {
+  flex: 0 0 auto;
+}
+
+.list-card {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// ---------- 面板头（卡片内的标题行：标题 / 计数 / 提示） ----------
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-head__main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.panel-head__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.panel-head__meta {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-head__tip {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-head__hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-head__side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+// ---------- 工具栏行（筛选条件 + 左右分组） ----------
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tool-row__spacer {
+  flex: 1 1 auto;
+}
+
+.tool-row__hint {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+
+.tool-row__sep {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+
+.tool-row__tilde {
+  color: var(--td-text-color-placeholder);
+}
+
+// ---------- 工具栏里各筛选控件的固定宽度（不要改成百分比：换行点会飘） ----------
+.tool-row__date {
+  width: 150px;
+}
+
+.tool-row__period {
+  width: 220px;
+}
+
+.tool-row__no {
+  width: 220px;
+}
+
+.tool-row__keyword {
+  width: 220px;
+}
+
+.tool-row__type {
+  width: 140px;
+}
+
+.tool-row__status {
+  width: 130px;
+}
+
+.tool-row__customer {
+  width: 200px;
+}
+
+.tool-row__supplier {
+  width: 200px;
+}
+
+.tool-row__warehouse {
+  width: 190px;
+}
+
+.tool-row__material {
+  width: 220px;
+}
+
+.tool-row__method {
+  width: 130px;
+}
+
+.tool-row__range {
+  width: 250px;
+}
+
+// ---------- 空态图标（必须带 `.panel-empty` 前缀：TDesign 的 `.t-icon.t-size-m` 是 (0,2,0)，裸类压不住） ----------
+.panel-empty .panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-text-color-placeholder);
+}

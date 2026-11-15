@@ -434,43 +434,6 @@ onMounted(async () => {
   flex: 1 1 auto;
 }
 
-/* ==================== 列表 ==================== */
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-head__hint {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 .panel-head__link {
   color: var(--td-brand-color);
   text-decoration: none;
@@ -504,11 +467,6 @@ onMounted(async () => {
   align-items: center;
   gap: 4px;
   padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-empty__title {

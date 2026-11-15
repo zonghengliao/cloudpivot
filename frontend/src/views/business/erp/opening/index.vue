@@ -736,21 +736,6 @@ onMounted(async () => {
   padding: 4px 8px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.tool-row__period {
-  width: 220px;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
 .tool-label,
 .foot-label {
   color: var(--td-text-color-secondary, #666);

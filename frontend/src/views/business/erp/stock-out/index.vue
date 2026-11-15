@@ -1401,78 +1401,8 @@ function applyOutNoDeepLink(): boolean {
   gap: 12px;
 }
 
-/* ==================== 工具栏 ==================== */
-
-.tool-card {
-  flex: 0 0 auto;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
-.tool-row__status {
-  width: 130px;
-}
-
-.tool-row__type {
-  width: 120px;
-}
-
-.tool-row__warehouse {
-  width: 190px;
-}
-
 .tool-row__range {
   width: 240px;
-}
-
-.tool-row__keyword {
-  width: 220px;
-}
-
-/* ==================== 列表 ==================== */
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-head__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
 }
 
 .list-alert {

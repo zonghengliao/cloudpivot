@@ -1367,25 +1367,8 @@ onMounted(() => {
   padding: 16px;
 }
 
-.tool-card,
-.list-card {
-  margin-bottom: 12px;
-  border-radius: 8px;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .tool-row--second {
   margin-top: 8px;
-}
-
-.tool-row__spacer {
-  flex: 1;
 }
 
 .tool-row__label {
@@ -1399,53 +1382,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   white-space: nowrap;
-}
-
-.tool-row__tilde {
-  color: var(--td-text-color-placeholder);
-}
-
-.tool-row__status {
-  width: 130px;
-}
-
-.tool-row__customer {
-  width: 200px;
-}
-
-.tool-row__method {
-  width: 130px;
-}
-
-.tool-row__no {
-  width: 240px;
-}
-
-.tool-row__date {
-  width: 150px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
 }
 
 .panel-head__tip {

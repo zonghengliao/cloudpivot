@@ -6,6 +6,11 @@
 // （theme.less 保留为兜底默认值，本文件只补配色相关的文字色映射）
 @import './palette-bridge.less';
 
+// 列表页通用外壳（tool-card / panel-head / tool-row / panel-empty …）全局基线。
+// 各页 scoped 里的同名定义优先（带 [data-v-x]，0,2,0 > 0,1,0），仍可局部覆盖。
+// 说明见 style/shell.less 顶部。
+@import './shell.less';
+
 // 全局基础样式：统一盒模型、字体与页面背景（配色取自 TDesign 设计变量）
 
 * {

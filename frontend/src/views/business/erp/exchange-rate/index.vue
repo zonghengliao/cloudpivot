@@ -815,11 +815,6 @@ onMounted(async () => {
   padding: 24px 0;
 }
 
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
-}
-
 .panel-empty__title {
   margin: 0;
   font-size: 14px;

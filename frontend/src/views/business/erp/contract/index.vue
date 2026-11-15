@@ -1198,10 +1198,6 @@ async function applyRouteQuery(): Promise<void> {
   white-space: nowrap;
 }
 
-.tool-row__range {
-  width: 250px;
-}
-
 .panel-head__tip {
   color: var(--td-text-color-placeholder);
   font-size: 12px;

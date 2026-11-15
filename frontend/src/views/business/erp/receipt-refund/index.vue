@@ -1394,25 +1394,8 @@ async function submitAllocation(): Promise<void> {
   gap: 12px;
 }
 
-.tool-card,
-.list-card {
-  background: var(--td-bg-color-container);
-  border-radius: var(--td-radius-medium);
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .tool-row--second {
   margin-top: 10px;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
 }
 
 .tool-row__label {
@@ -1428,51 +1411,12 @@ async function submitAllocation(): Promise<void> {
   white-space: nowrap;
 }
 
-.tool-row__tilde {
-  color: var(--td-text-color-placeholder);
-}
-
-.tool-row__status {
-  width: 130px;
-}
-
-.tool-row__customer {
-  width: 190px;
-}
-
-.tool-row__method {
-  width: 120px;
-}
-
-.tool-row__no {
-  width: 220px;
-}
-
 .tool-row__date {
   width: 140px;
 }
 
 .op-wrap {
   display: inline-block;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
 }
 
 .panel-head__meta,

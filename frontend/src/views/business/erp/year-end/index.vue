@@ -483,12 +483,6 @@ onMounted(async () => {
 .main-card {
   margin-bottom: 12px;
 }
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
 .tool-row__year {
   width: 160px;
 }

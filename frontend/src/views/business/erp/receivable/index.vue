@@ -962,53 +962,6 @@ watch(
   white-space: nowrap;
 }
 
-.tool-row__tilde {
-  color: var(--td-text-color-placeholder);
-}
-
-.tool-row__status {
-  width: 130px;
-}
-
-.tool-row__customer {
-  width: 200px;
-}
-
-.tool-row__no {
-  width: 240px;
-}
-
-.tool-row__source {
-  width: 130px;
-}
-
-.tool-row__date {
-  width: 150px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-}
-
 .panel-head__tip {
   margin-left: auto;
   color: var(--td-text-color-placeholder);

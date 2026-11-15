@@ -2628,15 +2628,6 @@ async function handleDownloadErrors(): Promise<void> {
   }
 }
 
-/* ==================== 写入口（新建 / 编辑 / 删除） ==================== */
-
-.panel-head__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
 /* 无建档权限时的说明（不是 disabled 按钮，是明说为什么没有这个入口） */
 .panel-head__hint {
   font-size: 12px;

@@ -375,11 +375,6 @@ async function openDetail(row: SeqRow): Promise<void> {
   width: 130px;
 }
 
-.panel-head__tip {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 .list-alert {
   margin-top: 10px;
 }
@@ -427,11 +422,6 @@ async function openDetail(row: SeqRow): Promise<void> {
   align-items: center;
   gap: 4px;
   padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-empty__title {
