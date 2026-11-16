@@ -71,6 +71,7 @@
 //! | [`reminder_purchase`] | ② 采购超期：超过 `expect_date` 未收完 → 制单人 + 采购经理（重提醒 3 天） | **ARCH-3 R-P1-2** |
 //! | [`reminder_contract`] | ③ 合同到期：`end_date` 前 30/15/7/1 天 → 制单人 + 负责人 + 采购经理 | **ARCH-3 R-P1-2** |
 //! | [`reminder_stock`] | ④ 低库存：`qty < safety_stock`（DC-12 摆设字段落地）→ 仓管主管 | **ARCH-3 R-P1-2** |
+//! | [`stock_policy`] | 安全库存**水位设置**（物料 × 仓库 最低/最高水位）：设置/列表/删除 3 个接口 + 生效水位的三级回退（策略 > 物料级 > 不判）；检查与待办是 M2-14 | **M2-13** |
 //! | [`customer::customer_model`] | 客户档案数据层（V0260）：`ACTIVE`/`FROZEN` 域、软删后编码可复用、分页 | **SO-01/SO-02** |
 //! | [`sales::sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
 //! | [`shipment::shipment_model`] | 发货单数据层（V0283）：`SH-yyyyMMdd-6 位` 取号 + 4 态状态域 + **超发守卫**（未发量 = 订单 − 已发 − 未过账占用） | **SO-08** |
@@ -233,6 +234,8 @@ pub mod shipment;
 pub mod statement;
 /// 库存单据 PDF 域（PDF-03 / PDF-04）：入库单 / 出库单 / 盘点表导出，见 [`stock`]。
 pub mod stock;
+/// 安全库存水位设置（M2-13）：物料 × 仓库 的最低 / 最高水位（V0428）+ 生效水位的三级回退。
+pub mod stock_policy;
 pub mod stockin;
 pub mod stockout;
 pub mod stocktake;

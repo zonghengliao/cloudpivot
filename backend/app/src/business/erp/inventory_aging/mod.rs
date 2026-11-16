@@ -70,8 +70,12 @@ pub mod slow_moving;
 mod aging_tests;
 
 /// 库龄计算的真库用例（`ERP_DB_URL` 开关；串行跑）。
+///
+/// `pub(crate)`：M2-13 的水位设置用例（`erp::stock_policy::policy_db_tests`）要复用它的
+/// `DB_LOCK` / `ensure_db` / `exec` —— 全仓真库用例共用进程级 `db()` 连接池，
+/// **必须**用同一个锁串行，各锁各的等于没锁。
 #[cfg(test)]
-mod aging_db_tests;
+pub(crate) mod aging_db_tests;
 
 /// 库龄的**跨期与呆滞判定**用例（M2-11）：纯逻辑 + 真库两类，共 11 条。
 ///
