@@ -1,0 +1,29 @@
+== M3-01 / V0432 真引擎实测（销售报价单 biz_quotation + biz_quotation_line）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 升级库=cp_m301_upgrade 端口=18093
+
+== A) 克隆库升级（真引擎：模板库 → cp_m301_upgrade）==
+  升级前：versioned 最大 version=404
+  PASS  克隆库升级前不存在报价单两张表
+  PASS  克隆库真启动成功（/health 200）
+  数据库迁移完成: 应用 28 个迁移
+  PASS  引擎应用了 28 个迁移（含 V0432）
+  PASS  V0432 自检块在真引擎里通过（NOTICE 已打印 ⇒ 方言拆分器把 DO 块切对了）
+  schema_migrations：432/true/app/migrations/business/V0432__sales_quotation.up.sql
+  PASS  schema_migrations 登记 432/true/源文件（指纹已登记）
+
+== B) 结构落地 ==
+  PASS  头表 17 列齐
+  PASS  行表 12 列齐
+  PASS  valid_until = DATE NOT NULL（有效期必填）
+  PASS  头表 5 条 CHECK 在位
+  PASS  行表 5 条 CHECK 在位
+  PASS  明细外键 = ON DELETE CASCADE
+  PASS  7 条设计索引在位（头 5 + 行 2）
+  PASS  QT 取号行 = 1 行（启用）
+  PASS  升级后表内 0 行（自检探针已自清场）
+
+== C) 重启幂等 ==
+  PASS  重启：应用 0 个迁移（引擎级幂等，指纹一致）
+  PASS  重启后结构不变（17 列）
+
+== 汇总：PASS=16 FAIL=0 ==

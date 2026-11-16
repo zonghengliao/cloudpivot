@@ -1,0 +1,21 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.70s
+     Running tests/m3_01_quotation_migration.rs (target/debug/deps/m3_01_quotation_migration-a74422771cabe2bc)
+
+running 13 tests
+test v0432_down_is_idempotent_and_guarded ... ok
+test v0432_expiry_is_a_date_fact_not_a_status ... ok
+test v0432_creates_exactly_two_tables_idempotently ... ok
+test v0432_fk_is_only_line_to_header_cascade ... ok
+test v0432_indexes_are_idempotent_and_partial ... ok
+test v0432_line_columns_have_designed_shape ... ok
+test v0432_keeps_ten_check_constraints ... ok
+test v0432_probe_fixtures_are_cleaned_up ... ok
+test v0432_self_check_raises_exceptions ... ok
+test v0432_up_and_down_exist ... ok
+test v0432_splits_cleanly_with_engine_splitter ... ok
+test v0432_seeds_qt_sequence_idempotently ... ok
+test v0432_header_columns_have_designed_shape ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

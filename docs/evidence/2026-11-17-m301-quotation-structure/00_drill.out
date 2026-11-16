@@ -1,0 +1,78 @@
+== M3-01 / V0432 真库往返演练（销售报价单 biz_quotation + biz_quotation_line）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 演练库=cp_m301_quotation_drill_2958431
+
+  ---- 演练库已从 cloudpivot_test 克隆
+  [32mPASS[0m 克隆库升级前两张表都不存在（=0）
+  [32mPASS[0m 前置表 biz_customer 在位（V0260 已应用）（=1）
+  [32mPASS[0m 前置表 biz_seq 在位（V0137 已应用）（=1）
+  [32mPASS[0m 克隆库里还没有 QT 取号行（=0）
+
+== 1) up 第一次 ==
+  [32mPASS[0m up 第一次执行成功（建表 + 自检块通过）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0432__sales_quotation.up.sql:120: NOTICE:  V0432: 前置表齐备，开始建报价单两张表
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0432__sales_quotation.up.sql:509: NOTICE:  V0432 自检通过：2 张表 / 17+12 列 / 10 条 CHECK / 1 条 CASCADE 外键 / 7 条索引 / QT 取号行 / 13 组行为探针
+
+== 2) up 第二次（幂等）==
+  [32mPASS[0m up 重复执行成功（幂等）
+  [32mPASS[0m 重放后探针零残留（头 0 行 / 明细 0 行）（=0|0）
+  [32mPASS[0m 重放后 QT 取号行仍只有 1 行（种子是 WHERE NOT EXISTS）（=1）
+
+== 3) 结构断言 ==
+  [32mPASS[0m 头表列数 = 17（=17）
+  [32mPASS[0m 行表列数 = 12（=12）
+  [32mPASS[0m 头表 8 个关键列的类型/精度/可空性（=8）
+  [32mPASS[0m 行表 8 个关键列的类型/精度/可空性（=8）
+  [32mPASS[0m status 默认 DRAFT（=DRAFT）
+  [32mPASS[0m 头表 5 条 CHECK 在位（=5）
+  [32mPASS[0m 行表 5 条 CHECK 在位（=5）
+  [32mPASS[0m 明细外键 = REFERENCES biz_quotation(id) ON DELETE CASCADE（=fk_biz_quotation_line_quotation|FOREIGN KEY (quotation_id) REFERENCES biz_quotation(id) ON DELETE CASCADE）
+  [32mPASS[0m 7 条索引（头 5 + 行 2）在位（=7）
+  [32mPASS[0m 单号唯一是「存活行唯一」的部分索引
+  [32mPASS[0m 转单唯一是部分索引（未转单的行不占名额）
+  [32mPASS[0m 行号唯一索引是 UNIQUE（=1）
+  [32mPASS[0m 头表有表注释（=1）
+  [32mPASS[0m 表注释说明是销售报价单
+
+== 4) 行为断言 ==
+  [32mPASS[0m 正常报价单可写
+  [32mPASS[0m 默认值 = DRAFT / 三个金额 0（=DRAFT|0.0000|0.0000|0.0000）
+  [32mPASS[0m 有效期早于报价日被拒
+  [32mPASS[0m 有效期 = 报价日（当天有效）允许
+  [32mPASS[0m 状态域外的值（WIN）被拒
+  [32mPASS[0m 价税合计不等（100+13≠112）被拒
+  [32mPASS[0m 价税合计相等（100+13=113）允许
+  [32mPASS[0m 转单回链只填 id 不填时间被拒
+  [32mPASS[0m 存活行单号重号被拒
+  [32mPASS[0m 软删 Q1
+  [32mPASS[0m 软删后同单号可复用
+  [32mPASS[0m 行号 0 被拒
+  [32mPASS[0m 数量 0 被拒
+  [32mPASS[0m 税率 101 被拒
+  [32mPASS[0m 正常行明细可写
+  [32mPASS[0m 同一报价单内行号重号被拒
+  [32mPASS[0m 同一报价单不同行号可写
+  [32mPASS[0m 建级联探针单头
+  [32mPASS[0m 建级联探针明细
+  [32mPASS[0m 级联探针明细在位（=1）
+  [32mPASS[0m 删单头
+  [32mPASS[0m 删单头后明细被级联删除（ON DELETE CASCADE）（=0）
+
+== 5) 写入契约 ==
+  [32mPASS[0m QT 取号行：QT-yyyyMMdd-000001 / 按天滚动 / 启用（=QT|yyyyMMdd|1|-|1|报价单号|1）
+  [32mPASS[0m 报价单认领 SO1（转单回链成对写入）
+  [32mPASS[0m 第二张报价单认领同一张 SO 被拒
+  [32mPASS[0m 另一张报价单认领不同的 SO 允许
+
+== 6) down 护栏反证 ==
+  [32mPASS[0m 有非作废报价单时 down 被拒
+  [32mPASS[0m 被拒后两张表结构不动（=1|1）
+  [32mPASS[0m 全部置 CANCELLED
+  [32mPASS[0m CANCELLED 后 down 执行成功
+  [32mPASS[0m down 后表/索引/QT 取号行全部移除（=0|0|0）
+
+== 7) down 幂等 + 重放 ==
+  [32mPASS[0m down 第二次执行成功（幂等）
+  [32mPASS[0m 回滚后可重放（up 第三次成功）
+  [32mPASS[0m 重放后结构/取号行完整（=17|12|1）
+
+== 结果：PASS=56 FAIL=0 ==
