@@ -684,3 +684,38 @@ test('提交审批按钮：只有 DRAFT + 没有在跑/已通过实例才可点'
 test('转单提示文案里必须点名来源不会被覆盖', () => {
   assert.match(CONVERT_SOURCE_HINT, /由报价单/);
 });
+
+// ==================== PDF 导出（M3-07） ====================
+
+test('PDF 按钮打的就是后端注册的那条路由（含 /api 前缀，漏了会拿回 HTML）', () => {
+  const backend = readBackend('backend/app/src/business/erp/sales/quotation_pdf.rs');
+  // 后端只写宏内路径（`/api` 由 [router] prefix 注入），前端必须补全前缀
+  assert.ok(
+    backend.includes('#[nik::get("/business/erp/quotation/{id}/pdf")]'),
+    '后端未注册报价单 PDF 路由',
+  );
+  // 导出是「看」的延伸：复用 :list 码，不新种 :export（新种会造出「看得见点不动」的哑弹）
+  assert.ok(
+    backend.includes('permission = "business:erp:quotation:list"'),
+    'PDF 路由必须复用 business:erp:quotation:list',
+  );
+  const page = readFileSync(resolve(REPO_ROOT, 'frontend/src/views/business/erp/quotation/index.vue'), 'utf8');
+  assert.ok(
+    page.includes('/api/business/erp/quotation/${detail.id}/pdf'),
+    '页面 PDF 路径与后端路由不一致（或漏了 /api 前缀）',
+  );
+  assert.ok(page.includes("import DocPdfButton from '@/components/DocPdfButton.vue'"), '页面未复用 DocPdfButton');
+  assert.ok(page.includes('testid="qt-detail-pdf"'), 'PDF 按钮缺 testid（自动化点不到）');
+});
+
+test('PDF 模板是 11 列（税率 / 税额两列在客户比价时必须可见）', () => {
+  const tera = readBackend('backend/app/src/business/pdf/templates/quotation.html.tera');
+  for (const head of ['物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '税率', '税额', '备注']) {
+    assert.ok(tera.includes(`<th>${head}</th>`), `报价单模板缺「${head}」列`);
+  }
+  // 明细列 class 与 th 顺序一一对应（少一个 td 就会让金额串到税率列）
+  const ths = [...tera.matchAll(/<th>([^<]+)<\/th>/g)].map((m) => m[1]);
+  assert.equal(ths.length, 11, `模板应有 11 列表头，实际 ${ths.length}`);
+  assert.equal(ths[8], '税率');
+  assert.equal(ths[9], '税额');
+});

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_label }} {{ doc_no }}</title>
+<style>
+/* ===========================================================================
+   云枢 ERP 单据模板：报价单（M3-07）
+   ---------------------------------------------------------------------------
+   本文件由 PDF-02 的订单模板（order.html.tera）派生：页眉 / 单据头 / 合计区 /
+   签字栏的骨架与它一致，**只把明细表从 9 列扩到 11 列**（报价单要打「税率」
+   「税额」两列，客户是按含税价比价的）并把「有效期」提到明细上方单独一行。
+
+   下面四条打印约束一个字都没动（缺一条就会踩坑）：
+
+     ① @page 定死纸张与外边距 —— 不写会按 Chromium 默认 Letter 出纸；
+     ② thead { display: table-header-group } —— 跨页时表头自动重复；
+     ③ tr / .no-break { break-inside: avoid } —— 单行 / 合计行 / 签字栏不被腰斩；
+     ④ .num { font-variant-numeric: tabular-nums } —— 金额数字等宽 + 右对齐，
+        小数点逐位对齐。
+
+   为什么 11 列仍用 A4 纵向：订单的 9 列纵向排版下「物料名称」还能吃到 130pt，
+   再多两列（税率 26pt + 税额 48pt）后名称仍有 130pt 左右，靠的是把编码 / 规格 /
+   单位 / 数量四列的宽度各收掉几 pt 并把明细字号降到 8.5pt —— 实测（145，
+   Chromium 157）单元格不折行、金额不串列，所以不为了两列改横向（横向单据
+   装订和归档都不方便）。
+
+   页码（「第 X 页 / 共 Y 页」）**不在本文件里**：`@page` 计数器在 Chromium 下
+   不生效，HTML 里也拿不到总页数。页码由调用方通过 CDP 的 footerTemplate 输出
+   （`pdf::template::quotation_footer`）。
+
+   字体族：必须首选 glyf(TrueType) 的静态 Noto Sans SC（见 PDF-01 证据：
+   用 NotoSansCJK-*.ttc 时 Chromium 会退化成 Type3 字体，体积大 24 倍）。
+   =========================================================================== */
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 16mm 10mm;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 10pt;
+  line-height: 1.4;
+  color: #1f2329;
+  word-break: break-word;
+}
+
+/* ---------- 页眉（第 1 页顶部：公司名 + 单据标题） ---------- */
+.sheet-header {
+  border-bottom: 1.5pt solid #1f2329;
+  padding-bottom: 4pt;
+  margin-bottom: 8pt;
+}
+.sheet-header .company {
+  font-size: 12.5pt;
+  font-weight: 700;
+  letter-spacing: 1pt;
+}
+.sheet-header .doc-title {
+  font-size: 17pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 8pt;
+  margin: 4pt 0 6pt;
+}
+
+/* ---------- 单据头（单号 / 报价日期 / 状态 / 客户 / 客户编码 / 业务员 / 有效期 / 联系人 / 电话） ---------- */
+table.head-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+  margin-bottom: 7pt;
+}
+table.head-fields td {
+  border: 0.5pt solid #c9cdd4;
+  padding: 3pt 5pt;
+  vertical-align: middle;
+}
+table.head-fields td.label {
+  width: 62pt;
+  background: #f2f3f5;
+  color: #4e5969;
+  text-align: center;
+  white-space: nowrap;
+}
+table.head-fields td.value { width: auto; }
+
+/* ---------- 有效期横幅（客户最先看的就是这一行） ---------- */
+.validity {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  border: 0.5pt solid #c9cdd4;
+  background: #f7f8fa;
+  padding: 4pt 6pt;
+  font-size: 9.5pt;
+  margin-bottom: 7pt;
+}
+.validity .tag { font-weight: 700; }
+.validity.is-expired {
+  border-color: #d54941;
+  background: #fff1f0;
+  color: #a8071a;
+}
+.validity .hint { color: #4e5969; }
+.validity.is-expired .hint { color: #a8071a; }
+
+/* ---------- 明细表（11 列：税率 / 税额两列是报价单相对订单多出来的） ---------- */
+table.detail {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.5pt;
+}
+table.detail thead {
+  /* ② 跨页重复表头 */
+  display: table-header-group;
+}
+table.detail th,
+table.detail td {
+  border: 0.5pt solid #86909c;
+  padding: 2.2pt 3pt;
+  vertical-align: middle;
+}
+table.detail th {
+  background: #f2f3f5;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+table.detail tr {
+  /* ③ 单行不跨页断裂 */
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+table.detail td.c-seq { text-align: center; width: 20pt; }
+/* 物料编码必须整串不折行：`PDF02-MAT-001` 折成两行是硬伤（逐行核对时看不清） */
+table.detail td.c-code { width: 68pt; white-space: nowrap; }
+table.detail td.c-name { width: auto; }
+table.detail td.c-spec { width: 44pt; }
+/* 单位 30pt：中文单位 1-2 字一行放得下；演示数据里出现「个(E2E02)」这类长名时
+   只会折成两行，不会像 22pt 那样竖排成四行把行高撑开 */
+table.detail td.c-unit { text-align: center; width: 30pt; }
+table.detail td.c-qty { width: 34pt; }
+table.detail td.c-price { width: 46pt; }
+table.detail td.c-amount { width: 52pt; }
+table.detail td.c-rate { width: 26pt; }
+table.detail td.c-tax { width: 46pt; }
+table.detail td.c-remark { width: 38pt; color: #4e5969; }
+table.detail td.c-code,
+table.detail td.c-name,
+table.detail td.c-spec,
+table.detail td.c-remark {
+  overflow-wrap: anywhere;
+}
+
+/* 金额 / 数量 / 税率：等宽数字 + 右对齐（等宽必须配右对齐，否则末位不齐） */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ---------- 合计区（整块不跨页） ---------- */
+.summary {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 8pt;
+}
+.summary table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5pt;
+}
+.summary table td {
+  border: 0.5pt solid #86909c;
+  padding: 3pt 5pt;
+}
+.summary .label {
+  width: 72pt;
+  text-align: center;
+  background: #f2f3f5;
+  font-weight: 700;
+}
+.summary .value-cn { font-weight: 700; letter-spacing: 0.3pt; }
+
+/* ---------- 签字栏（整块不跨页；报价单三个位置：制单 / 审核 / 客户确认） ---------- */
+.sign {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  margin-top: 12pt;
+  display: flex;
+  justify-content: space-between;
+  gap: 8pt;
+  font-size: 9pt;
+}
+.sign .box { flex: 1 1 0; }
+.sign .cap { color: #4e5969; white-space: nowrap; }
+.sign .line { margin-top: 16pt; border-bottom: 0.5pt solid #4e5969; height: 1pt; }
+.sign .date { margin-top: 3pt; color: #86909c; font-size: 8.5pt; }
+
+.remark {
+  margin-top: 9pt;
+  font-size: 8.8pt;
+  color: #4e5969;
+  line-height: 1.6;
+}
+.remark .tag { font-weight: 700; color: #1f2329; }
+
+.footnote {
+  margin-top: 5pt;
+  font-size: 7.5pt;
+  color: #86909c;
+  text-align: right;
+}
+</style>
+</head>
+<body>
+<div class="sheet-header">
+  <div class="company">{{ company }}</div>
+  <div class="doc-title">{{ doc_title }}</div>
+</div>
+
+<table class="head-fields">
+{% for row in meta_rows %}
+  <tr>
+{% for field in row %}
+    <td class="label">{{ field.label }}</td>
+    <td class="value">{{ field.value }}</td>
+{% endfor %}
+  </tr>
+{% endfor %}
+</table>
+
+<div class="validity{% if expired %} is-expired{% endif %}">
+  <span class="tag">报价有效期：</span><span>{{ valid_until }}（含当天）</span>
+  <span class="hint">　{{ validity_notice }}</span>
+</div>
+
+<table class="detail">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>物料编码</th>
+      <th>物料名称</th>
+      <th>规格</th>
+      <th>单位</th>
+      <th>数量</th>
+      <th>单价</th>
+      <th>金额</th>
+      <th>税率</th>
+      <th>税额</th>
+      <th>备注</th>
+    </tr>
+  </thead>
+  <tbody>
+{% for item in items %}
+    <tr>
+      <td class="c-seq">{{ item.seq }}</td>
+      <td class="c-code">{{ item.material_code }}</td>
+      <td class="c-name">{{ item.material_name }}</td>
+      <td class="c-spec">{{ item.spec }}</td>
+      <td class="c-unit">{{ item.unit }}</td>
+      <td class="c-qty num">{{ item.qty }}</td>
+      <td class="c-price num">{{ item.price }}</td>
+      <td class="c-amount num">{{ item.amount }}</td>
+      <td class="c-rate num">{{ item.tax_rate }}</td>
+      <td class="c-tax num">{{ item.tax_amount }}</td>
+      <td class="c-remark">{{ item.remark }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+
+<div class="summary">
+  <table>
+    <tr>
+      <td class="label">行数合计</td>
+      <td class="num" style="width:56pt">{{ row_count }}</td>
+      <td class="label">数量合计</td>
+      <td class="num" style="width:78pt">{{ total_qty }}</td>
+      <td class="label">金额合计（{{ currency }}）</td>
+      <td class="num" style="width:96pt">{{ total_amount }}</td>
+    </tr>
+    <tr>
+      <td class="label">税额</td>
+      <td class="num">{{ total_tax }}</td>
+      <td class="label">价税合计</td>
+      <td class="num value-cn">{{ total_with_tax }}</td>
+      <td class="label">币种</td>
+      <td class="num">{{ currency }}</td>
+    </tr>
+    <tr>
+      <td class="label">价税合计（大写）</td>
+      <td colspan="5" class="value-cn">{{ currency_cn }}{{ total_with_tax_cn }}（{{ currency_symbol }}{{ total_with_tax }}）</td>
+    </tr>
+  </table>
+</div>
+
+<div class="sign">
+{% for cap in sign_caps %}
+  <div class="box">
+    <div class="cap">{{ cap }}</div>
+    <div class="line"></div>
+    <div class="date">日期：__________</div>
+  </div>
+{% endfor %}
+</div>
+
+{% if remark %}
+<div class="remark"><span class="tag">备注：</span>{{ remark }}</div>
+{% endif %}
+
+<div class="footnote">打印时间：{{ printed_at }}　本报价单由云枢系统生成（{{ engine }}）</div>
+</body>
+</html>

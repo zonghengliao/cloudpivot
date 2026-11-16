@@ -1,0 +1,58 @@
+  PASS  登录 200
+  PASS  拿到 access_token
+  PASS  PDF 引擎健康 200
+  PASS  引擎连上了真 Chromium（有 browser 版本号）
+  PASS  CDP 地址就是本机 :9222
+  PASS  建单 200
+  PASS  单号 QT-20261117-…
+  PASS  明细 2 行
+  PASS  价税合计 267.8516
+  PASS  导出 200
+  PASS  Content-Type = application/pdf
+  PASS  报文是 PDF（%PDF- 文件头）
+  PASS  Content-Disposition 带中文下载名（RFC 5987）
+  PASS  下载名是「报价单-<单号>.pdf」
+  PASS  PDF 大小 > 20KB（有真内容，不是空壳）
+  PASS  页数 >= 1
+  PASS  页眉标题「报价单」（印的是「报 价 单」，归一后比对）
+  PASS  单号在单面上
+  PASS  客户名称在单面上
+  PASS  物料编码两行都在
+  PASS  表头 11 列：税率 + 税额两列在
+  PASS  税率带百分号（13%）
+  PASS  三项合计都在（不含税 237.04 / 税额 30.81 / 价税合计 267.85）
+  PASS  大写金额（贰佰陆拾柒元捌角伍分）
+  PASS  大写与小数同源（(267.85) 与大写并列）
+  PASS  有效期横幅（2026-12-01 含当天）
+  PASS  有效期内提示语
+  PASS  签字位 3 个（制单 / 审核 / 确认）
+  PASS  页脚页码是真页数（共 N）
+  PASS  行备注印在明细行上
+  PASS  审计落库 EXPORT_QUOTATION_PDF
+  PASS  审计 target_type = biz_quotation
+  PASS  审计 detail.doc_no 对
+  PASS  审计 detail.row_count = 2
+  PASS  审计 detail.total_with_tax ≈ 267.85
+  PASS  建一张已过期的单
+  PASS  过期单也能导出 200
+  PASS  过期单印「已过有效期…仅供参考」
+  PASS  过期单不再印「有效期内可按本单」
+  PASS  建一张 60 行的单
+  PASS  60 行导出 200
+  PASS  60 行跨页（页数 >= 2）
+  PASS  每页都重复表头（thead display:table-header-group）
+  PASS  页脚总页数是真页数
+  PASS  最后一行没被腰斩（序号 60 与末行备注都在）
+  PASS  不存在的单 → 404
+  PASS  非法 id → 400
+  PASS  非法 id 错误码 66006
+  PASS  未登录 → 401
+  PASS  探针用户能登录（证明 403 不是登录失败）
+  PASS  缺 business:erp:quotation:list → 403
+        （403 错误码 = 403，文案 = 无权限访问，需要权限: business:erp:quotation:list）
+
+  第 1 页已渲成 PNG：/root/.hermes/profiles/backend-developer/cache/scratch/m307_pdf/quotation-page1.png（994×1404）
+  PASS  PyMuPDF 渲染第 1 页 PNG
+
+共 52 条断言，失败 0 条
+全部通过 ✓

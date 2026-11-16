@@ -20,3 +20,5 @@ pub mod sales_target_model;
 pub mod quotation_approval_bridge;
 pub mod quotation_handler;
 pub mod quotation_model;
+// ==================== 销售链：报价单 PDF（M3-07：复用 pdf 模块） ====================
+pub mod quotation_pdf;

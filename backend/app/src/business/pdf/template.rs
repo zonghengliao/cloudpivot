@@ -74,6 +74,8 @@ fn tera() -> &'static Tera {
             .expect("内置资产负债表模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera.add_raw_template(REPORT_AMOUNT_NAME, REPORT_AMOUNT_TEMPLATE)
             .expect("内置利润表/现金流量表模板语法错误（编译期常量，改模板后必须跑 cargo test）");
+        tera.add_raw_template(QUOTATION_NAME, QUOTATION_TEMPLATE)
+            .expect("内置报价单模板语法错误（编译期常量，改模板后必须跑 cargo test）");
         tera
     })
 }
@@ -3221,6 +3223,286 @@ pub enum AmountReportKind {
     CashFlow,
 }
 
+// ==================== ⑨ 报价单模板（M3-07：报价单） ====================
+
+/// 内嵌的报价单模板（11 列明细：比订单模板多「税率」「税额」两列）。
+pub const QUOTATION_TEMPLATE: &str = include_str!("templates/quotation.html.tera");
+
+/// 报价单模板的注册名（`.html` 后缀 → 启用 HTML 自动转义）。
+pub const QUOTATION_NAME: &str = "quotation.html";
+
+/// 报价单页眉标题（字间留白是中文单据的排版惯例）。
+pub const QUOTATION_TITLE: &str = "报 价 单";
+
+/// 报价单的单据名（下载文件名 / 审计日志用，不带空格）。
+pub const QUOTATION_LABEL: &str = "报价单";
+
+/// 有效期内的提示语（印在有效期横幅里，与「报价有效期：…」同一行）。
+pub const QUOTATION_VALID_NOTICE: &str = "有效期内可按本单价格成交。";
+
+/// 已过有效期的提示语。
+///
+/// # 为什么照实印「仅供参考」而不是拒绝导出
+///
+/// 过期不等于无效：客户手里那份纸质报价还在，业务员经常要打一张旧单去
+/// 核对「当时报的是什么价」。所以照样生成 PDF，只是在单面上说清它已过期 ——
+/// 悄悄印一份看起来仍然有效的报价单才是真风险。
+pub const QUOTATION_EXPIRED_NOTICE: &str = "已过有效期，价格仅供参考；如需按此价成交请重新报价。";
+
+/// 报价单的签字位（3 个：制单 / 审核 / 客户确认）。
+///
+/// 与订单的 5 个签字位（含仓管 / 客户签收）不同：报价单没有仓库环节，
+/// 客户要签的是「已阅并确认价格」，不是「已收货」。
+pub const QUOTATION_SIGN_CAPS: [&str; 3] = ["制单：", "审核：", "客户确认："];
+
+/// 报价单明细行（数量 / 金额 / 税率 / 税额已是**展示字符串**，模板不做任何计算）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuotationItem {
+    /// 序号（从 1 开始，跨页连续）
+    pub seq: u32,
+    /// 物料编码
+    pub material_code: String,
+    /// 物料名称
+    pub material_name: String,
+    /// 规格
+    pub spec: String,
+    /// 计量单位
+    pub unit: String,
+    /// 报价数量（去尾零 + 千分位）
+    pub qty: String,
+    /// 不含税单价（最多 4 位小数，千分位）
+    pub price: String,
+    /// 不含税金额（两位小数 + 千分位）
+    pub amount: String,
+    /// 税率（带 `%`，如 `13%`）
+    pub tax_rate: String,
+    /// 税额（两位小数 + 千分位）
+    pub tax_amount: String,
+    /// 行备注
+    pub remark: String,
+}
+
+/// 一张报价单的渲染上下文（报价单模板变量的一一对应结构体）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuotationContext {
+    /// 公司名
+    pub company: String,
+    /// 页眉标题（「报 价 单」）
+    pub doc_title: String,
+    /// 单据名（文件名 / 日志用）
+    pub doc_label: String,
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段（已按每行 3 组切好）
+    pub meta_rows: Vec<Vec<OrderMetaField>>,
+    /// 币种代码（`CNY` / `USD` …）
+    pub currency: String,
+    /// 币种符号（`￥` / `USD `）
+    pub currency_symbol: String,
+    /// 大写金额前缀（`人民币`；外币为空串 —— 别把美元写成人民币）
+    pub currency_cn: String,
+    /// 明细
+    pub items: Vec<QuotationItem>,
+    /// 行数合计
+    pub row_count: String,
+    /// 数量合计
+    pub total_qty: String,
+    /// 不含税金额合计
+    pub total_amount: String,
+    /// 税额合计
+    pub total_tax: String,
+    /// 价税合计
+    pub total_with_tax: String,
+    /// 价税合计大写
+    pub total_with_tax_cn: String,
+    /// 有效期至（`yyyy-MM-dd`，含当天）
+    pub valid_until: String,
+    /// 是否已过有效期（决定横幅变色与提示语）
+    pub expired: bool,
+    /// 有效期提示语（[`QUOTATION_VALID_NOTICE`] / [`QUOTATION_EXPIRED_NOTICE`]）
+    pub validity_notice: String,
+    /// 备注
+    pub remark: String,
+    /// 签字位（[`QUOTATION_SIGN_CAPS`]）
+    pub sign_caps: Vec<String>,
+    /// 打印时间
+    pub printed_at: String,
+    /// 引擎标识（页脚）
+    pub engine: String,
+}
+
+/// [`QuotationContext`] 的构造入参（避免 14 个位置参数的调用）。
+#[derive(Debug, Clone)]
+pub struct QuotationContextArgs {
+    /// 单号
+    pub doc_no: String,
+    /// 单据头字段（按传入顺序每 3 组一行）
+    pub meta: Vec<OrderMetaField>,
+    /// 币种代码（`CNY` / `USD` …）
+    pub currency_code: String,
+    /// 明细
+    pub items: Vec<QuotationItem>,
+    /// 数量合计（原始值，本结构负责格式化）
+    pub total_qty: Decimal,
+    /// 不含税金额合计（元）
+    pub total_amount: Decimal,
+    /// 税额合计（元）
+    pub total_tax: Decimal,
+    /// 价税合计（元）
+    pub total_with_tax: Decimal,
+    /// 有效期至（含当天）
+    pub valid_until: nik::prelude::chrono::NaiveDate,
+    /// 是否已过有效期（调用方按 `today > valid_until` 现算，**不读状态列**）
+    pub expired: bool,
+    /// 备注
+    pub remark: String,
+    /// 打印时间（`yyyy-MM-dd HH:mm`，调用方按时区格式化）
+    pub printed_at: String,
+}
+
+impl QuotationContext {
+    /// 组装上下文。金额统一走 [`yuan_to_fen`]（定点的「元」→ 整数「分」），
+    /// 大写与小数两种写法出自同一个整数，保证逐位自洽。
+    pub fn new(args: QuotationContextArgs) -> Self {
+        let fen = yuan_to_fen(args.total_with_tax);
+        let currency_code = args.currency_code.trim().to_ascii_uppercase();
+        let is_cny = currency_code == "CNY" || currency_code.is_empty();
+        Self {
+            company: COMPANY_NAME.to_string(),
+            doc_title: QUOTATION_TITLE.to_string(),
+            doc_label: QUOTATION_LABEL.to_string(),
+            doc_no: args.doc_no,
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
+            currency: if currency_code.is_empty() {
+                "CNY".to_string()
+            } else {
+                currency_code.clone()
+            },
+            currency_symbol: if is_cny {
+                "￥".to_string()
+            } else {
+                format!("{currency_code} ")
+            },
+            currency_cn: if is_cny { "人民币".to_string() } else { String::new() },
+            row_count: format_int(args.items.len() as i64),
+            items: args.items,
+            total_qty: format_quantity(args.total_qty),
+            total_amount: format_money(yuan_to_fen(args.total_amount)),
+            total_tax: format_money(yuan_to_fen(args.total_tax)),
+            total_with_tax: format_money(fen),
+            total_with_tax_cn: amount_upper(fen),
+            valid_until: args.valid_until.format("%Y-%m-%d").to_string(),
+            expired: args.expired,
+            validity_notice: if args.expired {
+                QUOTATION_EXPIRED_NOTICE.to_string()
+            } else {
+                QUOTATION_VALID_NOTICE.to_string()
+            },
+            remark: args.remark,
+            sign_caps: QUOTATION_SIGN_CAPS.iter().map(|cap| (*cap).to_string()).collect(),
+            printed_at: args.printed_at,
+            engine: "Chromium · CDP printToPDF".to_string(),
+        }
+    }
+}
+
+/// 税率 → 展示串（`13` → `13%`，`6.5` → `6.5%`；去尾零，最多 4 位小数）。
+///
+/// 空 / 零税率仍然印 `0%`（不是空串）：报价单上「没打税率」会被读成
+/// 「这行不含税/免税」，而 0% 至少说清了「按 0 计」，不会让人以为漏打。
+pub fn format_tax_rate(rate: Decimal) -> String {
+    format!("{}%", format_quantity(rate))
+}
+
+/// 渲染报价单 HTML。
+///
+/// # 异常情况
+///
+/// - [`PdfError::Template`]：模板渲染失败（缺变量 / 语法错）。
+pub fn render_quotation(ctx: &QuotationContext) -> Result<String, PdfError> {
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("报价单上下文序列化失败：{error}")))?;
+    tera()
+        .render(QUOTATION_NAME, &context)
+        .map_err(|error| PdfError::Template(format!("报价单模板渲染失败：{error}")))
+}
+
+/// 报价单页脚（`第 X 页 / 共 Y 页`，与其余单据同一实现口径）。
+pub fn quotation_footer(doc_no: &str) -> String {
+    format!(
+        "<div style=\"width:100%;padding:0 10mm;font-family:'Noto Sans SC',sans-serif;\
+         font-size:8pt;color:#86909c;display:flex;justify-content:space-between;\">\
+         <span>{} {}</span>\
+         <span>第 <span class=\"pageNumber\"></span> 页 / 共 <span class=\"totalPages\"></span> 页</span>\
+         </div>",
+        QUOTATION_LABEL,
+        escape_html(doc_no)
+    )
+}
+
+/// 报价单 PDF 的渲染参数（A4 纵向 + 页脚页码）。
+///
+/// 11 列明细靠收窄编码 / 规格 / 单位 / 数量四列 + 明细字号 8.5pt 排下（见模板头注释），
+/// 所以纸张与边距与订单模板保持一致，不改横向。
+pub fn quotation_pdf_opts(doc_no: &str, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
+    doc_pdf_opts(quotation_footer(doc_no), filename)
+}
+
+/// 生成「样本报价单」上下文（联调 / 验收 / 模板单测用，数据确定性、不依赖数据库）。
+pub fn sample_quotation(rows: u32) -> QuotationContext {
+    let names = ["球阀", "法兰", "弯头", "三通"];
+    let mut items = Vec::with_capacity(rows as usize);
+    let mut total_qty = Decimal::ZERO;
+    let mut total_amount = Decimal::ZERO;
+    let mut total_tax = Decimal::ZERO;
+    for index in 0..rows {
+        let qty = Decimal::from(((index % 5) + 1) as i64 * 2);
+        let price = Decimal::new(123_400 + (index % 37) as i64 * 1100, 4);
+        let amount = (price * qty).round_dp(2);
+        let tax = (amount * Decimal::new(13, 2) / Decimal::from(100)).round_dp(2);
+        total_qty += qty;
+        total_amount += amount;
+        total_tax += tax;
+        items.push(QuotationItem {
+            seq: index + 1,
+            material_code: format!("MAT-{:05}", index % 97 + 1),
+            material_name: format!("{}Φ{}mm 不锈钢", names[(index % 4) as usize], index % 90 + 10),
+            spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
+            unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
+            qty: format_quantity(qty),
+            price: format_quantity(price),
+            amount: format_money(yuan_to_fen(amount)),
+            tax_rate: format_tax_rate(Decimal::new(13, 0)),
+            tax_amount: format_money(yuan_to_fen(tax)),
+            remark: String::new(),
+        });
+    }
+    QuotationContext::new(QuotationContextArgs {
+        doc_no: "QT-20261117-000001".to_string(),
+        meta: vec![
+            OrderMetaField::new("单号", "QT-20261117-000001"),
+            OrderMetaField::new("报价日期", "2026-11-17"),
+            OrderMetaField::new("状态", "已发出"),
+            OrderMetaField::new("客户", "上海云枢机械有限公司"),
+            OrderMetaField::new("客户编码", "CUS-0001"),
+            OrderMetaField::new("业务员", "张三"),
+            OrderMetaField::new("有效期至", "2026-12-17"),
+            OrderMetaField::new("联系人", "李四"),
+            OrderMetaField::new("电话", "021-12345678"),
+        ],
+        currency_code: "CNY".to_string(),
+        items,
+        total_qty,
+        total_amount,
+        total_tax,
+        total_with_tax: total_amount + total_tax,
+        valid_until: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 12, 17).expect("样本日期合法"),
+        expired: false,
+        remark: "含税报价，运费另计。".to_string(),
+        printed_at: "2026-11-17 09:30".to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4526,5 +4808,99 @@ mod tests {
         assert_eq!(opts.margins.right_mm, 8.0);
         assert!(opts.margins.bottom_mm >= 14.0, "页脚要有打印区");
         assert_eq!(opts.filename.as_deref(), Some("资产负债表-BALANCE_SHEET-2026-11.pdf"));
+    }
+
+    // ==================== 报价单模板（M3-07） ====================
+
+    /// 11 列表头必须一列不少（少一列 = 客户看不到税率 / 税额，价税对不上）。
+    #[test]
+    fn quotation_template_renders_eleven_columns() {
+        let ctx = sample_quotation(3);
+        let html = render_quotation(&ctx).expect("报价单模板必须渲染成功");
+        assert!(html.contains(QUOTATION_TITLE), "页眉大标题丢了");
+        assert!(html.contains("QT-20261117-000001"), "单号丢了");
+        for head in [
+            "物料编码",
+            "物料名称",
+            "规格",
+            "单位",
+            "数量",
+            "单价",
+            "金额",
+            "税率",
+            "税额",
+            "备注",
+        ] {
+            assert!(html.contains(&format!(">{head}<")), "表头缺「{head}」列");
+        }
+        // 明细行：3 行数据 → 序号 1..3（数量里有 4，所以只认 c-seq 单元格）
+        assert!(html.contains("class=\"c-seq\">1<"));
+        assert!(html.contains("class=\"c-seq\">3<"));
+        assert!(!html.contains("class=\"c-seq\">4<"), "3 行样本不该出现序号 4");
+        assert_eq!(html.matches("class=\"c-seq\"").count(), 3, "明细行数必须是 3");
+        assert!(html.contains("13%"), "税率要带百分号");
+        assert!(html.contains("含税报价，运费另计。"), "备注丢了");
+    }
+
+    /// 明细行数 = 0 时也要出 PDF（空表不能渲染成半个 HTML）。
+    #[test]
+    fn quotation_template_renders_empty_items() {
+        let ctx = sample_quotation(0);
+        let html = render_quotation(&ctx).expect("空明细也要能渲染");
+        assert!(html.contains(">0<"), "行数合计应为 0");
+        assert!(html.contains(">0.00<"), "价税合计应为 0.00");
+    }
+
+    /// 有效期横幅：未过期印「有效期内」，过期改印「仅供参考」并加红框样式类。
+    #[test]
+    fn quotation_validity_banner_switches_on_expiry() {
+        let valid = render_quotation(&sample_quotation(1)).expect("渲染成功");
+        assert!(valid.contains(QUOTATION_VALID_NOTICE));
+        assert!(!valid.contains("class=\"validity is-expired\""), "未过期不该带红框类");
+        assert!(valid.contains("2026-12-17（含当天"), "有效期至要连「含当天」一起印");
+
+        let mut ctx = sample_quotation(1);
+        ctx.expired = true;
+        ctx.validity_notice = QUOTATION_EXPIRED_NOTICE.to_string();
+        let expired = render_quotation(&ctx).expect("渲染成功");
+        assert!(expired.contains(QUOTATION_EXPIRED_NOTICE));
+        assert!(expired.contains("class=\"validity is-expired\""));
+        assert!(!expired.contains(QUOTATION_VALID_NOTICE));
+    }
+
+    /// 税率展示：去尾零、带 `%`；0 也要印 `0%`（留空会被读成「漏打税率」）。
+    #[test]
+    fn tax_rate_is_formatted_with_percent() {
+        assert_eq!(format_tax_rate(Decimal::from(13)), "13%");
+        assert_eq!(format_tax_rate(Decimal::new(65, 1)), "6.5%");
+        assert_eq!(format_tax_rate(Decimal::ZERO), "0%");
+        assert_eq!(format_tax_rate(Decimal::from(100)), "100%");
+    }
+
+    /// 页脚与渲染参数：A4 纵向、页脚带页码占位符（11 列仍走纵向，见模板头注释）。
+    #[test]
+    fn quotation_footer_and_opts() {
+        let footer = quotation_footer("QT-<b>20261117</b>");
+        assert!(footer.contains("class=\"pageNumber\""));
+        assert!(footer.contains("class=\"totalPages\""));
+        assert!(footer.contains("报价单"));
+        assert!(!footer.contains("<b>20261117</b>"), "单号必须转义");
+        let opts = quotation_pdf_opts("QT-20261117-000001", Some("报价单-QT-20261117-000001.pdf".to_string()));
+        assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
+        assert!(!opts.landscape, "11 列靠收窄列宽排下，不改横向");
+        assert!(opts.display_header_footer);
+        assert!(opts.margins.bottom_mm >= 16.0, "页脚要有打印区");
+        assert_eq!(opts.filename.as_deref(), Some("报价单-QT-20261117-000001.pdf"));
+    }
+
+    /// 大写金额与小数金额出自同一个「分」，逐位自洽（改模板最容易丢的就是这一条）。
+    #[test]
+    fn quotation_amount_upper_matches_digits() {
+        let mut ctx = sample_quotation(2);
+        ctx.total_with_tax = "1,234.56".to_string();
+        ctx.total_with_tax_cn = amount_upper(123_456);
+        let html = render_quotation(&ctx).expect("渲染成功");
+        assert!(html.contains("人民币壹仟贰佰叁拾肆元伍角陆分"), "大写金额不对");
+        assert!(html.contains("1,234.56"));
     }
 }

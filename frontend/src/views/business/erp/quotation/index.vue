@@ -251,6 +251,13 @@
               </t-button>
             </span>
           </t-tooltip>
+
+          <!-- M3-07：报价单 PDF（复用 DocPdfButton：带 token 取 blob、用后端给的中文名存盘） -->
+          <DocPdfButton
+            :path="`/api/business/erp/quotation/${detail.id}/pdf`"
+            :filename="`报价单-${detail.quote_no}.pdf`"
+            testid="qt-detail-pdf"
+          />
         </div>
 
         <!-- ==================== 明细 + 合计 ==================== -->
@@ -502,6 +509,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import ListPage from '@/components/ListPage/index.vue';
+import DocPdfButton from '@/components/DocPdfButton.vue';
 import type { ColumnDef, FilterDef, ListActions, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
