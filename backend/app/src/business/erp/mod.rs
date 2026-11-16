@@ -37,6 +37,7 @@
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |
 //! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
 //! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
+//! | [`cashflow_worksheet`] | 现金流**底稿**录入 + 勾稽校验（直接法）：期初 + 流入 − 流出 = 期末，upsert 幂等 | **M1-14** |
 //! | [`payable::payable_aging`] | 应付账款**账龄分析**：按到期日分 未到期 / 1-30 / 31-60 / 61-90 / 90+ 五档 + 按供应商汇总 + 明细 | **P1-FIX-8A** |
 //! | [`report::report_item_admin`] | 报表项**维护面**（HTTP）：列表 / 新增 / 编辑 / 排序 / 启停 / 取数预览 + 整表公式校验 | **P1-FIX-8B** |
 //! | [`report::report_item_model`] | `biz_report_item` 的数据访问层（含停用行、引用关系、科目目录） | **P1-FIX-8B** |
@@ -120,6 +121,8 @@ pub mod batch;
 pub mod budget;
 pub mod cancel_cascade;
 pub mod cash_flow;
+/// 现金流底稿录入 + 勾稽校验（直接法，M1-14）：期初 + 流入 − 流出 = 期末。
+pub mod cashflow_worksheet;
 /// 主数据编码策略（CODE-08）：`erp.master_data.allow_manual_code` 的唯一读取点 + 建单闸。
 pub mod code_policy;
 pub mod commission;

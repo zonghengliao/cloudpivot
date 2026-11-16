@@ -1,0 +1,69 @@
+== M1-14 现金流底稿三接口 真 HTTP 实测 ==
+   PG=172.18.10.145:5432 库=cp_m114_worksheet_e2e 端口=18092
+
+== 0) 准备库 ==
+  PASS  V0414 已应用（底稿表）
+  PASS  V0415 已应用（两个权限码）
+  PASS  期间夹具就位（2026-11 OPEN / 2026-12 CLOSED）
+  PASS  腾出 admin 用户名（改名 admin_pre_m114，外键引用保持完好）
+
+== 1) 启动 + 登录 ==
+  PASS  后端真启动成功（http://127.0.0.1:18092/health 200）
+  PASS  admin 登录取到 access_token
+  PASS  首登强制改密完成（改密后旧令牌作废）
+  PASS  用新口令重新登录成功
+  PASS  未带 token → 401（鉴权闸真的在）
+
+== 2) GET 底稿（未录入状态）==
+  PASS  GET 200
+  PASS  期间回显（.data.period = 2026-11）
+  PASS  期间状态（.data.period_status = OPEN）
+  PASS  打开期间可编辑（.data.editable = true）
+  PASS  12 个配置项全部列出（[.data.rows[]] | length = 12）
+  PASS  一行都没录（entered 全 false）（[.data.rows[] | select(.entered)] | length = 0）
+  PASS  未录入 ⇒ 不闭合（.data.check.balanced = false）
+  PASS  点名缺期初（[.data.check.problems[].code] | index("OPENING_MISSING") != null = true）
+  PASS  点名缺期末（[.data.check.problems[].code] | index("CLOSING_MISSING") != null = true）
+  PASS  三大活动小计齐（[.data.activities[]] | length = 3）
+
+== 3) PUT 录入（期初 500 + 流入 1200 + 流出 700 + 期末 1000）==
+  PASS  PUT 200
+  PASS  勾稽闭合（.data.check.balanced = true）
+  PASS  差额为 0（((.data.check.diff|tonumber) == 0) = true）
+  PASS  流入合计 1200（((.data.totals.inflow|tonumber) == 1200) = true）
+  PASS  流出合计 700（((.data.totals.outflow|tonumber) == 700) = true）
+  PASS  净增加额 500（((.data.totals.net|tonumber) == 500) = true）
+  PASS  按勾稽式算出的期末 = 1000（((.data.check.expected_closing|tonumber) == 1000) = true）
+  PASS  两行已录入（[.data.rows[] | select(.entered)] | length = 2）
+  PASS  快照名取自配置（[.data.rows[] | select(.item_code=="OPER_SALES_RECEIPTS")][0].item_name = 销售商品、提供劳务收到的现金）
+  PASS  方向取自配置（不信客户端）（[.data.rows[] | select(.item_code=="OPER_SALES_RECEIPTS")][0].direction = INFLOW）
+
+== 4) GET 回读（落库了）==
+  PASS  GET 200
+  PASS  回读仍闭合（.data.check.balanced = true）
+  PASS  期初余额落库 = 500（((.data.opening.amount|tonumber) == 500) = true）
+  PASS  期末余额落库 = 1000（((.data.closing.amount|tonumber) == 1000) = true）
+  PASS  备注落库（.data.opening.remark = 上月结转）
+  PASS  库里 4 行（2 明细 + 期初 + 期末）
+  PASS  重复提交同一行后库里仍是 4 行（upsert 不攒重复，HTTP 200）
+
+== 5) POST 校验（不落库 + 不平报 66087）==
+  PASS  不平 + require_balanced → 400
+  PASS  错误码 66087（勾稽不闭合）（.code = 66087）
+  PASS  报文说明勾稽不闭合（.msg | contains("勾稽不闭合") = true）
+  PASS  草稿闭合 → 200
+  PASS  校验结果闭合（.data.balanced = true）
+  PASS  校验接口没写库（仍是 4 行）
+
+== 6) 三道闸的 HTTP 表现 ==
+  PASS  已结账期间 → 400
+  PASS  错误码 66085（期间不可编辑）（.code = 66085）
+  PASS  不存在的项目 → 400
+  PASS  错误码 66086（项目不可用）（.code = 66086）
+  PASS  负数明细行 → 400
+  PASS  错误码 10001（金额形状非法）（.code = 10001）
+  PASS  空请求 → 400
+  PASS  错误码 10001（空请求）（.code = 10001）
+  PASS  被拒的请求一行都没写（仍是 4 行）
+
+== 汇总：PASS=51 FAIL=0 ==

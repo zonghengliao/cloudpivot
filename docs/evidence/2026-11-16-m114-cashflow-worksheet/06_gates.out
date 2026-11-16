@@ -1,0 +1,42 @@
+### migration_version_unique
+  ✓ 迁移版本号跨目录唯一：682 个文件 / 335 对 up-down / 415 个版本，最大 V0415
+    下一个可用版本号：V0416（新卡请以此为准，别再各目录各算）
+
+### role_code_gate
+  授权段优先走 V0258 业务角色矩阵（改矩阵）而不是在新迁移里再写一份：空库上 sys_role 还没种出业务角色 ⇒ 写死的 role_code 只会静默 0 行；见 docs/architecture/P2-新装配库权限矩阵-决策.md
+✓ 无**新增/改动**的未知角色码（历史基线全部按指纹豁免）
+
+### perm_menu_gate（cp_m114_full_drill = 已跑满 415 个迁移的库 + V0415）
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+代码侧：613 个非测试 .rs（跳过测试文件 157 个、cfg(test) 项内夹具码 0 处）→ 注解码 408 个（655 处）
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 51  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+==> 闸：PASS
+
+### menu_invariants（同上库）
+库: cp_m114_full_drill
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            508  ✅ (400-520)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 120 条，全部命中
+结果: 全绿 ✅
+
+### orphan_button_gate（同上库；3 条为历史存量，与本卡无关）
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+扫描面：活跃 sys_menu 508 行 / 带码父页的按钮节点 375 个 / 按钮授权 933 行
+✗ 孤儿 (角色,码) = 3  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · DEV_MONITOR_VIEWER     business:notice:mine               不可达父页 /business/notice/template(business:notice:list)（该角色未持有父页码）
+  · TEST_UADMIN            business:notice:mine               不可达父页 /business/notice/template(business:notice:list)（该角色未持有父页码）
+  · TEST_UADMIN            system:role-mutex:conflict         不可达父页 /system/role-mutex(system:role-mutex:list)（该角色未持有父页码）
+### 基线对照：cloudpivot_dev（未应用本卡 V0415 的真开发库，只读）
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+✗ 孤儿 (角色,码) = 3  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · DEV_MONITOR_VIEWER     business:notice:mine               不可达父页 /business/notice/template(business:notice:list)（该角色未持有父页码）
+  · TEST_UADMIN            business:notice:mine               不可达父页 /business/notice/template(business:notice:list)（该角色未持有父页码）
+  · TEST_UADMIN            system:role-mutex:conflict         不可达父页 /system/role-mutex(system:role-mutex:list)（该角色未持有父页码）

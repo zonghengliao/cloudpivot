@@ -1,0 +1,19 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 12 tests
+test business::erp::cashflow_worksheet::tests::amount_guards_are_load_bearing ... ok
+test business::erp::cashflow_worksheet::tests::compose_sheet_merges_three_sources ... ok
+test business::erp::cashflow_worksheet::tests::disabled_item_history_stays_readable_but_not_writable ... ok
+test business::erp::cashflow_worksheet::tests::draft_check_writes_nothing ... ok
+test business::erp::cashflow_worksheet::tests::flow_writes_take_snapshots_from_config ... ok
+test business::erp::cashflow_worksheet::tests::period_guards_block_writes ... ok
+test business::erp::cashflow_worksheet::tests::period_shape_is_strict ... ok
+test business::erp::cashflow_worksheet::tests::permissions_are_well_formed ... ok
+test business::erp::cashflow_worksheet::tests::reconcile_closes_exactly ... ok
+test business::erp::cashflow_worksheet::tests::reconcile_is_exact_to_four_decimals ... ok
+test business::erp::cashflow_worksheet::tests::reconcile_names_missing_parts ... ok
+test business::erp::cashflow_worksheet::tests::save_roundtrip_is_closed_and_idempotent ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 5542 filtered out; finished in 0.15s
+

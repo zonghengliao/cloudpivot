@@ -1,0 +1,43 @@
+== M1-14 / V0415 真库往返演练（现金流底稿权限码）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 演练库=cp_m114_v0415_drill_2648845
+
+  ---- 演练库已从 cloudpivot_test 克隆
+  [32mPASS[0m V0414 前置已应用（底稿表建好）
+
+== 2) V0415 up 第一次 ==
+  [32mPASS[0m V0415 up 第一次成功（种码 + 授权 + 自检块通过）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0415__cashflow_worksheet_perm.up.sql:66: NOTICE:  V0415: 前置表齐备，开始种现金流底稿权限码
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0415__cashflow_worksheet_perm.up.sql:198: NOTICE:  V0415 自检通过：现金流底稿 2 个权限码（底稿查看 / 底稿录入）挂「现金流量表」页面，授权 2 个角色 × 2 码 = 4 行
+
+== 3) V0415 up 第二次（幂等）==
+  [32mPASS[0m V0415 up 第二次成功（重放零报错）
+
+== 4) 结构与授权断言 ==
+  [32mPASS[0m 两个按钮节点在位（=2）
+  [32mPASS[0m 两个权限码各一行（无重复）（=2）
+  [32mPASS[0m 两行都挂「现金流量表」页面下、menu_type=3、无 path（=2）
+  [32mPASS[0m 同父 sort_order 唯一（=0）
+  [32mPASS[0m title 是 4 字菜单名（底稿查看 / 底稿录入）（=底稿查看|底稿录入）
+  [32mPASS[0m 授权齐（2 个目标角色 × 2 个码）（=4）
+  [32mPASS[0m 授权无重复行（重放不攒重复）（=0）
+
+== 5) 反证：删掉一个授权后重放 V0415 必须补回 ==
+  [32mPASS[0m 授权被手工删掉（反证的前提）（=0）
+  [32mPASS[0m V0415 重放成功（自检看到授权缺失）
+  [32mPASS[0m 重放把 FINANCE_MANAGER 的写码授权补回来了（=1）
+
+== 6) V0415 down（无底稿数据）==
+  [32mPASS[0m down 执行成功（无底稿数据，护栏放行）
+  [32mPASS[0m 两个权限节点已删除（=0）
+  [32mPASS[0m 授权已清干净（=0）
+  [32mPASS[0m down 第二次也成功（幂等）
+
+== 7) down 护栏反证：有底稿数据必须拒绝回滚 ==
+  [32mPASS[0m 已造一行底稿（护栏反证的前提）（=1）
+  [32mPASS[0m 有底稿数据时 down 被拒（护栏生效）
+  [32mPASS[0m 被拒的 down 没动菜单（两个节点还在）（=2）
+
+== 8) 收尾断言（库内零残留探针） ==
+  [32mPASS[0m 底稿表零残留（探针已清）（=0）
+
+== 汇总：PASS=21 FAIL=0 ==

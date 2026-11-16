@@ -1,0 +1,29 @@
+== M1-14 / V0415 真引擎实测（现金流底稿权限码）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 升级库=cp_m114_upgrade 端口=18091
+
+== A) 克隆库升级（真引擎：模板库 → cp_m114_upgrade）==
+  升级前：versioned 最大 version=404（V0415 之前都是本卡要验的）
+  PASS  克隆库升级前没有底稿权限码
+  PASS  克隆库真启动成功（/health 200）
+  数据库迁移完成: 应用 11 个迁移
+  PASS  引擎应用了 11 个迁移（含 V0414 / V0415）
+  PASS  V0415 自检块在真引擎里通过（NOTICE 已打印 ⇒ 方言拆分器把 DO 块切对了）
+  schema_migrations：415/true/app/migrations/business/V0415__cashflow_worksheet_perm.up.sql
+  PASS  schema_migrations 登记 415/true/源文件（指纹已登记）
+
+== B) 权限节点落地 ==
+  PASS  两个按钮节点在位（挂「现金流量表」页面 · menu_type=3 · 无 path）
+  PASS  两个权限码各一行
+  PASS  授权齐（2 个目标角色 × 2 码 = 4 行）
+
+== C) 重启幂等 ==
+  PASS  重启：应用 0 个迁移（引擎级幂等，指纹一致）
+  PASS  重启后权限节点不变（仍是 2 行，没有重复种）
+
+== D) 回滚护栏（down）==
+  PASS  无底稿数据时 down 成功（幂等回收）
+  PASS  down 后权限节点已清空
+  PASS  有底稿数据时 down 被拒（护栏生效）
+  PASS  收尾：底稿表零残留
+
+== 汇总：PASS=14 FAIL=0 ==
