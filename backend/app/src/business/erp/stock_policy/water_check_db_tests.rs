@@ -865,3 +865,90 @@ async fn effective_of_agrees_with_the_check() {
     assert_eq!(report.low, 0, "60 >= 50 与 effective_of 一致");
     println!("[M2-14] effective_of 与检查判定一致（同一份三级回退）✓");
 }
+
+// ============================================================================
+// M2-16（t_72aa8970）补的**真库刀口**：判定边界在库往返之后仍然成立
+//
+// 纯逻辑刀口在 `water_check::boundary_tests`；这里只补「必须过一遍 PG 才有的口径」：
+// `NUMERIC(18,4)` 的 4 位小数与 ::text 中转有没有丢精度、以及「回升到正好等于水位」
+// 这一侧是不是真的收口。
+// ============================================================================
+
+/// ⑯ 结存**正好等于**水位不建单；差 0.0001 就建单（缺口文本精确到 4 位）；
+/// 回升到**正好等于**水位 → 收口（`>=` 即达标，与判定的 `qty < min` 同一刀）。
+#[tokio::test]
+async fn db_boundary_quantity_equal_to_level_is_not_low() {
+    let Some(_guard) = setup().await else { return };
+    let wh = warehouse_a().await;
+    let material = mat_a().await;
+    set_material_safety(material, "0").await;
+    set_policy(material, wh, "50", STATUS_ENABLED).await;
+
+    // ① 正好 50.0000：不建单
+    let inv = set_qty(material, wh, "50.0000").await;
+    let equal = water_check::run_check(Some(material), Some(wh), false, None)
+        .await
+        .expect("结存 == 水位");
+    assert_eq!(equal.low, 0, "结存 == 最低水位 = 达标，不许建单");
+    assert_eq!(equal.raised, 0);
+    assert_eq!(todos_of(inv).await.len(), 0);
+
+    // ② 差一个最小单位（4 位小数的最后一位）：建单，缺口就是 0.0001
+    set_qty(material, wh, "49.9999").await;
+    let low = water_check::run_check(Some(material), Some(wh), false, None)
+        .await
+        .expect("差 0.0001");
+    assert_eq!(low.low, 1, "49.9999 < 50.0000");
+    assert_eq!(low.raised, 1);
+    assert_eq!(low.items[0].qty, "49.9999", "结存文本保留 4 位小数");
+    assert_eq!(low.items[0].min_qty, "50");
+    assert_eq!(low.items[0].gap_qty, "0.0001", "缺口精确到最小单位");
+    assert_eq!(open_todos_of(inv).await, 1);
+
+    // ③ 回升到**正好等于**水位：收口（不是「还差一点」）
+    set_qty(material, wh, "50.0000").await;
+    let recovered = water_check::run_check(Some(material), Some(wh), false, None)
+        .await
+        .expect("回升到正好等于");
+    assert_eq!(recovered.low, 0);
+    assert_eq!(recovered.closed, 1, "升到正好等于水位即达标 → 自动收口");
+    let todos = todos_of(inv).await;
+    assert_eq!(todos[0].1, "CANCELLED");
+    assert!(
+        todos[0].2.clone().unwrap_or_default().starts_with(AUTO_CLOSE_PREFIX),
+        "收口原因带 AUTO_RECOVERED：{:?}",
+        todos[0].2
+    );
+    println!("[M2-16] 真库刀口：50.0000 不报 / 49.9999 报（缺口 0.0001）/ 回升到 50.0000 即收口 ✓");
+}
+
+/// ⑰ 极微水位（`0.0002`，`NUMERIC(18,4)` 的 2 个最小单位）经 `::text` 往返不丢精度：
+/// 阈值 / 结存 / 缺口三处文本都要保住位数（丢精度会让「设了水位却不报警」）。
+#[tokio::test]
+async fn db_boundary_micro_level_survives_numeric_roundtrip() {
+    let Some(_guard) = setup().await else { return };
+    let wh = warehouse_a().await;
+    let material = mat_a().await;
+    set_material_safety(material, "0").await;
+    set_policy(material, wh, "0.0002", STATUS_ENABLED).await;
+    let inv = set_qty(material, wh, "0.0001").await;
+
+    let low = water_check::run_check(Some(material), Some(wh), false, None)
+        .await
+        .expect("极微水位");
+    assert_eq!(low.low, 1, "0.0001 < 0.0002");
+    assert_eq!(low.items[0].min_qty, "0.0002", "阈值不许被抹成 0");
+    assert_eq!(low.items[0].qty, "0.0001", "结存不许被抹成 0");
+    assert_eq!(low.items[0].gap_qty, "0.0001");
+    assert_eq!(low.items[0].min_source, "POLICY");
+    assert_eq!(open_todos_of(inv).await, 1);
+
+    // 补到正好等于阈值 → 收口
+    set_qty(material, wh, "0.0002").await;
+    let recovered = water_check::run_check(Some(material), Some(wh), false, None)
+        .await
+        .expect("补到阈值");
+    assert_eq!(recovered.low, 0);
+    assert_eq!(recovered.closed, 1);
+    println!("[M2-16] 真库刀口：0.0002 级水位经 NUMERIC::text 往返不丢精度 ✓");
+}

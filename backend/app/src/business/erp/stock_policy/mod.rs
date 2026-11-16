@@ -71,7 +71,8 @@
 //! * 本文件 —— 模块地图与口径总述。
 //!
 //! 真库用例见 [`policy_db_tests`] 与 [`water_check_db_tests`]（`ERP_DB_URL` 开关，
-//! 与其它 ERP 用例共用同一个串行锁）。
+//! 与其它 ERP 用例共用同一个串行锁）；**边界**用例（阈值刀口 / 4 位小数 / 明细上限 /
+//! 重提醒整点 / 分页极值）见 `water_check::boundary_tests`（M2-16，纯逻辑不碰库）。
 
 pub mod dto;
 pub mod handler;

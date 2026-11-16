@@ -470,8 +470,15 @@ pub fn normalize_page(page: u64, page_size: u64) -> (u64, u64) {
 }
 
 /// 取本页的切片（越界返回空页，不报错 —— 「翻到第 9 页而只有 3 页」是正常的翻页手感）。
+///
+/// 边界（M2-16 的 `boundary_tests::page_bounds_are_clamped_and_never_panic` 钉着）：
+/// `page = 0` 与 `page = u64::MAX` 都必须给空页而不是 panic —— 前者会让 `page - 1`
+/// 下溢，后者会让 `(page - 1) * page_size` 上溢（debug 构建 panic ⇒ 接口 500，
+/// 而 `page` 是 URL 上随手可改的数）。
 pub fn page_slice<T: Clone>(rows: &[T], page: u64, page_size: u64) -> Vec<T> {
-    let start = ((page - 1) * page_size) as usize;
+    let page = page.max(1);
+    let start = (page - 1).saturating_mul(page_size);
+    let start = usize::try_from(start).unwrap_or(usize::MAX);
     if start >= rows.len() {
         return Vec::new();
     }

@@ -908,6 +908,14 @@ pub fn register_builtin(scheduler: &Scheduler) {
 
 // ==================== 单测（纯逻辑，不碰库） ====================
 
+/// M2-16 的**边界**用例（阈值刀口 / 4 位小数 / 明细上限 / 重提醒整点 / 分页极值）。
+///
+/// 挂成本模块的子模块是为了能调到私有实现（`push_item` 的明细上限）；
+/// 文件本体在 `stock_policy/safety_stock_boundary_tests.rs`。
+#[cfg(test)]
+#[path = "safety_stock_boundary_tests.rs"]
+mod boundary_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
