@@ -92,6 +92,7 @@ V0423 页面行： id=…4230  path=/business/erp/inventory-transit
 | `cargo test --lib system::menu::tests` | **14 passed**（含 n08：菜单 path 必须能在前端路由里解析） | 本次会话实测 |
 | `bash scripts/verify/m207_transit_page_drill.sh cp_m207_fresh` | **PASS=29 FAIL=0 / ALL PASS** | `03_drill.out` |
 | `bash scripts/verify/menu_invariants.sh cp_m207_fresh` | **8 条全绿**，菜单总数 **516**（400–520） | `04_menu_invariants.out` |
+| `node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json` | **无新增页面壳类声明**（首次 push 时被判 1 处 `.tool-row` 声明 → 改成复用 `src/style/shell.less` 的壳类，页面不再重新定义壳类） | 本次会话实测 |
 
 ### 5.2 真接口（35 条断言，`05_api_check.out`）
 

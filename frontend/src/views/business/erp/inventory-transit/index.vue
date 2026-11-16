@@ -658,12 +658,7 @@ onMounted(() => {
   padding: 4px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
+/* 工具栏行用 shell.less 里的 .tool-row（零壳类声明：页面不重新定义壳类） */
 
 .transit-tool__select {
   width: 200px;
