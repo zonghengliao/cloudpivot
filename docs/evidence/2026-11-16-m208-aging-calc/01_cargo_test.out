@@ -1,0 +1,56 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 16s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 36 tests
+test business::erp::inventory_aging::aging_db_tests::age_range_maps_to_inbound_date_bounds ... ok
+test business::erp::inventory_aging::aging_db_tests::as_of_cuts_by_business_date_not_posting_time ... ok
+test business::erp::inventory_aging::aging_db_tests::fifo_layers_split_oldest_first ... ok
+test business::erp::inventory_aging::aging_db_tests::include_consumed_shows_fully_eaten_layer ... ok
+test business::erp::inventory_aging::aging_db_tests::lot_no_filter_narrows_to_one_layer ... ok
+test business::erp::inventory_aging::aging_db_tests::over_consumed_partition_yields_no_layers ... ok
+test business::erp::inventory_aging::aging_db_tests::pagination_is_stable_and_counts_all ... ok
+test business::erp::inventory_aging::aging_db_tests::remaining_total_matches_stock_qty ... ok
+test business::erp::inventory_aging::aging_db_tests::sql_matches_reference_allocator ... ok
+test business::erp::inventory_aging::aging_db_tests::warehouse_filter_isolates_partitions ... ok
+test business::erp::inventory_aging::aging_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::inventory_aging::aging_tests::down_migration_reverts_exactly_what_up_created ... ok
+test business::erp::inventory_aging::aging_tests::fifo_formula_exists_only_in_the_database_function ... ok
+test business::erp::inventory_aging::aging_tests::function_and_permission_constants_match_ddl ... ok
+test business::erp::inventory_aging::aging_tests::migration_declares_aging_function_and_permission ... ok
+test business::erp::inventory_aging::aging_tests::migration_file_pair_is_well_formed ... ok
+test business::erp::inventory_aging::dto::tests::age_days_is_calendar_day_distance ... ok
+test business::erp::inventory_aging::dto::tests::bounds_match_age_days ... ok
+test business::erp::inventory_aging::dto::tests::default_as_of_is_cst_today ... ok
+test business::erp::inventory_aging::dto::tests::invalid_age_ranges_are_rejected ... ok
+test business::erp::inventory_aging::dto::tests::lot_no_filter_normalizes_blanks ... ok
+test business::erp::inventory_aging::fifo::tests::empty_inputs_are_safe ... ok
+test business::erp::inventory_aging::fifo::tests::exact_boundaries_do_not_bleed ... ok
+test business::erp::inventory_aging::fifo::tests::invariants_hold_on_generated_cases ... ok
+test business::erp::inventory_aging::fifo::tests::oldest_layer_is_consumed_first ... ok
+test business::erp::inventory_aging::fifo::tests::over_consumption_leaves_no_negative_layer ... ok
+test business::erp::inventory_aging::handler::tests::blank_filters_mean_no_filter ... ok
+test business::erp::inventory_aging::handler::tests::future_inbound_keeps_negative_age ... ok
+test business::erp::inventory_aging::handler::tests::invalid_filters_are_400_with_erp_filter_invalid ... ok
+test business::erp::inventory_aging::handler::tests::permission_codes_match_migration ... ok
+test business::erp::inventory_aging::handler::tests::res_passes_quantities_through_and_computes_age ... ok
+test business::erp::inventory_aging::model::tests::base_sql_always_filters_remaining_and_passes_as_of ... ok
+test business::erp::inventory_aging::model::tests::ids_array_param_uses_pg_literal ... ok
+test business::erp::inventory_aging::model::tests::order_is_oldest_first_with_stable_tiebreak ... ok
+test business::erp::inventory_aging::model::tests::partition_filters_are_pushed_into_the_function ... ok
+test business::erp::inventory_aging::model::tests::where_params_match_placeholders ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 5674 filtered out; finished in 0.31s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

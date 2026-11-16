@@ -109,6 +109,12 @@ REQUIRED_PRODUCTION = (
 #
 # 维护口径：新增/删除测试面文件时同步改这里（多一条少一条都算 FAIL，报错会直接给出可粘贴的行）。
 # 这是刻意的摩擦 —— 跳过权限的每一次扩张都要在评审里被看见。
+#
+# M2-08（卡 t_397dc77c）补登记 11 条：`business/erp/inventory_aging/{aging_tests,aging_db_tests}.rs`
+# 是本卡新增的两条；其余 9 条（cashflow_chain / fx_cycle / transit_flow / transit_query /
+# transit_reconcile / aging_partial / fx_report / shipment_receipt / test_seed）**本来就是测试面
+# 文件**，只是前序卡落地时漏登记 —— 本轮跑闸② 时被 SKIP_MANIFEST 逐条断言抓出来，只补登记事实，
+# 不动任何文件内容与判据。
 SKIP_MANIFEST = frozenset(
     """
 business/attachment/rule_admin/tests.rs
@@ -147,6 +153,17 @@ business/erp/doc_shape_tests.rs
 business/erp/expense/expense_linkage_tests.rs
 business/erp/expense/expense_model_tests.rs
 business/erp/fixture_hygiene.rs
+business/erp/cashflow_chain_tests.rs
+business/erp/fx_cycle_tests.rs
+business/erp/inventory_aging/aging_db_tests.rs
+business/erp/inventory_aging/aging_tests.rs
+business/erp/inventory_transit/transit_flow_tests.rs
+business/erp/inventory_transit/transit_query_tests.rs
+business/erp/inventory_transit/transit_reconcile_tests.rs
+business/erp/receivable/aging_partial_tests.rs
+business/erp/report/fx_report_tests.rs
+business/erp/shipment/shipment_receipt_tests.rs
+test_seed.rs
 business/erp/flow_biz_type_contract_tests.rs
 business/erp/lot/lot_db_tests.rs
 business/erp/model_tests.rs

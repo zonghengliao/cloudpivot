@@ -1,0 +1,33 @@
+== 目标库：cp_m208_aging_test @ 172.18.10.145（库名必须含 drill/test/e2e）
+  PASS: 库名合规
+== 基线：biz_inventory_txn = 48 行
+== ① up（第 1 次）
+  PASS: up 第 1 次执行成功
+      fn=1 menu=1 grant=5
+  PASS: 函数存在（1 个）
+  PASS: 权限码承载节点 1 个
+  PASS: 授权行 ≥ 1（5）
+  PASS: 菜单行字段：title/type/sort 正确
+  PASS: 挂在「即时库存」页面下
+== ② up（第 2 次 · 幂等）
+  PASS: up 第 2 次执行成功（不报错）
+      fn=1 menu=1 grant=5
+  PASS: 状态与第 1 次完全一致（函数 / 菜单 / 授权都不增长）
+== ③ down（第 1 次）
+  PASS: down 执行成功
+  PASS: 函数已删除
+  PASS: 菜单行已删除
+  PASS: 授权行已删除
+== ④ down（第 2 次 · 幂等）
+  PASS: down 第 2 次执行成功（不报错）
+== ⑤ up（第 3 次 · 恢复）
+  PASS: up 第 3 次执行成功
+      fn=1 menu=1 grant=5
+  PASS: 恢复到与第 1 次一致的状态
+== ⑥ 业务数据未被动过
+  PASS: biz_inventory_txn 行数不变（48）
+== ⑦ 函数行为探针（空物料 0 行；函数体真的能执行）
+  PASS: 空物料 → 0 行（函数可执行）
+
+================ M2-08 迁移演练：PASS=18 FAIL=0 ================
+ALL PASS
