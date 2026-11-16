@@ -1,0 +1,30 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.54s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 11 tests
+test business::erp::cashflow_chain_tests::closed_pair_yields_balanced_statement_and_real_xlsx ... ok
+test business::erp::cashflow_chain_tests::closed_period_statement_is_readable_and_exportable_but_not_writable ... ok
+test business::erp::cashflow_chain_tests::missing_closing_row_is_named_and_blocks_export ... ok
+test business::erp::cashflow_chain_tests::previous_only_row_survives_after_config_deleted ... ok
+test business::erp::cashflow_chain_tests::previous_period_is_previous_accounting_period_across_years ... ok
+test business::erp::cashflow_chain_tests::previous_period_not_opened_leaves_previous_column_null ... ok
+test business::erp::cashflow_chain_tests::previous_unbalanced_warns_but_does_not_block_current ... ok
+test business::erp::cashflow_chain_tests::resave_and_rebuild_are_idempotent ... ok
+test business::erp::cashflow_chain_tests::statement_gate_needs_arithmetic_equality_not_only_worksheet_reconcile ... ok
+test business::erp::cashflow_chain_tests::sub_cent_tail_is_not_rounded_away ... ok
+test business::erp::cashflow_chain_tests::wrong_closing_keeps_page_open_but_blocks_export ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.37s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

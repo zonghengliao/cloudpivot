@@ -1,0 +1,53 @@
+== M1-17 现金流底稿单测 + 反证 ==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 临时库=cp_m117_chain_2683242 ONLY=all
+  ---- 临时库已从 cloudpivot_test 克隆
+  [32mPASS[0m V0414 前置（底稿表）
+  [32mPASS[0m V0416 前置（间接法调整项表）
+  [32mPASS[0m 前置表存在：biz_cashflow_worksheet
+  [32mPASS[0m 前置表存在：biz_cashflow_adjust_item
+  [32mPASS[0m 前置表存在：biz_cashflow_item
+  [32mPASS[0m 前置表存在：biz_accounting_period
+
+== 1) 本卡单测：business::erp::cashflow_chain_tests（11 条，真库） ==
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.37s
+  [32mPASS[0m 本卡 11/11 全绿
+  [32mPASS[0m 真库用例没有一条 SKIP（没有静默假绿）
+
+== 2) 现金流全家族：business::erp::cashflow*（M1-14/15/16 + 本卡） ==
+  test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 5542 filtered out; finished in 0.63s
+  [32mPASS[0m 全家族无红（test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 5542 filtered out; finished in 0.63s）
+
+== 3) 无 ERP_DB_URL：真库用例必须 SKIP，纯逻辑用例照跑 ==
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.00s
+  [32mPASS[0m 无库时打印 SKIP（不连库、不假绿）
+  [32mPASS[0m SKIP 只打一次（OnceCell 缓存，符合实现）
+  [32mPASS[0m 纯逻辑 2 条照跑 + 真库 9 条空跑（全部 SKIP，不是假绿）
+
+== 反证 A：backend/app/src/business/erp/cashflow_worksheet.rs ==
+  ---- 已施加反证：A
+  test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.41s
+  [32mPASS[0m 反证生效：用例转红（test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.41s）
+  [32mPASS[0m 预期转红的用例确实红了：sub_cent_tail_is_not_rounded_away
+  [32mPASS[0m 反证后已还原：backend/app/src/business/erp/cashflow_worksheet.rs
+
+== 反证 B：backend/app/src/business/erp/cashflow_statement.rs ==
+  ---- 已施加反证：B
+  test result: FAILED. 8 passed; 3 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.40s
+  [32mPASS[0m 反证生效：用例转红（test result: FAILED. 8 passed; 3 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.40s）
+  [32mPASS[0m 预期转红的用例确实红了：missing_closing_row_is_named_and_blocks_export
+  [32mPASS[0m 预期转红的用例确实红了：sub_cent_tail_is_not_rounded_away
+  [32mPASS[0m 预期转红的用例确实红了：wrong_closing_keeps_page_open_but_blocks_export
+  [32mPASS[0m 反证后已还原：backend/app/src/business/erp/cashflow_statement.rs
+
+== 反证 C：backend/app/src/business/erp/report/mod.rs ==
+  ---- 已施加反证：C
+  test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.41s
+  [32mPASS[0m 反证生效：用例转红（test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 5584 filtered out; finished in 0.41s）
+  [32mPASS[0m 预期转红的用例确实红了：previous_period_is_previous_accounting_period_across_years
+  [32mPASS[0m 预期转红的用例确实红了：previous_period_not_opened_leaves_previous_column_null
+  [32mPASS[0m 反证后已还原：backend/app/src/business/erp/report/mod.rs
+
+== 结果 ==
+  PASS=24 FAIL=0
+  ✅ 全部通过
+EXIT=0

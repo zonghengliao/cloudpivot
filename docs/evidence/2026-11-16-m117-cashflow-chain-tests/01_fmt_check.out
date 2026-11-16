@@ -1,0 +1,2 @@
+$ cd backend && cargo fmt -- --check
+exit=0

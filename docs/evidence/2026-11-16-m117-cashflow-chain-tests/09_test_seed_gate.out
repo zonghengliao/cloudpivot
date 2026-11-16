@@ -1,0 +1,9 @@
+$ bash scripts/verify/test_seed_gate.sh
+==> ① 编码/年度工具只有一份实现（转发到 crate::test_seed）
+    ✓ 41 处本地工具函数全部转发
+==> ② test_seed 导出名单齐全
+    ✓ 23 个导出齐全
+==> ③ 测试代码主数据 INSERT 不超预算（只许降）
+    ✓ 主数据手写 INSERT 合计 109 处（预算 109，改一次下调一次）
+==> test_seed_gate 全过（① 转发 / ② 导出 / ③ 预算）
+exit=0

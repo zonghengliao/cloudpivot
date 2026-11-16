@@ -256,6 +256,11 @@ mod flow_biz_type_contract_tests;
 #[cfg(test)]
 mod fx_cycle_tests;
 
+/// 现金流底稿单测（M1-17）：录入 → 勾稽 → 出表 → 出表闸一条链，闭合正例 + 四种不闭合反例。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cashflow_chain_tests;
+
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod aux_tests;

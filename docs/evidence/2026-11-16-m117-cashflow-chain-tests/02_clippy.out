@@ -1,0 +1,9 @@
+$ cd backend && cargo clippy --lib -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 33.46s
+exit=0
+
+$ cd backend && cargo clippy --lib --tests -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 34s
+exit=0
