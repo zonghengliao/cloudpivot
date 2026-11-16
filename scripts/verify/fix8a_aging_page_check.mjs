@@ -145,7 +145,7 @@ const asOfHead = (await page.textContent("[data-testid='pa-asof-text']")) || '';
 if (asOfHead.includes('期间末日')) ok('基准日来源标为「期间末日」');
 else bad(`基准日来源文案不对：${asOfHead}`);
 
-// ③ 手填基准日 2026-11-05 → 五个档位全部落在边界上
+// ③ 手填基准日 2026-11-05 → 各档位全部落在边界上（M1-21 起 7 档，表头由后端 `buckets` 给，前端不写死）
 await page.fill("[data-testid='pa-asof'] input", '2026-11-05');
 await page.keyboard.press('Enter');
 await page.click("[data-testid='pa-search']");

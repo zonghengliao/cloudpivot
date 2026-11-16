@@ -28,13 +28,12 @@
 //! 档位表就是 [`payable_aging::AGING_BUCKETS`]（本模块**不写第二份阈值**）：
 //! 天数 → 档位用 [`payable_aging::bucket_of_in`]，SQL 侧的 `CASE` 用
 //! [`payable_aging::bucket_case_sql_in`] 生成，金额归一用 [`payable_aging::money`]。
-//! 前四档与**应付**账龄（[`payable_aging::BUCKETS`]，暂 5 档）逐字相同；后三档是把
-//! 应付的「90 天以上」按 180/365 再切细 —— 长账龄要分层看（91-180 还在催收期、
-//! 181-365 该走法务、365 天以上基本是坏账候选）。
+//! **应付账龄自 M1-21 起也用这同一张 7 档表**（`payable_aging::BUCKETS` 是它的别名）——
+//! 付款账龄与收款账龄的刻度一致，可以直接对着看；改档位只改 `AGING_BUCKETS` 一处。
 //!
-//! 两条单测把这件事钉死：`receivable_buckets_extend_payable_prefix`（前缀逐字相等 +
-//! 180/365 两刀边界，在 `payable_aging` 侧）与 `bucket_boundaries_are_identical_to_payable`
-//! （本模块，逐天比对两表共有的 −90..=90 区间）。
+//! 两条单测把这件事钉死：`payable_and_receivable_share_one_bucket_table`（同一张表 +
+//! 180/365 两刀边界 + 逐天 −400..=3650 同档，在 `payable_aging` 侧）与
+//! `bucket_boundaries_are_identical_to_payable`（本模块，逐天比对）。
 //!
 //! # 为什么明细在 Rust 侧再算一次分档
 //!
@@ -50,11 +49,11 @@
 //! | 对手方 | 供应商 `biz_supplier.supplier_name` | 客户 `biz_customer.name` |
 //! | 金额列 | `paid_amount / unpaid_amount` | `received_amount / unsettled_amount` |
 //! | 报表编码 | `PAYABLE_AGING` | `RECEIVABLE_AGING` |
-//! | 分档 | 5 档（… / 61-90 / 90 天以上） | **7 档**（… / 61-90 / 91-180 / 181-365 / 365 天以上） |
+//! | 分档 | 7 档（… / 61-90 / 91-180 / 181-365 / 365 天以上，M1-21 起与应收同表） | **7 档**（同一张 `AGING_BUCKETS`） |
 //!
 //! 逾期天数算法、基准日解析（`as_of` 优先 → `period` 末日 → 今天 CST）、
-//! 千分位金额文本、`REPEATABLE READ` 快照事务，全部与应付一致；分档的**机制**一致、
-//! **刻度**应收更细（见上面「分档」一节）。
+//! 千分位金额文本、`REPEATABLE READ` 快照事务、**分档刻度**，全部与应付一致
+//! （两边共用 [`payable_aging::AGING_BUCKETS`] 一张表）。
 //!
 //! # 数据权限
 //!
@@ -121,7 +120,7 @@ pub const AGING_STATUSES: [&str; 2] = [receivable::STATUS_OPEN, receivable::STAT
 ///
 /// 直接取 [`payable_aging::AGING_BUCKETS`]，**本模块没有第二份阈值**；这里只是个本地别名，
 /// 让下面的代码读起来像「本报表的列」（`BUCKETS.len()` / `BUCKETS[0]` / 遍历表头）。
-/// 应付的 5 档表 [`payable_aging::BUCKETS`] 保持不动 —— 应付要不要切细是 M1-21 的事。
+/// 应付账龄自 M1-21 起也用它（`payable_aging::BUCKETS` 就是同一张表），两边刻度一致。
 pub const BUCKETS: [BucketSpec; 7] = AGING_BUCKETS;
 
 // ==================== 入参 ====================
@@ -847,7 +846,7 @@ mod tests {
         NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("合法日期")
     }
 
-    /// ① 分档：前四档与应付**逐天**一致（−90..=90），后三档是应收自己的刻度。
+    /// ① 分档：与应付**逐天**一致（−400..=3650 全程，M1-21 起两边同一张表）。
     ///    这条是「档位表不是各抄一份阈值」的机器化证明 ——
     ///    谁在应收侧偷偷改共同边界，或者漏切 180/365，这里立刻红。
     #[test]

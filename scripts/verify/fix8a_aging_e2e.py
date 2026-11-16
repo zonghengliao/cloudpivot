@@ -125,8 +125,9 @@ def main():
     check("as_of_source=QUERY", report["as_of_source"] == "QUERY", report["as_of_source"])
     check("期间回显", report["period"] == "2026-11" and report["period_name"] == "2026年11月",
           f'{report["period"]}/{report["period_name"]}')
-    check("档位表 = 5 档且顺序固定",
-          [b["key"] for b in report["buckets"]] == ["NOT_DUE", "D0_30", "D31_60", "D61_90", "OVER_90"],
+    check("档位表 = 7 档且顺序固定（M1-21 与应收同口径）",
+          [b["key"] for b in report["buckets"]]
+          == ["NOT_DUE", "D0_30", "D31_60", "D61_90", "D91_180", "D181_365", "OVER_365"],
           [b["key"] for b in report["buckets"]])
 
     summary = {cell["key"]: dec(cell["unpaid"]) for cell in report["summary"]}
@@ -135,7 +136,9 @@ def main():
         "D0_30": Decimal("11000"),     # 逾期 1 天 3000 + 逾期 30 天 8000
         "D31_60": Decimal("17000"),    # 逾期 31 天 (9000-3000)=6000 + 逾期 60 天 11000
         "D61_90": Decimal("37000"),    # 逾期 61 天 15000 + 逾期 90 天 22000
-        "OVER_90": Decimal("30000"),   # 逾期 91 天 (40000-10000)
+        "D91_180": Decimal("30000"),   # 逾期 91 天 (40000-10000)，M1-21 起不再一锅端成「90 天以上」
+        "D181_365": Decimal("0"),      # 夹具最长只到 91 天（长账龄三段由 M1-21 的 api_check.py 覆盖）
+        "OVER_365": Decimal("0"),
     }
     for key, value in expect.items():
         check(f"档位 {key} 金额 = {value}", summary.get(key) == value, f'实际 {summary.get(key)}')
@@ -154,7 +157,7 @@ def main():
         "AP-FIX8A-000006": (60, "D31_60"),      # 60 天
         "AP-FIX8A-000007": (61, "D61_90"),      # 61 天
         "AP-FIX8A-000008": (90, "D61_90"),      # 90 天
-        "AP-FIX8A-000009": (91, "OVER_90"),     # 91 天
+        "AP-FIX8A-000009": (91, "D91_180"),     # 91 天（M1-21 新档下界）
         "AP-FIX8A-000001": (-15, "NOT_DUE"),    # 未到期
     }
     details = {row["payable_no"]: row for row in report["details"]}

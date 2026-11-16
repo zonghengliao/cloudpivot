@@ -18,28 +18,28 @@
 //! （见 [`crate::business::erp::payable`]），所以账龄不需要再拿账期做二次推算 —— 表里
 //! 已经有到期日，直接用。
 //!
-//! # 分档（两张档位表都在本文件，机制只有一份）
+//! # 分档（一张档位表，应付 / 应收共用；M1-21 已对齐）
 //!
 //! 档位表是**数据**；机制（天数 → 档位、档位 → SQL `CASE`）按表参数化，只有一份。
 //!
-//! | 档位表 | 用在哪 | 档位 |
-//! |--------|--------|------|
-//! | [`BUCKETS`] | **应付**账龄（本文件，5 档） | 未到期 / 1-30 / 31-60 / 61-90 / 90 天以上 |
-//! | [`AGING_BUCKETS`] | **应收**账龄（`receivable_aging`，7 档，M1-19） | 未到期 / 1-30 / 31-60 / 61-90 / 91-180 / 181-365 / 365 天以上 |
+//! [`AGING_BUCKETS`] 是全库**唯一**的账龄档位表（7 档 = 未到期 + 30/60/90/180/365 六段），
+//! **应付账龄（本文件）与应收账龄（`receivable_aging`）都按它分档**。
+//! 老名 [`BUCKETS`] 保留为同一张表的别名（应付侧几十处老调用点不必改名），
+//! `BUCKETS == AGING_BUCKETS` 由单测钉死 —— 不存在第二份阈值。
 //!
-//! 应付账龄的边界（单测逐个钉住）：0 → 未到期（到期当天不算逾期）、1/30 → 1-30、
-//! 31/60 → 31-60、61/90 → 61-90、91 → 90 天以上。
+//! 分档边界（单测逐个钉住）：0 → 未到期（到期当天不算逾期）、1/30 → 1-30、
+//! 31/60 → 31-60、61/90 → 61-90、91/180 → 91-180、181/365 → 181-365、366 及以上 → 365 天以上。
 //!
 //! 机制只由两个吃「档位表」参数的函数构成：[`bucket_of_in`]（Rust 侧，给明细行用）和
 //! [`bucket_case_sql_in`]（SQL 侧，给按对手方汇总用）；[`bucket_of`] / [`bucket_case_sql`]
 //! 是「按 [`BUCKETS`] 走」的薄包装（应付老调用点一个字都不用改）。
 //! 加 / 调档位只改档位表一处，Rust 与 SQL 两侧不会漂移。
 //!
-//! ⚠ 两张表**不是**「各抄一份阈值」：[`AGING_BUCKETS`] 的前四档与 [`BUCKETS`] 逐字相同
-//! （单测 `receivable_buckets_extend_payable_prefix` 钉住前缀相等），应收只是在
-//! 「90 天以上」那里再切成 91-180 / 181-365 / 365 天以上三段。
-//! 应付要不要也切细是「应付账龄补分档」（M1-21）那张卡的事，本卡不动 ⇒
-//! 应付报表的列布局与接口契约零变化。
+//! ⚠ 历史：M1-21 之前应付是 5 档（… / 61-90 / 90 天以上），应收（M1-19）是 7 档；
+//! 两张表的前四档本来就逐字相同。M1-21 把应付补齐到与应收同口径（`OVER_90` 不再出现，
+//! 91 天以上拆成 91-180 / 181-365 / 365 天以上），付款账龄与收款账龄此后可比。
+//! 接口契约随之变化：`buckets` / `summary` / `suppliers[].buckets` 由 5 格变 7 格，
+//! 导出 xlsx 由 9 列变 11 列（前端按 `report.buckets` 渲染表头，不写死列数）。
 //!
 //! # 为什么明细在 Rust 侧再算一次分档
 //!
@@ -113,41 +113,7 @@ pub struct BucketSpec {
     pub max_days: Option<i64>,
 }
 
-/// **应付**账龄档位表（5 档；应付报表的列布局就按它渲染）。
-pub const BUCKETS: [BucketSpec; 5] = [
-    BucketSpec {
-        key: "NOT_DUE",
-        label: "未到期",
-        min_days: i64::MIN,
-        max_days: Some(0),
-    },
-    BucketSpec {
-        key: "D0_30",
-        label: "1-30 天",
-        min_days: 1,
-        max_days: Some(30),
-    },
-    BucketSpec {
-        key: "D31_60",
-        label: "31-60 天",
-        min_days: 31,
-        max_days: Some(60),
-    },
-    BucketSpec {
-        key: "D61_90",
-        label: "61-90 天",
-        min_days: 61,
-        max_days: Some(90),
-    },
-    BucketSpec {
-        key: "OVER_90",
-        label: "90 天以上",
-        min_days: 91,
-        max_days: None,
-    },
-];
-
-/// **应收**账龄档位表（7 档 = 未到期 + 30/60/90/180/365 六段，M1-19）。
+/// **账龄档位表 —— 全库唯一一份，应付 / 应收共用**（7 档 = 未到期 + 30/60/90/180/365 六段）。
 ///
 /// | key | 名称 | 逾期天数 |
 /// |-----|------|----------|
@@ -159,9 +125,9 @@ pub const BUCKETS: [BucketSpec; 5] = [
 /// | `D181_365`  | 181-365 天 | 181 – 365 |
 /// | `OVER_365`  | 365 天以上 | ≥ 366 |
 ///
-/// 前四档与应付的 [`BUCKETS`] **逐字相同**（单测钉死前缀相等）；后三档是把应付的
-/// 「90 天以上」按 180/365 再切成三段 —— 长账龄要分层看（一年以上基本等于坏账候选，
-/// 三个月的账龄管理动作完全不同）。
+/// 为什么段切在 180 / 365：长账龄要分层看 —— 三个月内的账龄靠催收，一年以上基本等于坏账候选，
+/// 三段的处置动作（催收 / 催收 + 停止新单 / 计提与法务）完全不同。
+/// 应付与应收**同表**：付款账龄与收款账龄可以直接对着看（M1-21）。
 ///
 /// 边界（单测逐个钉住）：0 → 未到期、1/30 → 1-30、31/60 → 31-60、61/90 → 61-90、
 /// 91/180 → 91-180、181/365 → 181-365、366 → 365 天以上。
@@ -209,6 +175,13 @@ pub const AGING_BUCKETS: [BucketSpec; 7] = [
         max_days: None,
     },
 ];
+
+/// [`AGING_BUCKETS`] 的旧名（应付侧几十处老调用点沿用它，一个字都不用改）。
+///
+/// **与 [`AGING_BUCKETS`] 是同一张表**（`BUCKETS == AGING_BUCKETS`，单测钉死），
+/// 不是第二份阈值。M1-21 之前它是应付专有的 5 档表（末档 `OVER_90`），
+/// 现在与应收同口径 7 档 —— 改档位只改 [`AGING_BUCKETS`] 一处。
+pub const BUCKETS: [BucketSpec; 7] = AGING_BUCKETS;
 
 /// 逾期天数 → 档位键（纯逻辑，按给定档位表）。
 ///
@@ -265,12 +238,12 @@ pub fn empty_bucket_cells(buckets: &[BucketSpec]) -> Vec<AgingBucketAmountRes> {
         .collect()
 }
 
-/// 逾期天数 → 档位键（按**应付**的 [`BUCKETS`]；薄包装，保留给应付老调用点）。
+/// 逾期天数 → 档位键（按 [`AGING_BUCKETS`]；[`BUCKETS`] 是同一张表的别名，因此应付 / 应收同档）。
 pub fn bucket_of(overdue_days: i64) -> &'static str {
     bucket_of_in(&BUCKETS, overdue_days)
 }
 
-/// 由**应付**的 [`BUCKETS`] 生成的 SQL `CASE` 表达式（薄包装）。
+/// 由 [`AGING_BUCKETS`] 生成的 SQL `CASE` 表达式（薄包装，与 [`bucket_of`] 同源）。
 pub fn bucket_case_sql(days_expr: &str) -> String {
     bucket_case_sql_in(&BUCKETS, days_expr)
 }
@@ -893,6 +866,14 @@ pub fn assemble(
          逾期天数 = 基准日 − 到期日，到期当天（0 天）算未到期",
         AGING_STATUSES.join(" / ")
     )];
+    hints.push(format!(
+        "分档：{}（与应收账龄同一张档位表，7 档口径可直接对照）",
+        AGING_BUCKETS
+            .iter()
+            .map(|bucket| bucket.label)
+            .collect::<Vec<_>>()
+            .join(" / ")
+    ));
     hints.push(
         "金额是「当前」未付余额快照：基准日之后发生的付款不会回滚成历史值（本表不做历史余额重算）；\
          单据按「所属会计期间 ≤ 基准日所属期间」纳入"
@@ -1115,7 +1096,7 @@ mod tests {
         parse_date(text).expect("合法日期")
     }
 
-    /// ① 分档边界：0 天算未到期，1/30/31/60/61/90/91 逐格钉住。
+    /// ① 分档边界（7 档，与应收同口径）：0 天算未到期，1/30/31/60/61/90/91/180/181/365/366 逐格钉住。
     #[test]
     fn bucket_boundaries_are_exact() {
         assert_eq!(bucket_of(-120), "NOT_DUE");
@@ -1127,16 +1108,24 @@ mod tests {
         assert_eq!(bucket_of(60), "D31_60");
         assert_eq!(bucket_of(61), "D61_90");
         assert_eq!(bucket_of(90), "D61_90");
-        assert_eq!(bucket_of(91), "OVER_90");
-        assert_eq!(bucket_of(3650), "OVER_90");
+        assert_eq!(bucket_of(91), "D91_180", "M1-21：91 天起进 91-180，不再一锅端");
+        assert_eq!(bucket_of(180), "D91_180");
+        assert_eq!(bucket_of(181), "D181_365");
+        assert_eq!(bucket_of(365), "D181_365");
+        assert_eq!(bucket_of(366), "OVER_365");
+        assert_eq!(bucket_of(3650), "OVER_365");
     }
 
-    /// ①b 应收档位表（30/60/90/180/365，M1-19）：前四档与应付逐字相同，
-    ///     90 天以上在应收被切成 91-180 / 181-365 / 365 天以上三格。
+    /// ①b 应付与应收**共用同一张档位表**（M1-21 起）：`BUCKETS == AGING_BUCKETS`，
+    ///     两边逐天同档，不存在第二份阈值。
     ///
-    /// 这条是「两张表不是各抄一份阈值」的机器化证明：谁动了共同的四档边界，这里立刻红。
+    /// 这条是「一张表、两个使用者」的机器化证明：谁在任何一侧偷偷加一张表 / 改阈值，这里立刻红。
     #[test]
-    fn receivable_buckets_extend_payable_prefix() {
+    fn payable_and_receivable_share_one_bucket_table() {
+        assert_eq!(
+            BUCKETS, AGING_BUCKETS,
+            "应付的 BUCKETS 必须是同一张表（别名，不是副本）"
+        );
         assert_eq!(AGING_BUCKETS.len(), 7, "未到期 + 30/60/90/180/365 六段");
         assert_eq!(
             AGING_BUCKETS.map(|bucket| bucket.key),
@@ -1144,24 +1133,15 @@ mod tests {
                 "NOT_DUE", "D0_30", "D31_60", "D61_90", "D91_180", "D181_365", "OVER_365"
             ]
         );
-        // 前四档：key / label / 上下界必须与应付逐字相同（一次比完整结构，不是逐个字段抄）
-        assert_eq!(
-            &AGING_BUCKETS[..4],
-            &BUCKETS[..4],
-            "应收的前四档必须与应付的 5 档表前四档逐字相同"
-        );
-        // 90 天以上那一段：应付 1 格 → 应收 3 格，区间起点与终点对得上（无缝、无重叠）
-        assert_eq!(AGING_BUCKETS[4].min_days, BUCKETS[4].min_days);
-        assert_eq!(AGING_BUCKETS[6].max_days, BUCKETS[4].max_days);
-        // 逐天：前 90 天两边完全一致（不是「差不多」）
-        for days in -400..=90i64 {
+        // 逐天：-400 ..= 3650 两边完全一致（不是「差不多」）
+        for days in -400..=3650i64 {
             assert_eq!(
                 bucket_of_in(&AGING_BUCKETS, days),
                 bucket_of(days),
                 "第 {days} 天两表必须同档"
             );
         }
-        // 关键边界逐个钉住（180 / 365 两刀）
+        // 关键边界逐个钉住（180 / 365 两刀，应付侧也不例外）
         let expect = [
             (91, "D91_180"),
             (180, "D91_180"),
@@ -1172,18 +1152,19 @@ mod tests {
         ];
         for (days, key) in expect {
             assert_eq!(bucket_of_in(&AGING_BUCKETS, days), key, "应收第 {days} 天");
-            assert_eq!(
-                bucket_of(days),
-                "OVER_90",
-                "应付仍是 5 档（补分档是 M1-21 的事，本卡不动应付契约）"
-            );
+            assert_eq!(bucket_of(days), key, "应付第 {days} 天（M1-21 起与应收同档）");
         }
-        // SQL 侧与 Rust 侧同源
+        // SQL 侧与 Rust 侧同源（应付的薄包装与应收的显式调用逐字相同）
         let sql = bucket_case_sql_in(&AGING_BUCKETS, "d");
+        assert_eq!(
+            bucket_case_sql("d"),
+            sql,
+            "应付的 CASE 必须与应收用同一张表生成（逐字相同）"
+        );
         assert!(sql.contains("WHEN d <= 180 THEN 'D91_180'"), "实际：{sql}");
         assert!(sql.contains("WHEN d <= 365 THEN 'D181_365'"), "实际：{sql}");
         assert!(sql.ends_with("ELSE 'OVER_365' END"), "实际：{sql}");
-        assert!(!sql.contains("OVER_90"), "应收的 CASE 里不该再有 90 天以上这颗兜底档");
+        assert!(!sql.contains("OVER_90"), "7 档口径里不该再有「90 天以上」这颗兜底档");
         // 出参生成器按表宽度给出
         assert_eq!(empty_bucket_cells(&AGING_BUCKETS).len(), 7);
         assert_eq!(bucket_defs(&AGING_BUCKETS).len(), 7);
@@ -1251,7 +1232,7 @@ mod tests {
         assert_eq!(err.status, 400);
     }
 
-    /// ⑤ SQL 分档表达式与常量同源：五个档位键、四道阈值都在。
+    /// ⑤ SQL 分档表达式与常量同源：七个档位键、六道阈值都在（M1-21 起 7 档）。
     #[test]
     fn bucket_case_sql_mirrors_constants() {
         let sql = bucket_case_sql("overdue_days");
@@ -1259,7 +1240,10 @@ mod tests {
         assert!(sql.contains("WHEN overdue_days <= 30 THEN 'D0_30'"));
         assert!(sql.contains("WHEN overdue_days <= 60 THEN 'D31_60'"));
         assert!(sql.contains("WHEN overdue_days <= 90 THEN 'D61_90'"));
-        assert!(sql.ends_with("ELSE 'OVER_90' END"));
+        assert!(sql.contains("WHEN overdue_days <= 180 THEN 'D91_180'"));
+        assert!(sql.contains("WHEN overdue_days <= 365 THEN 'D181_365'"));
+        assert!(sql.ends_with("ELSE 'OVER_365' END"));
+        assert!(!sql.contains("OVER_90"), "7 档口径里不该再有「90 天以上」兜底：{sql}");
     }
 
     /// ⑥ 供应商透视：缺档补 0、合计正确、按未付倒序、最长逾期取 max。
@@ -1280,7 +1264,7 @@ mod tests {
             SupplierBucketRow {
                 supplier_id: beta,
                 supplier_name: "贝塔".to_string(),
-                bucket: "OVER_90".to_string(),
+                bucket: "D91_180".to_string(),
                 doc_count: 1,
                 unpaid: Decimal::new(90000, 2),
                 min_days: 120,
@@ -1318,7 +1302,10 @@ mod tests {
         assert_eq!(amount_of("NOT_DUE"), Decimal::new(10000, 2));
         assert_eq!(amount_of("D31_60"), Decimal::new(30000, 2));
         assert_eq!(amount_of("D0_30"), Decimal::ZERO);
-        assert_eq!(amount_of("OVER_90"), Decimal::ZERO);
+        // M1-21 起 7 档：长账龄三段（91-180 / 181-365 / 365 天以上）都要有格子且缺档补 0
+        assert_eq!(amount_of("D91_180"), Decimal::ZERO);
+        assert_eq!(amount_of("D181_365"), Decimal::ZERO);
+        assert_eq!(amount_of("OVER_365"), Decimal::ZERO);
         // 未逾期的最长逾期按 0（不出现负数）
         assert_eq!(alpha_row.max_overdue_days, 59);
     }
@@ -1340,7 +1327,7 @@ mod tests {
             SupplierBucketRow {
                 supplier_id: alpha,
                 supplier_name: "阿尔法".to_string(),
-                bucket: "OVER_90".to_string(),
+                bucket: "D91_180".to_string(),
                 doc_count: 1,
                 unpaid: Decimal::new(50000, 2),
                 min_days: 100,
@@ -1365,5 +1352,98 @@ mod tests {
         assert_eq!(money_text(Decimal::new(123456789, 4)), "12,345.68");
         assert_eq!(money_text(Decimal::new(500000, 4)), "50.00");
         assert_eq!(money_text(Decimal::ZERO), "0.00");
+    }
+
+    /// ⑨ 导出表：列序 = 页面主表 = **7 档** + 前后各两列（共 11 列）；
+    ///    长账龄三段各占一列，缺档写 `0.00` 而不是空串（M1-21 补分档后 Excel 必须跟着变宽）。
+    #[test]
+    fn export_table_has_seven_bucket_columns() {
+        let alpha = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let suppliers = pivot_suppliers(vec![
+            SupplierBucketRow {
+                supplier_id: alpha,
+                supplier_name: "阿尔法".to_string(),
+                bucket: "D181_365".to_string(),
+                doc_count: 2,
+                unpaid: Decimal::new(123456789, 4),
+                min_days: 200,
+                max_days: 300,
+            },
+            SupplierBucketRow {
+                supplier_id: alpha,
+                supplier_name: "阿尔法".to_string(),
+                bucket: "NOT_DUE".to_string(),
+                doc_count: 1,
+                unpaid: Decimal::new(5000000, 4),
+                min_days: -5,
+                max_days: -5,
+            },
+        ]);
+        let summary = summarise(&suppliers);
+        let report = PayableAgingRes {
+            report_code: REPORT_CODE.to_string(),
+            report_name: REPORT_NAME.to_string(),
+            company_name: "云枢".to_string(),
+            unit: "元".to_string(),
+            as_of: date("2026-11-05"),
+            as_of_source: AS_OF_QUERY.to_string(),
+            period: None,
+            period_name: None,
+            period_status: None,
+            generated_at: Utc::now(),
+            buckets: bucket_defs(&BUCKETS),
+            summary,
+            total_unpaid: Decimal::new(128456789, 4),
+            overdue_unpaid: Decimal::new(123456789, 4),
+            overdue_ratio: Decimal::new(9610, 2),
+            total_amount: Decimal::new(128456789, 4),
+            total_paid: Decimal::ZERO,
+            doc_count: 3,
+            supplier_count: 1,
+            suppliers,
+            details: Vec::new(),
+            detail_count: 3,
+            detail_truncated: false,
+            hints: Vec::new(),
+        };
+        let (headers, rows) = export_table(&report);
+        assert_eq!(
+            headers,
+            vec![
+                "供应商",
+                "单据数",
+                "未到期",
+                "1-30 天",
+                "31-60 天",
+                "61-90 天",
+                "91-180 天",
+                "181-365 天",
+                "365 天以上",
+                "未付合计",
+                "最长逾期天数",
+            ],
+            "列序 = 页面上表；档位列由 BUCKETS 生成"
+        );
+        assert_eq!(headers.len(), BUCKETS.len() + 4);
+        assert_eq!(rows.len(), 2, "一个供应商行 + 合计行");
+        let supplier_row = &rows[0];
+        for header in &headers {
+            assert!(supplier_row.contains_key(*header), "供应商行缺列 {header}");
+        }
+        assert_eq!(supplier_row.get("181-365 天").unwrap(), "12,345.68");
+        assert_eq!(supplier_row.get("91-180 天").unwrap(), "0.00", "缺档补 0.00");
+        assert_eq!(supplier_row.get("365 天以上").unwrap(), "0.00", "缺档补 0.00");
+        assert_eq!(supplier_row.get("未付合计").unwrap(), "12,845.68");
+        assert_eq!(supplier_row.get("最长逾期天数").unwrap(), "300");
+        let total_row = &rows[1];
+        assert_eq!(total_row.get("供应商").unwrap(), "合计");
+        assert_eq!(total_row.get("单据数").unwrap(), "3");
+        for header in &headers {
+            assert!(total_row.contains_key(*header), "合计行缺列 {header}");
+        }
+        assert_eq!(total_row.get("181-365 天").unwrap(), "12,345.68");
+        assert_eq!(total_row.get("91-180 天").unwrap(), "0.00");
+        assert_eq!(total_row.get("365 天以上").unwrap(), "0.00");
+        assert_eq!(total_row.get("未付合计").unwrap(), "12,845.68");
     }
 }

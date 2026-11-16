@@ -1,0 +1,80 @@
+登录成功 base=http://127.0.0.1:8023/api
+PASS  report_code = PAYABLE_AGING
+PASS  as_of = 2026-11-05（QUERY）
+PASS  档位表 = 7 档且顺序固定（M1-21 对齐应收）
+PASS  档位中文名逐字
+PASS  档位上下界（未到期 ≤0 / 1-30 / 31-60 / 61-90 / 91-180 / 181-365 / 365+）
+PASS  不再出现旧 5 档的 OVER_90
+PASS  summary 也是 7 格
+PASS  断言常量与 Python 独立分档一致（自检）
+PASS  档位 NOT_DUE = 1700
+PASS  档位 D0_30 = 1100
+PASS  档位 D31_60 = 1500
+PASS  档位 D61_90 = 2800
+PASS  档位 D91_180 = 2100
+PASS  档位 D181_365 = 2900
+PASS  档位 OVER_365 = 1600
+PASS  未付合计 = 13700
+PASS  逾期合计 = 12000（除未到期）
+PASS  逾期占比 = 87.59
+PASS  单据数 = 13（3 张排除样本不算）
+PASS  供应商数 = 3
+PASS  口径提示里写明 7 档分档
+PASS  明细存在 AP-M121-0001
+PASS  明细存在 AP-M121-0002
+PASS  明细存在 AP-M121-0003
+PASS  明细存在 AP-M121-0004
+PASS  明细存在 AP-M121-0005
+PASS  明细存在 AP-M121-0006
+PASS  明细存在 AP-M121-0007
+PASS  明细存在 AP-M121-0008
+PASS  明细存在 AP-M121-0009
+PASS  明细存在 AP-M121-000a
+PASS  明细存在 AP-M121-000b
+PASS  明细存在 AP-M121-000c
+PASS  明细存在 AP-M121-000d
+PASS  SETTLED 不进表
+PASS  CANCELLED 不进表
+PASS  基准日之后的期间（2026-12）不进表
+PASS  明细未截断（13 条）
+PASS  供应商行数 = 3
+PASS  按未付合计倒序（丙 5600 > 甲 4400 > 乙 3700）
+PASS  供应商存在 丙服务（M121 夹具）
+PASS  供应商存在 甲材料（M121 夹具）
+PASS  供应商存在 乙设备（M121 夹具）
+PASS  汇总 NOT_DUE == 明细按档求和
+PASS  汇总 D0_30 == 明细按档求和
+PASS  汇总 D31_60 == 明细按档求和
+PASS  汇总 D61_90 == 明细按档求和
+PASS  汇总 D91_180 == 明细按档求和
+PASS  汇总 D181_365 == 明细按档求和
+PASS  汇总 OVER_365 == 明细按档求和
+PASS  +1 天后 AP-M121-0002 逾期 1 天
+PASS  +1 天后 AP-M121-0002 落 1-30
+PASS  +1 天后 NOT_DUE = 1200（Python 独立实现对照）
+PASS  +1 天后 D0_30 = 800（Python 独立实现对照）
+PASS  +1 天后 D31_60 = 1200（Python 独立实现对照）
+PASS  +1 天后 D61_90 = 1700（Python 独立实现对照）
+PASS  +1 天后 D91_180 = 3000（Python 独立实现对照）
+PASS  +1 天后 D181_365 = 2700（Python 独立实现对照）
+PASS  +1 天后 OVER_365 = 3100（Python 独立实现对照）
+PASS  +1 天后 未到期 = 1200（只走掉到期当天那张）
+PASS  +1 天后 61-90 = 1700（600 + 跨过 60 天边界进来的 1100）
+PASS  +1 天后 91-180 = 3000（800 + 跨过 90 天边界进来的 2200；180 天那张走到 181-365）
+PASS  2099-12-31 全部落 365 天以上 = 14400
+PASS  2099-12-31 前六档全 0
+PASS  2099-12-31 单据数 = 14（未来期间那张也纳入）
+PASS  导出 HTTP 200
+PASS  导出 Content-Type 是 xlsx
+PASS  导出文件名含期间 + 基准日
+PASS  导出体是 zip（PK 开头，不是 JSON 错误）
+PASS  表头 11 列逐字（7 档 + 供应商/单据数 + 未付合计/最长逾期）
+PASS  行数 = 表头 + 3 供应商 + 合计
+PASS  导出行存在 丙服务（M121 夹具）
+PASS  导出行存在 甲材料（M121 夹具）
+PASS  导出行存在 乙设备（M121 夹具）
+PASS  导出行存在 合计
+PASS  非法 as_of → 400 + 10001
+PASS  导出无 token → 401
+
+全部 PASS
