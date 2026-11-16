@@ -160,6 +160,9 @@ pub const YTD_LABEL: &str = "本年累计";
 pub struct IncomeStatementQuery {
     /// 会计期间（`yyyy-MM`）。
     pub period: Option<String>,
+    /// 报表计价币种（三位大写，**可选**，M1-09）：不传 / 传本位币 = 本位币报表；
+    /// 传外币 = 只按该币种凭证的原币金额出表（见 [`report::fx_report`]）。
+    pub currency: Option<String>,
 }
 
 // ==================== 科目发生额 ====================
@@ -243,10 +246,15 @@ pub struct IncomeLineRes {
     pub level: i16,
     /// 上级编码。
     pub parent_code: Option<String>,
-    /// 本期金额。
+    /// 本期金额（本位币口径 = 本位币；外币口径 = 该币种**原币**）。
     pub current: Decimal,
-    /// 本年累计金额。
+    /// 本年累计金额（同一口径）。
     pub ytd: Decimal,
+    /// 本期折合本位币（M1-09）：仅外币口径有值，`= round(current × currency.rate, 4)`；
+    /// 本位币口径 / 缺牌价为 `null`（绝不按 1 折算）。
+    pub current_base: Option<Decimal>,
+    /// 本年累计折合本位币（同 `current_base` 规则）。
+    pub ytd_base: Option<Decimal>,
     /// 是否小计 / 合计行（公式项）。
     pub is_total: bool,
     /// 取数说明（`'5001,5051'` 或公式原文）。
@@ -336,8 +344,12 @@ pub struct IncomeStatementRes {
     pub generated_at: DateTime<Utc>,
     /// 报表行（按 `sort_order`，含运行时补出来的未归类行）。
     pub items: Vec<IncomeLineRes>,
+    /// 报表附注（口径说明；本位币口径为空）。
+    pub notes: Vec<String>,
     /// 勾稽校验。
     pub check: IncomeCheckRes,
+    /// 报表币种口径（M1-09）：`mode` = `BASE` / `FOREIGN`，带折算汇率与缺牌价标记。
+    pub currency: report::fx_report::ReportCurrencyRes,
 }
 
 // ==================== 纯计算 ====================
@@ -478,6 +490,8 @@ pub fn compute(items: &[ReportItemDef], accounts: &[IncomeAccount]) -> std::resu
             parent_code: item.parent_code.clone(),
             current: current.get(&item.item_code).copied().unwrap_or_default(),
             ytd: ytd.get(&item.item_code).copied().unwrap_or_default(),
+            current_base: None,
+            ytd_base: None,
             is_total,
             detail: item.account_pattern.clone().or_else(|| item.formula.clone()),
             accounts: owned.get(&item.item_code).cloned().unwrap_or_default(),
@@ -494,6 +508,8 @@ pub fn compute(items: &[ReportItemDef], accounts: &[IncomeAccount]) -> std::resu
         parent_code: Some(TOTAL_PROFIT.to_string()),
         current: unmapped_effect_current,
         ytd: unmapped_effect_ytd,
+        current_base: None,
+        ytd_base: None,
         is_total: false,
         detail: Some(
             "按损益类科目差额计算：所有未被利润表任何行匹配的损益类科目（收入为正、费用为负）。\
@@ -707,11 +723,24 @@ pub async fn load_income_accounts(
     period_end: NaiveDate,
     ytd_start: NaiveDate,
 ) -> DbResult<Vec<IncomeAccount>> {
+    load_income_accounts_of(tx, period_start, period_end, ytd_start, None).await
+}
+
+/// [`load_income_accounts`] 的币种口径版（M1-09）：`fx_currency = Some("USD")` 时
+/// 两段窗口都按该币种的**原币**取（复用 [`report::load_accounts_of`]，本模块不另写 SQL）。
+pub async fn load_income_accounts_of(
+    tx: &Transaction,
+    period_start: NaiveDate,
+    period_end: NaiveDate,
+    ytd_start: NaiveDate,
+    fx_currency: Option<&str>,
+) -> DbResult<Vec<IncomeAccount>> {
     // ERP-R5：期初口径必须两边一致（见 report::load_accounts 的文档）——
     // 传报表所属期间，而不是各窗口自己的起算月。
     let opening_period = opening_period_of(period_start);
-    let period_rows = report::load_accounts(tx, period_start, period_end, Some(&opening_period)).await?;
-    let ytd_rows = report::load_accounts(tx, ytd_start, period_end, Some(&opening_period)).await?;
+    let period_rows =
+        report::load_accounts_of(tx, period_start, period_end, Some(&opening_period), fx_currency).await?;
+    let ytd_rows = report::load_accounts_of(tx, ytd_start, period_end, Some(&opening_period), fx_currency).await?;
     let ytd_by_id: HashMap<Uuid, AccountBalance> = ytd_rows.into_iter().map(|row| (row.account_id, row)).collect();
 
     let mut out = Vec::with_capacity(period_rows.len());
@@ -795,6 +824,12 @@ impl IncomeSnapshot {
 /// * 期间不存在 → `Err(DbError::InvalidValue)`，接口层翻成 400 + 66010；
 /// * 报表项配置错（公式引用未知项）→ `Err(DbError::InvalidValue)`，接口层翻成 500 + 66011。
 pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<IncomeSnapshot> {
+    build_snapshot_of(tx, period, None).await
+}
+
+/// [`build_snapshot`] 的币种口径版（M1-09）：`fx_currency = Some("USD")` 时
+/// 本期 / 本年累计两列都按该币种原币取（勾稽右式的「未分配利润」也同口径）。
+pub async fn build_snapshot_of(tx: &Transaction, period: &str, fx_currency: Option<&str>) -> DbResult<IncomeSnapshot> {
     let info = report::resolve_period(tx, period).await?;
     let items = report::load_items_of(tx, REPORT_CODE).await?;
     if items.is_empty() {
@@ -805,12 +840,13 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<IncomeSn
     }
 
     let ytd_start = ytd_start_for(period, info.end_date);
-    let accounts = load_income_accounts(tx, info.start_date, info.end_date, ytd_start).await?;
+    let accounts = load_income_accounts_of(tx, info.start_date, info.end_date, ytd_start, fx_currency).await?;
     let computed = compute(&items, &accounts).map_err(DbError::InvalidValue)?;
     let undistributed_pattern = load_undistributed_pattern(tx).await?;
 
-    let (ledger_debit_total, ledger_credit_total) = report::load_ledger_totals(tx, ytd_start, info.end_date).await?;
-    let unbalanced_vouchers = report::load_unbalanced_vouchers(tx, ytd_start, info.end_date).await?;
+    let (ledger_debit_total, ledger_credit_total) =
+        report::load_ledger_totals_of(tx, ytd_start, info.end_date, fx_currency).await?;
+    let unbalanced_vouchers = report::load_unbalanced_vouchers_of(tx, ytd_start, info.end_date, fx_currency).await?;
 
     Ok(IncomeSnapshot {
         computed,
@@ -869,7 +905,9 @@ pub fn into_response(company_name: &str, unit: &str, snapshot: IncomeSnapshot) -
         ytd_label: YTD_LABEL.to_string(),
         generated_at: Utc::now(),
         items: computed.items,
+        notes: Vec::new(),
         check,
+        currency: report::fx_report::ReportCurrencyRes::unset(),
     }
 }
 
@@ -910,6 +948,14 @@ fn period_error(period: &str, message: String) -> ApiError {
 /// 在 REPEATABLE READ 快照里算报表，并把数据层错误翻成 HTTP 错误。
 /// `pub(crate)`：PDF-07（[`crate::business::erp::report::report_pdf`]）复用同一快照与错误码。
 pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<IncomeSnapshot, ApiError> {
+    snapshot_or_error_of(period, None).await
+}
+
+/// [`snapshot_or_error`] 的币种口径版（M1-09；接口层专供，PDF 导出仍走本位币口径）。
+pub(crate) async fn snapshot_or_error_of(
+    period: &str,
+    fx_currency: Option<&str>,
+) -> std::result::Result<IncomeSnapshot, ApiError> {
     let tx = db()
         .begin()
         .await
@@ -920,7 +966,7 @@ pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<Incom
         let _ = tx.rollback().await;
         return Err(utils::db_error(error, "设置利润表事务隔离级别"));
     }
-    match build_snapshot(&tx, period).await {
+    match build_snapshot_of(&tx, period, fx_currency).await {
         Ok(snapshot) => {
             if let Err(error) = tx.commit().await {
                 return Err(utils::db_error(error, "提交利润表快照事务"));
@@ -961,9 +1007,13 @@ pub(crate) async fn company_name() -> String {
 #[nik::get("/business/erp/report/income-statement")]
 pub async fn income_statement_handler(Query(query): Query<IncomeStatementQuery>) -> ResResult<IncomeStatementRes> {
     let period = validate_period(query.period.as_deref())?;
-    let snapshot = snapshot_or_error(&period).await?;
+    let basis = report::fx_report::resolve(query.currency.as_deref()).await?;
+    let snapshot = snapshot_or_error_of(&period, basis.fx_currency()).await?;
+    let block = report::fx_report::describe(&basis, snapshot.period.start_date, snapshot.period.end_date).await?;
     let company = company_name().await;
-    Ok(Res::ok(into_response(&company, "元", snapshot)))
+    let mut statement = into_response(&company, "元", snapshot);
+    report::fx_report::apply_to_income(&mut statement, block);
+    Ok(Res::ok(statement))
 }
 
 /// 利润表导出（xlsx，复用 impexp 的表格写出能力，与资产负债表同一套写法）。
@@ -977,16 +1027,24 @@ pub async fn income_statement_export_handler(
     Query(query): Query<IncomeStatementQuery>,
 ) -> std::result::Result<Response, ApiError> {
     let period = validate_period(query.period.as_deref())?;
-    let snapshot = snapshot_or_error(&period).await?;
+    let basis = report::fx_report::resolve(query.currency.as_deref()).await?;
+    let snapshot = snapshot_or_error_of(&period, basis.fx_currency()).await?;
+    let block = report::fx_report::describe(&basis, snapshot.period.start_date, snapshot.period.end_date).await?;
     let company = company_name().await;
-    let report = into_response(&company, "元", snapshot);
+    let mut report = into_response(&company, "元", snapshot);
+    report::fx_report::apply_to_income(&mut report, block);
     let (headers, rows) = export_table(&report);
     let bytes = crate::business::impexp::engine::write_sheet(&headers, &rows)?;
     Ok(crate::business::impexp::handler::xlsx_response(
         bytes,
         &format!(
-            "{REPORT_NAME}_{}_{}.xlsx",
+            "{REPORT_NAME}_{}_{}{}.xlsx",
             report.period,
+            if report.currency.mode == report::fx_report::MODE_FOREIGN {
+                format!("_{}", report.currency.currency)
+            } else {
+                String::new()
+            },
             Local::now().format("%Y%m%d%H%M%S")
         ),
     ))
@@ -995,6 +1053,13 @@ pub async fn income_statement_export_handler(
 /// 把报表拍成「项目 / 本期金额 / 本年累计」三列的表格行。
 pub fn export_table(report: &IncomeStatementRes) -> (Vec<&'static str>, Vec<HashMap<String, String>>) {
     const HEADERS: [&str; 3] = ["项目", "本期金额", "本年累计"];
+    // 外币口径（M1-09）多两列折合本位币（导出件脱离页面也要能分清原币 / 折合）。
+    let foreign = report.currency.mode == report::fx_report::MODE_FOREIGN;
+    let mut headers: Vec<&'static str> = HEADERS.to_vec();
+    if foreign {
+        headers.push("本期折合");
+        headers.push("累计折合");
+    }
     let mut rows: Vec<HashMap<String, String>> = Vec::new();
 
     // 表头信息（编制单位 / 期间 / 单位 / 累计起点）也进表格，导出的文件脱离页面也能看懂。
@@ -1008,6 +1073,18 @@ pub fn export_table(report: &IncomeStatementRes) -> (Vec<&'static str>, Vec<Hash
         "本年累计".to_string(),
         format!("单位：{}；本年累计从 {} 起算", report.unit, report.ytd_start),
     );
+    if foreign {
+        info.insert(
+            "本期折合".to_string(),
+            match (report.currency.rate, report.currency.rate_date) {
+                (Some(rate), Some(date)) => format!(
+                    "折算：1 {} = {} {}（{date}）",
+                    report.currency.currency, rate, report.currency.base_currency
+                ),
+                _ => "折算：缺期末牌价（折合列留空）".to_string(),
+            },
+        );
+    }
     rows.push(info);
 
     let indent = |level: i16| "    ".repeat(usize::try_from(level.saturating_sub(1)).unwrap_or(0));
@@ -1016,6 +1093,10 @@ pub fn export_table(report: &IncomeStatementRes) -> (Vec<&'static str>, Vec<Hash
         row.insert("项目".to_string(), format!("{}{}", indent(line.level), line.item_name));
         row.insert("本期金额".to_string(), report::money_text(Some(line.current)));
         row.insert("本年累计".to_string(), report::money_text(Some(line.ytd)));
+        if foreign {
+            row.insert("本期折合".to_string(), report::money_text(line.current_base));
+            row.insert("累计折合".to_string(), report::money_text(line.ytd_base));
+        }
         rows.push(row);
     }
 

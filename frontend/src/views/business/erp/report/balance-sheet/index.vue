@@ -13,6 +13,16 @@
           data-testid="bs-period-select"
           @change="handlePeriodChange"
         />
+        <span class="tool-row__label">币种</span>
+        <t-select
+          v-model="currency"
+          class="tool-row__currency"
+          :options="currencyOptions"
+          filterable
+          placeholder="本位币"
+          data-testid="bs-currency-select"
+          @change="handlePeriodChange"
+        />
         <t-button theme="primary" :loading="loading" data-testid="bs-search" @click="load()">查询</t-button>
         <t-button variant="outline" :disabled="!sheet" data-testid="bs-export" @click="handleExport">
           <template #icon><t-icon name="download" /></template>
@@ -20,11 +30,16 @@
         </t-button>
         <DocPdfButton
           size="medium"
-          :disabled="!sheet"
+          :disabled="!sheet || isForeign"
           :path="`/api/business/erp/report/balance-sheet/pdf?period=${encodeURIComponent(sheet?.period ?? '')}`"
           :filename="`资产负债表_${sheet?.period ?? ''}.pdf`"
           testid="bs-export-pdf"
         />
+        <!-- PDF 版式（PDF-07）只做本位币口径 ⇒ 外币口径下必须禁掉，否则导出的 PDF 数字
+             与页面上的原币数字长得一样却含义不同（最容易被当成同一张表）。 -->
+        <span v-if="isForeign" class="tool-row__hint" data-testid="bs-pdf-currency-hint">
+          PDF 仅支持本位币口径（页面 / Excel 支持币种切换）
+        </span>
         <span v-if="periodHint" class="tool-row__hint" data-testid="bs-period-hint">{{ periodHint }}</span>
       </div>
 
@@ -41,6 +56,9 @@
           <span data-testid="bs-company">编制单位：{{ sheet.company_name }}</span>
           <span data-testid="bs-period-name">期间：{{ sheet.period_name }}（{{ periodStatusText(sheet.period_status) }}）</span>
           <span>单位：{{ sheet.unit }}</span>
+          <span v-if="sheet.currency" data-testid="bs-currency-text">
+            币种口径：{{ currencyModeText }}
+          </span>
           <span data-testid="bs-generated-at">编制时间：{{ formatDateTime(sheet.generated_at) }}</span>
           <span v-if="sheet.previous_period" data-testid="bs-previous-period">上期：{{ sheet.previous_period }}</span>
         </div>
@@ -55,9 +73,11 @@
                 <th class="bs-table__item">资产</th>
                 <th class="bs-table__num">期末余额</th>
                 <th class="bs-table__num bs-table__num--prev">上期余额</th>
+                <th v-if="isForeign" class="bs-table__num">折合{{ baseCurrency }}</th>
                 <th class="bs-table__item bs-table__item--right">负债和所有者权益</th>
                 <th class="bs-table__num">期末余额</th>
                 <th class="bs-table__num bs-table__num--prev">上期余额</th>
+                <th v-if="isForeign" class="bs-table__num">折合{{ baseCurrency }}</th>
               </tr>
             </thead>
             <tbody>
@@ -77,6 +97,13 @@
                   {{ row.left ? formatAmount(row.left.amount) : '' }}
                 </td>
                 <td class="bs-table__num bs-table__num--prev">{{ row.left ? formatAmount(row.left.previous_amount) : '' }}</td>
+                <td
+                  v-if="isForeign"
+                  class="bs-table__num"
+                  :data-testid="row.left ? `bs-converted-${row.left.item_code}` : undefined"
+                >
+                  {{ row.left ? formatAmount(row.left.converted_amount) : '' }}
+                </td>
 
                 <!-- 右：负债和所有者权益 -->
                 <td :class="itemCellClass(row.right, true)">
@@ -88,6 +115,7 @@
                   {{ row.right ? formatAmount(row.right.amount) : '' }}
                 </td>
                 <td class="bs-table__num bs-table__num--prev">{{ row.right ? formatAmount(row.right.previous_amount) : '' }}</td>
+                <td v-if="isForeign" class="bs-table__num">{{ row.right ? formatAmount(row.right.converted_amount) : '' }}</td>
               </tr>
             </tbody>
           </table>
@@ -126,6 +154,11 @@
       <div v-if="!sheet && !loading && !error" class="bs-empty">
         选择期间后点「查询」编制资产负债表
       </div>
+
+      <!-- ==================== 口径附注（外币口径才有） ==================== -->
+      <ul v-if="sheet && sheet.notes && sheet.notes.length" class="bs-notes" data-testid="bs-notes">
+        <li v-for="(note, index) in sheet.notes" :key="index">{{ note }}</li>
+      </ul>
     </t-card>
   </div>
 </template>
@@ -162,6 +195,14 @@ import {
   type BalanceSheet as BalanceSheetData,
   type ReportLine,
 } from '@/api/business/erp';
+import { fetchCurrencyOptions, type CurrencyOption } from '@/api/business/erp/currency';
+import {
+  baseCurrencyLabel,
+  buildCurrencyOptions,
+  currencyModeText as modeTextOf,
+  exportCurrencySuffix,
+  isForeignMode,
+} from '@/views/business/erp/report/currency-basis-logic';
 import { saveBlob } from '@/utils/download';
 import DocPdfButton from '@/components/DocPdfButton.vue';
 
@@ -180,6 +221,22 @@ const periodHint = ref('');
 const loading = ref(false);
 const error = ref('');
 const sheet = ref<BalanceSheetData | null>(null);
+
+/**
+ * 报表币种（M1-09）：`''` = 本位币口径（不传 `currency`，与改动前逐字一致）；
+ * 选了外币 ⇒ 后端只按该币种凭证的**原币**出表，并多一列折合本位币。
+ */
+const currency = ref('');
+const currencyOptions = ref<{ label: string; value: string }[]>([{ label: '本位币', value: '' }]);
+
+/** 当前是不是外币口径（决定要不要显示「折合本位币」列） */
+const isForeign = computed(() => isForeignMode(sheet.value?.currency));
+
+/** 折合列表头里的本位币码（拿不到时退回「本位币」） */
+const baseCurrency = computed(() => baseCurrencyLabel(sheet.value?.currency));
+
+/** 页头「币种口径」文案：本位币 / 外币 + 折算汇率 / 缺牌价 */
+const currencyModeText = computed(() => modeTextOf(sheet.value?.currency));
 
 /** 负债 + 权益 拼成右侧一栏（与纸面报表的右半张一致） */
 const rightLines = computed<ReportLine[]>(() => {
@@ -325,7 +382,7 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    sheet.value = await fetchBalanceSheet(period.value);
+    sheet.value = await fetchBalanceSheet(period.value, currency.value || undefined);
   } catch (err) {
     // 后端 400/500 的 msg 已经是人话（含「差多少」「哪张凭证」），直接用
     sheet.value = null;
@@ -335,16 +392,26 @@ async function load() {
   }
 }
 
-/** 期间切换后自动重算（卡面要求：切换期间后自动重算） */
+/** 期间 / 币种切换后自动重算（卡面要求：切换后自动重算） */
 function handlePeriodChange() {
   void load();
+}
+
+/** 币种下拉：本位币 + 全部启用的外币（`is_base` 的那条不重复列） */
+async function loadCurrencies() {
+  try {
+    const list = await fetchCurrencyOptions();
+    currencyOptions.value = buildCurrencyOptions(list as CurrencyOption[]);
+  } catch {
+    // 币种列表拉不到只影响切换体验，不挡本位币报表
+  }
 }
 
 async function handleExport() {
   if (!sheet.value) return;
   try {
-    const blob = await exportBalanceSheet(sheet.value.period);
-    saveBlob(blob, `资产负债表_${sheet.value.period}.xlsx`);
+    const blob = await exportBalanceSheet(sheet.value.period, currency.value || undefined);
+    saveBlob(blob, `资产负债表_${sheet.value.period}${exportCurrencySuffix(currency.value)}.xlsx`);
     MessagePlugin.success('已导出');
   } catch (err) {
     MessagePlugin.error(`导出失败：${(err as Error).message ?? err}`);
@@ -354,6 +421,7 @@ async function handleExport() {
 /** 导出 PDF（PDF-07 后端版式；PDF-08 起统一走 DocPdfButton：loading + 403 提示 + 后端中文名） */
 
 onMounted(async () => {
+  await loadCurrencies();
   await loadPeriods();
   if (period.value) {
     await load();
@@ -511,5 +579,13 @@ onMounted(async () => {
   padding: 40px 0;
   text-align: center;
   color: var(--td-text-color-placeholder);
+}
+
+.bs-notes {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--td-text-color-secondary);
 }
 </style>

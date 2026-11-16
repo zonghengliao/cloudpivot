@@ -123,6 +123,7 @@ use cloudpivot_kernel::utils;
 // ==================== 子模块（P2-22：`erp/report_*.rs` 拆入 `erp/report/`） ====================
 // 本文件是报表域的 **facade**（拆目录前叫 `erp/report.rs`），对外路径 `erp::report::*` 一字未变；
 // 下面 3 个 `report_*` 与本文件同目录，路径为 `erp::report::report_*`。
+pub mod fx_report;
 pub mod report_item_admin;
 pub mod report_item_model;
 /// 财务报表 PDF 导出（PDF-07）：资产负债表 / 利润表 / 现金流量表。
@@ -187,6 +188,9 @@ pub fn category_side(category: &str) -> Option<&'static str> {
 pub struct BalanceSheetQuery {
     /// 会计期间（`yyyy-MM`）。
     pub period: Option<String>,
+    /// 报表计价币种（三位大写，**可选**，M1-09）：不传 / 传本位币 = 本位币报表；
+    /// 传外币 = 只按该币种凭证的原币金额出表（见 [`fx_report`]）。
+    pub currency: Option<String>,
 }
 
 // ==================== 科目余额 ====================
@@ -315,8 +319,13 @@ pub struct ReportLineRes {
     pub parent_code: Option<String>,
     /// 金额（标题行为 `null`）。
     pub amount: Option<Decimal>,
+    /// 折合本位币金额（M1-09）：**仅外币口径**（`currency.mode = "FOREIGN"`）有值，
+    /// `= round(amount × currency.rate, 4)`；缺牌价或本位币口径为 `null`（绝不按 1 折算）。
+    pub converted_amount: Option<Decimal>,
     /// 上期金额（无上期期间时为 `null`）。
     pub previous_amount: Option<Decimal>,
+    /// 上期折合本位币金额（同 `converted_amount` 的规则）。
+    pub previous_converted_amount: Option<Decimal>,
     /// 是否减项（累计折旧 / 累计摊销）。
     pub is_deduction: bool,
     /// 是否小计 / 合计行（公式项）。
@@ -421,6 +430,8 @@ pub struct BalanceSheetRes {
     pub notes: Vec<String>,
     /// 勾稽校验。
     pub check: BalanceCheckRes,
+    /// 报表币种口径（M1-09）：`mode` = `BASE` / `FOREIGN`，带折算汇率与缺牌价标记。
+    pub currency: fx_report::ReportCurrencyRes,
 }
 
 // ==================== 期间解析 ====================
@@ -564,7 +575,9 @@ fn unmapped_line(side: &str, amount: Decimal) -> ReportLineRes {
         level: 2,
         parent_code: None,
         amount: Some(amount),
+        converted_amount: None,
         previous_amount: None,
+        previous_converted_amount: None,
         is_deduction: false,
         is_total: false,
         detail: Some("按科目类别差额计算：该侧类别净额 − 已映射报表项合计".to_string()),
@@ -756,7 +769,9 @@ pub fn compute(items: &[ReportItemDef], accounts: &[AccountBalance]) -> std::res
                 level: item.item_level,
                 parent_code: item.parent_code.clone(),
                 amount: None,
+                converted_amount: None,
                 previous_amount: None,
+                previous_converted_amount: None,
                 is_deduction: item.is_deduction,
                 is_total: false,
                 detail: None,
@@ -771,7 +786,9 @@ pub fn compute(items: &[ReportItemDef], accounts: &[AccountBalance]) -> std::res
             level: item.item_level,
             parent_code: item.parent_code.clone(),
             amount: Some(amounts.get(&item.item_code).copied().unwrap_or_default()),
+            converted_amount: None,
             previous_amount: None,
+            previous_converted_amount: None,
             is_deduction: item.is_deduction,
             is_total: item.formula.is_some(),
             detail: match reclass_moved.get(&item.item_code) {
@@ -999,7 +1016,38 @@ pub async fn load_accounts(
     end: NaiveDate,
     opening_period: Option<&str>,
 ) -> DbResult<Vec<AccountBalance>> {
+    load_accounts_of(tx, start, end, opening_period, None).await
+}
+
+/// [`load_accounts`] 的币种口径版（M1-09）：`fx_currency = Some("USD")` 时
+/// 只取「凭证币种 = USD」的分录，金额取**原币**（`COALESCE(fc_*, 本位币)`）。
+///
+/// 与 `None`（本位币）分支的差异只有两处，其余 WHERE / 期初识别 / 年末结转排除**逐字相同**
+/// —— 两套口径的差异必须只有「币种过滤 + 金额列」这一件事，否则
+/// 「外币余额表 closing_fc ≡ 外币口径资产负债表某科目期末」这条对拍会假红：
+///
+/// | | 币种过滤 | 金额 |
+/// |---|---|---|
+/// | `None` | 无 | `debit_amount − credit_amount` |
+/// | `Some("USD")` | `v.currency_code = 'USD'` | `COALESCE(fc_debit_amount, debit_amount) − COALESCE(fc_credit_amount, credit_amount)` |
+///
+/// 期初凭证 / 年末结转的排除**不按币种特判**：期初凭证本身是本源币凭证，外币口径下
+/// 天然被 `currency_code` 条件挡掉；若有人真按外币录了期初凭证，它也应该是「该币种的期初」。
+pub async fn load_accounts_of(
+    tx: &Transaction,
+    start: NaiveDate,
+    end: NaiveDate,
+    opening_period: Option<&str>,
+    fx_currency: Option<&str>,
+) -> DbResult<Vec<AccountBalance>> {
     let opening_period = opening_period.unwrap_or_default();
+    let (net_expr, currency_filter) = match fx_currency {
+        None => ("e.debit_amount - e.credit_amount", ""),
+        Some(_) => (
+            "COALESCE(e.fc_debit_amount, e.debit_amount) - COALESCE(e.fc_credit_amount, e.credit_amount)",
+            " AND v.currency_code = ?",
+        ),
+    };
     let sql = format!(
         "SELECT a.id, a.account_code, a.account_name, a.account_category, a.balance_direction, \
                 a.is_leaf, a.level, \
@@ -1007,9 +1055,9 @@ pub async fn load_accounts(
                 COALESCE(p.amount, 0) AS net_period \
            FROM {ACCOUNT_TABLE} a \
            LEFT JOIN ( \
-                SELECT e.account_id, SUM(e.debit_amount - e.credit_amount) AS amount \
+                SELECT e.account_id, SUM({net_expr}) AS amount \
                   FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
-                 WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
+                 WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL{currency_filter} \
                    AND (v.voucher_date < ? \
                         OR (v.voucher_type = 'OPENING' \
                             AND (v.voucher_date BETWEEN ? AND ? \
@@ -1017,9 +1065,9 @@ pub async fn load_accounts(
                  GROUP BY e.account_id \
            ) o ON o.account_id = a.id \
            LEFT JOIN ( \
-                SELECT e.account_id, SUM(e.debit_amount - e.credit_amount) AS amount \
+                SELECT e.account_id, SUM({net_expr}) AS amount \
                   FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
-                 WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
+                 WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL{currency_filter} \
                    AND v.voucher_type NOT IN ('OPENING', 'YEAR_END') \
                    AND v.voucher_date >= ? AND v.voucher_date <= ? \
                  GROUP BY e.account_id \
@@ -1027,19 +1075,21 @@ pub async fn load_accounts(
           WHERE a.deleted_at IS NULL \
           ORDER BY a.account_code"
     );
-    let rows = tx
-        .find_with_params(
-            &sql,
-            vec![
-                Value::from(start),
-                Value::from(start),
-                Value::from(end),
-                Value::Text(opening_period.to_string()),
-                Value::from(start),
-                Value::from(end),
-            ],
-        )
-        .await?;
+    let mut params: Vec<Value> = Vec::with_capacity(8);
+    if let Some(code) = fx_currency {
+        params.push(Value::Text(code.to_string()));
+    }
+    params.extend([
+        Value::from(start),
+        Value::from(start),
+        Value::from(end),
+        Value::Text(opening_period.to_string()),
+    ]);
+    if let Some(code) = fx_currency {
+        params.push(Value::Text(code.to_string()));
+    }
+    params.extend([Value::from(start), Value::from(end)]);
+    let rows = tx.find_with_params(&sql, params).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         out.push(AccountBalance {
@@ -1094,17 +1144,37 @@ pub async fn load_items_of(tx: &Transaction, report_code: &str) -> DbResult<Vec<
 
 /// 窗口内分录的借贷合计（诊断用）。
 pub async fn load_ledger_totals(tx: &Transaction, start: NaiveDate, end: NaiveDate) -> DbResult<(Decimal, Decimal)> {
+    load_ledger_totals_of(tx, start, end, None).await
+}
+
+/// [`load_ledger_totals`] 的币种口径版（M1-09）：外币口径下合计的是**原币**金额，
+/// 且只算该币种凭证（否则「分录借贷合计」会把本位币分录混进来，与报表口径对不上）。
+pub async fn load_ledger_totals_of(
+    tx: &Transaction,
+    start: NaiveDate,
+    end: NaiveDate,
+    fx_currency: Option<&str>,
+) -> DbResult<(Decimal, Decimal)> {
+    let (debit_expr, credit_expr, currency_filter) = match fx_currency {
+        None => ("e.debit_amount", "e.credit_amount", ""),
+        Some(_) => (
+            "COALESCE(e.fc_debit_amount, e.debit_amount)",
+            "COALESCE(e.fc_credit_amount, e.credit_amount)",
+            " AND v.currency_code = ?",
+        ),
+    };
     let sql = format!(
-        "SELECT COALESCE(SUM(e.debit_amount), 0) AS debit, COALESCE(SUM(e.credit_amount), 0) AS credit \
+        "SELECT COALESCE(SUM({debit_expr}), 0) AS debit, COALESCE(SUM({credit_expr}), 0) AS credit \
            FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
-          WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
+          WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL{currency_filter} \
             AND v.voucher_date >= ? AND v.voucher_date <= ?"
     );
-    let row = tx
-        .find_with_params(&sql, vec![Value::from(start), Value::from(end)])
-        .await?
-        .into_iter()
-        .next();
+    let mut params: Vec<Value> = Vec::with_capacity(3);
+    if let Some(code) = fx_currency {
+        params.push(Value::Text(code.to_string()));
+    }
+    params.extend([Value::from(start), Value::from(end)]);
+    let row = tx.find_with_params(&sql, params).await?.into_iter().next();
     match row {
         Some(row) => Ok((row.get_typed("debit")?, row.get_typed("credit")?)),
         None => Ok((Decimal::ZERO, Decimal::ZERO)),
@@ -1112,29 +1182,61 @@ pub async fn load_ledger_totals(tx: &Transaction, start: NaiveDate, end: NaiveDa
 }
 
 /// 分录合计 ≠ 单头合计的凭证（不平的直接证据，最多 20 条）。
+///
+/// 外币口径（M1-09）判的不是「分录 vs 单头」——单头的 `total_debit/credit` 是**本位币**，
+/// 拿它和原币分录比必然条条报红。外币口径下判的是「该币种分录的原币借 = 原币贷」，
+/// 这才是同一把尺子（M1-04：外币凭证按单一汇率锁定，原币与本位币应同时平衡）。
 pub async fn load_unbalanced_vouchers(
     tx: &Transaction,
     start: NaiveDate,
     end: NaiveDate,
 ) -> DbResult<Vec<UnbalancedVoucherRes>> {
+    load_unbalanced_vouchers_of(tx, start, end, None).await
+}
+
+/// [`load_unbalanced_vouchers`] 的币种口径版（M1-09）。
+pub async fn load_unbalanced_vouchers_of(
+    tx: &Transaction,
+    start: NaiveDate,
+    end: NaiveDate,
+    fx_currency: Option<&str>,
+) -> DbResult<Vec<UnbalancedVoucherRes>> {
+    let (debit_expr, credit_expr, currency_filter, having) = match fx_currency {
+        None => (
+            "e.debit_amount",
+            "e.credit_amount",
+            "",
+            "HAVING COALESCE(SUM(e.debit_amount), 0) <> v.total_debit \
+                 OR COALESCE(SUM(e.credit_amount), 0) <> v.total_credit \
+                 OR COALESCE(SUM(e.debit_amount), 0) <> COALESCE(SUM(e.credit_amount), 0)",
+        ),
+        Some(_) => (
+            "COALESCE(e.fc_debit_amount, e.debit_amount)",
+            "COALESCE(e.fc_credit_amount, e.credit_amount)",
+            " AND v.currency_code = ?",
+            "HAVING COALESCE(SUM(COALESCE(e.fc_debit_amount, e.debit_amount)), 0) \
+                 <> COALESCE(SUM(COALESCE(e.fc_credit_amount, e.credit_amount)), 0)",
+        ),
+    };
     let sql = format!(
         "SELECT v.voucher_no, v.voucher_date, v.total_debit AS header_debit, \
                 v.total_credit AS header_credit, \
-                COALESCE(SUM(e.debit_amount), 0) AS entry_debit, \
-                COALESCE(SUM(e.credit_amount), 0) AS entry_credit \
+                COALESCE(SUM({debit_expr}), 0) AS entry_debit, \
+                COALESCE(SUM({credit_expr}), 0) AS entry_credit \
            FROM {VOUCHER_TABLE} v LEFT JOIN {ENTRY_TABLE} e ON e.voucher_id = v.id \
-          WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
+          WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL{currency_filter} \
             AND v.voucher_date >= ? AND v.voucher_date <= ? \
           GROUP BY v.id, v.voucher_no, v.voucher_date, v.total_debit, v.total_credit \
-         HAVING COALESCE(SUM(e.debit_amount), 0) <> v.total_debit \
-             OR COALESCE(SUM(e.credit_amount), 0) <> v.total_credit \
-             OR COALESCE(SUM(e.debit_amount), 0) <> COALESCE(SUM(e.credit_amount), 0) \
+         {having} \
           ORDER BY v.voucher_date, v.voucher_no \
           LIMIT 20"
     );
-    let rows = tx
-        .find_with_params(&sql, vec![Value::from(start), Value::from(end)])
-        .await?;
+    let mut params: Vec<Value> = Vec::with_capacity(3);
+    if let Some(code) = fx_currency {
+        params.push(Value::Text(code.to_string()));
+    }
+    params.extend([Value::from(start), Value::from(end)]);
+    let rows = tx.find_with_params(&sql, params).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         out.push(UnbalancedVoucherRes {
@@ -1197,6 +1299,19 @@ pub async fn load_opening_totals(tx: &Transaction, period: &str) -> DbResult<(De
 /// * 期间不存在 → `Err(DbError::InvalidValue)`，接口层翻成 400 + 66010；
 /// * 报表项配置错（公式引用未知项）→ `Err(DbError::InvalidValue)`，接口层翻成 500。
 pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<SheetSnapshot> {
+    build_snapshot_of(tx, period, None).await
+}
+
+/// [`build_snapshot`] 的币种口径版（M1-09）：`fx_currency = Some("USD")` 时
+/// 报表数字全部按该币种原币取（见 [`load_accounts_of`]）。
+///
+/// # 异常情况
+///
+/// * 期间不存在 → `Err(DbError::InvalidValue)`，接口层翻成 400 + 66010；
+/// * 报表项配置错（公式引用未知项）→ `Err(DbError::InvalidValue)`，接口层翻成 500；
+/// * 期初不平衡 → `Err(DbError::InvalidValue)`（**两种币种口径都拦**：账套歪了，
+///   哪个币种出表都不可信 —— 见模块文档）。
+pub async fn build_snapshot_of(tx: &Transaction, period: &str, fx_currency: Option<&str>) -> DbResult<SheetSnapshot> {
     let info = resolve_period(tx, period).await?;
     let items = load_items(tx).await?;
     if items.is_empty() {
@@ -1218,10 +1333,11 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<SheetSna
         )));
     }
 
-    let accounts = load_accounts(tx, info.start_date, info.end_date, Some(period)).await?;
+    let accounts = load_accounts_of(tx, info.start_date, info.end_date, Some(period), fx_currency).await?;
     let sheet = compute(&items, &accounts).map_err(DbError::InvalidValue)?;
-    let (ledger_debit_total, ledger_credit_total) = load_ledger_totals(tx, info.start_date, info.end_date).await?;
-    let unbalanced_vouchers = load_unbalanced_vouchers(tx, info.start_date, info.end_date).await?;
+    let (ledger_debit_total, ledger_credit_total) =
+        load_ledger_totals_of(tx, info.start_date, info.end_date, fx_currency).await?;
+    let unbalanced_vouchers = load_unbalanced_vouchers_of(tx, info.start_date, info.end_date, fx_currency).await?;
 
     // 上期对比：只有**建过期间行**的上期才出对比（报表不替用户"推导"一个不存在的报告期）
     let previous_code = previous_period_of(period);
@@ -1230,11 +1346,12 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<SheetSna
     if let Some(code) = previous_code.as_deref()
         && let Some(previous_info) = load_period(tx, code).await?
     {
-        let previous_accounts = load_accounts(
+        let previous_accounts = load_accounts_of(
             tx,
             previous_info.start_date,
             previous_info.end_date,
             Some(&previous_info.period_code),
+            fx_currency,
         )
         .await?;
         previous_sheet = Some(compute(&items, &previous_accounts).map_err(DbError::InvalidValue)?);
@@ -1440,6 +1557,7 @@ pub fn into_response(
         reclass: sheet.reclass,
         notes,
         check,
+        currency: fx_report::ReportCurrencyRes::unset(),
     }
 }
 
@@ -1471,6 +1589,14 @@ pub(crate) fn validate_period(raw: Option<&str>) -> std::result::Result<String, 
 ///
 /// `pub(crate)`：PDF-07 复用（报表 PDF 与页面必须同一快照口径、同一错误码）。
 pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<SheetSnapshot, ApiError> {
+    snapshot_or_error_of(period, None).await
+}
+
+/// [`snapshot_or_error`] 的币种口径版（M1-09；接口层专供，PDF 导出仍走本位币口径）。
+pub(crate) async fn snapshot_or_error_of(
+    period: &str,
+    fx_currency: Option<&str>,
+) -> std::result::Result<SheetSnapshot, ApiError> {
     let tx = db()
         .begin()
         .await
@@ -1481,7 +1607,7 @@ pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<Sheet
         let _ = tx.rollback().await;
         return Err(utils::db_error(error, "设置报表事务隔离级别"));
     }
-    match build_snapshot(&tx, period).await {
+    match build_snapshot_of(&tx, period, fx_currency).await {
         Ok(snapshot) => {
             if let Err(error) = tx.commit().await {
                 return Err(utils::db_error(error, "提交资产负债表快照事务"));
@@ -1549,15 +1675,13 @@ pub(crate) async fn company_name() -> String {
 #[nik::get("/business/erp/report/balance-sheet")]
 pub async fn balance_sheet_handler(Query(query): Query<BalanceSheetQuery>) -> ResResult<BalanceSheetRes> {
     let period = validate_period(query.period.as_deref())?;
-    let snapshot = snapshot_or_error(&period).await?;
+    let basis = fx_report::resolve(query.currency.as_deref()).await?;
+    let snapshot = snapshot_or_error_of(&period, basis.fx_currency()).await?;
+    let block = fx_report::describe(&basis, snapshot.period.start_date, snapshot.period.end_date).await?;
     let company = company_name().await;
-    Ok(Res::ok(into_response(
-        REPORT_CODE,
-        REPORT_NAME,
-        &company,
-        "元",
-        snapshot,
-    )))
+    let mut report = into_response(REPORT_CODE, REPORT_NAME, &company, "元", snapshot);
+    fx_report::apply_to_balance_sheet(&mut report, block);
+    Ok(Res::ok(report))
 }
 
 /// 资产负债表导出（xlsx，复用 impexp 的表格写出能力）。
@@ -1576,16 +1700,24 @@ pub async fn balance_sheet_export_handler(
     Query(query): Query<BalanceSheetQuery>,
 ) -> std::result::Result<Response, ApiError> {
     let period = validate_period(query.period.as_deref())?;
-    let snapshot = snapshot_or_error(&period).await?;
+    let basis = fx_report::resolve(query.currency.as_deref()).await?;
+    let snapshot = snapshot_or_error_of(&period, basis.fx_currency()).await?;
+    let block = fx_report::describe(&basis, snapshot.period.start_date, snapshot.period.end_date).await?;
     let company = company_name().await;
-    let report = into_response(REPORT_CODE, REPORT_NAME, &company, "元", snapshot);
+    let mut report = into_response(REPORT_CODE, REPORT_NAME, &company, "元", snapshot);
+    fx_report::apply_to_balance_sheet(&mut report, block);
     let (headers, rows) = export_table(&report);
     let bytes = crate::business::impexp::engine::write_sheet(&headers, &rows)?;
     Ok(crate::business::impexp::handler::xlsx_response(
         bytes,
         &format!(
-            "{REPORT_NAME}_{}_{}.xlsx",
+            "{REPORT_NAME}_{}_{}{}.xlsx",
             report.period,
+            if report.currency.mode == fx_report::MODE_FOREIGN {
+                format!("_{}", report.currency.currency)
+            } else {
+                String::new()
+            },
             Local::now().format("%Y%m%d%H%M%S")
         ),
     ))
@@ -1641,6 +1773,13 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
         "期末余额",
         "上期余额",
     ];
+    // 外币口径（M1-09）多两列折合本位币：导出件脱离页面也必须能看出「哪个数是原币、哪个是折合」。
+    let foreign = report.currency.mode == fx_report::MODE_FOREIGN;
+    let mut headers: Vec<&'static str> = HEADERS.to_vec();
+    if foreign {
+        headers.push("折合本位币（资产）");
+        headers.push("折合本位币（负债和所有者权益）");
+    }
     let right: Vec<&ReportLineRes> = report.liabilities.iter().chain(report.equity.iter()).collect();
     let mut rows: Vec<HashMap<String, String>> = Vec::new();
     // 表头信息（编制单位 / 期间 / 单位）也进表格，导出的文件脱离页面也能看懂。
@@ -1649,6 +1788,18 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
     info.insert("资产".to_string(), format!("编制单位：{}", report.company_name));
     info.insert("期末余额".to_string(), format!("期间：{}", report.period_name));
     info.insert("负债和所有者权益".to_string(), format!("单位：{}", report.unit));
+    if foreign {
+        info.insert(
+            "折合本位币（资产）".to_string(),
+            match (report.currency.rate, report.currency.rate_date) {
+                (Some(rate), Some(date)) => format!(
+                    "折算：1 {} = {} {}（{date}）",
+                    report.currency.currency, rate, report.currency.base_currency
+                ),
+                _ => "折算：缺期末牌价（折合列留空）".to_string(),
+            },
+        );
+    }
     rows.push(info);
 
     let indent = |level: i16| "    ".repeat(usize::try_from(level.saturating_sub(1)).unwrap_or(0));
@@ -1662,6 +1813,9 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
             );
             row.insert("期末余额".to_string(), money_text(left.amount));
             row.insert("上期余额".to_string(), money_text(left.previous_amount));
+            if foreign {
+                row.insert("折合本位币（资产）".to_string(), money_text(left.converted_amount));
+            }
         }
         if let Some(right_line) = right.get(index) {
             row.insert(
@@ -1670,6 +1824,12 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
             );
             row.insert("期末余额".to_string(), money_text(right_line.amount));
             row.insert("上期余额".to_string(), money_text(right_line.previous_amount));
+            if foreign {
+                row.insert(
+                    "折合本位币（负债和所有者权益）".to_string(),
+                    money_text(right_line.converted_amount),
+                );
+            }
         }
         rows.push(row);
     }
@@ -1683,6 +1843,10 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
 }
 
 // ==================== 单测 ====================
+
+/// M1-09 真库用例（报表取数按币种）。
+#[cfg(test)]
+mod fx_report_tests;
 
 #[cfg(test)]
 mod tests {

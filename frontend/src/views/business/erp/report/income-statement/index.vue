@@ -13,6 +13,16 @@
           data-testid="is-period-select"
           @change="handlePeriodChange"
         />
+        <span class="tool-row__label">币种</span>
+        <t-select
+          v-model="currency"
+          class="tool-row__currency"
+          :options="currencyOptions"
+          filterable
+          placeholder="本位币"
+          data-testid="is-currency-select"
+          @change="handlePeriodChange"
+        />
         <t-button theme="primary" :loading="loading" data-testid="is-search" @click="load()">查询</t-button>
         <t-button variant="outline" :disabled="!sheet" data-testid="is-export" @click="handleExport">
           <template #icon><t-icon name="download" /></template>
@@ -20,11 +30,15 @@
         </t-button>
         <DocPdfButton
           size="medium"
-          :disabled="!sheet"
+          :disabled="!sheet || isForeign"
           :path="`/api/business/erp/report/income-statement/pdf?period=${encodeURIComponent(sheet?.period ?? '')}`"
           :filename="`利润表_${sheet?.period ?? ''}.pdf`"
           testid="is-export-pdf"
         />
+        <!-- PDF 版式只做本位币口径 ⇒ 外币口径下禁掉（同资产负债表页的理由） -->
+        <span v-if="isForeign" class="tool-row__hint" data-testid="is-pdf-currency-hint">
+          PDF 仅支持本位币口径（页面 / Excel 支持币种切换）
+        </span>
         <span v-if="periodHint" class="tool-row__hint" data-testid="is-period-hint">{{ periodHint }}</span>
       </div>
 
@@ -41,6 +55,7 @@
           <span data-testid="is-company">编制单位：{{ sheet.company_name }}</span>
           <span data-testid="is-period-name">期间：{{ sheet.period_name }}（{{ periodStatusText(sheet.period_status) }}）</span>
           <span>单位：{{ sheet.unit }}</span>
+          <span v-if="sheet.currency" data-testid="is-currency-text">币种口径：{{ currencyModeText }}</span>
           <span data-testid="is-ytd-start">本年累计：{{ sheet.ytd_start }} 起</span>
           <span data-testid="is-generated-at">编制时间：{{ formatDateTime(sheet.generated_at) }}</span>
         </div>
@@ -55,6 +70,8 @@
                 <th class="is-table__item">项目</th>
                 <th class="is-table__num">{{ sheet.current_label }}</th>
                 <th class="is-table__num">{{ sheet.ytd_label }}</th>
+                <th v-if="isForeign" class="is-table__num">本期折合{{ baseCurrency }}</th>
+                <th v-if="isForeign" class="is-table__num">累计折合{{ baseCurrency }}</th>
               </tr>
             </thead>
             <tbody>
@@ -77,11 +94,18 @@
                 <td class="is-table__num" :data-testid="`is-ytd-${row.item_code}`">
                   {{ formatAmount(row.ytd) }}
                 </td>
+                <td v-if="isForeign" class="is-table__num">{{ formatAmount(row.current_base) }}</td>
+                <td v-if="isForeign" class="is-table__num">{{ formatAmount(row.ytd_base) }}</td>
               </tr>
             </tbody>
           </table>
         </div>
       </t-loading>
+
+      <!-- ==================== 口径附注（外币口径才有） ==================== -->
+      <ul v-if="sheet && sheet.notes && sheet.notes.length" class="is-notes" data-testid="is-notes">
+        <li v-for="(note, index) in sheet.notes" :key="index">{{ note }}</li>
+      </ul>
 
       <!-- ==================== 勾稽结论：一致绿 / 不平红 ==================== -->
       <div
@@ -159,7 +183,7 @@
  * - `period` 格式不对 → 400 + `10001`。
  * 两者都直接显示后端返回的 `msg`，不自己编文案。
  */
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
@@ -169,6 +193,14 @@ import {
   type AccountPeriodRow,
   type IncomeStatement as IncomeStatementData,
 } from '@/api/business/erp';
+import { fetchCurrencyOptions, type CurrencyOption } from '@/api/business/erp/currency';
+import {
+  baseCurrencyLabel,
+  buildCurrencyOptions,
+  currencyModeText as modeTextOf,
+  exportCurrencySuffix,
+  isForeignMode,
+} from '@/views/business/erp/report/currency-basis-logic';
 import { saveBlob } from '@/utils/download';
 import DocPdfButton from '@/components/DocPdfButton.vue';
 
@@ -182,6 +214,22 @@ const periodHint = ref('');
 const loading = ref(false);
 const error = ref('');
 const sheet = ref<IncomeStatementData | null>(null);
+
+/**
+ * 报表币种（M1-09）：`''` = 本位币口径（不传 `currency`，与改动前逐字一致）；
+ * 选了外币 ⇒ 后端只按该币种凭证的**原币**出表，并多两列折合本位币。
+ */
+const currency = ref('');
+const currencyOptions = ref<{ label: string; value: string }[]>([{ label: '本位币', value: '' }]);
+
+/** 当前是不是外币口径（决定要不要显示折合列） */
+const isForeign = computed(() => isForeignMode(sheet.value?.currency));
+
+/** 折合列表头里的本位币码 */
+const baseCurrency = computed(() => baseCurrencyLabel(sheet.value?.currency));
+
+/** 页头「币种口径」文案 */
+const currencyModeText = computed(() => modeTextOf(sheet.value?.currency));
 
 /**
  * 千分位 + 2 位小数（`null` / 空串显示空）。
@@ -287,7 +335,7 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    sheet.value = await fetchIncomeStatement(period.value);
+    sheet.value = await fetchIncomeStatement(period.value, currency.value || undefined);
   } catch (err) {
     // 后端 400/500 的 msg 已经是人话（含「差多少」「哪个科目」），直接用
     sheet.value = null;
@@ -297,16 +345,26 @@ async function load() {
   }
 }
 
-/** 期间切换后自动重算（避免「选了期间但要再点一次查询」的错觉） */
+/** 期间 / 币种切换后自动重算（避免「选了期间但要再点一次查询」的错觉） */
 function handlePeriodChange() {
   void load();
+}
+
+/** 币种下拉：本位币 + 全部启用的外币 */
+async function loadCurrencies() {
+  try {
+    const list = await fetchCurrencyOptions();
+    currencyOptions.value = buildCurrencyOptions(list as CurrencyOption[]);
+  } catch {
+    // 币种列表拉不到只影响切换体验，不挡本位币报表
+  }
 }
 
 async function handleExport() {
   if (!sheet.value) return;
   try {
-    const blob = await exportIncomeStatement(sheet.value.period);
-    saveBlob(blob, `利润表_${sheet.value.period}.xlsx`);
+    const blob = await exportIncomeStatement(sheet.value.period, currency.value || undefined);
+    saveBlob(blob, `利润表_${sheet.value.period}${exportCurrencySuffix(currency.value)}.xlsx`);
     MessagePlugin.success('已导出');
   } catch (err) {
     MessagePlugin.error(`导出失败：${(err as Error).message ?? err}`);
@@ -316,6 +374,7 @@ async function handleExport() {
 /** 导出 PDF（PDF-07 后端版式；PDF-08 起统一走 DocPdfButton：loading + 403 提示 + 后端中文名） */
 
 onMounted(async () => {
+  await loadCurrencies();
   await loadPeriods();
   if (period.value) {
     await load();
@@ -326,6 +385,14 @@ onMounted(async () => {
 <style scoped>
 .is-page {
   padding: 0;
+}
+
+.is-notes {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--td-text-color-secondary);
 }
 
 .is-card {

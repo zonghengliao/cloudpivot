@@ -355,24 +355,24 @@ pub async fn ensure_customer(code: &str, name: &str) -> Uuid {
     .await
 }
 
-/// 会计期间（`YYYY-MM` + 月初/月末）。
+/// 会计期间（`YYYY-MM` + 月初/月末）。状态固定 `OPEN`（需要别的状态用 UPDATE 改，
+/// 不在这里加参数：期间状态的语义属于用例自己的场景，夹具只负责「这一行存在」）。
 pub async fn ensure_accounting_period(year: i32, month: u32) -> Uuid {
     let code = period_code(year, month);
     let id = fixture_uuid(&format!("period:{code}"));
     let start = format!("{year}-{month:02}-01");
     let end = format!("{year}-{month:02}-{:02}", days_in_month(year, month));
-    upsert_id(
+    // 年月与日期**内联**（都是整数派生，不可能注入）：`date` 列吃文本参数会报
+    // `error serializing parameter N`（驱动按列类型编码），内联 + `::date` 是最稳的写法。
+    let sql = format!(
         "INSERT INTO biz_accounting_period (id, period_year, period_month, period_code, \
                                             start_date, end_date, status) \
-         VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT DO NOTHING",
-        vec![
-            Value::from(&id),
-            Value::I16(year as i16),
-            Value::I16(month as i16),
-            Value::Text(code.clone()),
-            Value::Text(start),
-            Value::Text(end),
-        ],
+         VALUES (?, {year}, {month}, ?, '{start}'::date, '{end}'::date, 'OPEN') \
+         ON CONFLICT DO NOTHING"
+    );
+    upsert_id(
+        &sql,
+        vec![Value::from(&id), Value::Text(code.clone())],
         id,
         "biz_accounting_period",
         "period_code",

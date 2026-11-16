@@ -3600,8 +3600,12 @@ export interface ReportLine {
   parent_code: string | null;
   /** 期末金额；`null` = 纯标题行（如「流动资产」） */
   amount: string | null;
+  /** 期末折合本位币（M1-09）：仅外币口径（`currency.mode = 'FOREIGN'`）有值，缺牌价 / 本位币口径为 `null` */
+  converted_amount?: string | null;
   /** 上期金额；`null` = 没有上期期间 */
   previous_amount: string | null;
+  /** 上期折合本位币（同 `converted_amount` 规则） */
+  previous_converted_amount?: string | null;
   /** 是否减项（累计折旧 / 累计摊销） */
   is_deduction: boolean;
   /** 是否小计 / 合计行（公式项，加粗） */
@@ -3650,6 +3654,26 @@ export interface BalanceCheck {
   hints: string[];
 }
 
+/** 报表币种块（M1-09，后端 `report::fx_report::ReportCurrencyRes`；两张报表共用） */
+export interface ReportCurrency {
+  /** 口径：`BASE` 本位币（与改动前一致）/ `FOREIGN` 外币原币 */
+  mode: 'BASE' | 'FOREIGN';
+  /** 报表计价币种（BASE 模式 = 账套本位币） */
+  currency: string;
+  /** 币种名称（主数据缺行时为 null） */
+  currency_name: string | null;
+  /** 账套本位币 */
+  base_currency: string;
+  /** 折算汇率（1 currency = rate base）；BASE 恒 `1`，外币缺牌价为 `null`（绝不回落 1） */
+  rate: string | null;
+  /** 汇率取数日（期间末日；BASE 为 null） */
+  rate_date: string | null;
+  /** 缺期末牌价（true ⇒ 折合列全为 null） */
+  rate_missing: boolean;
+  /** 期间内该币种已过账分录条数（0 ⇒ 本表全 0） */
+  entry_count: number;
+}
+
 /** 资产负债表（对应后端 `report::BalanceSheetRes`） */
 export interface BalanceSheet {
   report_code: string;
@@ -3673,7 +3697,11 @@ export interface BalanceSheet {
   assets: ReportLine[];
   liabilities: ReportLine[];
   equity: ReportLine[];
+  /** 报表附注（外币口径的口径说明；本位币口径为空） */
+  notes?: string[];
   check: BalanceCheck;
+  /** 报表币种口径（M1-09） */
+  currency?: ReportCurrency;
 }
 
 /**
@@ -3684,8 +3712,8 @@ export interface BalanceSheet {
  * - 400 + `66010`：该期间**没在「会计期间」里建立**（报表不替人推导不存在的报告期）；
  * - 500 + `66011`：`biz_report_item` 配置坏了（公式引用了不存在的报表项）。
  */
-export function fetchBalanceSheet(period: string): Promise<BalanceSheet> {
-  return get<BalanceSheet>(`${BASE}/report/balance-sheet`, asParams({ period }));
+export function fetchBalanceSheet(period: string, currency?: string): Promise<BalanceSheet> {
+  return get<BalanceSheet>(`${BASE}/report/balance-sheet`, asParams({ period, currency: currency || undefined }));
 }
 
 /**
@@ -3693,9 +3721,9 @@ export function fetchBalanceSheet(period: string): Promise<BalanceSheet> {
  *
  * 返回的是**文件字节流**（不走 `Res<T>` 统一响应体），必须 `responseType: 'blob'`。
  */
-export async function exportBalanceSheet(period: string): Promise<Blob> {
+export async function exportBalanceSheet(period: string, currency?: string): Promise<Blob> {
   const response = await service.get<Blob>(`${BASE}/report/balance-sheet/export`, {
-    params: asParams({ period }),
+    params: asParams({ period, currency: currency || undefined }),
     responseType: 'blob',
   });
   return response.data;
@@ -3722,6 +3750,10 @@ export interface IncomeLine {
   current: string;
   /** 本年累计金额 */
   ytd: string;
+  /** 本期折合本位币（M1-09）：仅外币口径有值，缺牌价 / 本位币口径为 `null` */
+  current_base?: string | null;
+  /** 本年累计折合本位币（同 `current_base` 规则） */
+  ytd_base?: string | null;
   /** 是否合计 / 小计行（营业利润 / 利润总额 / 净利润，加粗） */
   is_total: boolean;
   /** 取数说明（科目模式或公式原文） */
@@ -3788,7 +3820,11 @@ export interface IncomeStatement {
   ytd_label: string;
   generated_at: string;
   items: IncomeLine[];
+  /** 报表附注（外币口径的口径说明；本位币口径为空） */
+  notes?: string[];
   check: IncomeCheck;
+  /** 报表币种口径（M1-09） */
+  currency?: ReportCurrency;
 }
 
 /**
@@ -3799,8 +3835,8 @@ export interface IncomeStatement {
  * - 400 + `66010`：该期间**没在「会计期间」里建立**且该月没有任何已记账凭证；
  * - 500 + `66011`：`biz_report_item` 配置坏了（公式引用了不存在的报表项）。
  */
-export function fetchIncomeStatement(period: string): Promise<IncomeStatement> {
-  return get<IncomeStatement>(`${BASE}/report/income-statement`, asParams({ period }));
+export function fetchIncomeStatement(period: string, currency?: string): Promise<IncomeStatement> {
+  return get<IncomeStatement>(`${BASE}/report/income-statement`, asParams({ period, currency: currency || undefined }));
 }
 
 /**
@@ -3808,9 +3844,9 @@ export function fetchIncomeStatement(period: string): Promise<IncomeStatement> {
  *
  * 返回文件字节流（不走 `Res<T>` 统一响应体），必须 `responseType: 'blob'`。
  */
-export async function exportIncomeStatement(period: string): Promise<Blob> {
+export async function exportIncomeStatement(period: string, currency?: string): Promise<Blob> {
   const response = await service.get<Blob>(`${BASE}/report/income-statement/export`, {
-    params: asParams({ period }),
+    params: asParams({ period, currency: currency || undefined }),
     responseType: 'blob',
   });
   return response.data;
