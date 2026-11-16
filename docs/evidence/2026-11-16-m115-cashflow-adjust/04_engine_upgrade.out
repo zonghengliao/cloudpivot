@@ -1,0 +1,37 @@
+== M1-15 / V0416 真引擎实测（间接法调整项配置）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 升级库=cp_m115_upgrade 端口=18093
+
+== A) 克隆库升级（真引擎：模板库 → cp_m115_upgrade）==
+  PASS  克隆库升级前没有调整项表（本卡新建）
+  PASS  克隆库真启动成功（/health 200）
+  数据库迁移完成: 应用 12 个迁移
+  PASS  引擎应用了 12 个迁移（含 V0414 / V0415 / V0416）
+  PASS  V0416 自检块在真引擎里通过（NOTICE 已打印 ⇒ 方言拆分器把 DO 块切对了）
+  schema_migrations：416/true/app/migrations/business/V0416__cashflow_adjust_item.up.sql
+  PASS  schema_migrations 登记 416/true/源文件（指纹已登记）
+
+== B) 结构落地 ==
+  PASS  12 行标准模板（=12）
+  PASS  全部启用（=12）
+  PASS  4 个取数口径（=4）
+  PASS  零 NUMERIC 列（配置表不存金额）（=0）
+  PASS  6 条 CHECK 约束（=6）
+  PASS  两个按钮节点在位（挂「现金流量表」页面 · 无 path）（=2）
+  PASS  两个权限码各一行（=2）
+  PASS  授权齐（2 个目标角色 × 2 码 = 4 行）
+
+== C) 重启幂等 ==
+  PASS  重启：应用 0 个迁移（引擎级幂等，指纹一致）
+  PASS  重启后模板行不变（没有重复种）（=12）
+  PASS  重启后权限节点不变（=2）
+
+== D) 回滚护栏（down）==
+  PASS  无自建配置时 down 成功（幂等回收）
+  PASS  down 后表已删（=0）
+  PASS  down 后权限节点已清空（=0）
+  PASS  有自建配置时 down 被拒（护栏生效）
+  PASS  护栏拒绝后数据原样还在（=1）
+  PASS  清掉自建配置后 down 通过（护栏只看数据，不挡正常回滚）
+  PASS  收尾：回滚后表已删（自建行随表带走）（=0）
+
+== 汇总：PASS=23 FAIL=0 ==

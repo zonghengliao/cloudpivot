@@ -1,0 +1,44 @@
+== 单测 A：cashflow_adjust 模块（纯逻辑 11 + 真库 5，库 cp_m115_unit @145）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 16 tests
+test business::erp::cashflow_adjust::tests::anchors_are_fixed_and_not_configurable ... ok
+test business::erp::cashflow_adjust::tests::catalog_matches_constants ... ok
+test business::erp::cashflow_adjust::tests::compose_list_keeps_totals_independent_of_filter ... ok
+test business::erp::cashflow_adjust::tests::create_update_toggle_roundtrip ... ok
+test business::erp::cashflow_adjust::tests::cross_row_audit_catches_double_counting ... ok
+test business::erp::cashflow_adjust::tests::duplicate_basis_is_rejected ... ok
+test business::erp::cashflow_adjust::tests::enums_are_closed ... ok
+test business::erp::cashflow_adjust::tests::item_code_shape_is_strict ... ok
+test business::erp::cashflow_adjust::tests::item_name_counts_chars_not_bytes ... ok
+test business::erp::cashflow_adjust::tests::manual_rows_reject_basis_and_pattern ... ok
+test business::erp::cashflow_adjust::tests::pattern_grammar_accepts_four_forms ... ok
+test business::erp::cashflow_adjust::tests::permissions_are_well_formed ... ok
+test business::erp::cashflow_adjust::tests::row_audit_names_zero_match_rows ... ok
+test business::erp::cashflow_adjust::tests::seed_template_is_complete ... ok
+test business::erp::cashflow_adjust::tests::shape_rule_separates_account_and_manual ... ok
+test business::erp::cashflow_adjust::tests::unknown_id_is_404 ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 5554 filtered out; finished in 0.13s
+
+
+== 单测 B：V0416 迁移静态不变量（11 条，不连库）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.69s
+     Running tests/m1_15_cashflow_adjust_migration.rs (target/debug/deps/m1_15_cashflow_adjust_migration-08fc369eb5e89edb)
+
+running 11 tests
+test v0416_has_no_sign_column_and_no_soft_delete ... ok
+test v0416_creates_exactly_one_table_idempotently ... ok
+test v0416_down_is_ordered_and_guarded ... ok
+test v0416_keeps_all_six_check_constraints ... ok
+test v0416_self_check_raises_exceptions ... ok
+test v0416_seeds_two_button_codes_under_cash_flow_page ... ok
+test v0416_splits_cleanly_with_engine_splitter ... ok
+test v0416_up_and_down_exist ... ok
+test v0416_seeds_twelve_row_template_without_overwriting ... ok
+test v0416_unique_and_weak_reference ... ok
+test v0416_columns_have_designed_shape_and_no_amount ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

@@ -1,0 +1,94 @@
+== M1-15 间接法调整项配置五接口 真 HTTP 实测 ==
+   PG=172.18.10.145:5432 库=cp_m115_adjust_e2e 端口=18094
+
+== 0) 准备库 ==
+  PASS  V0414__cashflow_worksheet.up 已应用
+  PASS  V0415__cashflow_worksheet_perm.up 已应用
+  PASS  V0416__cashflow_adjust_item.up 已应用
+  PASS  腾出 admin 用户名（改名 admin_pre_m115）
+
+== 1) 启动 + 登录 ==
+  PASS  后端真启动成功（http://127.0.0.1:18094/health 200）
+  PASS  admin 登录取到 access_token
+  PASS  首登强制改密完成
+  PASS  用新口令重新登录成功
+  PASS  未带 token → 401（鉴权闸真的在）
+
+== 2) GET list（12 行模板 + 取数自检）==
+  PASS  GET list 200
+  PASS  总行数 12（标准模板）（.data.total = 12）
+  PASS  启用 12 行（.data.active_total = 12）
+  PASS  12 行都是 ADJ_ 编码（[.data.items[] | select(.item_code | startswith("ADJ_"))] | length = 12）
+  PASS  2 行手工填列（[.data.items[] | select(.source_type == "MANUAL")] | length = 2）
+  PASS  4 个取数口径（[.data.items[] | select(.calc_basis != null) | .calc_basis] | unique | length = 4）
+  PASS  两个固定行（净利润 / 小计）（[.data.anchors[]] | length = 2）
+  PASS  第一个固定行是起点（.data.anchors[0].role = START）
+  PASS  第二个固定行是小计（.data.anchors[1].role = SUBTOTAL）
+  PASS  结构式含净利润（.data.formula | contains("净利润") = true）
+  PASS  结构式含小计（.data.formula | contains("经营活动产生的现金流量净额") = true）
+  PASS  科目目录已加载（命中数分母）（.data.account_total > 50 = true）
+  PASS  来源中文名（[.data.items[] | select(.item_code=="ADJ_DEPRECIATION")][0].source_label = 科目取数）
+  PASS  口径中文名（[.data.items[] | select(.item_code=="ADJ_DEPRECIATION")][0].basis_label = 贷方净额（贷 − 借））
+  PASS  1602 命中 1 个科目（[.data.items[] | select(.item_code=="ADJ_DEPRECIATION")][0].matched_account_count = 1）
+  PASS  命中科目就是 1602（[.data.items[] | select(.item_code=="ADJ_DEPRECIATION")][0].matched_accounts[0].account_code = 1602）
+  PASS  1231/1471 当前 0 命中（科目表还没建这俩）（[.data.items[] | select(.item_code=="ADJ_ASSET_IMPAIRMENT")][0].matched_account_count = 0）
+  PASS  0 命中的行必须被点名（不许静默恒为 0）（[.data.items[] | select(.item_code=="ADJ_ASSET_IMPAIRMENT")][0].warnings | length > 0 = true）
+  PASS  MANUAL 行没有命中概念（null）（[.data.items[] | select(.item_code=="ADJ_OTHER")][0].matched_account_count = null）
+
+== 3) GET catalog（字典）==
+  PASS  GET catalog 200
+  PASS  2 个取数来源（[.data.source_types[]] | length = 2）
+  PASS  4 个取数口径（[.data.calc_bases[]] | length = 4）
+  PASS  口径顺序与常量一致（[.data.calc_bases[].value] | join(",") = CREDIT_NET,DEBIT_NET,BALANCE_INCREASE,BALANCE_DECREASE）
+  PASS  4 条模式语法提示（[.data.pattern_tips[]] | length = 4）
+  PASS  字典里回显当前行数（.data.total = 12）
+  PASS  结构式带求和符号（.data.formula | contains("Σ") = true）
+
+== 4) POST create（新增 + 五道校验）==
+  PASS  POST 新增 200
+  PASS  编码归一化成大写（.data.item.item_code = M115_SALES_EXPENSE）
+  PASS  口径归一化成大写（.data.item.calc_basis = DEBIT_NET）
+  PASS  5601 命中 1 个科目（.data.item.matched_account_count = 1）
+  PASS  名称落库（.data.item.item_name = 销售费用（用例））
+  PASS  重复编码 → 409
+  PASS  报文说编码已存在（.msg | contains("已存在") = true）
+  PASS  同模式同口径 → 409（同一批科目会被算两遍）
+  PASS  报文说口径重复（.msg | contains("取数口径重复") = true）
+  PASS  MANUAL 带口径 → 400（不许留摆设字段）
+  PASS  错误码 10001（参数非法）（.code = 10001）
+  PASS  非法编码 → 400
+  PASS  报文点名编码规则（.msg | contains("大写字母开头") = true）
+  PASS  坏模式（空项）→ 400
+  PASS  MANUAL 行（不带口径）→ 200
+  PASS  MANUAL 行口径为 null（.data.item.calc_basis = null）
+  PASS  MANUAL 行无命中数（.data.item.matched_account_count = null）
+
+== 5) PUT update（改名 / 编码不可变 / 改类型）==
+  PASS  PUT 改名 200
+  PASS  名称已更新（.data.item.item_name = 手工行（改名后））
+  PASS  备注已更新（.data.item.remark = 改成手工说明）
+  PASS  改编码 → 400（编码不可变）
+  PASS  报文说编码不可修改（.msg | contains("编码不可修改") = true）
+  PASS  MANUAL 改 ACCOUNT 但不给口径 → 400
+  PASS  MANUAL 改 ACCOUNT（带口径模式）→ 200
+  PASS  来源已改为 ACCOUNT（.data.item.source_type = ACCOUNT）
+  PASS  5602 命中 12 个（含 5602.01~.12 下级：口径是「科目 + 全部下级」）（.data.item.matched_account_count = 12）
+
+== 6) PUT toggle（启停）==
+  PASS  PUT toggle 停用 200
+  PASS  已停用（.data.is_active = false）
+  PASS  停用行不出现在 active_only 列表（[.data.items[] | select(.item_code=="M115_SALES_EXPENSE")] | length = 0）
+  PASS  总数不随筛选变（12 模板 + 2 用例行）（.data.total = 14）
+  PASS  全量列表里停用行还在（可以改回来）（[.data.items[] | select(.item_code=="M115_SALES_EXPENSE")] | length = 1）
+  PASS  启用行数 13（12 模板 + 1 手工改的 ACCOUNT）（.data.active_total = 13）
+  PASS  PUT toggle 重新启用 200
+  PASS  已重新启用（.data.is_active = true）
+  PASS  不存在的 id → 404
+
+== 7) DB 对账 ==
+  PASS  库里 14 行（12 模板 + 2 用例）
+  PASS  库里没有「MANUAL 带口径」的脏行
+  PASS  接口写入的名称与库里一致
+  PASS  两个权限码在菜单表里
+
+== 汇总：PASS=74 FAIL=0 ==
