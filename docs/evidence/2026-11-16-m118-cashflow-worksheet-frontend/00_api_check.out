@@ -1,0 +1,46 @@
+== 登录成功
+PASS  ① GET 底稿 200
+PASS  ① 期间 OPEN 可编辑
+PASS  ① 明细行 = 12 个配置项
+PASS  ① 全部未录入
+PASS  ① 期初/期末未录 → null
+PASS  ① 勾稽不闭合且点名缺期初/缺期末
+PASS  ② PUT 保存 200
+PASS  ② 保存后勾稽闭合
+PASS  ② 流入合计 12000
+PASS  ② 流出合计 7000
+PASS  ② 净增加额 5000
+PASS  ② 期初余额行落库
+PASS  ② 期末余额行落库
+PASS  ② 经营活动小计 = 流入 12000 / 流出 7000 / 净额 5000
+PASS  ③ POST check 200（不落库）
+PASS  ③ 草稿差 100 判不闭合
+PASS  ③ 草稿问题点名 IMBALANCED
+PASS  ③ 试算未污染已存底稿（期末仍 10000）
+PASS  ④ GET statement 200
+PASS  ④ 报表编码 / 名称
+PASS  ④ 出表闭合
+PASS  ④ 报表加减关系成立
+PASS  ④ 上期期间 = 2023-01
+PASS  ④ 两栏列名
+PASS  ④ 明细行本期 12000
+PASS  ④ 明细行上期 0 且 previous_entered=false（上期没编）
+PASS  ④ 净增加额本期 5000
+PASS  ④ 期初/期末本期
+PASS  ⑤ 导出 200 且是真 xlsx（PK 魔数）
+      xlsx 大小 = 6855 字节，content-type = application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+PASS  ⑥ 不平也能保存（工作稿）200
+PASS  ⑥ 保存返回 balanced=false + 差 100
+PASS  ⑥ 未闭合时 GET statement 仍 200（页面能开去补）
+PASS  ⑥ 未闭合时报表 check.balanced=false
+PASS  ⑥ 未闭合时导出被拦
+PASS  ⑥ 拦截码 66087
+PASS  ⑥ 拦截文案给了差额
+PASS  ⑥ 改回期末 → 重新闭合
+PASS  ⑥ 改回后导出恢复 200
+PASS  ⑦ 已结账期间写入被拒
+PASS  ⑦ 已结账期间仍可读 + editable=false
+PASS  ⑧ 未知项目编码被拒 66086
+PASS  ⑨ 5 位小数被拒（10001）
+
+全部通过

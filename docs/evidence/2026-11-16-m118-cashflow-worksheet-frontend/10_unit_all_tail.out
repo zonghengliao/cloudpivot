@@ -1,0 +1,20 @@
+ok 1946 - ⑭ 父仓库选择器：剪掉第 3 层（不能再往下建），父节点不因剪枝丢失
+  ---
+  duration_ms: 0.176852
+  type: 'test'
+  ...
+# Subtest: ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+ok 1947 - ⑮ 所属仓库下拉：只给叶子仓库，文案带完整路径 + 编码（平铺也分得清）
+  ---
+  duration_ms: 0.148556
+  type: 'test'
+  ...
+1..1947
+# tests 1947
+# suites 0
+# pass 1947
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6127.563968

@@ -169,7 +169,9 @@ const PAGES: PageCase[] = [
   { file: 'views/business/task/detail.vue', pathFragment: '/api/business/task/${detail.id}/pdf', testid: 'task-detail-pdf' },
   { file: 'views/business/erp/report/balance-sheet/index.vue', pathFragment: '/api/business/erp/report/balance-sheet/pdf', testid: 'bs-export-pdf' },
   { file: 'views/business/erp/report/income-statement/index.vue', pathFragment: '/api/business/erp/report/income-statement/pdf', testid: 'is-export-pdf' },
-  { file: 'views/business/erp/report/cash-flow/index.vue', pathFragment: '/api/business/erp/report/cash-flow/pdf', testid: 'cf-export-pdf' },
+  // M1-18 把「按凭证编制」的报表从 `cash-flow/index.vue` 搬到 `cash-flow/voucher-panel.vue`
+  // （同页三 tab：现金流底稿 / 报表预览 / 按凭证编制），按钮与路径契约不变，只是文件位置变了。
+  { file: 'views/business/erp/report/cash-flow/voucher-panel.vue', pathFragment: '/api/business/erp/report/cash-flow/pdf', testid: 'cf-export-pdf' },
 ];
 
 for (const page of PAGES) {
