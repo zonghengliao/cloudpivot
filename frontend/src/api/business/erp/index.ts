@@ -5364,6 +5364,25 @@ export function fetchReceivableAging(query: { period?: string; as_of?: string } 
   return get<ReceivableAging>(`${BASE}/receivable/aging`, asParams(query));
 }
 
+/**
+ * 导出应收账龄分析 xlsx（`GET /erp/receivable/aging/export`，M1-20）。
+ *
+ * 权限码复用报表导出码 `business:erp:report:export`（与应付账龄 / 资产负债表 / 利润表 /
+ * 现金流量表**同一个开关**，不另起码）。
+ *
+ * 入参与 [`fetchReceivableAging`] 完全一致（`as_of` 优先 → `period` 末日 → 今天 CST），
+ * 导出的表就是同一个接口算出来的那张：**客户汇总**（客户 / 单据数 / 七档金额 / 未收合计 /
+ * 最长逾期天数）+ 合计行。单据**明细不进导出**（列表接口的明细有 1000 条截断，导出来会被
+ * 当成完整清单）。
+ */
+export async function exportReceivableAging(query: { period?: string; as_of?: string } = {}): Promise<Blob> {
+  const response = await service.get<Blob>(`${BASE}/receivable/aging/export`, {
+    params: asParams(query),
+    responseType: 'blob',
+  });
+  return response.data;
+}
+
 // ==================== 收款单（SO-17 后端 / SO-18 前端） ====================
 
 /**

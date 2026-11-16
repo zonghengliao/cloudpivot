@@ -30,6 +30,7 @@ import {
   WRITE_OFF_REMARK_PREFIX,
   agingDaysText,
   agingAsOfSourceText,
+  agingExportFileName,
   agingPeriodStatusText,
   bucketShare,
   bucketThemeOf,
@@ -305,6 +306,23 @@ test('基准日来源与期间状态文案', () => {
   assert.equal(agingPeriodStatusText('OPEN'), '未结账');
   assert.equal(agingPeriodStatusText('DERIVED'), '未开账·按自然月推算');
   assert.equal(agingPeriodStatusText(null), '');
+});
+
+test('账龄导出文件名与后端 export_file_name 同一套命名（含「无期间」兜底）', () => {
+  // 后端 receivable_aging::export_file_name 的两种形态
+  assert.equal(
+    agingExportFileName({ as_of: '2026-11-05', period: '2026-10' }),
+    '应收账款账龄分析表_2026-10_截止2026-11-05.xlsx',
+  );
+  assert.equal(
+    agingExportFileName({ as_of: '2026-11-05', period: null }),
+    '应收账款账龄分析表_无期间_截止2026-11-05.xlsx',
+  );
+  // 空串与 null 同义（后端 `period` 为 `Option<String>`，前端空串也要落到「无期间」）
+  assert.equal(
+    agingExportFileName({ as_of: '2026-11-05', period: '' }),
+    '应收账款账龄分析表_无期间_截止2026-11-05.xlsx',
+  );
 });
 
 // ==================== 详情「核销记录」 ====================

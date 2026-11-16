@@ -26,6 +26,7 @@
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import type {
   Receivable,
+  ReceivableAging,
   ReceivableQuery,
   ReceivableSourceType,
   ReceivableStatus,
@@ -369,6 +370,17 @@ export function agingPeriodStatusText(status: string | null | undefined): string
   if (status === 'DERIVED') return '未开账·按自然月推算';
   if (status === 'OPEN' || status === 'NOT_CLOSED') return '未结账';
   return status || '';
+}
+
+/**
+ * 账龄导出文件名（与后端 `receivable_aging::export_file_name` 同一套命名）。
+ *
+ * 后端已经在 `Content-Disposition` 里给了名字，这里只是浏览器端 `saveBlob` 的兜底名——
+ * 两边都按 `应收账款账龄分析表_<期间>_截止<基准日>.xlsx`，用户存两次不会出现两种名字
+ * （应付账龄页同一套规则）。
+ */
+export function agingExportFileName(report: Pick<ReceivableAging, 'as_of' | 'period'>): string {
+  return `应收账款账龄分析表_${report.period || '无期间'}_截止${report.as_of}.xlsx`;
 }
 
 /**

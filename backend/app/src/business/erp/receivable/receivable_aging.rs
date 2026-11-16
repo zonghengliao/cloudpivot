@@ -62,9 +62,23 @@
 //! SCOPE-EXEMPT: biz_receivable / biz_customer 无 dept_id / 归属人列（V0287 / V0260 建表），
 //! 数据范围表达不出来；可见性由 business:erp:receivable:aging 权限码控制。
 //! ```
+//!
+//! # 导出（M1-20）
+//!
+//! `GET /business/erp/receivable/aging/export` → xlsx 字节流，**只有一张 sheet**：
+//! 客户汇总（客户 / 单据数 / 七档金额 / 未收合计 / 最长逾期天数）+ 合计行，列序与页面
+//! 「账龄看板」主表逐列一致、与应付账龄导出同形。
+//!
+//! * 数就是 [`build_report`] 算出来的那份（同一个 `as_of` / `period` 语义、同一个
+//!   `REPEATABLE READ` 快照），导出侧不做任何二次加总 —— 否则会出现「页面一个数、
+//!   Excel 另一个数」；
+//! * **明细不进导出**：明细有 [`DETAIL_LIMIT`]（1000）截断，导出的「完整清单」会少尾巴，
+//!   要导明细得另做一个不分页接口（另一张卡）；
+//! * 权限复用报表导出码 `business:erp:report:export`（与应付账龄 / 三大报表同一个开关）。
 
 use std::collections::HashMap;
 
+use axum::response::Response;
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
@@ -705,6 +719,119 @@ pub async fn receivable_aging_handler(Query(query): Query<ReceivableAgingQuery>)
     Ok(Res::ok(build_report(&query).await?))
 }
 
+/// 导出应收账龄分析表（xlsx，客户汇总 + 合计行）—— M1-20。
+///
+/// 权限码复用报表导出码 `business:erp:report:export`（`V0183` 已种，财务角色已有；
+/// 与应付账龄 / 资产负债表 / 利润表 / 现金流量表**同一个开关**，不另起码）。
+///
+/// # 导的是什么
+///
+/// 只有一张 sheet：**客户汇总**（客户 / 单据数 / 各档金额 / 未收合计 / 最长逾期天数）+ 合计行，
+/// 与页面「账龄看板」的主表逐列对齐、与应付账龄导出同形（列序一致，财务换表不用重新学）。
+///
+/// **明细不进导出**：接口的明细有 [`DETAIL_LIMIT`] 截断（1000 条），把截断后的明细导成
+/// 「完整单据清单」是坑（用户以为拿到了全部，实际少了尾巴）。要导明细得先做一个
+/// 不分页的明细导出接口，那是另一张卡的事；汇总侧是全量的，所以汇总可以导。
+#[nik::permission(
+    path = "/business/erp/receivable/aging/export",
+    method = "GET",
+    permission = "business:erp:report:export"
+)]
+#[nik::get("/business/erp/receivable/aging/export")]
+pub async fn receivable_aging_export_handler(
+    Query(query): Query<ReceivableAgingQuery>,
+) -> std::result::Result<Response, ApiError> {
+    let report = build_report(&query).await?;
+    let (headers, rows) = export_table(&report);
+    let bytes = crate::business::impexp::engine::write_sheet(&headers, &rows)?;
+    Ok(crate::business::impexp::handler::xlsx_response(
+        bytes,
+        &export_file_name(&report),
+    ))
+}
+
+/// 导出文件名：`应收账款账龄分析表_<期间>_截止<基准日>.xlsx`（没传期间时写「无期间」）。
+///
+/// 与应付账龄同一套命名（`{报表名}_{期间}_截止{基准日}.xlsx`）—— 财务同一天导应付 / 应收
+/// 两张表时，文件名里能一眼看出期间与基准日，不用打开猜。
+pub fn export_file_name(report: &ReceivableAgingRes) -> String {
+    format!(
+        "{REPORT_NAME}_{}_截止{}.xlsx",
+        report.period.clone().unwrap_or_else(|| "无期间".to_string()),
+        report.as_of,
+    )
+}
+
+/// 导出表的表头 + 行（表头与 [`BUCKETS`] 顺序一致，列序对齐页面的客户汇总表）。
+///
+/// * 每个客户一行：`客户 | 单据数 | 各档（按档位表顺序）| 未收合计 | 最长逾期天数`；
+/// * 最后一行 `合计`：单据数取 [`ReceivableAgingRes::doc_count`]、各档取 `summary`、
+///   未收合计取 `total_unsettled`、最长逾期取全表最大值 —— 全部来自后端已算好的值，
+///   这里**不做任何二次加总**（导出与页面同源，避免两份账）。
+/// * 金额是千分位文本（[`payable_aging::money_text`]，与应付账龄 / 三大报表同一份实现）；
+///   单据数、天数按整数文本落格。
+///
+/// 客户没有某档金额时补 `0.00` 而不是空串：财务报表里空格子会被读成「未知」，
+/// 0 才是真实业务含义（这一档确实没有钱）。
+pub fn export_table(report: &ReceivableAgingRes) -> (Vec<&'static str>, Vec<HashMap<String, String>>) {
+    let mut headers: Vec<&'static str> = vec!["客户", "单据数"];
+    for bucket in &BUCKETS {
+        headers.push(bucket.label);
+    }
+    headers.push("未收合计");
+    headers.push("最长逾期天数");
+
+    let mut rows: Vec<HashMap<String, String>> = Vec::with_capacity(report.customers.len() + 1);
+    for customer in &report.customers {
+        let mut row: HashMap<String, String> = HashMap::new();
+        row.insert("客户".to_string(), customer.customer_name.clone());
+        row.insert("单据数".to_string(), customer.doc_count.to_string());
+        for cell in &customer.buckets {
+            let label = bucket_label_of(&cell.key);
+            row.insert(label, payable_aging::money_text(cell.unpaid));
+        }
+        row.insert(
+            "未收合计".to_string(),
+            payable_aging::money_text(customer.total_unsettled),
+        );
+        row.insert("最长逾期天数".to_string(), customer.max_overdue_days.to_string());
+        rows.push(row);
+    }
+
+    let mut total: HashMap<String, String> = HashMap::new();
+    total.insert("客户".to_string(), "合计".to_string());
+    total.insert("单据数".to_string(), report.doc_count.to_string());
+    for cell in &report.summary {
+        total.insert(bucket_label_of(&cell.key), payable_aging::money_text(cell.unpaid));
+    }
+    total.insert(
+        "未收合计".to_string(),
+        payable_aging::money_text(report.total_unsettled),
+    );
+    total.insert(
+        "最长逾期天数".to_string(),
+        report
+            .customers
+            .iter()
+            .map(|customer| customer.max_overdue_days)
+            .max()
+            .unwrap_or(0)
+            .to_string(),
+    );
+    rows.push(total);
+
+    (headers, rows)
+}
+
+/// 档位键 → 中文列名（找不到就回键本身：新增档位忘了配 label 时能看见，而不是整列消失）。
+fn bucket_label_of(key: &str) -> String {
+    BUCKETS
+        .iter()
+        .find(|bucket| bucket.key == key)
+        .map(|bucket| bucket.label.to_string())
+        .unwrap_or_else(|| key.to_string())
+}
+
 // ==================== 单测（分档同口径 / 透视 / 基准日 / 真库汇总） ====================
 
 #[cfg(test)]
@@ -1003,6 +1130,150 @@ mod tests {
         assert_eq!(report.buckets[5].label, "181-365 天");
         assert_eq!(report.buckets[6].max_days, None, "最后一档无上界");
         assert_eq!(report.period_name.as_deref(), Some("2026年10月"));
+    }
+
+    /// ⑥b 导出（M1-20）：列序 = 页面的客户汇总表（客户 / 单据数 / 7 档 / 未收合计 /
+    ///      最长逾期天数），列数 = 档位数 + 4；每个客户行**每列都有值**（没有某档金额时
+    ///      是 `0.00` 而不是空串 —— Excel 里空格子会被读成「未知」）；金额千分位 2 位小数；
+    ///      合计行取后端已算好的 `summary` / `total_unsettled` / `doc_count`，不二次加总。
+    #[test]
+    fn export_table_mirrors_customer_summary() {
+        let alpha = Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap();
+        let beta = Uuid::parse_str("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb").unwrap();
+        let snapshot = ReceivableAgingSnapshot {
+            cells: vec![
+                // 乙：只有未到期那格（1000），其余档位缺格 —— 导出必须补 0.00 而不是留空
+                CustomerBucketRow {
+                    customer_id: beta,
+                    customer_name: "乙客户".to_string(),
+                    bucket: "NOT_DUE".to_string(),
+                    doc_count: 1,
+                    unsettled: dec("1000.00"),
+                    min_days: -3,
+                    max_days: -3,
+                },
+                // 甲：一笔七位数的长账龄，顺带验证千分位
+                CustomerBucketRow {
+                    customer_id: alpha,
+                    customer_name: "甲客户".to_string(),
+                    bucket: "D181_365".to_string(),
+                    doc_count: 2,
+                    unsettled: dec("1234567.89"),
+                    min_days: 200,
+                    max_days: 300,
+                },
+            ],
+            total_amount: dec("1235567.89"),
+            total_received: dec("0.00"),
+            total_unsettled: dec("1235567.89"),
+            doc_count: 3,
+            customer_count: 2,
+            details: vec![],
+        };
+        let report = assemble(
+            AsOf {
+                date: date("2026-11-05"),
+                source: payable_aging::AS_OF_QUERY,
+            },
+            Some("2026-11"),
+            None,
+            snapshot,
+            "云枢",
+        );
+        let (headers, rows) = export_table(&report);
+
+        // ① 表头：列序与页面的客户汇总表逐列对齐（档位列跟着档位表走，不写死）
+        assert_eq!(
+            headers,
+            vec![
+                "客户",
+                "单据数",
+                "未到期",
+                "1-30 天",
+                "31-60 天",
+                "61-90 天",
+                "91-180 天",
+                "181-365 天",
+                "365 天以上",
+                "未收合计",
+                "最长逾期天数"
+            ]
+        );
+        assert_eq!(
+            headers.len(),
+            BUCKETS.len() + 4,
+            "列数 = 档位数 + 客户/单据数/未收合计/最长逾期"
+        );
+        assert_eq!(rows.len(), 3, "两个客户 + 一行合计");
+
+        // ② 每行每列都有值：缺的档是 0.00（`write_cell` 遇空串会写 blank，读回来就是空格）
+        for row in &rows {
+            for header in &headers {
+                assert!(row.contains_key(*header), "行里缺列「{header}」：{row:?}");
+                assert!(!row[*header].is_empty(), "列「{header}」不许空着：{row:?}");
+            }
+        }
+
+        // ③ 客户顺序沿用出参（未收倒序）：甲 1,234,567.89 在乙 1,000.00 前
+        assert_eq!(rows[0]["客户"], "甲客户");
+        assert_eq!(rows[0]["单据数"], "2");
+        assert_eq!(rows[0]["181-365 天"], "1,234,567.89", "千分位 + 2 位小数");
+        assert_eq!(rows[0]["未收合计"], "1,234,567.89");
+        assert_eq!(rows[0]["未到期"], "0.00", "没有这一档的钱写 0.00，不是空串");
+        assert_eq!(rows[0]["最长逾期天数"], "300");
+        assert_eq!(rows[1]["客户"], "乙客户");
+        assert_eq!(rows[1]["未到期"], "1,000.00");
+        assert_eq!(rows[1]["未收合计"], "1,000.00");
+        assert_eq!(rows[1]["最长逾期天数"], "0", "未逾期记 0");
+
+        // ④ 合计行 = 出参里已经算好的汇总（导出不做第二次加总，避免两张账）
+        let total = &rows[2];
+        assert_eq!(total["客户"], "合计");
+        assert_eq!(total["单据数"], "3");
+        assert_eq!(total["未到期"], "1,000.00");
+        assert_eq!(total["181-365 天"], "1,234,567.89");
+        assert_eq!(total["未收合计"], "1,235,567.89");
+        assert_eq!(total["最长逾期天数"], "300", "合计行的最长逾期 = 各客户最大值");
+        // 逐档核对：合计行的每一档 == 各客户同档之和
+        for bucket in BUCKETS {
+            let label = bucket.label;
+            let sum: Decimal = report
+                .summary
+                .iter()
+                .find(|cell| cell.key == bucket.key)
+                .map(|cell| cell.unpaid)
+                .unwrap();
+            assert_eq!(
+                total[label],
+                payable_aging::money_text(sum),
+                "合计行「{label}」≠ 汇总里的同档金额"
+            );
+        }
+    }
+
+    /// ⑥c 空表也能导出：没有未收清的应收单时，表头齐全、只出一行「合计 0.00」，
+    ///      不是 500、不是空文件（月结后跑空报表是常态）。
+    #[test]
+    fn export_table_handles_empty_report() {
+        let report = assemble(
+            AsOf {
+                date: date("2026-11-05"),
+                source: payable_aging::AS_OF_TODAY,
+            },
+            None,
+            None,
+            ReceivableAgingSnapshot::default(),
+            "云枢",
+        );
+        let (headers, rows) = export_table(&report);
+        assert_eq!(headers.len(), BUCKETS.len() + 4);
+        assert_eq!(rows.len(), 1, "只有合计行");
+        assert_eq!(rows[0]["客户"], "合计");
+        assert_eq!(rows[0]["单据数"], "0");
+        assert_eq!(rows[0]["未收合计"], "0.00");
+        for bucket in BUCKETS {
+            assert_eq!(rows[0][bucket.label], "0.00", "空表的每一档都是 0.00");
+        }
     }
 
     // ---------- 真库用例（需 `ERP_DB_URL`，缺省 SKIP） ----------
@@ -1379,5 +1650,134 @@ mod tests {
                 customer.customer_name
             );
         }
+    }
+
+    /// ⑪ 真库 + 真 xlsx：`build_report`（接口整条链）→ `export_table` → `write_sheet` 真字节
+    ///    → **calamine 读回**逐格核对。证明导出的表就是这张报表本身，不是「结构对了数错了」。
+    #[tokio::test]
+    async fn db_export_xlsx_round_trip_matches_report() {
+        use std::io::Cursor;
+
+        use calamine::{Data, Reader, Xlsx};
+
+        /// 单元格 → 文本（数字去掉尾随 `.0`：`calamine` 把整数格读成 `Float`）。
+        fn cell_text(cell: &Data) -> String {
+            match cell {
+                Data::Empty => String::new(),
+                Data::String(text) => text.clone(),
+                Data::Float(value) if value.fract() == 0.0 => format!("{}", *value as i64),
+                Data::Float(value) => format!("{value}"),
+                Data::Int(value) => value.to_string(),
+                other => other.to_string(),
+            }
+        }
+
+        let Some(_guard) = setup().await else { return };
+        let report = build_report(&ReceivableAgingQuery {
+            as_of: Some(AS_OF.to_string()),
+            period: None,
+        })
+        .await
+        .unwrap();
+        let (headers, rows) = export_table(&report);
+        let bytes = crate::business::impexp::engine::write_sheet(&headers, &rows).expect("生成 xlsx");
+        assert!(
+            bytes.len() > 1000,
+            "xlsx 至少要是能打开的 zip 容器（实际 {} 字节）",
+            bytes.len()
+        );
+
+        // 读回：表头 + 数据行（2 客户 + 合计）
+        let mut workbook = Xlsx::new(Cursor::new(bytes.as_slice())).expect("xlsx 必须是可读的 zip 容器");
+        let sheet_name = workbook.sheet_names().first().cloned().expect("xlsx 至少一个 sheet");
+        let range = workbook.worksheet_range(&sheet_name).expect("读第一个 sheet");
+        let table: Vec<Vec<String>> = range.rows().map(|row| row.iter().map(cell_text).collect()).collect();
+        assert_eq!(table.len(), 4, "表头 1 行 + 客户 2 行 + 合计 1 行，实际：{table:#?}");
+        assert_eq!(
+            table[0],
+            headers.iter().map(|header| header.to_string()).collect::<Vec<_>>(),
+            "读回的表头必须与 export_table 的列序逐格相同"
+        );
+        let col = |name: &str| {
+            table[0]
+                .iter()
+                .position(|text| text == name)
+                .unwrap_or_else(|| panic!("表头里没有「{name}」：{:?}", table[0]))
+        };
+
+        // 行序沿用出参（未收倒序）：乙 5300 → 甲 5200 → 合计
+        assert_eq!(table[1][col("客户")], "乙客户");
+        assert_eq!(table[1][col("单据数")], "6");
+        assert_eq!(table[1][col("未到期")], "0.00");
+        assert_eq!(table[1][col("31-60 天")], "900.00");
+        assert_eq!(table[1][col("61-90 天")], "600.00");
+        assert_eq!(table[1][col("91-180 天")], "800.00");
+        assert_eq!(table[1][col("181-365 天")], "1,400.00");
+        assert_eq!(table[1][col("365 天以上")], "1,600.00");
+        assert_eq!(table[1][col("未收合计")], "5,300.00");
+        assert_eq!(table[1][col("最长逾期天数")], "366");
+
+        assert_eq!(table[2][col("客户")], "甲客户");
+        assert_eq!(table[2][col("单据数")], "7");
+        assert_eq!(table[2][col("未到期")], "1,200.00", "到期当天 + 未到期两张");
+        assert_eq!(table[2][col("1-30 天")], "500.00");
+        assert_eq!(table[2][col("31-60 天")], "0.00");
+        assert_eq!(table[2][col("61-90 天")], "700.00");
+        assert_eq!(table[2][col("91-180 天")], "1,300.00", "180 天是上界");
+        assert_eq!(table[2][col("181-365 天")], "1,500.00", "365 天是上界");
+        assert_eq!(table[2][col("365 天以上")], "0.00");
+        assert_eq!(table[2][col("未收合计")], "5,200.00");
+        assert_eq!(table[2][col("最长逾期天数")], "365");
+
+        assert_eq!(table[3][col("客户")], "合计");
+        assert_eq!(table[3][col("单据数")], "13");
+        assert_eq!(table[3][col("未收合计")], "10,500.00");
+        assert_eq!(table[3][col("最长逾期天数")], "366");
+
+        // 合计行逐档 == 出参 summary（文件里的数就是接口里的数，不靠导出函数自己再加一遍）
+        for cell in &report.summary {
+            let label = BUCKETS
+                .iter()
+                .find(|bucket| bucket.key == cell.key)
+                .map(|bucket| bucket.label)
+                .expect("档位键必须在档位表里");
+            assert_eq!(
+                table[3][col(label)],
+                payable_aging::money_text(cell.unpaid),
+                "合计行「{label}」与出参 summary 不一致"
+            );
+        }
+        // 每个客户行各档之和 = 该行未收合计（读回文件后仍然成立 → 列没被写错位）
+        for row in &table[1..3] {
+            let mut sum = Decimal::ZERO;
+            for bucket in BUCKETS {
+                let text = row[col(bucket.label)].replace(',', "");
+                sum += Decimal::from_str(&text).expect("金额格必须是可解析的十进制文本");
+            }
+            let total_text = row[col("未收合计")].replace(',', "");
+            assert_eq!(
+                sum,
+                Decimal::from_str(&total_text).expect("未收合计可解析"),
+                "客户 {} 各档之和 ≠ 未收合计",
+                row[col("客户")]
+            );
+        }
+
+        // 文件名：报表名 + 期间（没传期间时「无期间」）+ 基准日
+        assert_eq!(
+            export_file_name(&report),
+            format!("应收账款账龄分析表_无期间_截止{AS_OF}.xlsx")
+        );
+        let with_period = build_report(&ReceivableAgingQuery {
+            as_of: None,
+            period: Some("2026-10".to_string()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            export_file_name(&with_period),
+            "应收账款账龄分析表_2026-10_截止2026-10-31.xlsx",
+            "只给期间时基准日取该期间末日"
+        );
     }
 }

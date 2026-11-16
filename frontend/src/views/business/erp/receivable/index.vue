@@ -164,6 +164,16 @@
             <t-button theme="primary" :loading="agingLoading" data-testid="btn-ar-aging-search" @click="loadAging()">
               查询
             </t-button>
+            <t-button
+              variant="outline"
+              :disabled="!aging"
+              :loading="agingExporting"
+              data-testid="btn-ar-aging-export"
+              @click="exportAging()"
+            >
+              <template #icon><t-icon name="download" /></template>
+              导出 Excel
+            </t-button>
             <span class="tool-row__spacer" />
             <span class="muted">
               分档口径与应付账龄同源（后端 <span class="mono">BUCKETS</span>），前端不写死 30/60/90
@@ -558,6 +568,7 @@ import { useRoute } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
+  exportReceivableAging,
   fetchCustomerPage,
   fetchReceivableAging,
   fetchReceivableDetail,
@@ -570,6 +581,7 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
+import { saveBlob } from '@/utils/download';
 /**
  * P3-06：列表壳换成通用 `ListPage`（筛选 / 服务端分页 / 行操作 / 导出）。
  * 只换渲染与分页接线，`buildReceivableQuery` / `isReceivableFiltered` 的口径一行没动。
@@ -588,6 +600,7 @@ import {
   WRITE_OFF_REASON_MAX,
   agingAsOfSourceText,
   agingDaysText,
+  agingExportFileName,
   agingPeriodStatusText,
   bucketShare,
   bucketThemeOf,
@@ -881,6 +894,29 @@ async function loadAging(): Promise<void> {
     agingError.value = messageOf(error);
   } finally {
     agingLoading.value = false;
+  }
+}
+
+const agingExporting = ref(false);
+
+/**
+ * 导出账龄分析 xlsx（后端 `GET /erp/receivable/aging/export`，M1-20）。
+ *
+ * 导出与页面**同源**：同一个 `as_of` 入参、同一份后端出参拼表（客户汇总 + 合计行），
+ * 前端不做二次计算 —— 否则「页面一个数、Excel 另一个数」是财务最怕的事。
+ * 失败（含无权导出 403）走 MessageBox 报错，不静默。
+ */
+async function exportAging(): Promise<void> {
+  if (!aging.value) return;
+  agingExporting.value = true;
+  try {
+    const blob = await exportReceivableAging(agingAsOf.value ? { as_of: agingAsOf.value } : {});
+    saveBlob(blob, agingExportFileName(aging.value));
+    MessagePlugin.success('已导出');
+  } catch (error) {
+    MessagePlugin.error(`导出失败：${messageOf(error)}`);
+  } finally {
+    agingExporting.value = false;
   }
 }
 
