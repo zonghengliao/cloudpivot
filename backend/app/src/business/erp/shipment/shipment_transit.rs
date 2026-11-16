@@ -59,6 +59,26 @@ pub const STATUS_RECEIVED: &str = "RECEIVED";
 /// 已作废：发货单作废时由调用方写；⚠ 所有在途取数必须带 `status <> 'CANCELLED'`。
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
+/// 状态域（3 值，顺序与 V0420 的 `ck_biz_inv_transit_status` 一致）。
+///
+/// 唯一真相在迁移里；本常量只给「筛选校验」与「报文列举合法值」用（M2-04 查询接口）。
+pub const STATUSES: [&str; 3] = [STATUS_IN_TRANSIT, STATUS_RECEIVED, STATUS_CANCELLED];
+
+/// 状态是否在域内（精确匹配，不做大小写归一 —— 库里存的就是大写）。
+pub fn is_valid_status(status: &str) -> bool {
+    STATUSES.contains(&status)
+}
+
+/// 状态中文标签（列表 / 详情回显；未知值原样返回，不 panic —— 库层 CHECK 已经兜住非法值）。
+pub fn status_label(status: &str) -> &str {
+    match status {
+        STATUS_IN_TRANSIT => "在途",
+        STATUS_RECEIVED => "已签收",
+        STATUS_CANCELLED => "已作废",
+        other => other,
+    }
+}
+
 /// 一条在途行的写入结果（供 `PostOutcome` 回显与日志）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitLine {

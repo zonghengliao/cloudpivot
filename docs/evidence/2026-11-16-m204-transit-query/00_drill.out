@@ -1,0 +1,45 @@
+== M2-04 在途库存查询接口 · 演练（PG 172.18.10.145:5432 / 库 cp_m204_transit_drill_2784920）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m204_transit_drill_2784920
+== 1) 补齐业务迁移 V0405…V0420（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 16 条业务迁移全部应用成功（V0420 建在途账）
+  [32mPASS[0m 在途账表存在（=biz_inventory_in_transit）
+== 2) 基线（还没有 V0421）：记下别人的既有红
+  [32mPASS[0m 闸是活的：没有 V0421 时 perm_menu_gate 报出本卡的码（授不出去）
+  ---- 基线 permission_audit 失败用例 1 条 / 死码 1 个：business:erp:report:receivable-aging
+  ---- 基线孤儿 (角色,码) 4 对
+== 3) 应用 V0421，检查权限码落库形状
+  [32mPASS[0m V0421 应用成功（在途查询权限码已种）
+  [32mPASS[0m 码只有 1 个承载节点（=1）
+  [32mPASS[0m 承载节点是按钮（menu_type=3，不进侧栏）（=3）
+  [32mPASS[0m 按钮无 path（侧栏不会多出点不通的入口）（=）
+  [32mPASS[0m 挂在「即时库存」页面下（=即时库存）
+  [32mPASS[0m 持 inventory:list 的角色都拿到了在途码（缺口 0）（=0）
+  [32mPASS[0m 至少 1 个**非超管**角色拿到码（N20 口径）（=4）
+== 4) 幂等（up 再跑一次）与回滚（down → down → up）
+  [32mPASS[0m V0421 重放（幂等）执行成功
+  [32mPASS[0m 重放后承载节点数不变（=1）
+  [32mPASS[0m 重放后授权行数不变（不重复授）（=5）
+  [32mPASS[0m V0421 down 执行成功
+  [32mPASS[0m down 后码清零（=0）
+  [32mPASS[0m down 后授权行清零（=0）
+  [32mPASS[0m down 可重放（幂等）
+  [32mPASS[0m V0421 重新 up 成功
+  [32mPASS[0m 重新 up 后授权行恢复且不重复（=5）
+== 5) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡（明细分页 / 汇总 / 纯逻辑）：business::erp::inventory_transit 全绿（19 条）（=19）
+  [32mPASS[0m 本卡（明细分页 / 汇总 / 纯逻辑）：本组 SKIP=0（真库用例没有被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 上游发货域（在途写入口未被破坏）：business::erp::shipment 全绿（46 条）（=46）
+  [32mPASS[0m 上游发货域（在途写入口未被破坏）：本组 SKIP=0（真库用例没有被「无 ERP_DB_URL」打成假绿）
+== 6) 收尾：三道闸 vs 基线
+  [32mPASS[0m perm_menu_gate 转绿：本卡的码有菜单承载（注解 ↔ 菜单一一对应）
+  [32mPASS[0m business:erp:inventory-transit:list 在源码里有落地（N14 不报它）
+  [32mPASS[0m permission_audit 失败集与迁移前**完全一致**（0 新增红；既有红 1 条属别的卡）
+  [32mPASS[0m N14/N20 报文里没有本卡的码（无死码 / 已授非超管）（=0）
+  [32mPASS[0m 本卡的码不是孤儿按钮（授权角色的父页码都在）
+  [32mPASS[0m 孤儿清单与迁移前**完全一致**（0 新增孤儿；既有 4 对属别的卡）
+  [32mPASS[0m menu_invariants：8 条菜单结构不变量全绿
+
+== 汇总：PASS=32 FAIL=0 ==
+ALL PASS

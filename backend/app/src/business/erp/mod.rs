@@ -174,6 +174,11 @@ pub mod fx_settings_handler;
 pub mod handler;
 pub mod income_statement;
 pub mod inventory_audit;
+/// 在途库存查询（M2-04 · V0421）：在途账 `biz_inventory_in_transit` 的两条只读入口 ——
+/// 明细分页（按物料 / 仓库 / 客户 / 发货单 / 状态 / 发货日期区间）+ 按 物料 × 仓库 汇总。
+/// 表与状态域仍归 [`shipment::shipment_transit`]（M2-01 建表 / M2-02 写 / M2-03 结转），
+/// 本模块只读、零写 SQL。
+pub mod inventory_transit;
 /// 库存三本账（`biz_inventory` / `biz_inventory_location` / `biz_inventory_txn`）的**唯一写入口**。
 ///
 /// P2-5A 收口：所有写 SQL 住在这里，业务模块只编排；闸门在
