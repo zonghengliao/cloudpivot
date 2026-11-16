@@ -1,0 +1,26 @@
+═══ A. 权限形状（本卡零迁移，形状必须与 M2-07 交付时一致）═══
+  PASS 对账码只有 1 个承载节点（1）
+  PASS 对账码是按钮（menu_type=3）（3）
+  PASS 对账码无 path（不进侧栏）（__NULL__）
+  PASS 对账码父节点仍是「即时库存」（本卡未搬家）（即时库存）
+  PASS 取数码只有 1 个承载节点（上游 drill 钉死的形状）（1）
+  PASS 页面显形码只有 1 个承载节点（1）
+  PASS 页面码是页面（menu_type=2）（2）
+  PASS 页面码 path 与前端路由一致（/business/erp/inventory-transit）
+  PASS 持取数码的角色都有对账码（V0422 成对授予仍成立；只读验收角色除外）（0）
+═══ B. 夹具口径（六种对账形态）═══
+  PASS 6 张 POSTED 发货单（6）
+  PASS 5 行发货单明细（SH5 没有明细 = ORPHAN_TRANSIT 现场）（5）
+  PASS 6 行在途账（6）
+  PASS 夹具产生 6 组「发货单 × 物料」（= backend FULL OUTER JOIN 的组合数）（6）
+  PASS 明细 Σqty = 210（100+50+20+10+30）（210.0000）
+  PASS 非作废在途合计 = 152（60+55+7+20+10）（152.0000）
+  PASS 已签收合计 = 40（40.0000）
+  PASS 作废行发货量 = 10（CANCELLED_ONLY 现场）（10.0000）
+  PASS SH6 同物料跨 2 个仓（MULTI_WAREHOUSE 现场）（2）
+  PASS SH3 没有在途行（MISSING_TRANSIT 现场）（0）
+═══ C. 只读角色（无对账码）═══
+  PASS 只读角色只挂了 3 个菜单（目录 + 页面码 + 取数码）（3）
+  PASS 只读角色**没有**对账码（真机上第三个 Tab 必须看不到）（0）
+
+═══ PASS=21 FAIL=0 / ALL PASS ═══

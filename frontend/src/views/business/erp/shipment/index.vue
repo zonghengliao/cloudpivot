@@ -517,6 +517,7 @@
  * `OUT-yyyyMMdd-000001`；列表列显示「未过账 / 出库单已删除」。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
@@ -582,6 +583,8 @@ const PERM = {
 
 const userStore = useUserStore();
 const canWrite = computed(() => userStore.hasPermission(PERM.create));
+/** 深链参数（`?shipment_id=`：在途对账页点发货单号过来直接开详情） */
+const route = useRoute();
 
 /** 表格列（colKey 与后端出参同名） */
 const columns = SHIPMENT_COLUMNS;
@@ -1076,8 +1079,19 @@ const detail = ref<Shipment | null>(null);
 const detailActions = computed(() => rowActions(detail.value ?? { status: null }));
 
 async function openDetail(row: Shipment): Promise<void> {
+  await openDetailById(row.id);
+}
+
+/**
+ * 按 id 打开详情抽屉。
+ *
+ * 除了列表行点「详情」，还有一条**深链**入口：在途对账页（M2-07b）的「发货单号」会带
+ * `?shipment_id=<uuid>` 跳过来，`onMounted` 读它直接打开那一张 —— 否则仓管看到一行差异，
+ * 只能回到发货单列表自己按单号翻。
+ */
+async function openDetailById(id: string): Promise<void> {
   detailVisible.value = true;
-  await loadDetail(row.id);
+  await loadDetail(id);
 }
 
 async function loadDetail(id: string): Promise<void> {
@@ -1100,6 +1114,12 @@ async function loadDetail(id: string): Promise<void> {
 
 onMounted(async () => {
   await Promise.all([reloadList(1), loadOptions()]);
+  // 深链：`/business/erp/shipment?shipment_id=<uuid>`（在途对账页 M2-07b 点「发货单号」过来）。
+  // 详情自己拉那一张（`GET /shipment/{id}`），不依赖列表当前页里有没有这行。
+  const target = route.query.shipment_id;
+  if (typeof target === 'string' && target) {
+    await openDetailById(target);
+  }
 });
 </script>
 

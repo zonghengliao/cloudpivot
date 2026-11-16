@@ -270,6 +270,243 @@
             </t-loading>
           </t-card>
         </t-tab-panel>
+        <!-- ==================== Tab 3：在途对账（M2-07b；按 audit 码显隐） ==================== -->
+        <!--
+          `v-if="canAudit"` 而不是整页 403：对账是独立授权面（V0422 的 :audit 按钮行），
+          没有这个码的角色只是看不到这个 Tab，明细 / 汇总照常。
+          `lazy`：第一次切过去才跑对账（全量扫描 2000 组，别在首屏白跑）。
+        -->
+        <t-tab-panel v-if="canAudit" :value="RECONCILE_TAB.key" :label="RECONCILE_TAB.label" lazy>
+          <t-card :bordered="false" class="transit-reconcile" data-testid="transit-reconcile">
+            <div class="tool-row">
+              <t-select
+                v-model="reconcileFilter.shipment_id"
+                class="transit-tool__select"
+                :options="shipmentOptions"
+                placeholder="发货单号（全部）"
+                filterable
+                clearable
+                data-testid="transit-reconcile-shipment"
+              />
+              <t-select
+                v-model="reconcileFilter.material_id"
+                class="transit-tool__select"
+                :options="materialOptions"
+                placeholder="物料（全部）"
+                filterable
+                clearable
+                data-testid="transit-reconcile-material"
+              />
+              <t-select
+                v-model="reconcileFilter.warehouse_id"
+                class="transit-tool__select"
+                :options="warehouseOptions"
+                placeholder="发货仓库（全部）"
+                filterable
+                clearable
+                data-testid="transit-reconcile-warehouse"
+              />
+              <t-date-range-picker
+                :model-value="reconcileFilter.date_range"
+                class="transit-tool__range"
+                placeholder="发货日期区间"
+                format="YYYY-MM-DD"
+                clearable
+                data-testid="transit-reconcile-date"
+                @update:model-value="setReconcileDateRange"
+              />
+              <label class="transit-check" data-testid="transit-reconcile-include-matched-label">
+                <t-switch v-model="reconcileFilter.include_matched" size="small" data-testid="transit-reconcile-include-matched" />
+                <span class="transit-check__text">连对平的组一起看</span>
+              </label>
+              <t-button theme="primary" :loading="reconcileLoading" data-testid="transit-reconcile-run" @click="runReconcile()">
+                开始对账
+              </t-button>
+              <t-button variant="outline" data-testid="transit-reconcile-reset" @click="resetReconcile()">重置</t-button>
+            </div>
+
+            <span class="transit-tip">
+              口径：发货单明细 Σqty（SSOT）= 已出 + 在途，逐「发货单 × 物料」比对；缺省只列「有差异」的组。
+              三侧数量与差额全部取后端（页面不做加减）；扫描上限 <code>{{ reconcile?.scan_limit ?? '—' }}</code> 组。
+            </span>
+
+            <t-alert
+              v-if="reconcileError"
+              theme="error"
+              :message="reconcileError"
+              class="transit-alert"
+              data-testid="transit-reconcile-error"
+            >
+              <template #operation>
+                <t-button size="small" variant="outline" @click="runReconcile()">重试</t-button>
+              </template>
+            </t-alert>
+
+            <!-- 结论横幅：一句话说清平不平（三侧合计与差额取后端 totals） -->
+            <t-alert
+              v-if="reconcileBanner"
+              :theme="reconcileBanner.theme"
+              :title="reconcileBanner.title"
+              :message="reconcileBanner.desc"
+              class="transit-alert"
+              data-testid="transit-reconcile-banner"
+            />
+
+            <t-alert
+              v-if="reconcileTruncatedHint"
+              theme="warning"
+              :message="reconcileTruncatedHint"
+              class="transit-alert"
+              data-testid="transit-reconcile-truncated"
+            />
+
+            <!-- KPI：全部取后端 totals（页面零加法） -->
+            <div v-if="reconcile" class="transit-kpi" data-testid="transit-reconcile-kpi">
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">比对组数</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-checked">{{ reconcile.totals.checked }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">对平组数</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-matched">{{ reconcile.totals.matched }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">不平组数</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-mismatched">{{ reconcile.totals.mismatched }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">整批作废组数</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-cancelled">{{ reconcile.totals.cancelled }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">未纳入在途账</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-untracked">{{ reconcile.totals.untracked }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">发货总量（已纳入）</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-total-item">{{ formatQty(reconcile.totals.item_qty) }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">已出合计</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-total-received">{{ formatQty(reconcile.totals.received_qty) }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">在途合计</span>
+                <b class="transit-kpi__value" data-testid="transit-reconcile-total-transit">{{ formatQty(reconcile.totals.in_transit_qty) }}</b>
+              </div>
+              <div class="transit-kpi__item">
+                <span class="transit-kpi__label">差异量</span>
+                <b
+                  class="transit-kpi__value"
+                  :class="{ 'transit-kpi__value--zero': isZeroQty(reconcile.totals.diff) }"
+                  data-testid="transit-reconcile-total-diff"
+                >
+                  {{ formatQty(reconcile.totals.diff) }}
+                </b>
+              </div>
+            </div>
+
+            <t-loading :loading="reconcileLoading" size="small">
+              <t-table
+                v-if="reconcileRows.length"
+                row-key="__key"
+                :data="reconcileRows"
+                :columns="reconcileColumns"
+                size="small"
+                hover
+                max-height="560"
+                data-testid="transit-reconcile-table"
+              >
+                <template #ship_no="{ row }">
+                  <div class="cell-stack">
+                    <span class="cell-stack__main">
+                      <!-- 可点进发货单：没有发货单读码（:shipment:list）时退化成纯文本，不做「点了 403」的链接 -->
+                      <t-link
+                        v-if="canOpenShipment"
+                        theme="primary"
+                        class="mono"
+                        :data-testid="`transit-reconcile-shipment-link-${row.shipment_id}`"
+                        @click="openShipment(row)"
+                      >
+                        {{ dash(row.ship_no) }}
+                      </t-link>
+                      <span v-else class="mono" :data-testid="`transit-reconcile-shipment-text-${row.shipment_id}`">
+                        {{ dash(row.ship_no) }}
+                      </span>
+                      <t-tag v-if="row.shipment_deleted" size="small" variant="light" theme="default" class="transit-reconcile__deleted">
+                        发货单已删
+                      </t-tag>
+                    </span>
+                    <span class="cell-stack__sub mono">{{ dash(row.ship_date) }}</span>
+                  </div>
+                </template>
+
+                <template #material="{ row }">
+                  <div class="cell-stack">
+                    <span class="cell-stack__main" :data-testid="`transit-reconcile-material-${row.material_id}`">
+                      {{ materialText(row) }}
+                    </span>
+                    <span class="cell-stack__sub">{{ dash(row.spec) }}</span>
+                  </div>
+                </template>
+
+                <template #warehouse="{ row }">
+                  <span>{{ reconcileWarehouseText(row) }}</span>
+                </template>
+
+                <template #item_qty="{ row }">
+                  <span class="num">{{ formatQty(row.item_qty) }}</span>
+                </template>
+
+                <template #received_qty="{ row }">
+                  <span class="num num--muted">{{ formatQty(row.received_qty) }}</span>
+                </template>
+
+                <template #qty_in_transit="{ row }">
+                  <span class="num num--muted">{{ formatQty(row.qty_in_transit) }}</span>
+                </template>
+
+                <template #diff="{ row }">
+                  <span
+                    class="num num--strong"
+                    :class="{ 'num--zero': isZeroQty(row.diff), 'num--danger': !isZeroQty(row.diff) }"
+                    :data-testid="`transit-reconcile-diff-${row.shipment_id}-${row.material_id}`"
+                  >
+                    {{ diffText(row) }}
+                  </span>
+                </template>
+
+                <template #issues="{ row }">
+                  <div class="transit-reconcile__issues">
+                    <t-tag
+                      size="small"
+                      variant="light"
+                      :theme="reconcileResultTheme(row)"
+                      :data-testid="`transit-reconcile-result-${row.shipment_id}-${row.material_id}`"
+                    >
+                      {{ reconcileResultText(row) }}
+                    </t-tag>
+                    <!-- 后端差异文案是一句话（不是词条）：用普通文本，窄屏也能换行；t-tag 的 nowrap 会把它截断。
+                         对平行不再重复一遍「对平」（判定 tag 已经说了） -->
+                    <span
+                      v-if="!row.matched"
+                      class="transit-reconcile__issue-text"
+                      :data-severity="issueTheme(row.issues[0])"
+                    >
+                      {{ issueText(row) }}
+                    </span>
+                  </div>
+                </template>
+              </t-table>
+
+              <div v-else-if="!reconcileLoading && !reconcileError" class="transit-empty" data-testid="transit-reconcile-empty">
+                <t-icon name="swap" class="transit-empty__icon" />
+                <p class="transit-empty__title" data-testid="transit-reconcile-empty-title">{{ reconcileEmpty.title }}</p>
+                <p class="transit-empty__desc">{{ reconcileEmpty.desc }}</p>
+              </div>
+            </t-loading>
+          </t-card>
+        </t-tab-panel>
       </t-tabs>
     </t-card>
   </div>
@@ -277,29 +514,36 @@
 
 <script setup lang="ts">
 /**
- * 在途库存页（M2-07）：**在途明细 + 在途汇总** 两个 Tab。
+ * 在途库存页：**在途明细 + 在途汇总** 两个常驻 Tab，外加**在途对账**（M2-07b）。
  *
- * # 数据源只有两个只读接口（都在后端 `inventory_transit` 模块，M2-04 落地）
+ * # 数据源只有三个只读接口（都在后端 `inventory_transit` 模块）
  *
  * ```text
- * Tab1 在途明细   GET /business/erp/inventory-transit/page     TransitRow[]（分页 + 筛选）
- * Tab2 在途汇总   GET /business/erp/inventory-transit/summary  按 物料 × 发货仓（+ 全量合计）
+ * Tab1 在途明细   GET /business/erp/inventory-transit/page       TransitRow[]（分页 + 筛选）
+ * Tab2 在途汇总   GET /business/erp/inventory-transit/summary    按 物料 × 发货仓（+ 全量合计）
+ * Tab3 在途对账   GET /business/erp/inventory-transit/reconcile  逐 发货单 × 物料 的三侧数量 + 差异码
  * ```
  *
  * 页面**不算账**：
  * * `qty_in_transit` 是 PG 生成列（`shipped_qty - received_qty`），任何写入路径都写不出「不符」的值；
  * * `age_days` / `max_age_days` 由 PG 按 `CURRENT_DATE - ship_date` 算（浏览器时区不参与）；
- * * 汇总的 `total_*` 是后端**另一条聚合查询**算的，`truncated = true` 时行不全但合计仍是全量
- *   —— 所以页面上**没有**任何 `reduce` 出来的合计（自己加一遍 = 第二套账，截断时必然算小）。
+ * * 汇总的 `total_*` 是后端**另一条聚合查询**算的，`truncated = true` 时行不全但合计仍是全量；
+ * * 对账的三侧数量（`item_qty` / `received_qty` / `qty_in_transit`）、差额 `diff` 与 `totals.*`
+ *   一律取后端（`reconcile::ComboRow::diff` 是唯一口径）—— 页面**没有任何 `reduce` / 减法**：
+ *   自己算一遍 = 第二套账，而且对账要的正是「前端独立算出来会不会跟后端不一样」这个否证。
  *
- * # 两个权限码（别指望一个）
+ * # 三个权限码（别指望一个）
  *
  * | 码 | 挂在哪 | 管什么 |
  * |----|--------|--------|
  * | `business:erp:inventory-transit:page` | V0423 菜单页面行 + 本路由 `meta.permission` | 侧栏显形 / 前端守卫（后端零引用） |
- * | `business:erp:inventory-transit:list` | V0421 按钮行 | 两个接口的框架闸 |
+ * | `business:erp:inventory-transit:list` | V0421 按钮行 | 明细 / 汇总两个接口的框架闸 |
+ * | `business:erp:inventory-transit:audit` | V0422 按钮行 | 对账接口（M2-05）+ **第三个 Tab 的显隐** |
  *
- * 403 时页面给出点名缺哪个码的人话（见 `requestErrorMessage`），而不是「无权限」四个字。
+ * 没有 `:audit` 的角色**看不到「在途对账」Tab**，但页面照常能开（**不做整页 403**）：
+ * 对账是出结论的授权面，看数的人不一定该出结论。
+ *
+ * 403 时页面给出点名缺哪个码的人话（见 `requestErrorMessage` / `reconcileErrorMessage`），而不是「无权限」四个字。
  *
  * # 主数据下拉是「能拉就拉」
  *
@@ -310,9 +554,10 @@
  * # 只读
  *
  * 在途行的产生（发货过账）与结转（签收确认）都在**发货单**那边（M2-02 / M2-03），
- * 本页因此没有任何写按钮 —— 在途台账是派生账，手改它等于伪造账。
+ * 本页因此没有任何写按钮 —— 在途台账是派生账，手改它等于伪造账；对账更是纯读（后端一行写 SQL 都没有）。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 import ListPage from '@/components/ListPage/index.vue';
 import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
@@ -327,8 +572,11 @@ import {
 import { fetchShipmentPage, type Shipment } from '@/api/business/erp/shipment';
 import {
   fetchTransitPage,
+  fetchTransitReconcile,
   fetchTransitSummary,
   type TransitQuery,
+  type TransitReconcile,
+  type TransitReconcileRow,
   type TransitRow,
   type TransitSummary,
   type TransitSummaryRow,
@@ -336,20 +584,36 @@ import {
 import { hasPermission } from '@/utils/flow-assignee-guard';
 
 import {
+  PERM_TRANSIT_AUDIT,
+  RECONCILE_TAB,
   TRANSIT_PAGE_SIZE,
   TRANSIT_STATUS_OPTIONS,
   TRANSIT_TABS,
   ageText,
   ageTheme,
+  buildReconcileQuery,
   buildSummaryQuery,
   buildTransitQuery,
   customerText,
   detailEmptyText,
+  diffText,
+  emptyReconcileFilter,
   emptySummaryFilter,
   emptyTransitFilter,
   formatQty,
   isPositiveQty,
+  isZeroQty,
+  issueText,
+  issueTheme,
   materialText,
+  reconcileBanner as reconcileBannerOf,
+  reconcileEmptyText as reconcileEmptyTextOf,
+  reconcileErrorMessage,
+  reconcileResultText,
+  reconcileResultTheme,
+  reconcileRowKey,
+  reconcileTruncatedNote as reconcileTruncatedNoteOf,
+  reconcileWarehouseText,
   requestErrorMessage,
   statusLabel,
   statusTheme,
@@ -357,6 +621,7 @@ import {
   truncatedNote,
   warehouseText,
   type TransitFilterState,
+  type TransitReconcileFilterState,
   type TransitSummaryFilterState,
   type TransitTabKey,
 } from './transit-logic';
@@ -534,6 +799,96 @@ watch(activeTab, (tab) => {
   }
 });
 
+// ==================== Tab3：在途对账（M2-07b） ====================
+
+/**
+ * 第三个 Tab 的显隐：**只按对账码**（`business:erp:inventory-transit:audit`）判。
+ *
+ * 没有该码的角色看不到这个 Tab，但页面照常能开 —— 对账是出结论的授权面，
+ * 不该把整个在途页 403 掉（看数的人和出结论的人可以不是同一个角色）。
+ */
+const canAudit = computed(() => hasPermission(PERM_TRANSIT_AUDIT));
+
+/** 发货单读码：没有它时「发货单号」退化成纯文本（点了只会是一页 403） */
+const canOpenShipment = computed(() => hasPermission('business:erp:shipment:list'));
+
+const router = useRouter();
+
+const reconcileFilter = reactive<TransitReconcileFilterState>(emptyReconcileFilter());
+const reconcile = ref<TransitReconcile | null>(null);
+const reconcileLoading = ref(false);
+const reconcileError = ref('');
+const reconcileLoaded = ref(false);
+
+/** 行键 = 发货单 × 物料（后端 `ComboRow` 的 GROUP BY 就是这两列，一组一行） */
+const reconcileRows = computed<Array<TransitReconcileRow & { __key: string }>>(() =>
+  (reconcile.value?.rows ?? []).map((row) => ({ ...row, __key: reconcileRowKey(row) })),
+);
+
+/** 对账列（三侧数量 + 差额 + 结论；宽度合计 ≈1060，1440 笔记本屏不出现横向滚动） */
+const reconcileColumns = [
+  // 发货日期并进「发货单号」的下行：独立一列要 120px，挤掉的正是「结论」列（那是最该看见的一列）
+  { colKey: 'ship_no', title: '发货单号 / 发货日期', width: 170 },
+  { colKey: 'material', title: '物料', width: 170 },
+  { colKey: 'warehouse', title: '发货仓库', width: 120 },
+  { colKey: 'item_qty', title: '发货总量', width: 85, align: 'right' as const },
+  { colKey: 'received_qty', title: '已出', width: 75, align: 'right' as const },
+  { colKey: 'qty_in_transit', title: '在途', width: 75, align: 'right' as const },
+  { colKey: 'diff', title: '差异量', width: 85, align: 'right' as const },
+  { colKey: 'issues', title: '结论', minWidth: 280 },
+];
+
+const reconcileEmpty = computed(() => reconcileEmptyTextOf(reconcile.value, reconcileFilter));
+const reconcileBanner = computed(() => reconcileBannerOf(reconcile.value));
+const reconcileTruncatedHint = computed(() => reconcileTruncatedNoteOf(reconcile.value));
+
+/** 日期区间写回（`t-date-range-picker` 可能给 `null`，一律归成空数组） */
+function setReconcileDateRange(value: unknown): void {
+  reconcileFilter.date_range = Array.isArray(value) ? value.map(String) : [];
+}
+
+/**
+ * 跑一次对账（`GET /reconcile`）。
+ *
+ * 三侧数量、差额、`totals.*` 全部是后端给的字段，这里只做「赋值」——
+ * 页面不做任何加减（单测断言页面源码里不出现 `reduce(`）。
+ */
+async function runReconcile(): Promise<void> {
+  reconcileLoading.value = true;
+  reconcileError.value = '';
+  try {
+    reconcile.value = await fetchTransitReconcile(buildReconcileQuery(reconcileFilter));
+    reconcileLoaded.value = true;
+  } catch (err) {
+    reconcileError.value = reconcileErrorMessage(err);
+  } finally {
+    reconcileLoading.value = false;
+  }
+}
+
+/** 清筛选并重跑 */
+function resetReconcile(): void {
+  Object.assign(reconcileFilter, emptyReconcileFilter());
+  void runReconcile();
+}
+
+/**
+ * 点发货单号 → 发货单页并**直接打开那张单的详情抽屉**。
+ *
+ * 走 query 参数（`?shipment_id=`）而不是「跳过去让用户自己找」：发货单页的
+ * `onMounted` 读这个参数后 `openDetailById`（那张卡里已接）。
+ */
+function openShipment(row: TransitReconcileRow): void {
+  void router.push({ path: '/business/erp/shipment', query: { shipment_id: row.shipment_id } });
+}
+
+/** 对账 Tab 也是 `lazy`：第一次切过去才跑（全量扫描上限 2000 组，别在首屏白跑） */
+watch(activeTab, (tab) => {
+  if (tab === RECONCILE_TAB.key && !reconcileLoaded.value && !reconcileLoading.value) {
+    void runReconcile();
+  }
+});
+
 // ==================== 主数据下拉（能拉就拉） ====================
 
 const materials = ref<MaterialRow[]>([]);
@@ -658,6 +1013,54 @@ onMounted(() => {
   padding: 4px;
 }
 
+.transit-reconcile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px;
+}
+
+/* 「连对平的组一起看」：开关 + 文案包成一个 inline-flex，别被工具行换行拆开 */
+.transit-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.transit-check__text {
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
+}
+
+/* 结论列：判定 tag + 一句后端文案（文案不是词条，必须能换行） */
+.transit-reconcile__issues {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.transit-reconcile__issue-text {
+  flex: 1 1 180px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--td-text-color-secondary);
+  word-break: break-word;
+}
+
+.transit-reconcile__issue-text[data-severity='danger'] {
+  color: var(--td-error-color);
+}
+
+.transit-reconcile__issue-text[data-severity='warning'] {
+  color: var(--td-warning-color);
+}
+
+.transit-reconcile__deleted {
+  margin-left: 6px;
+}
+
 /* 工具栏行用 shell.less 里的 .tool-row（零壳类声明：页面不重新定义壳类） */
 
 .transit-tool__select {
@@ -743,6 +1146,14 @@ onMounted(() => {
 }
 
 .num--zero {
+  color: var(--td-text-color-placeholder);
+}
+
+.num--danger {
+  color: var(--td-error-color);
+}
+
+.transit-kpi__value--zero {
   color: var(--td-text-color-placeholder);
 }
 

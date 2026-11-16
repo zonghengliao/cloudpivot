@@ -25,6 +25,7 @@ import {
   PERM_TRANSIT_AUDIT,
   PERM_TRANSIT_LIST,
   PERM_TRANSIT_PAGE,
+  RECONCILE_TAB,
   TRANSIT_PAGE_SIZE,
   TRANSIT_STATUS_OPTIONS,
   TRANSIT_TABS,
@@ -276,21 +277,33 @@ test('其它错误原样透出（不要把 400 的「参数非法」也变成权
   assert.match(requestErrorMessage(null), /没有返回原因/);
 });
 
-test('对账码常量存在但本页不消费（对账是 M2-05 的另一面，另一张单）', () => {
+test('对账码由页面消费：只用来判第三个 Tab 的显隐（M2-07b 补账；不整页 403）', () => {
   assert.equal(PERM_TRANSIT_AUDIT, 'business:erp:inventory-transit:audit');
-  assert.equal(PAGE.includes('PERM_TRANSIT_AUDIT'), false, '在途页不应对账：本卡只做明细 + 汇总');
+  // M2-07 时本页不消费对账码；M2-07b（t_4e93fa53）把对账面接进来后，它变成第三个 Tab 的显隐判据。
+  assert.match(PAGE_CODE, /hasPermission\(PERM_TRANSIT_AUDIT\)/, '对账 Tab 的显隐必须按 :audit 码判');
+  // 只在第三个面板上用一次：整页/前两个 Tab 不受影响（没有该码的角色照样能看明细与汇总）
+  assert.equal(
+    (TPL.replace(/<!--[\s\S]*?-->/g, '').match(/canAudit/g) ?? []).length,
+    1,
+    'canAudit 只允许出现在对账面板上（整页 403 = 违约）',
+  );
+  assert.equal(/v-if="!canAudit"|v-else-if="!canAudit"/.test(TPL), false, '不许把页面主体挂在「无对账码」分支上');
 });
 
 // ==================== ⑥ 页面源码契约 ====================
 
-test('页面两个 Tab：明细 + 汇总，且 tab 键与 TRANSIT_TABS 一致', () => {
-  assert.equal(TRANSIT_TABS.length, 2);
+test('页面 Tab：明细 + 汇总常驻，对账是第三个（M2-07b 按 audit 码显隐）', () => {
+  assert.equal(TRANSIT_TABS.length, 2, '常驻 Tab 仍是两个；对账单独声明在 RECONCILE_TAB（可显隐，不算常驻）');
   assert.match(TPL, /TRANSIT_TABS\[0\]\.key/);
   assert.match(TPL, /TRANSIT_TABS\[1\]\.key/);
+  assert.equal(RECONCILE_TAB.key, 'reconcile');
+  assert.equal(RECONCILE_TAB.label, '在途对账');
+  assert.match(TPL, /:value="RECONCILE_TAB\.key"/);
   assert.match(PAGE, /在途明细/);
   assert.match(PAGE, /在途汇总/);
   // 汇总面板 lazy：切过去才拉，别在首屏白打一次请求
   assert.match(TPL, /:value="TRANSIT_TABS\[1\]\.key"[^>]*lazy/);
+  assert.match(TPL, /:value="RECONCILE_TAB\.key"[^>]*lazy/, '对账面板也要 lazy（全量扫描 2000 组）');
 });
 
 test('明细走 ListPage（筛选 / 分页 / 空态 / 错误态不自己造一套）', () => {

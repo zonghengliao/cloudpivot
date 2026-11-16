@@ -1,0 +1,50 @@
+### 2026-11-16 20:44:33 CST  M2-07b 门禁（真实输出）
+
+## backend 改动面：本卡 0 行（git diff --name-only 里 backend/ 为空）
+backend/app/src/business/erp/mod.rs
+
+## backend: cargo clippy --lib --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
+rc=0
+
+## backend: cargo fmt -- --check（rc 非 0 的行属于**另一张卡在途的 M2-08 文件**，本卡没碰 backend）
+Diff in /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/aging_db_tests.rs
+Diff in /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/aging_tests.rs
+Diff in /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/dto.rs
+Diff in /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/fifo.rs
+Diff in /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/handler.rs
+Diff in /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/model.rs
+Diff in /opt/cloudpivot/backend/app/src/business/erp/mod.rs
+rc=1
+
+
+## frontend: pnpm typecheck
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+rc=0
+
+## frontend: pnpm typecheck:unit
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js -p tsconfig.unit.json --noEmit
+
+rc=0
+
+## frontend: pnpm test:unit（全量）
+# tests 2043
+# pass 2043
+# fail 0
+
+## frontend: 本卡单测（m207b + m207 两份契约文件）
+# tests 68
+# pass 68
+# fail 0
+
+## frontend: pnpm build（日志尾部；完整日志见提交说明）
+dist//opt/cloudpivot/frontend/assets/tdesign-B3swqWaX.js.gz                                                7998.25kb / gzip: 773.39kb
+
+
+build rc=0
+
+## frontend: 壳类变体门禁（页面不许新增壳类声明）
+| B5-ALLOW 白名单（登记保留的页面声明，不算债） | 2 | 1 | 7 | panel-empty×1、panel-empty__title×1 |
+门禁档：快照 6 条 / 当前 6 条（scripts/shell-variant-allowlist.json）
+✓ 无新增页面壳类声明（存量 6 条待按批削减，已删 0 条可同步削 allowlist）

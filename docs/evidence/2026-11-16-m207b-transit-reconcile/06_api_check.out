@@ -1,0 +1,62 @@
+== 登录（空库首启 admin 必须先改密）==
+  PASS 登录 admin
+  SKIP 改密（admin 已是新口令，脚本可重跑）
+== 菜单树 / 权限：在途页 + 对账码 ==
+  PASS 菜单树 200
+  PASS 菜单树含 /business/erp/inventory-transit
+  PASS 菜单页面行 auth_code = :page
+  PASS 超管权限走 *:*:* 通配（前端 hasPermission 短路）
+== 对账接口：缺省只给差异组 ==
+  PASS 对账 200
+  PASS 出参带 data
+    checked=6 matched=1 mismatched=4 balanced=False truncated=False rows=5
+    totals={"checked": 6, "matched": 1, "mismatched": 4, "cancelled": 1, "untracked": 1, "item_qty": "180.0000", "shipped_qty": "192.0000", "received_qty": "40.0000", "in_transit_qty": "152.0000", "cancelled_qty": "10.0000", "untracked_item_qty": "20.0000", "diff": "-12.0000"}
+    M207B-SH4 M207B-M3 wh=M207B-W1 item=10.0000 recv=0 transit=0 diff=10.0000 issues=['CANCELLED_ONLY'] labels=['整批作废：只有在途作废行，不计在途也不计已出']
+    M207B-SH3 M207B-M2 wh=None item=20.0000 recv=0 transit=0 diff=20.0000 issues=['MISSING_TRANSIT'] labels=['发货单已过账但没有在途账记录（货发了没进在途）']
+    M207B-SH2 M207B-M1 wh=M207B-W1 item=50.0000 recv=0.0000 transit=55.0000 diff=-5.0000 issues=['QTY_MISMATCH'] labels=['发货单明细的发货量与在途账记的发货量不符']
+    M207B-SH5 M207B-M4 wh=M207B-W1 item=0 recv=0.0000 transit=7.0000 diff=-7.0000 issues=['ORPHAN_TRANSIT'] labels=['在途账有这批货，但发货单明细里没有对应物料']
+    M207B-SH6 M207B-M1 wh=M207B-W1 item=30.0000 recv=0.0000 transit=30.0000 diff=0.0000 issues=['MULTI_WAREHOUSE'] labels=['同一发货单同一物料在多仓有在途行（同一批货被记了两份）']
+  PASS 缺省 5 行差异组（6 组里 1 组对平被滤掉）
+  PASS checked=6
+  PASS matched=1
+  PASS mismatched=4
+  PASS cancelled=1
+  PASS untracked=1
+  PASS balanced=false
+  PASS truncated=false
+  PASS scan_limit=2000
+  PASS 对平组（M207B-SH1 螺丝）不在缺省结果里
+  PASS QTY_MISMATCH 行：M207B-SH2 diff=-5
+  PASS MISSING_TRANSIT 行：M207B-SH3 没有仓库
+  PASS CANCELLED_ONLY 行：M207B-SH4 cancelled_qty=10
+  PASS ORPHAN_TRANSIT 行：M207B-SH5 item_qty=0
+  PASS MULTI_WAREHOUSE 行：M207B-SH6 两个码
+  PASS 差异码中文由后端给（非空 issue_labels）
+  PASS totals.item_qty=180（只算已纳入在途账的组）
+  PASS totals.untracked_item_qty=20
+  PASS totals.diff=-12（后端算，前端不重算）
+== include_matched=true：连对平的组一起给 ==
+  PASS include_matched 200
+  PASS include_matched=1 出 6 行
+  PASS include_matched 里出现对平组 SH1
+  PASS include_matched 下 totals 不变（口径不随返回集合变）
+== 筛选 ==
+  PASS 按 shipment_id 筛 → 1 行
+  PASS 按 shipment_id 筛只覆盖该单 checked=1
+  PASS 日期区间外 → 0 组（不是报错）
+== 非法参数 ==
+  PASS 非法参数 400+66006：include_matched 非布尔
+  PASS 非法参数 400+66006：shipment_id 非 UUID
+  PASS 非法参数 400+66006：日期非法
+  PASS 非法参数 400+66006：区间反了
+== 未授权访问 ==
+  PASS 匿名调对账 → 401
+== 只读角色（有页面码 + 取数码、无对账码）：页面能开、对账 403 ==
+  PASS 只读角色登录 200
+  PASS 只读角色持 :page
+  PASS 只读角色持 :list
+  PASS 只读角色**不**持 :audit（前端据此隐藏第三个 Tab）
+  PASS 只读角色调明细 200（页面照常能开，不是整页 403）
+  PASS 只读角色调对账 → 403（对账是独立授权面）
+
+═══ PASS=44 FAIL=0 ═══

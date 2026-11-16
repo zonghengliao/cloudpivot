@@ -1,6 +1,6 @@
 /**
  * 在途库存 API 层（后端 `backend/app/src/business/erp/inventory_transit/`，
- * M2-04 查询 / M2-05 对账；本卡 M2-07 只消费前两个只读面）。
+ * M2-04 查询 / M2-05 对账；M2-07 消费前两个只读面，M2-07b 补对账面）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）
  *
@@ -217,6 +217,174 @@ export function fetchTransitPage(query: TransitQuery): Promise<PageData<TransitR
  */
 export function fetchTransitSummary(query: TransitSummaryQuery = {}): Promise<TransitSummary> {
   return get<TransitSummary>(`${BASE}/inventory-transit/summary`, asParams(query));
+}
+
+// ==================== 对账（M2-05 接口 · M2-07b 页面） ====================
+
+/**
+ * 对账差异码（逐字抄 `inventory_transit::reconcile` 的 `ISSUE_*` 常量）。
+ *
+ * 前端**只用来上色**（`danger` / `warning`）：中文文案一律取后端 `issue_labels`
+ * ——差异文案是业务口径（`issue_label`），前端再抄一份必然有一天跟后端漂。
+ */
+export type TransitReconcileIssue =
+  | 'QTY_MISMATCH'
+  | 'MISSING_TRANSIT'
+  | 'ORPHAN_TRANSIT'
+  | 'IDENTITY_BROKEN'
+  | 'MULTI_WAREHOUSE'
+  | 'CANCELLED_ONLY';
+
+/**
+ * 一行对账明细（`发货单 × 物料` 粒度，逐字抄 `TransitReconcileRow`）。
+ *
+ * # 三侧数量 + 差额都由后端给
+ *
+ * | 语义 | 字段 | 口径 |
+ * |------|------|------|
+ * | 发货总量 | `item_qty` | 发货单明细 `Σ qty`（SSOT） |
+ * | 已出 | `received_qty` | 在途账的已签收数量 |
+ * | 在途 | `qty_in_transit` | 在途账的未签收量（PG 生成列） |
+ * | 差额 | `diff` | `item_qty − (received_qty + qty_in_transit)`；`0` = 这组对平 |
+ *
+ * `diff` **不许前端自己减**：差额的符号与口径（含作废行怎么算）是后端
+ * `reconcile::ComboRow::diff` 的事，前端再算一遍 = 第二套账。
+ */
+export interface TransitReconcileRow {
+  /** 发货单 id */
+  shipment_id: string;
+  /** 发货单号（历史行为空） */
+  ship_no: string | null;
+  /** 发货单状态（`POSTED`；历史行可能为空） */
+  shipment_status: string | null;
+  /** 发货单是否已软删（明细与在途行都还在 ⇒ 对账照样看得见） */
+  shipment_deleted: boolean;
+  /** 发货日期（`yyyy-MM-dd`；历史行为空） */
+  ship_date: string | null;
+  /** 物料 id */
+  material_id: string;
+  /** 物料编码（物料软删后 `null`） */
+  material_code: string | null;
+  /** 物料名称 */
+  material_name: string | null;
+  /** 规格型号 */
+  spec: string | null;
+  /** 计量单位名 */
+  unit_name: string | null;
+  /** 发货仓库 id（`null` = 这组没有在途行） */
+  warehouse_id: string | null;
+  /** 仓库编码（仓库软删后 `null`） */
+  warehouse_code: string | null;
+  /** 仓库名称 */
+  warehouse_name: string | null;
+  /** 发货总量（发货单明细 Σqty，SSOT） */
+  item_qty: number | string;
+  /** 在途账记的发货量（非作废行） */
+  shipped_qty: number | string;
+  /** 已出（已签收数量） */
+  received_qty: number | string;
+  /** 在途量（未签收） */
+  qty_in_transit: number | string;
+  /** 作废行的发货量（不参与对账式，只做诊断） */
+  cancelled_qty: number | string;
+  /** 差额 = 发货总量 −（已出 + 在途）；后端算，`0` = 对平 */
+  diff: number | string;
+  /** 差异码（空数组 = 对平） */
+  issues: string[];
+  /** 差异码的中文说明（与 `issues` 同下标；**页面只用这个**） */
+  issue_labels: string[];
+  /** 是否对平（`issues` 为空） */
+  matched: boolean;
+}
+
+/**
+ * 对账汇总（逐字抄 `TransitReconcileTotals`）。
+ *
+ * `diff = item_qty − (received_qty + in_transit_qty)`：整体恒等式成不成立看它，
+ * 页面**不自己减**（合计与差额同源，减出来对不上就说明前端在算第二本账）。
+ */
+export interface TransitReconcileTotals {
+  /** 比对的组数（受扫描上限影响） */
+  checked: number;
+  /** 对平的组数 */
+  matched: number;
+  /** 有硬问题的组数（`QTY_MISMATCH` / `MISSING_TRANSIT` / `ORPHAN_TRANSIT` / `IDENTITY_BROKEN` / `MULTI_WAREHOUSE`） */
+  mismatched: number;
+  /** 整批作废的组数（`CANCELLED_ONLY`，不算不平） */
+  cancelled: number;
+  /** 未纳入在途账的组数（有明细、没有在途行） */
+  untracked: number;
+  /** 已纳入在途账的发货量合计 */
+  item_qty: number | string;
+  /** 在途账记的发货量合计 */
+  shipped_qty: number | string;
+  /** 已出合计 */
+  received_qty: number | string;
+  /** 在途合计 */
+  in_transit_qty: number | string;
+  /** 作废行发货量合计 */
+  cancelled_qty: number | string;
+  /** 未纳入在途账的发货量合计 */
+  untracked_item_qty: number | string;
+  /** 对账差额 = 已纳入发货量 −（已出 + 在途）；`0` = 整体恒等成立 */
+  diff: number | string;
+}
+
+/**
+ * 对账报告（逐字抄 `TransitReconcileRes`）。
+ *
+ * ⚠️ `rows` **缺省只给有差异的组**（`include_matched=true` 才连对平的一起给）；
+ * `balanced` 只有「零硬问题 + 差额 0 + 未截断」才为真 —— 页面因此不能拿
+ * `rows.length === 0` 直接说「对平」（筛选下为空、扫描被截断都不等于对平）。
+ */
+export interface TransitReconcile {
+  /** 比对的组数 */
+  checked: number;
+  /** 对平的组数 */
+  matched: number;
+  /** 有硬问题的组数 */
+  mismatched: number;
+  /** 整体是否对平 */
+  balanced: boolean;
+  /** 是否被扫描上限截断（`true` ⇒ 结论只覆盖前 N 组，要收窄日期区间再对） */
+  truncated: boolean;
+  /** 扫描上限（回显，便于写进提示文案） */
+  scan_limit: number;
+  /** 明细（缺省只有差异组） */
+  rows: TransitReconcileRow[];
+  /** 汇总 */
+  totals: TransitReconcileTotals;
+}
+
+/**
+ * 对账入参（后端 `TransitReconcileFilter`，字段名逐字一致；**没有 `status`**）。
+ *
+ * `include_matched` 用 `'true' | 'false'` 字符串：后端收的是 `String`
+ * （`true/false/1/0/yes/no/on/off`，其它值 400 + 66006），框架的 `bool` 只认 `true/false`。
+ */
+export interface TransitReconcileQuery {
+  /** 发货单 id（精确 UUID） */
+  shipment_id?: string;
+  /** 物料 id（精确 UUID） */
+  material_id?: string;
+  /** 发货仓库 id（精确 UUID） */
+  warehouse_id?: string;
+  /** 发货日期下界（`yyyy-MM-dd`，含当天） */
+  ship_date_from?: string;
+  /** 发货日期上界（`yyyy-MM-dd`，含当天） */
+  ship_date_to?: string;
+  /** 是否连**对平**的组一起返回（缺省不发 = 后端默认 `false`） */
+  include_matched?: 'true' | 'false';
+}
+
+/**
+ * 在途对账（`GET /business/erp/inventory-transit/reconcile`，权限
+ * `business:erp:inventory-transit:audit` —— 与明细的 `:list` **不是同一个码**）。
+ *
+ * 只读：后端一行写 SQL 都没有。返回「逐 `发货单 × 物料` 的三侧数量 + 差异码 + 汇总」。
+ */
+export function fetchTransitReconcile(query: TransitReconcileQuery = {}): Promise<TransitReconcile> {
+  return get<TransitReconcile>(`${BASE}/inventory-transit/reconcile`, asParams(query));
 }
 
 /** 丢掉空串 / null / undefined（后端把 `?x=` 当「等于空串」过滤，必须根本不发） */
