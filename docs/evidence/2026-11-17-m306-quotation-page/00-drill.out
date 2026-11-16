@@ -1,0 +1,52 @@
+  PASS  登录 200
+  PASS  菜单接口 200
+  PASS  用户菜单里有报价单页
+  PASS  菜单 path 是 /business/erp/quotation
+  PASS  分页 200
+  PASS  分页形状 list/total/page/page_size
+  PASS  建单 200
+  PASS  单号形如 QT-yyyyMMdd-NNNNNN
+  PASS  返回明细全量
+  PASS  第 1 行金额 37.0368
+  PASS  第 1 行税额 4.8148
+  PASS  第 1 行含税 41.8516
+  PASS  单头价税合计 = 237.0368 + 30.8148
+  PASS  客户名已补齐
+  PASS  allowed_targets = [SENT, CANCELLED]
+  PASS  editable / deletable 都是 true
+  PASS  列表态 expired = false
+  PASS  详情 200
+  PASS  详情 approval 段存在且为 null
+  PASS  详情明细 2 行且带物料编码
+  PASS  直接 PATCH status=SENT → 409
+  PASS  错误码 66088（缺审批实例）
+  PASS  草稿作废 200
+  PASS  作废后状态 CANCELLED
+  PASS  作废后 allowed_targets 为空
+  PASS  第二张单已建（待转单）
+  PASS  改库后详情是 ACCEPTED
+  PASS  转单 200
+  PASS  返回新订单号 SO-…
+  PASS  三段式 header/items/meta 齐
+  PASS  搬了 2 行明细
+  PASS  meta.line_count = 2
+  PASS  meta.already_converted = false
+  PASS  订单金额原样搬（267.8516）
+  PASS  订单备注带来源
+  PASS  重复转单 200（幂等）
+  PASS  already_converted = true
+  PASS  回的是同一张订单
+  PASS  已转单不许作废 → 409
+  PASS  删除 200
+  PASS  软删后详情 404
+  PASS  按单号筛选能查到转单那张
+  PASS  建一张已过期的单
+  PASS  该单 expired = true（现算，不是状态）
+  PASS  该单状态仍是 DRAFT（过期不改状态）
+  PASS  全部里至少有 1 张已过期
+  PASS  expired=true 只回已过期的单
+  PASS  expired=false 只回未过期的单
+  PASS  两态相加 = 全部（不传 expired）
+
+共 49 条断言，失败 0 条
+全部通过 ✓

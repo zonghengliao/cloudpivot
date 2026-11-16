@@ -460,6 +460,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '客户档案', permission: 'business:erp:customer:list' },
       },
       {
+        // ==================== ERP 销售报价单（M3-06 · 销售链） ====================
+        // `sys_menu`（V0433 种子 …4331）当时故意把 path/component 留 NULL、`is_visible=FALSE`
+        // （「先有码、后补页」），由 V0436 收尾补成 `/business/erp/quotation` +
+        // component `business/erp/quotation/index`。顺序不能反：`system::menu::tests::n08`
+        // 是**真库硬门禁** —— path 先填而路由后加会让 n08 一直红。
+        path: 'business/erp/quotation',
+        name: 'BusinessErpQuotation',
+        component: () => import('@/views/business/erp/quotation/index.vue'),
+        meta: { title: '报价单', permission: 'business:erp:quotation:list' },
+      },
+      {
         // ==================== ERP 销售订单（SO-07 · 销售链） ====================
         // `sys_menu`（V0265 种子 …2651）path = `/business/erp/sales-order`，component
         // `business/erp/sales-order/index`。**路由手工注册**（没有 views 自动扫描），
