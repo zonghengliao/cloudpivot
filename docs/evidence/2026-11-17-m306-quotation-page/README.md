@@ -118,5 +118,6 @@ python3 scripts/verify/m306_quotation_frontend_drill.py
 ## 六、库 / 环境
 
 - 开发机 99，PG 在 `172.18.10.145:5432`（用户 `cloudpivot`），模板库 `cloudpivot_test`；
-- 演练库 `cp_m306_drill_1`（克隆 + V0436 升级），验收后**未删**（留待复核；不含生产数据）；
-- 后端实例（18023 / 8023）与 `pnpm dev`（5173）均为本次临时进程，收尾时已停。
+- 演练库 `cp_m306_drill_1`（克隆 + V0436 升级，验收证据见 `00-drill.out`）：**收尾时已 `dropdb`**，
+  `pg_database` 里 `cp_m306%` = 0（本卡不在测试机留库）；
+- 后端实例（18023 / 8023）与 `pnpm dev`（5173）均为本次临时进程，收尾时已停（端口已释放）。
