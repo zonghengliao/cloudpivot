@@ -1,0 +1,220 @@
+TAP version 13
+# Subtest: 报表拼参：全空 → 空对象（后端取今天 + 全量）
+ok 1 - 报表拼参：全空 → 空对象（后端取今天 + 全量）
+  ---
+  duration_ms: 2.08022
+  type: 'test'
+  ...
+# Subtest: 报表拼参：空白字符串等于没填，不能发 ?as_of=
+ok 2 - 报表拼参：空白字符串等于没填，不能发 ?as_of=
+  ---
+  duration_ms: 0.107036
+  type: 'test'
+  ...
+# Subtest: 报表拼参：填了就原样带上
+ok 3 - 报表拼参：填了就原样带上
+  ---
+  duration_ms: 0.121619
+  type: 'test'
+  ...
+# Subtest: 呆滞拼参：days 留空整键缺席（让后端按系统参数 → 缺省判定）
+ok 4 - 呆滞拼参：days 留空整键缺席（让后端按系统参数 → 缺省判定）
+  ---
+  duration_ms: 0.085953
+  type: 'test'
+  ...
+# Subtest: 呆滞拼参：days 显式填了就发数字（字符串要转 number）
+ok 5 - 呆滞拼参：days 显式填了就发数字（字符串要转 number）
+  ---
+  duration_ms: 0.08437
+  type: 'test'
+  ...
+# Subtest: 批次层拼参：include_consumed 永远显式发（开关拨了必须生效）
+ok 6 - 批次层拼参：include_consumed 永远显式发（开关拨了必须生效）
+  ---
+  duration_ms: 0.141159
+  type: 'test'
+  ...
+# Subtest: 批次层拼参：库龄区间发数字，空白不发
+ok 7 - 批次层拼参：库龄区间发数字，空白不发
+  ---
+  duration_ms: 0.1527
+  type: 'test'
+  ...
+# Subtest: 区间：合法 / 单边 / 全空都通过
+ok 8 - 区间：合法 / 单边 / 全空都通过
+  ---
+  duration_ms: 0.087537
+  type: 'test'
+  ...
+# Subtest: 区间反了 / 负数 / 小数都要拦住，并且点名两个值
+ok 9 - 区间反了 / 负数 / 小数都要拦住，并且点名两个值
+  ---
+  duration_ms: 0.357397
+  type: 'test'
+  ...
+# Subtest: 数量：后端字符串 Decimal 也要格式化掉尾零
+ok 10 - 数量：后端字符串 Decimal 也要格式化掉尾零
+  ---
+  duration_ms: 0.42206
+  type: 'test'
+  ...
+# Subtest: 比例：后端 4 位小数（0.1538）→ 15.38%，不再除一次 100
+ok 11 - 比例：后端 4 位小数（0.1538）→ 15.38%，不再除一次 100
+  ---
+  duration_ms: 0.134242
+  type: 'test'
+  ...
+# Subtest: 库龄负数照实说（后端不夹 0）
+ok 12 - 库龄负数照实说（后端不夹 0）
+  ---
+  duration_ms: 0.078121
+  type: 'test'
+  ...
+# Subtest: 库龄分级：60/61/90/91 的天花板与地板
+ok 13 - 库龄分级：60/61/90/91 的天花板与地板
+  ---
+  duration_ms: 0.060872
+  type: 'test'
+  ...
+# Subtest: 呆滞占比分级：≥50% 危险、>0 提醒
+ok 14 - 呆滞占比分级：≥50% 危险、>0 提醒
+  ---
+  duration_ms: 0.063455
+  type: 'test'
+  ...
+# Subtest: 基准日来源 / 阈值来源都说人话
+ok 15 - 基准日来源 / 阈值来源都说人话
+  ---
+  duration_ms: 0.065955
+  type: 'test'
+  ...
+# Subtest: 阈值提示：生效值 + 来源 + 参数键三样都在
+ok 16 - 阈值提示：生效值 + 来源 + 参数键三样都在
+  ---
+  duration_ms: 0.085579
+  type: 'test'
+  ...
+# Subtest: 截断提示：没截断返回空串；截断了要说「合计仍是全量」
+ok 17 - 截断提示：没截断返回空串；截断了要说「合计仍是全量」
+  ---
+  duration_ms: 0.066705
+  type: 'test'
+  ...
+# Subtest: 空态文案分「筛过」与「没筛过」两种
+ok 18 - 空态文案分「筛过」与「没筛过」两种
+  ---
+  duration_ms: 0.088662
+  type: 'test'
+  ...
+# Subtest: 403 文案要点名缺哪个码（否则用户以为系统坏了）
+ok 19 - 403 文案要点名缺哪个码（否则用户以为系统坏了）
+  ---
+  duration_ms: 0.1427
+  type: 'test'
+  ...
+# Subtest: 报表行键 = 物料|仓库（同一物料多个仓库不能撞 key）
+ok 20 - 报表行键 = 物料|仓库（同一物料多个仓库不能撞 key）
+  ---
+  duration_ms: 0.087704
+  type: 'test'
+  ...
+# Subtest: 钻取：只带 物料 × 仓库 + 基准日，库龄区间清空
+ok 21 - 钻取：只带 物料 × 仓库 + 基准日，库龄区间清空
+  ---
+  duration_ms: 0.073121
+  type: 'test'
+  ...
+# Subtest: 筛过没筛过：报表 / 批次层各自判断
+ok 22 - 筛过没筛过：报表 / 批次层各自判断
+  ---
+  duration_ms: 0.097203
+  type: 'test'
+  ...
+# Subtest: 主数据软删时点名，不显示 UUID 也不留白
+ok 23 - 主数据软删时点名，不显示 UUID 也不留白
+  ---
+  duration_ms: 0.078204
+  type: 'test'
+  ...
+# Subtest: 单据 / 业务类型：认识的翻中文，不认识的**原样返回**（不藏后端新增类型）
+ok 24 - 单据 / 业务类型：认识的翻中文，不认识的**原样返回**（不藏后端新增类型）
+  ---
+  duration_ms: 0.076288
+  type: 'test'
+  ...
+# Subtest: 跨单位提示：说清数量合计只作参考、金额是参考金额
+ok 25 - 跨单位提示：说清数量合计只作参考、金额是参考金额
+  ---
+  duration_ms: 0.056997
+  type: 'test'
+  ...
+# Subtest: 档位按 key 取（不写下标）：缺档返回 undefined 而不是 0
+ok 26 - 档位按 key 取（不写下标）：缺档返回 undefined 而不是 0
+  ---
+  duration_ms: 0.073788
+  type: 'test'
+  ...
+# Subtest: 权限码 / Tab 常量与迁移逐字一致
+ok 27 - 权限码 / Tab 常量与迁移逐字一致
+  ---
+  duration_ms: 0.109203
+  type: 'test'
+  ...
+# Subtest: API 层：三条路径都带 /api 前缀，且指向同一个模块
+ok 28 - API 层：三条路径都带 /api 前缀，且指向同一个模块
+  ---
+  duration_ms: 0.12366
+  type: 'test'
+  ...
+# Subtest: 页面：合计只认后端 summary，绝不把 rows 自己加一遍
+ok 29 - 页面：合计只认后端 summary，绝不把 rows 自己加一遍
+  ---
+  duration_ms: 0.117785
+  type: 'test'
+  ...
+# Subtest: 页面：三个 Tab 各自按取数码决定是否渲染（有页面码但缺数据码时不硬画）
+ok 30 - 页面：三个 Tab 各自按取数码决定是否渲染（有页面码但缺数据码时不硬画）
+  ---
+  duration_ms: 0.114744
+  type: 'test'
+  ...
+# Subtest: 页面：档位列由后端 buckets 驱动（不写死 4 列）
+ok 31 - 页面：档位列由后端 buckets 驱动（不写死 4 列）
+  ---
+  duration_ms: 0.057955
+  type: 'test'
+  ...
+# Subtest: 页面：批次层 Tab 走 ListPage，区间写反时不发请求
+ok 32 - 页面：批次层 Tab 走 ListPage，区间写反时不发请求
+  ---
+  duration_ms: 0.80179
+  type: 'test'
+  ...
+# Subtest: 路由：path 与迁移 sys_menu.path 逐字一致，meta.permission 用页面显形码
+ok 33 - 路由：path 与迁移 sys_menu.path 逐字一致，meta.permission 用页面显形码
+  ---
+  duration_ms: 0.084037
+  type: 'test'
+  ...
+# Subtest: 迁移：页面行字段齐全（码 / path / 组件 / 父目录 / sort / title / icon）
+ok 34 - 迁移：页面行字段齐全（码 / path / 组件 / 父目录 / sort / title / icon）
+  ---
+  duration_ms: 0.076621
+  type: 'test'
+  ...
+# Subtest: 页面显形码不进后端：本页只在 API 层与路由里出现
+ok 35 - 页面显形码不进后端：本页只在 API 层与路由里出现
+  ---
+  duration_ms: 0.108828
+  type: 'test'
+  ...
+1..35
+# tests 35
+# suites 0
+# pass 35
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 122.696728

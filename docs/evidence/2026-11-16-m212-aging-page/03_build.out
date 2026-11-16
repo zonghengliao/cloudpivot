@@ -1,0 +1,31 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 build /opt/cloudpivot/frontend
+> pnpm typecheck && node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build
+
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+vite v6.3.7 building for production...
+transforming...
+✓ 5607 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                                   1.42 kB │ gzip:   0.85 kB
+dist/assets/pdf.worker.min-yatZIOMy.mjs                                       1,375.84 kB
+dist/assets/EChart-CBtkWo53.css                                                   0.04 kB │ gzip:   0.06 kB
+dist/assets/UserSelect-B436yNgK.css                                               0.04 kB │ gzip:   0.06 kB
+dist/assets/index-YYHl6p8L.css                                                    0.04 kB │ gzip:   0.06 kB
+dist/assets/DetailLineLimitAlert-DPfOgaXP.css                                     0.05 kB │ gzip:   0.07 kB
+...（中间为 vite 产物清单，略）...
+
+=== 产物自查：页面 chunk 里有页面 testid 与三个接口路径 ===
+      1 dist/assets/index-B0WnieQF.js:inventory-aging:page
+      1 dist/assets/index-EtQX7tqy.js:aging-report-table
+      1 dist/assets/index-EtQX7tqy.js:aging-slow-rows
+      1 dist/assets/index-EtQX7tqy.js:inventory-aging/page
+      1 dist/assets/index-EtQX7tqy.js:inventory-aging/report
+      1 dist/assets/index-EtQX7tqy.js:inventory-aging/slow-moving
+
+EXIT=0

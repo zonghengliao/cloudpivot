@@ -1,0 +1,30 @@
+=== 库: cp_m212_aging_page @ 172.18.10.145（cloudpivot_test 克隆 + V0405~V0426 手工补齐，模拟真实前序状态） ===
+
+=== 1) V0427 up（首次） ===
+psql:backend/app/migrations/business/V0427__erp_inventory_aging_page.up.sql:122: NOTICE:  V0427: 前置接点齐备（仓库管理目录 + 库龄三个取数按钮），开始种库龄分析页
+psql:backend/app/migrations/business/V0427__erp_inventory_aging_page.up.sql:319: NOTICE:  V0427 自检通过：页面授权 5/15 角色（含超管），取数码与祖先目录均已成对
+
+=== 2) V0427 up（重放，幂等） ===
+psql:backend/app/migrations/business/V0427__erp_inventory_aging_page.up.sql:122: NOTICE:  V0427: 前置接点齐备（仓库管理目录 + 库龄三个取数按钮），开始种库龄分析页
+psql:backend/app/migrations/business/V0427__erp_inventory_aging_page.up.sql:319: NOTICE:  V0427 自检通过：页面授权 5/15 角色（含超管），取数码与祖先目录均已成对
+
+=== 3) 落库形态 ===
+20000000-0000-0000-0000-000000004270 | business:erp:inventory-aging:page | type=2 | path=/business/erp/inventory-aging | comp=business/erp/inventory-aging/index | sort=46 | title=库龄分析 | icon=chart-bar | visible=true
+20000000-0000-0000-0000-000000004240 | business:erp:inventory-aging:list | type=3 | path=(null) | comp=(null) | sort=40 | title=库龄批次层查询 | icon=(null) | visible=false
+20000000-0000-0000-0000-000000004250 | business:erp:inventory-aging:report | type=3 | path=(null) | comp=(null) | sort=50 | title=库龄分段报表 | icon=(null) | visible=false
+20000000-0000-0000-0000-000000004260 | business:erp:inventory-aging:slow-moving | type=3 | path=(null) | comp=(null) | sort=60 | title=呆滞料标记 | icon=(null) | visible=false
+
+=== 4) 授权（角色 → 持有的库龄取数码个数） ===
+FINANCE_MANAGER 取数码=3
+GENERAL_MANAGER 取数码=3
+PURCHASE_MANAGER 取数码=3
+SUPER_ADMIN 取数码=3
+WAREHOUSE_MANAGER 取数码=3
+
+=== 5) down（回滚） ===
+删除后：库龄菜单行=3
+删除后：页面授权行=0
+
+=== 6) 再 up（回滚后重放） ===
+psql:backend/app/migrations/business/V0427__erp_inventory_aging_page.up.sql:122: NOTICE:  V0427: 前置接点齐备（仓库管理目录 + 库龄三个取数按钮），开始种库龄分析页
+psql:backend/app/migrations/business/V0427__erp_inventory_aging_page.up.sql:319: NOTICE:  V0427 自检通过：页面授权 5/15 角色（含超管），取数码与祖先目录均已成对

@@ -121,6 +121,14 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
         "页面显形码（V0418/M1-23）：应收账龄分析页；取数走 business:erp:receivable:aging\
          （V0288 按钮行），本码只给前端路由。M1-23 落地时漏登记，M2-07 跑门禁时补。",
     ),
+    // ---- ERP 库龄分析页（V0427，卡 t_5e045c0f / M2-12）----
+    (
+        "business:erp:inventory-aging:page",
+        "页面显形码（V0427）：库龄分析页（库龄分析 / 呆滞清单 / 批次层明细 三 Tab）；\
+         取数走 business:erp:inventory-aging:{list,report,slow-moving}（V0424/V0425/V0426 按钮行，\
+         各自由接口判权），本码只给前端路由（侧栏显隐 + meta.permission）。与 V0423 的在途库存页同形：\
+         页面行不复用取数码，避免同码两行节点，也不动上游 m2* 验证据本钉死的「取数码只有 1 个 menu_type=3 节点」。",
+    ),
 ];
 
 /// **已种菜单、后端校验点尚未落地**的权限码 → 落地它的卡（临时例外，落地即删）。

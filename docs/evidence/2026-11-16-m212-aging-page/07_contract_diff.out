@@ -1,0 +1,12 @@
+OK   AgingLayerRes                    -> AgingLayerRow              rust=23 ts=23
+OK   AgingFilter                      -> AgingLayerQuery            rust= 9 ts= 9
+OK   AgingBucketQtyRes                -> AgingBucketQty             rust= 5 ts= 5
+OK   MaterialWarehouseAgingRes        -> InventoryAgingRow          rust=15 ts=15
+OK   InventoryAgingReportRes          -> InventoryAgingReport       rust=16 ts=16
+OK   InventoryAgingReportQuery        -> InventoryAgingReportQuery  rust= 3 ts= 3
+OK   SlowMovingRowRes                 -> SlowMovingRow              rust=17 ts=17
+OK   SlowMovingSummaryRes             -> SlowMovingSummary          rust= 9 ts= 9
+OK   SlowMovingRes                    -> SlowMovingReport           rust=13 ts=13
+OK   SlowMovingQuery                  -> SlowMovingQuery            rust= 4 ts= 4
+OK   AgingBucketDef                   -> AgingBucketDef             rust= 4 ts= 4
+ALL MATCH

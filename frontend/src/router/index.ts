@@ -1151,6 +1151,22 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '在途库存', permission: 'business:erp:inventory-transit:page' },
       },
       {
+        // ==================== ERP 库龄分析（M2-12，卡 t_5e045c0f） ====================
+        // `sys_menu`（V0427 页面行 …004270）path = `/business/erp/inventory-aging`，
+        // component `business/erp/inventory-aging/index`；**手工注册**，漏了 = 点菜单 404
+        // （`system::menu::tests::n08` 判红）。
+        //
+        // 权限码用**页面显形码** `business:erp:inventory-aging:page`（V0427 页面行），与三个
+        // 取数码 `…:inventory-aging:{list,report,slow-moving}`（V0424 / V0425 / V0426 按钮行，
+        // 都挂在「即时库存」页下）刻意分开 —— 取数码由三个只读接口在**后端**判，页面码只判
+        // 侧栏显隐与本路由守卫；后端源码零引用（登记在
+        // `permission_audit_tests::ROUTE_LEVEL_ONLY`）。页内再按三个取数码决定渲染哪几个 Tab。
+        path: 'business/erp/inventory-aging',
+        name: 'BusinessErpInventoryAging',
+        component: () => import('@/views/business/erp/inventory-aging/index.vue'),
+        meta: { title: '库龄分析', permission: 'business:erp:inventory-aging:page' },
+      },
+      {
         // ==================== ERP 采购明细（卡 t_6f023cee / BUG-SYS-01） ====================
         // `sys_menu` 的 path `/business/erp/purchase-order-item`（menu_type=2）。路由与组件
         // 自 t_6f023cee 起就已注册（本 record 就是），缺的只是菜单可见性 —— 该行曾被设为
