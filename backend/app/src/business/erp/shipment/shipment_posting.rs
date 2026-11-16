@@ -96,6 +96,14 @@ pub fn pending_confirm_reason(ship_no: &str) -> String {
     format!("发货单 {ship_no} 过账生成，待客户签收确认后过账出库")
 }
 
+/// 签收确认时写进出库单状态日志 / 在途行备注的原因（M2-03）。
+///
+/// 一条文案两处用（状态日志 + 在途行 `remark`）：对账时要能从出库单的 `POSTED` 那一刻
+/// 倒推回「这是客户签收确认，不是谁手工过账」，所以带上发货单号。
+pub fn receipt_reason(ship_no: &str) -> String {
+    format!("客户签收确认 {ship_no}")
+}
+
 /// 订单在本次发货后应该处于哪个状态（纯函数，单测钉死）。
 ///
 /// * `ordered` = Σ(`biz_sales_order_item.qty`)：订单总量

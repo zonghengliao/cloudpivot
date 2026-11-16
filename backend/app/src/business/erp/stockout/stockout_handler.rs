@@ -831,6 +831,34 @@ async fn post_out_tx(
         );
     }
 
+    // ⑤c 销售来源（发货单 → 出库单）：**在途账签收清零**（M2-03）
+    //
+    // 为什么收口在过账内核里，而不是只在「签收确认」接口里：
+    // 客户签收确认（`POST /business/erp/shipment/{id}/receive`）与出库单页面的
+    // 「过账」按钮是**同一件事的两个入口**（出库单 `PENDING_POST` = 出库待确认）。
+    // 在途清零必须跟着「三本账负向」走，而两个入口都会经过本函数 ⇒ 任何一条路径都
+    // 不可能「扣了库存却把在途挂着」（那样可用量 = 账面 − 在途 会永久少一批货），
+    // 也不可能「清了在途却没扣库存」（同一事务、同一函数，任一步失败整笔回滚）。
+    //
+    // 无未签收在途行 → `receive_open` 返回空：手工建的销售来源单 / 夹具里直接
+    // `INSERT` 的 POSTED 出库单都属于这种，不是错误。
+    if let Some(shipment_id) = header
+        .source_id
+        .filter(|_| header.source_type.as_deref() == Some(SOURCE_TYPE_SALES))
+    {
+        let cleared =
+            crate::business::erp::shipment::shipment_transit::receive_open(ex, shipment_id, operator, now, reason)
+                .await?;
+        if !cleared.is_empty() {
+            tracing::info!(
+                stock_out_id = %id,
+                shipment_id = %shipment_id,
+                lines = cleared.len(),
+                "销售出库过账：在途账已签收清零（在途转已出库）"
+            );
+        }
+    }
+
     tracing::info!(
         stock_out_id = %id,
         out_no = %header.out_no,
@@ -869,20 +897,17 @@ async fn post_out_tx(
 
 /// 出库过账内核：**调用方负责事务边界与状态机之外的业务后置**。
 ///
-/// 存在的唯一理由是复用：**签收确认**（M2-03）要在**自己的事务**里一次性完成
-/// 「在途签收 + 出库单过账」——过账那半边必须走一遍完全相同的
-/// 「负库存闸 → 三本账负向 → 成本结转凭证 → 联动」链路，而不是另写一份
+/// 存在的唯一理由是复用：**签收确认**（M2-03，`shipment_handler::confirm_receipt`）要在
+/// **自己的事务**里一次性完成「在途签收 + 出库单过账」——过账那半边必须走一遍完全相同的
+/// 「负库存闸 → 三本账负向 → 成本结转凭证 → 应收 → 在途清零 → 联动」链路，而不是另写一份
 /// （两份口径迟早漂移，一份改了另一份不改 = 账对不上）。
 ///
-/// ⚠ M2-02（发货过账 → 在途 + 出库待确认）之后本函数**暂时没有调用方**：
-/// 发货过账不再过账出库单，签收确认（M2-03）是下一个接线点。这不是死代码，
-/// 而是「账单已建好在 PENDING_POST，等确认」这条链路的内核 —— 删掉就得在 M2-03
-/// 重新铺一遍，且极易与 `post_stock_out` 的口径分叉。
+/// 在途清零（⑤c）就在 `post_out_tx` 里面：**任何**过账路径（发货单签收确认 / 出库单页面点过账）
+/// 都会清掉该发货单的未签收在途，不存在「扣了库存却把在途挂着」的第二条路。
 ///
 /// 返回的 [`linkage::LinkageRun`] 里是**提交后才能跑**的动作；调用方必须在
 /// `commit()` 成功之后调 [`run_deferred_linkage_after_commit`]，否则通知 / 待办
 /// 会在事务里发出去（回滚后仍然发了）。
-#[allow(dead_code)] // M2-03 签收确认接线前无调用方，见上方注释
 pub(in crate::business::erp) async fn post_out_in_tx(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -894,7 +919,6 @@ pub(in crate::business::erp) async fn post_out_in_tx(
 }
 
 /// 提交后跑出库过账的延迟联动（发通知 / 建任务，独立事务，失败只记日志）。
-#[allow(dead_code)] // 与 `post_out_in_tx` 成对使用，调用方在 M2-03 签收确认
 pub(in crate::business::erp) async fn run_deferred_linkage_after_commit(
     id: Uuid,
     operator: &state_machine::Operator,

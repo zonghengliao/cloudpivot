@@ -11,7 +11,10 @@
 //!   落 `PENDING_POST`（出库待确认）→ 在途账 + `delivered_qty` → 订单
 //!   `PARTIAL_OUT`/`OUTBOUND`，**同一事务**；三本账 / 凭证 / 应收在签收确认（M2-03）才动。
 //! * [`shipment_transit`] —— 在途库存账（V0420）的写入口：发货量按「物料 × 发货仓 × 发货单」
-//!   upsert，`qty_in_transit` 由库层生成列保证恒等。
+//!   upsert，`qty_in_transit` 由库层生成列保证恒等；签收确认（M2-03）在这里把
+//!   `received_qty` 推到 `shipped_qty`（`lock_open` / `open_lines` / `receive_open`）。
+//! * [`shipment_handler`] 的 `confirm_receipt` —— **签收确认（M2-03）**：在途转已出库，
+//!   同一事务里「出库单过账（三本账 + 凭证 + 应收）」+「在途清零」。
 
 pub mod shipment_handler;
 pub mod shipment_model;
@@ -21,3 +24,7 @@ pub mod shipment_transit;
 /// 发货单列表批量补齐（缺陷卡 t_45900ea7）：列表与详情逐字段同口径。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod shipment_page_fill_tests;
+
+/// 签收确认（M2-03）真库用例：在途转已出库。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod shipment_receipt_tests;

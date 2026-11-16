@@ -168,7 +168,7 @@ step3() {
 }
 
 step4() {
-  say "== step4 ④ 发货单（从订单生成 → PENDING_POST → POSTED）+ ⑤ 出库单（扣库存→过账）"
+  say "== step4 ④ 发货单（从订单生成 → PENDING_POST → POSTED=在途记账）+ ⑤ 签收确认（在途转已出库：扣库存/凭证/应收）"
   SHIP_PRE=$(PSQLQ -c "select coalesce((select status from biz_shipment where remark='E2E-02 发货单甲' order by created_at desc limit 1),'-');")
   if [ "$SHIP_PRE" = "DRAFT" ] || [ "$SHIP_PRE" = "PENDING_POST" ] || [ "$SHIP_PRE" = "POSTED" ]; then
     SHIP1=$(PSQLQ -c "select id from biz_shipment where remark='E2E-02 发货单甲' order by created_at desc limit 1;")
@@ -187,8 +187,18 @@ step4() {
   [ "$CODE" = 0 ] && ok "→ PENDING_POST" || bad "→PENDING_POST http=$HTTP $(show)"; }
   [ "$SHIP_PRE" = "POSTED" ] || check "未过账时库存不变" "$(PSQLQ -c "select coalesce(sum(qty),0)::numeric(20,4)::text from biz_inventory where material_id='$MAT1' and warehouse_id='$WH_ID';")" "200.0000"
   [ "$SHIP_PRE" = "POSTED" ] || { api s4_posted PATCH "/business/erp/shipment/$SHIP1/status" "$T_ADMIN" '{"target_status":"POSTED"}'
-  [ "$CODE" = 0 ] && ok "→ POSTED（扣库存 + 成本凭证 + 自动挂应收）" || bad "→POSTED http=$HTTP $(show)"; }
+  [ "$CODE" = 0 ] && ok "→ POSTED（在途记账，库存不扣）" || bad "→POSTED http=$HTTP $(show)"; }
   check "发货单 POSTED" "$(PSQLQ -c "select status from biz_shipment where id='$SHIP1';")" "POSTED"
+  # ★ M2-03：签收确认 = 在途转已出库。库存扣减 / 出库流水 / 成本凭证 / 应收挂账都发生在这一步
+  #   （M2-02 起发货过账只写「在途 + 出库待确认」，不再扣库存）。可重入：已签过就跳过。
+  RECV_ST=$(PSQLQ -c "select coalesce((select status from biz_inventory_in_transit where shipment_id='$SHIP1' order by material_id limit 1),'-');")
+  if [ "$RECV_ST" = "RECEIVED" ]; then
+    ok "签收确认已做过（在途 RECEIVED），跳过"
+  else
+    api s4_receive POST "/business/erp/shipment/$SHIP1/receive" "$T_ADMIN" '{"remark":"E2E-02 客户签收"}'
+    [ "$CODE" = 0 ] && ok "签收确认 → 在途转已出库（扣库存 + 成本凭证 + 自动挂应收）" || bad "签收确认 http=$HTTP $(show)"
+  fi
+  check "在途已清零" "$(PSQLQ -c "select coalesce(sum(qty_in_transit),0)::numeric(20,4)::text from biz_inventory_in_transit where shipment_id='$SHIP1' and status <> 'CANCELLED';")" "0.0000"
   check "订单状态 OUTBOUND（两行全发完）" "$(PSQLQ -c "select status from biz_sales_order where id='$SO1';")" "OUTBOUND"
   check "订单行已发数量" "$(PSQLQ -c "select string_agg(delivered_qty::numeric(20,4)::text,',') from (select delivered_qty from biz_sales_order_item where so_id='$SO1' order by line_no) t;")" "10.0000,5.0000"
   check "库存 M1 200→190" "$(PSQLQ -c "select coalesce(sum(qty),0)::numeric(20,4)::text from biz_inventory where material_id='$MAT1' and warehouse_id='$WH_ID';")" "190.0000"

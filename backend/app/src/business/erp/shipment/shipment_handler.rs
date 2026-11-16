@@ -9,6 +9,7 @@
 //! | GET | `/business/erp/shipment/page` | `business:erp:shipment:list` | 分页（`ship_no` 模糊 / `status` 精确 / `so_id` / `customer_id`） |
 //! | GET | `/business/erp/shipment/shippable/{so_id}` | `business:erp:shipment:list` | 该订单**未发完的行**（前端「从订单带出」对话框的唯一读数） |
 //! | PATCH | `/business/erp/shipment/{id}/status` | `business:erp:shipment:status` | 状态流转（只走 `SHIPMENT_EDGES` 的 4 条边，其余 409） |
+//! | POST | `/business/erp/shipment/{id}/receive` | `business:erp:shipment:status` | **签收确认（M2-03）**：在途转已出库 —— 出库单 `PENDING_POST → POSTED`（三本账负向 + 成本结转凭证 + 挂应收）+ 在途账 `received_qty` 推到 `shipped_qty`（`RECEIVED`），同一事务 |
 //!
 //! # 状态机（唯一真相：`state_machine::SHIPMENT_EDGES`）
 //!
@@ -50,6 +51,14 @@
 //! 三本账负向 / 成本结转凭证 / 应收挂账全部后移到**签收确认**（M2-03，出库单过账时）。
 //! 本文件仍然**一行库存写 SQL 都没有**。
 //!
+//! # 签收确认（M2-03）
+//!
+//! `POST /business/erp/shipment/{id}/receive` = [`confirm_receipt`]：整单签收，
+//! **同一事务**里「出库单 `PENDING_POST → POSTED`（三本账负向 + 成本结转凭证 + 挂应收）」
+//! +「在途账 `received_qty → shipped_qty`（`RECEIVED` + `received_at`）」。
+//! 在途清零的收口在 `stockout_handler::post_out_tx` 的 ⑤c —— 所以「出库单页面点过账」
+//! 与「发货单点签收确认」两个入口效果完全一致，不会一边扣库存一边把在途挂着。
+//!
 //! # 数据权限
 //!
 //! ```text
@@ -71,6 +80,7 @@ use crate::business::erp::shipment::shipment_model::{
     self as model, NewShipment, NewShipmentItem, ShipmentItemRow, ShipmentRow,
 };
 use crate::business::erp::shipment::shipment_posting;
+use crate::business::erp::shipment::shipment_transit;
 use cloudpivot_kernel::business::shared::state_machine;
 use cloudpivot_kernel::shared::error_code;
 use cloudpivot_kernel::utils;
@@ -301,6 +311,16 @@ pub struct ShipmentStatusReq {
     /// 原因（`PENDING_POST → CANCELLED` 必填）。
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+/// 签收确认请求（M2-03）。
+///
+/// **没有明细字段**：本卡口径是整单签收（见 [`confirm_receipt`] 的「为什么不做部分签收」）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ShipmentReceiveReq {
+    /// 签收备注（落到在途行的 `remark`：签收单号 / 到货状况等）。
+    #[serde(default)]
+    pub remark: Option<String>,
 }
 
 /// 明细出参。
@@ -995,6 +1015,167 @@ pub async fn change_shipment_status(
     }
 }
 
+// ==================== 签收确认（M2-03） ====================
+
+/// 签收确认（整单）：**在途转已出库** —— 扣库存、清在途，一个事务里做完。
+///
+/// # 一个事务里做完两件事（都在 [`stockout_handler::post_out_in_tx`] 的调用链里）
+///
+/// ```text
+/// ① 出库单 PENDING_POST → POSTED：三本账负向 + OUT 流水 + 成本结转凭证 + 挂应收
+/// ② 在途账：每行一条 UPDATE，received_qty 推到 shipped_qty / status → RECEIVED / received_at
+///    （在 `post_out_tx` 的 ⑤c 收口，见那里的注释）
+/// ```
+///
+/// # 三道前置闸（都在开事务之前，错误直接给到人话）
+///
+/// 1. 发货单必须 `POSTED`（货已发出、在途账已记）—— 草稿 / 待过账的单还没有在途可签；
+/// 2. 必须有 `stock_out_id`（M2-02 过账时回填；为空说明过账没走完，重过账再来）；
+/// 3. 必须有未签收的在途行（`status = 'IN_TRANSIT'`）—— 没有 = 已经签收过 / 本单没有在途。
+///
+/// # 失败补偿（AGENTS.md 约定 11）
+///
+/// 出库单过账的任一步失败（负库存闸 / 期间已结账 / 凭证 / 应收）都会让**整笔回滚**：
+/// 在途仍 `IN_TRANSIT`、出库单仍 `PENDING_POST`、三本账一分没动 —— 用户补货 / 反结账后
+/// 直接在界面上重试即可，不需要工程师改库。**不存在**「在途清了、库存没扣」的中间态。
+///
+/// # 为什么不做部分签收
+///
+/// 出库单是按发货单**整单**生成的（`biz_stock_out.total_qty` 固定），而库存扣减以出库单为
+/// 单位 —— 部分签收意味着「同一张出库单只过账一部分」，那要先按签收量拆单（另立单据），
+/// 属退货 / 拒收链的范围，不在本卡（M2-03）内。本卡口径：**整单签收**（全签才动账），
+/// 部分到货请走销售退货（拒收）流程把差异量退回来。库层（V0420 的
+/// `received_qty` 累加 + 生成列）**已经**支持多次签收，后续要放开只改本函数与拆单逻辑。
+pub async fn confirm_receipt(
+    operator: Option<Uuid>,
+    id_raw: &str,
+    remark: Option<&str>,
+) -> std::result::Result<ShipmentRes, ApiError> {
+    let id = parse_uuid(id_raw, "id")?;
+    let row = model::find_shipment(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发货单"))?
+        .ok_or_else(not_found)?;
+
+    // ① 状态闸：只有已过账的发货单才有在途量
+    if row.status != model::STATUS_POSTED {
+        let hint = if row.status == model::STATUS_CANCELLED {
+            "；已作废的发货单不再有在途量"
+        } else {
+            "；请先过账（发货 → 在途）再签收确认"
+        };
+        return Err(conflict(format!(
+            "发货单 {} 当前是「{}」（{}），不能签收确认：只有已过账（POSTED）的发货单才有在途量可签收{}",
+            row.ship_no,
+            model::status_label(&row.status),
+            row.status,
+            hint
+        )));
+    }
+
+    // ② 关联出库单闸（M2-02 过账时回填）
+    let stock_out_id = row.stock_out_id.ok_or_else(|| {
+        conflict(format!(
+            "发货单 {} 没有关联的销售出库单（stock_out_id 为空）：发货过账没有走完，请重新过账后再签收",
+            row.ship_no
+        ))
+    })?;
+
+    // ③ 有未签收量闸（没有 = 已经签收过；重复签收在这里就挡住，不给状态机吐通用冲突）
+    let open = shipment_transit::open_lines(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询未签收在途量"))?;
+    if open.is_empty() {
+        return Err(conflict(format!(
+            "发货单 {} 没有未签收的在途量（可能已经签收确认过，或本单的在途已作废）：重复签收不会再扣一次库存",
+            row.ship_no
+        )));
+    }
+    let open_qty = open
+        .iter()
+        .fold(Decimal::ZERO, |acc, line| acc + line.qty_in_transit)
+        .round_dp(4);
+
+    // ④ 同一事务：出库单过账（三本账负向 + 成本结转 + 挂应收）+ 在途签收清零
+    let now = Utc::now();
+    let op = state_machine::Operator::of(operator);
+    let reason = shipment_posting::receipt_reason(&row.ship_no);
+    let note = remark.map(str::trim).filter(|text| !text.is_empty());
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启签收确认事务"))?;
+    let mut linkage: Option<crate::business::erp::linkage::LinkageRun> = None;
+    let outcome = async {
+        linkage = Some(
+            crate::business::erp::stockout::stockout_handler::post_out_in_tx(
+                &tx,
+                stock_out_id,
+                &op,
+                Some(reason.as_str()),
+                now,
+            )
+            .await?,
+        );
+        // 在途行必须在这一步已经被清掉（⑤c 是同事务收口）。清不掉说明链路被改坏了，
+        // 与其「库存扣了、在途还挂着」静默留一笔错账，不如整笔回滚报错。
+        let left = shipment_transit::open_lines(&tx, id).await?;
+        if !left.is_empty() {
+            return Err(ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!(
+                    "签收确认中止：出库单过账后仍有 {} 行未签收在途（在途清零与实际过账脱节）",
+                    left.len()
+                ),
+            ));
+        }
+        if let Some(text) = note {
+            // 签收备注落在在途行上（`remark` 列；批次/签收凭证号写这里）
+            let _ = tx
+                .exec_sql(
+                    format!(
+                        "UPDATE {} SET remark = COALESCE(NULLIF(?::text, ''), remark), updated_at = ? \
+                          WHERE shipment_id = ?::uuid",
+                        shipment_transit::TABLE
+                    ),
+                    vec![Value::Text(text.to_string()), Value::from(now), Value::from(&id)],
+                )
+                .await;
+        }
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交签收确认事务"))?;
+            if let Some(run) = linkage {
+                crate::business::erp::stockout::stockout_handler::run_deferred_linkage_after_commit(
+                    stock_out_id,
+                    &op,
+                    run,
+                )
+                .await;
+            }
+            tracing::info!(
+                shipment_id = %id,
+                ship_no = %row.ship_no,
+                stock_out_id = %stock_out_id,
+                open_qty = %open_qty,
+                lines = open.len(),
+                "签收确认完成：在途转已出库（库存已扣、成本凭证与应收已生成、在途清零）"
+            );
+            detail_of(id).await
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
 // ==================== HTTP 入口 ====================
 
 /// 发货单分页。
@@ -1060,6 +1241,25 @@ pub async fn shipment_change_status(
 ) -> ResResult<ShipmentRes> {
     let operator = utils::current_user_uuid(&claims);
     Ok(Res::ok(change_shipment_status(operator, &id, req).await?))
+}
+
+/// 签收确认（整单）：**在途转已出库** —— 扣三本账 + 成本结转凭证 + 挂应收，在途清零。
+///
+/// 与出库单页面的「过账」是同一件事的两个入口（出库单 `PENDING_POST` = 出库待确认），
+/// 两者共用 `stockout_handler::post_out_tx` 的 ⑤c 收口，账不会两边各算一次。
+#[nik::permission(
+    path = "/business/erp/shipment/{id}/receive",
+    method = "POST",
+    permission = "business:erp:shipment:status"
+)]
+#[nik::post("/business/erp/shipment/{id}/receive")]
+pub async fn shipment_receive(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<ShipmentReceiveReq>,
+) -> ResResult<ShipmentRes> {
+    let operator = utils::current_user_uuid(&claims);
+    Ok(Res::ok(confirm_receipt(operator, &id, req.remark.as_deref()).await?))
 }
 
 // ==================== 单测 ====================

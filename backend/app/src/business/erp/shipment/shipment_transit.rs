@@ -150,6 +150,170 @@ pub async fn record_shipped(
     Ok(lines)
 }
 
+// ==================== 签收确认（M2-03） ====================
+
+/// 一行**未签收**的在途（`status = 'IN_TRANSIT'`），签收确认要读/推的量。
+///
+/// `id` 是行主键（签收按行 UPDATE，不按 `(物料, 仓库, 发货单)` 条件改 —— 后者在
+/// 并发下会改到别人刚插进来的行）；`qty_in_transit` 是 PG 生成列算出来的余量。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenLine {
+    /// 在途行主键。
+    pub id: Uuid,
+    /// 物料。
+    pub material_id: Uuid,
+    /// 发货数量（累计上限）。
+    pub shipped_qty: Decimal,
+    /// 已签收数量。
+    pub received_qty: Decimal,
+    /// 当前在途量 = `shipped_qty - received_qty`（生成列）。
+    pub qty_in_transit: Decimal,
+}
+
+/// 一条签收结果（供 handler 打日志 / 文案）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiptLine {
+    /// 物料。
+    pub material_id: Uuid,
+    /// 本次签收数量。
+    pub qty: Decimal,
+    /// 签收后状态（`RECEIVED`；余量未清完则是 `IN_TRANSIT`）。
+    pub status: String,
+}
+
+/// 锁住一张发货单的**全部未签收在途行**（`SELECT … FOR UPDATE`，物料升序）。
+///
+/// 调用方必须在**事务**里调用：并发签收靠这把行锁串行化 —— 两个请求都读到「还有 10 在途」，
+/// 各自 `received_qty += 10` 就会撞 `ck_biz_inv_transit_qty`（容不下）或把一个单据签两遍。
+pub async fn lock_open(ex: &impl SqlExecutor, shipment_id: Uuid) -> DbResult<Vec<OpenLine>> {
+    read_open(ex, shipment_id, true).await
+}
+
+/// 只读一遍「还有多少未签收」（不加锁；给接口层做前置闸与文案用）。
+///
+/// 不加锁是**故意的**：真正的互斥在真正的写事务里（`receive_open` 的 `FOR UPDATE`
+/// 与出库单状态的 CAS）。接口层先读一遍只为把「没有在途可签收」变成一句人话的 409，
+/// 而不是让用户看到一个由状态机吐出来的通用冲突。
+pub async fn open_lines(ex: &impl SqlExecutor, shipment_id: Uuid) -> DbResult<Vec<OpenLine>> {
+    read_open(ex, shipment_id, false).await
+}
+
+async fn read_open(ex: &impl SqlExecutor, shipment_id: Uuid, for_update: bool) -> DbResult<Vec<OpenLine>> {
+    let mut sql = format!(
+        "SELECT id, material_id, shipped_qty::text AS shipped, \
+                received_qty::text AS received, qty_in_transit::text AS open \
+           FROM {TABLE} \
+          WHERE shipment_id = ?::uuid AND status = '{STATUS_IN_TRANSIT}' \
+          ORDER BY material_id"
+    );
+    if for_update {
+        sql.push_str(" FOR UPDATE");
+    }
+    let rows = ex.query_sql(sql, vec![Value::from(&shipment_id)]).await?;
+    rows.iter().map(OpenLine::from_row).collect()
+}
+
+impl OpenLine {
+    fn from_row(row: &Row) -> DbResult<Self> {
+        let dec = |name: &str| -> DbResult<Decimal> {
+            let text = row.get_typed::<String>(name)?;
+            text.trim()
+                .parse::<Decimal>()
+                .map_err(|error| DbError::InvalidValue(format!("在途行 {name} 不是合法数值：{text}（{error}）")))
+        };
+        Ok(Self {
+            id: row.get_typed("id")?,
+            material_id: row.get_typed("material_id")?,
+            shipped_qty: dec("shipped")?,
+            received_qty: dec("received")?,
+            qty_in_transit: dec("open")?,
+        })
+    }
+}
+
+/// 签收：把该发货单**所有未签收在途行一次签满**（每行一条 UPDATE，`received_qty += 余量`）。
+///
+/// # 为什么是「一条 UPDATE」而不是先改数量再改状态
+///
+/// V0420 的 `ck_biz_inv_transit_state` 钉死了「IN_TRANSIT 必须还有余量 / RECEIVED 必须余量为 0」：
+/// 分两句写会在第一句就被 CHECK 拦下（这正是设计意图 —— 不存在「签满了还挂在 IN_TRANSIT」
+/// 的中间态能被提交出去）。所以 `received_qty` / `status` / `received_at` 在**同一条** SET 里推。
+///
+/// # 口径
+///
+/// * 只认 `status = 'IN_TRANSIT'` 的行（`CANCELLED` 是作废、`RECEIVED` 已签完，都不算在途）；
+/// * 没有未签收行 → 返回空 `Vec`，**不是错误**：调用方自己决定这算不算问题
+///   （签收确认入口把它当 409；出库单过账侧把它当「本就不是发货单生成的单」）。
+/// * `WHERE … AND status = 'IN_TRANSIT'` 是 CAS：行在本次签收期间被别人签掉 → 0 行 → 409。
+pub async fn receive_open(
+    ex: &impl SqlExecutor,
+    shipment_id: Uuid,
+    operator: &state_machine::Operator,
+    now: DateTime<Utc>,
+    remark: Option<&str>,
+) -> std::result::Result<Vec<ReceiptLine>, ApiError> {
+    let operator_text = Value::Text(operator.id.map(|id| id.to_string()).unwrap_or_default());
+    let remark = Value::Text(remark.unwrap_or_default().to_string());
+    let mut done: Vec<ReceiptLine> = Vec::new();
+    for line in lock_open(ex, shipment_id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定在途行"))?
+    {
+        let open = line.qty_in_transit;
+        if open <= Decimal::ZERO {
+            continue;
+        }
+        let open_text = Value::Text(open.to_string());
+        let affected = ex
+            .exec_sql(
+                format!(
+                    "UPDATE {TABLE} \
+                        SET received_qty = received_qty + ?::text::numeric, \
+                            status = CASE WHEN received_qty + ?::text::numeric >= shipped_qty \
+                                          THEN '{STATUS_RECEIVED}' ELSE '{STATUS_IN_TRANSIT}' END, \
+                            received_at = CASE WHEN received_qty + ?::text::numeric >= shipped_qty \
+                                               THEN ? ELSE received_at END, \
+                            remark = COALESCE(NULLIF(?::text, ''), remark), \
+                            updated_at = ?, \
+                            update_by = NULLIF(?::text, '')::uuid \
+                      WHERE id = ?::uuid AND status = '{STATUS_IN_TRANSIT}'"
+                ),
+                vec![
+                    open_text.clone(),
+                    open_text.clone(),
+                    open_text.clone(),
+                    Value::from(now),
+                    remark.clone(),
+                    Value::from(now),
+                    operator_text.clone(),
+                    Value::from(&line.id),
+                ],
+            )
+            .await
+            .map_err(|error| utils::db_error(error, "写在途签收"))?;
+        if affected == 0 {
+            return Err(ApiError::new(
+                409,
+                cloudpivot_kernel::shared::error_code::RESOURCE_CONFLICT,
+                format!("物料 {} 的在途行在本次签收期间已被改动，请刷新后重试", line.material_id),
+            ));
+        }
+        done.push(ReceiptLine {
+            material_id: line.material_id,
+            qty: open.round_dp(4),
+            status: STATUS_RECEIVED.to_string(),
+        });
+    }
+    if !done.is_empty() {
+        tracing::info!(
+            shipment_id = %shipment_id,
+            lines = done.len(),
+            "在途签收：received_qty 已推到 shipped_qty，status → RECEIVED"
+        );
+    }
+    Ok(done)
+}
+
 /// 该 (物料, 仓库) 当前未签收的在途量合计（`status = 'IN_TRANSIT'`）。
 ///
 /// 发货过账的「可用量」判据要用它：M2-02 起库存不再随发货扣减，
