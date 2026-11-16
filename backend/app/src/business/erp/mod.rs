@@ -220,6 +220,7 @@ pub mod reminder_contract;
 pub mod reminder_payable;
 pub mod reminder_purchase;
 pub mod reminder_stock;
+pub mod replenish;
 pub mod report;
 pub mod requisition_bridge;
 /// 采购退货单 / 销售退货单 PDF 导出（PDF-04）：原单号 + 退货原因 + 双向库位口径。
