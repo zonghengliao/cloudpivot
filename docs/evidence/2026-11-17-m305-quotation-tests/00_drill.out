@@ -1,0 +1,27 @@
+== M3-05 报价单「状态机 + 转单」单测 · 演练（PG 172.18.10.145:5432 / 库 cp_m305_state_drill_3062445）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m305_state_drill_3062445
+== 1) 补齐业务迁移 V0405…V0435（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 31 条业务迁移全部应用成功
+  [32mPASS[0m 报价单头表存在（V0432）（=biz_quotation）
+  [32mPASS[0m 报价单明细表存在（V0432）（=biz_quotation_line）
+  [32mPASS[0m 报价单 6 个权限码就位（V0433 + V0434）（=6）
+  [32mPASS[0m quotation_approve 流程种子就位（V0435）（=1）
+== 2) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡（19 条：转单 + 状态机 + 审批闸 + 清场）：business::erp::sales::quotation_handler::quotation_state_tests 全绿（19 条）（=19）
+  [32mPASS[0m 本卡（19 条：转单 + 状态机 + 审批闸 + 清场）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 报价单整组（M3-02 CRUD/状态机 + M3-03 转单 + M3-04 审批桥 + 本卡）：business::erp::sales::quotation 全绿（53 条）（=53）
+  [32mPASS[0m 报价单整组（M3-02 CRUD/状态机 + M3-03 转单 + M3-04 审批桥 + 本卡）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 销售域整组（订单 / 退货 / 目标 / 审批桥未被本卡打破）：business::erp::sales 全绿（175 条）（=175）
+  [32mPASS[0m 销售域整组（订单 / 退货 / 目标 / 审批桥未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+== 3) 夹具清场（不允许把 M305- 残留带出本组）
+  [32mPASS[0m biz_customer 无 M305 夹具客户（=0）
+  [32mPASS[0m biz_quotation 无 M305 夹具报价单（=0）
+  [32mPASS[0m 无 M305 夹具审批实例（=0）
+  [32mPASS[0m 无 M305 夹具审批待办（=0）
+  [32mPASS[0m 无报价单孤儿状态日志（fixture_hygiene::SALES）（=0）
+  [32mPASS[0m 无销售订单孤儿状态日志（fixture_hygiene::SALES）（=0）
+
+== 汇总：PASS=19 FAIL=0 ==
+ALL PASS

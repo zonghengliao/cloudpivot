@@ -2358,6 +2358,16 @@ pub fn all_permissions() -> Vec<&'static str> {
     QUOTATION_PERMISSIONS.to_vec()
 }
 
+// ==================== 单测（M3-05：状态机 + 转单） ====================
+//
+// 挂在 handler 里（而不是 `sales/mod.rs`）只为一件事：**够得着私有守卫**
+// （`ensure_sendable` / `ensure_acceptable` / `ensure_cancellable` / `change_status_with` /
+// `IssueGate`）。子模块可以看父模块的私有项，反过来不行。
+
+#[cfg(test)]
+#[path = "quotation_state_tests.rs"]
+mod quotation_state_tests;
+
 // ==================== 单测（纯逻辑） ====================
 
 #[cfg(test)]
