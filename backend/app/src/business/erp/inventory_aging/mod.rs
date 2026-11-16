@@ -1,4 +1,5 @@
-//! 库龄：**按批次入库时间算 FIFO 库龄层**的只读模块（M2-08 计算 + M2-09 分段报表）。
+//! 库龄：**按批次入库时间算 FIFO 库龄层**的只读模块（M2-08 计算 + M2-09 分段报表 +
+//! M2-10 呆滞料 + M2-11 跨期/呆滞判定单测）。
 //!
 //! 卡：t_397dc77c（M2-08【M2·仓库】库龄：计算（按批次入库时间））+ t_4e2cb6f6
 //! （M2-09【M2·仓库】库龄分析：报表（0-30/31-60/61-90/90+））；拆卡依据
@@ -39,7 +40,9 @@
 //! * [`handler`] —— 接口层：1 条 `GET` + 参数校验 + 名字补齐编排 + 错误收口；
 //! * [`fifo`] —— FIFO 的 Rust 参考实现（只用于和 SQL 互证，生产路径不跑）。
 //!
-//! 真库用例见 [`aging_db_tests`]，纯逻辑用例见 [`aging_tests`] 与各文件的 `mod tests`，
+//! 真库用例见 [`aging_db_tests`]（计算）/ [`report::report_db_tests`]（报表）/
+//! [`slow_moving::slow_moving_db_tests`]（呆滞）/ [`aging_period_tests`]（跨期与呆滞判定），
+//! 纯逻辑用例见 [`aging_tests`] 与各文件的 `mod tests`，
 //! 都只在 `cargo test` 时编译。
 
 pub mod dto;
@@ -69,6 +72,14 @@ mod aging_tests;
 /// 库龄计算的真库用例（`ERP_DB_URL` 开关；串行跑）。
 #[cfg(test)]
 mod aging_db_tests;
+
+/// 库龄的**跨期与呆滞判定**用例（M2-11）：纯逻辑 + 真库两类，共 11 条。
+///
+/// 与 `aging_tests` / `aging_db_tests` 的分工：那两份把 M2-08 的计算口径钉在**一个基准日**
+/// （2026-11-16）上；本文件只问「基准日往前走，数字怎么变」—— 月末快照逐期演进、
+/// 补录单据按业务日期归期、期初层按期间月初、以及同一层货第 91 天才转呆滞。
+#[cfg(test)]
+mod aging_period_tests;
 
 pub use dto::{AgingFilter, AgingLayerRes, age_days_of, inbound_bounds};
 pub use fifo::{allocate_fifo, sum_of};

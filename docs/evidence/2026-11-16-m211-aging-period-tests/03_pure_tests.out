@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 11 tests
+test business::erp::inventory_aging::aging_period_tests::age_days_across_month_year_and_leap_boundaries ... [M2-11] 库龄是日历天数：跨月 29/60/90/91、跨年 1/31、闰年 2/366 天 ✓
+ok
+test business::erp::inventory_aging::aging_period_tests::backdated_document_lands_in_its_business_period ... SKIP: 未设置 ERP_DB_URL（不连真实数据库）
+ok
+test business::erp::inventory_aging::aging_period_tests::bucket_and_slow_flip_on_the_same_day ... [M2-11] 档位与呆滞同一把尺：0..=400 天逐日同真同假，翻转日 = 30|31 / 60|61 / 90|91 ✓
+ok
+test business::erp::inventory_aging::aging_period_tests::cross_period_snapshots_evolve_per_period_end ... ok
+test business::erp::inventory_aging::aging_period_tests::inbound_bounds_hold_at_period_ends ... [M2-11] inbound_bounds 在月末 / 月初 / 闰日 / 跨年基准日上逐天等价（6 个基准日 × 6 组区间 × -3..=200）✓
+ok
+test business::erp::inventory_aging::aging_period_tests::opening_layer_dates_from_period_start ... ok
+test business::erp::inventory_aging::aging_period_tests::period_boundary_day_is_inclusive ... ok
+test business::erp::inventory_aging::aging_period_tests::period_end_identity_holds_for_slow_quantity ... [M2-11] 逐期恒等式：Σ OVER_90 档 == Σ 呆滞层数量（6 个期末基准日）✓
+ok
+test business::erp::inventory_aging::aging_period_tests::slow_flag_flips_when_period_advances_past_threshold ... ok
+test business::erp::inventory_aging::aging_period_tests::three_views_agree_at_every_period_end ... ok
+test business::erp::inventory_aging::aging_period_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 5760 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

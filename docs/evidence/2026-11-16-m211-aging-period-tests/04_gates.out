@@ -1,0 +1,8 @@
+== cargo fmt --check（本卡两个文件） ==
+fmt rc=0
+
+== cargo clippy --lib -- -D warnings ==
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
+
+== cargo clippy --lib --all-targets -- -D warnings ==
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s

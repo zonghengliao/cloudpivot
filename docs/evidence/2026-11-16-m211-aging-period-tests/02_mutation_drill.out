@@ -1,0 +1,20 @@
+== M2-11 跨期单测反证演练 ==
+库：cp_m211_mutation_drill @ 172.18.10.145   （模板 cloudpivot_test，脚本自己建 / 删）
+  PASS  克隆模板库
+  PASS  迁移 V0424__inventory_aging_calc
+  PASS  迁移 V0425__inventory_aging_report
+  PASS  迁移 V0426__inventory_slow_moving
+  PASS  基线（正确实现）11 条全绿
+  PASS  注入变异：A：期末快照改用过账时间 created_at
+  PASS  变异 A 被抓住：9 通过 / 2 条变红（其中本卡 2 条）
+  PASS  变异 A 由「补录单据按业务日期归期」用例点名抓住
+  PASS  恢复 V0424 正确实现
+  PASS  注入变异：B：期末快照改成 biz_date < p_as_of（当天漏掉）
+  PASS  变异 B 被抓住：2 条用例变红（其中本卡 2 条）
+  PASS  变异 B 由「period_boundary_day_is_inclusive」用例抓住
+  PASS  变异 B 由「opening_layer_dates_from_period_start」用例抓住
+  PASS  恢复 V0424 正确实现
+  PASS  恢复后重新全绿（11 条）
+
+== 汇总：PASS=15 FAIL=0 ==
+RESULT: ALL PASS
