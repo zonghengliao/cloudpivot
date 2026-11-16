@@ -1,0 +1,11 @@
+=== cargo fmt -- --check（cloudpivot 包）===
+rc=0
+
+=== cargo fmt -p cloudpivot -- --check ===
+rc=0
+
+=== cargo clippy --lib -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s
+
+=== cargo clippy --lib --all-targets -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s

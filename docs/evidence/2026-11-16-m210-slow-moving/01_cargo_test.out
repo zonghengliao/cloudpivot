@@ -1,0 +1,105 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.58s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 86 tests
+test business::erp::inventory_aging::aging_db_tests::age_range_maps_to_inbound_date_bounds ... ok
+test business::erp::inventory_aging::aging_db_tests::as_of_cuts_by_business_date_not_posting_time ... ok
+test business::erp::inventory_aging::aging_db_tests::fifo_layers_split_oldest_first ... ok
+test business::erp::inventory_aging::aging_db_tests::include_consumed_shows_fully_eaten_layer ... ok
+test business::erp::inventory_aging::aging_db_tests::lot_no_filter_narrows_to_one_layer ... ok
+test business::erp::inventory_aging::aging_db_tests::over_consumed_partition_yields_no_layers ... ok
+test business::erp::inventory_aging::aging_db_tests::pagination_is_stable_and_counts_all ... ok
+test business::erp::inventory_aging::aging_db_tests::remaining_total_matches_stock_qty ... ok
+test business::erp::inventory_aging::aging_db_tests::sql_matches_reference_allocator ... ok
+test business::erp::inventory_aging::aging_db_tests::warehouse_filter_isolates_partitions ... ok
+test business::erp::inventory_aging::aging_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::inventory_aging::aging_tests::down_migration_reverts_exactly_what_up_created ... ok
+test business::erp::inventory_aging::aging_tests::fifo_formula_exists_only_in_the_database_function ... ok
+test business::erp::inventory_aging::aging_tests::function_and_permission_constants_match_ddl ... ok
+test business::erp::inventory_aging::aging_tests::migration_declares_aging_function_and_permission ... ok
+test business::erp::inventory_aging::aging_tests::migration_file_pair_is_well_formed ... ok
+test business::erp::inventory_aging::dto::tests::age_days_is_calendar_day_distance ... ok
+test business::erp::inventory_aging::dto::tests::bounds_match_age_days ... ok
+test business::erp::inventory_aging::dto::tests::default_as_of_is_cst_today ... ok
+test business::erp::inventory_aging::dto::tests::invalid_age_ranges_are_rejected ... ok
+test business::erp::inventory_aging::dto::tests::lot_no_filter_normalizes_blanks ... ok
+test business::erp::inventory_aging::fifo::tests::empty_inputs_are_safe ... ok
+test business::erp::inventory_aging::fifo::tests::exact_boundaries_do_not_bleed ... ok
+test business::erp::inventory_aging::fifo::tests::invariants_hold_on_generated_cases ... ok
+test business::erp::inventory_aging::fifo::tests::oldest_layer_is_consumed_first ... ok
+test business::erp::inventory_aging::fifo::tests::over_consumption_leaves_no_negative_layer ... ok
+test business::erp::inventory_aging::handler::tests::blank_filters_mean_no_filter ... ok
+test business::erp::inventory_aging::handler::tests::future_inbound_keeps_negative_age ... ok
+test business::erp::inventory_aging::handler::tests::invalid_filters_are_400_with_erp_filter_invalid ... ok
+test business::erp::inventory_aging::handler::tests::permission_codes_match_migration ... ok
+test business::erp::inventory_aging::handler::tests::res_passes_quantities_through_and_computes_age ... ok
+test business::erp::inventory_aging::model::tests::base_sql_always_filters_remaining_and_passes_as_of ... ok
+test business::erp::inventory_aging::model::tests::ids_array_param_uses_pg_literal ... ok
+test business::erp::inventory_aging::model::tests::order_is_oldest_first_with_stable_tiebreak ... ok
+test business::erp::inventory_aging::model::tests::partition_filters_are_pushed_into_the_function ... ok
+test business::erp::inventory_aging::model::tests::where_params_match_placeholders ... ok
+test business::erp::inventory_aging::report::dto::tests::bucket_boundaries_are_inclusive_and_non_overlapping ... ok
+test business::erp::inventory_aging::report::dto::tests::bucket_labels_match_keys ... ok
+test business::erp::inventory_aging::report::dto::tests::negative_age_falls_into_first_bucket ... ok
+test business::erp::inventory_aging::report::dto::tests::pivot_keeps_material_and_warehouse_partitions_apart ... ok
+test business::erp::inventory_aging::report::dto::tests::pivot_merges_buckets_into_one_row ... ok
+test business::erp::inventory_aging::report::dto::tests::row_limit_truncates_rows_but_not_totals ... ok
+test business::erp::inventory_aging::report::dto::tests::rows_are_oldest_first_then_biggest ... ok
+test business::erp::inventory_aging::report::dto::tests::summary_equals_sum_of_rows ... ok
+test business::erp::inventory_aging::report::dto::tests::unknown_bucket_key_folds_into_last_bucket ... ok
+test business::erp::inventory_aging::report::handler::tests::blank_filters_mean_no_filter ... ok
+test business::erp::inventory_aging::report::handler::tests::fill_names_is_noop_on_empty_rows ... ok
+test business::erp::inventory_aging::report::handler::tests::invalid_filters_are_400_with_erp_filter_invalid ... ok
+test business::erp::inventory_aging::report::handler::tests::permission_codes_match_migration ... ok
+test business::erp::inventory_aging::report::model::tests::bucket_case_is_generated_from_the_bucket_table ... ok
+test business::erp::inventory_aging::report::model::tests::params_order_is_documented ... ok
+test business::erp::inventory_aging::report::model::tests::sql_reuses_the_aging_function_and_has_no_fifo ... ok
+test business::erp::inventory_aging::report::report_db_tests::as_of_snapshot_cuts_by_business_date ... ok
+test business::erp::inventory_aging::report::report_db_tests::bucket_boundaries_at_90_and_91_days ... ok
+test business::erp::inventory_aging::report::report_db_tests::default_as_of_is_today_cst_and_echoed ... ok
+test business::erp::inventory_aging::report::report_db_tests::empty_result_is_not_an_error ... ok
+test business::erp::inventory_aging::report::report_db_tests::filters_narrow_to_one_partition ... ok
+test business::erp::inventory_aging::report::report_db_tests::names_are_filled_and_summary_equals_rows ... ok
+test business::erp::inventory_aging::report::report_db_tests::report_buckets_follow_fifo_layer_ages ... ok
+test business::erp::inventory_aging::report::report_db_tests::report_groups_by_material_and_warehouse ... ok
+test business::erp::inventory_aging::report::report_db_tests::total_matches_stock_qty ... ok
+test business::erp::inventory_aging::report::report_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::constants_are_pinned ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::row_limit_truncates_rows_but_not_summary ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::row_ratio_is_safe_on_zero_and_rounds_to_four_decimals ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::rows_only_keep_slow_cells_and_match_summary ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::rows_sort_by_slow_amount_then_qty_then_age ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::summary_counts_scanned_rows_not_only_slow_rows ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::threshold_boundary_is_strictly_greater ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::threshold_param_is_validated_not_clamped ... ok
+test business::erp::inventory_aging::slow_moving::dto::tests::threshold_resolution_prefers_query_then_config_then_default ... ok
+test business::erp::inventory_aging::slow_moving::handler::tests::blank_filters_mean_no_filter ... ok
+test business::erp::inventory_aging::slow_moving::handler::tests::fill_names_is_noop_on_empty_rows ... ok
+test business::erp::inventory_aging::slow_moving::handler::tests::invalid_filters_are_400_with_erp_filter_invalid ... ok
+test business::erp::inventory_aging::slow_moving::handler::tests::permission_codes_match_migration ... ok
+test business::erp::inventory_aging::slow_moving::model::tests::params_order_is_documented ... ok
+test business::erp::inventory_aging::slow_moving::model::tests::sql_reuses_the_aging_function_and_has_no_fifo ... ok
+test business::erp::inventory_aging::slow_moving::model::tests::threshold_appears_once_and_slow_columns_use_the_flag ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::default_as_of_is_today_cst_and_echoed ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::default_threshold_matches_report_over_90 ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::empty_result_is_not_an_error ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::filters_narrow_to_one_partition ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::slow_rows_mark_layers_older_than_threshold ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::threshold_boundary_exactly_n_days_is_not_slow ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::threshold_from_config_and_query_override ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 5674 filtered out; finished in 0.63s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

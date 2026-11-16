@@ -1,0 +1,46 @@
+=== ① menu_invariants.sh cp_m210_slow_test ===
+═══ 菜单结构不变量 ═══
+库: cp_m210_slow_test
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            519  ✅ (400-520)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 121 条，全部命中
+结果: 全绿 ✅
+
+=== ② perm_menu_gate.py（菜单码取自 cp_m210_slow_test，迁移到 V0426）===
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：634 个非测试 .rs（跳过测试文件 167 个、cfg(test) 项内夹具码 0 处）→ 注解码 417 个（670 处）
+菜单侧：503 个活跃 auth_code（file=/root/.hermes/profiles/backend-developer/cache/scratch/menu_codes_m210_full.txt）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 53  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/app/src/business/attachment/dto.rs:35
+
+=== ②反证：同一库、只把本卡那条菜单行排除（应恰好只缺本卡的码）===
+菜单侧：502 个活跃 auth_code（file=/root/.hermes/profiles/backend-developer/cache/scratch/menu_codes_no426.txt）
+--------------------------------------------------------------------------------------------
+✗ missing_in_menu = 1  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+  · business:erp:inventory-aging:slow-moving
+      用在这：backend/app/src/business/erp/inventory_aging/slow_moving/handler.rs:223
+  修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+ℹ unused_in_code  = 53  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/app/src/business/attachment/dto.rs:35
+
+=== ③ scope_gate.py --root . ===
+  PASS：0 处
+闸② 判定面（v2）：扫描生产面 36 个文件 / 跳过测试面 2 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/crates/cloudpivot-kernel/src/{business/shared,shared,utils}
+  PASS：跳过清单与 SKIP_MANIFEST 逐条一致（2 条；多一个少一个都不放行）
+  PASS：0 处
+
+=== ④ cargo test --lib system::menu（含 permission_audit n10/n14–n21）===
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 5738 filtered out; finished in 0.79s

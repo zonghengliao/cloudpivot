@@ -53,6 +53,14 @@ pub mod model;
 /// `biz_inventory_aging_layers(...)`，**没有第二份 FIFO**；两者各自一个权限码
 /// （`…:inventory-aging:list` / `…:inventory-aging:report`）。
 pub mod report;
+/// 呆滞料标记（M2-10 · V0426）：库龄超过 N 天仍有剩余的 物料 × 仓库，N 可配置。
+///
+/// 子模块四件套（`mod + dto + model + handler`），语义上是本模块的**第三个视图**：
+/// 与明细（`…/page`）、报表（`…/report`）共用同一个库函数
+/// `biz_inventory_aging_layers(...)`，**没有第二份 FIFO**；阈值取
+/// `sys_config.erp.inventory.slow-moving-days`（请求参数 `days` 可临时覆盖），
+/// 权限码 `…:inventory-aging:slow-moving`。
+pub mod slow_moving;
 
 /// 库龄计算的纯逻辑用例（不连库）。
 #[cfg(test)]

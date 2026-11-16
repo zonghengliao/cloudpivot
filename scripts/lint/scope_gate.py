@@ -117,6 +117,8 @@ REQUIRED_PRODUCTION = (
 # 不动任何文件内容与判据。
 # M2-09（卡 t_4e2cb6f6）新增 1 条：`business/erp/inventory_aging/report/report_db_tests.rs`
 # （库龄分段报表的真库用例，`#[cfg(test)]` 挂载）。
+# M2-10（卡 t_bb0fe3c6）新增 1 条：`business/erp/inventory_aging/slow_moving/slow_moving_db_tests.rs`
+# （呆滞料标记的真库用例，`#[cfg(test)]` 挂载）。
 SKIP_MANIFEST = frozenset(
     """
 business/attachment/rule_admin/tests.rs
@@ -160,6 +162,7 @@ business/erp/fx_cycle_tests.rs
 business/erp/inventory_aging/aging_db_tests.rs
 business/erp/inventory_aging/aging_tests.rs
 business/erp/inventory_aging/report/report_db_tests.rs
+business/erp/inventory_aging/slow_moving/slow_moving_db_tests.rs
 business/erp/inventory_transit/transit_flow_tests.rs
 business/erp/inventory_transit/transit_query_tests.rs
 business/erp/inventory_transit/transit_reconcile_tests.rs
