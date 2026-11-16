@@ -1,0 +1,26 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 4 tests
+test business::erp::voucher::voucher_write::tests::m1fix_over_long_source_no_is_a_param_error_not_500 ... ok
+test business::erp::voucher::voucher_write::tests::m1fix_source_len_guard_boundaries ... ok
+test business::erp::voucher::voucher_write::tests::m1fix_source_no_boundary_cases_are_persisted_verbatim ... FAILED
+test business::erp::voucher::voucher_write::tests::m1fix_source_no_length_budget_holds_for_worst_case ... ok
+
+failures:
+
+---- business::erp::voucher::voucher_write::tests::m1fix_source_no_boundary_cases_are_persisted_verbatim stdout ----
+
+thread 'business::erp::voucher::voucher_write::tests::m1fix_source_no_boundary_cases_are_persisted_verbatim' (2753609) panicked at app/src/business/erp/voucher/voucher_write.rs:4333:9:
+assertion `left == right` failed: biz_voucher.source_no 必须是 VARCHAR(64)：迁移 V0419 没应用（本用例的 33/38 字单号会在 22001 上挂）
+  left: Some(32)
+ right: Some(64)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::voucher::voucher_write::tests::m1fix_source_no_boundary_cases_are_persisted_verbatim
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 5609 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

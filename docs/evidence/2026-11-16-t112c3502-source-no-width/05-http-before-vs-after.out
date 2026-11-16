@@ -1,0 +1,17 @@
+===== ① 修前：source_no = VARCHAR(32)（V0419 未应用）=====
+source_no 宽度 = 32
+HTTP 500  {"code":10004,"msg":"服务器内部错误"}
+落库凭证行数 = 0 （500 时事务整笔回滚，不该留半张）
+① 退出码 = 0（0 = 复现到 500 + 10004）
+
+===== ② 修后：应用 V0419（source_no = VARCHAR(64)）=====
+psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:110: NOTICE:  V0419 自检一通过：source_no / source_doc_no 都 ≥ VARCHAR(64)
+psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:151: NOTICE:  V0419 自检二通过：source_no 能写 33 / 57 字，65 字仍被列宽拦（22001），探针零残留
+   source_no 宽度 = 64
+source_no 宽度 = 64
+HTTP 200  {"code":0,"msg":"ok","data":{"id":"bba89e93-f127-4474-bae3-abadb33f0ea4","voucher_word":"记","voucher_no":"PZ-20261116-000061","period":"2026-11","voucher_date":"2026-11-16","voucher_type":"MANUAL","vo
+落库凭证行数 = 1 （500 时事务整笔回滚，不该留半张）
+② 退出码 = 1（本脚本判据是 500，所以修后这里应为 1：说明已经不是 500 了）
+外币 1000（修前现场）|手工凭证 1000.0000 USD（本位币 7200.0000）|33
+
+===== 汇总：修前 RC1=0（要 0）/ 修后 RC2=1（要 1 = 不再 500）=====

@@ -1,0 +1,48 @@
+== 0 克隆模板库 cloudpivot_test（停在 V0404）→ cp_t112c3502_http
+NOTICE:  database "cp_t112c3502_http" does not exist, skipping
+  PASS  库已克隆：迁移记录 339 条，source_no = VARCHAR(32)
+  PASS  修前现场复现：source_no 是 VARCHAR(32)
+== 1 修前：33 字单号 INSERT 必被 22001 拦
+  PASS  修前 33 字被 22001 拦（PG: value too long for type character varying(32)）
+== 2 真二进制启动（迁移引擎应用 V0405..V0419）
+  PASS  实例已起（http://127.0.0.1:18097/health 200）
+      迁移记录：339 → 354（+15）
+== 3 迁移落地断言
+  PASS  source_no = VARCHAR(64)
+  PASS  V0419 登记 1 条
+  PASS  V0405..V0419 共 15 条全部应用
+  PASS  迁移内探针零残留
+== 4 重启：0 条新迁移（引擎幂等）
+  PASS  重启后迁移记录不变（354 条，0 条重放）
+  PASS  重启后列宽仍是 64
+== 5 HTTP 真接口验收（外币手工凭证建单）
+== B 迁移落地
+  PASS  biz_voucher.source_no = VARCHAR(64)（V0419 已由迁移引擎应用）
+  PASS  biz_voucher.source_doc_no 仍是 VARCHAR(64)（同一次 INSERT 的另一列对齐）
+  PASS  schema_migrations 里 V0419 恰好登记 1 条（引擎认下来的）
+== 夹具（只动克隆库）
+  PASS  科目 1002/1122 已标 is_foreign_currency（1f3498e3… / b296c9c4…）
+  PASS  USD 牌价夹具：['USD|7.20000000']
+  PASS  当前期间 2026-11|OPEN（OPEN，手工凭证才落得下）
+== C 外币手工凭证建单（原币 100 / 500 / 1000 / 120000 @7.2）
+  PASS  100.0000：200，source_no 逐字相等（31 字，本用例期望 31）
+  PASS  100.0000：source_doc_no 同源兜底也落得下（31 字）
+  PASS  100.0000：库里 source_no 逐字相等（length() = 31）
+  PASS  500.0000：200，source_no 逐字相等（32 字，本用例期望 32）
+  PASS  500.0000：source_doc_no 同源兜底也落得下（32 字）
+  PASS  500.0000：库里 source_no 逐字相等（length() = 32）
+  PASS  1000.0000：200，source_no 逐字相等（33 字，本用例期望 33）
+  PASS  1000.0000：source_doc_no 同源兜底也落得下（33 字）
+  PASS  1000.0000：库里 source_no 逐字相等（length() = 33）
+  PASS  120000.0000：200，source_no 逐字相等（37 字，本用例期望 37）
+  PASS  120000.0000：source_doc_no 同源兜底也落得下（37 字）
+  PASS  120000.0000：库里 source_no 逐字相等（length() = 37）
+  PASS  克隆库里已存在 > 32 字的单号（最长 37 字）：旧列宽装不下的那批现在能落库
+== D 单号超列宽的护栏（必须 400 + 10001，不是 500）
+  PASS  极小金额（0.0001）也能建单（未被新护栏误伤）
+  PASS  借贷不平仍是 400 + 10001（借贷不平衡：借方合计 100.0000 / 贷方合计 90.0000，差额 10…）
+
+== HTTP 汇总：PASS=21 FAIL=0
+  PASS  HTTP 组全绿
+
+== 汇总：PASS=11 FAIL=0

@@ -2068,6 +2068,48 @@ pub async fn post_voucher(
     post_voucher_fx(ex, req, None, None, operator, now).await
 }
 
+/// `biz_voucher.source_no` / `source_doc_no` 的列宽（V0419 起两列都是 `VARCHAR(64)`）。
+///
+/// 只在这一处定义：`post_voucher_fx` 是**所有**凭证写路径的唯一收口（手工 / 收货 / 应付 /
+/// 付款 / 红冲 / 年结 / 期初），护栏放在这里就不存在「某条路径忘了查长度」的可能。
+///
+/// # 为什么是 64（不是随手取的宽数字）
+///
+/// 手工外币凭证的 `source_no` 是**拼出来的文案**
+/// （`手工凭证 {原币合计} {币种}（本位币 {本位币合计}）`，见 `voucher_write::manual_source_no`）：
+/// 固定部分 15 字 + 两个金额串，两个金额列都是 `NUMERIC(20,4)` ⇒ 每个金额串 ≤ 21 字
+/// ⇒ **最坏 57 字**，64 留 7 字余量。64 之前的 `VARCHAR(32)` 连「原币 1000.0000 @8.5」
+/// （33 字）都装不下 —— 手工外币凭证原币合计 ≥ 1000 时建单直接 500（M1-04 遗留缺陷，
+/// t_112c3502 修）。
+pub(crate) const SOURCE_NO_MAX_CHARS: usize = 64;
+
+/// 单号列宽护栏（V0419）：超过列宽 ⇒ `DbError::InvalidValue`（handler 侧翻 **400 + 10001**），
+/// 而不是让 PG 抛 `22001 value too long for type character varying(64)` 变成 500「服务器内部错误」。
+///
+/// # 为什么必须显式查，而不是「相信调用方不会传长」
+///
+/// V0419 之后文案最长 57 字，装是装得下；但**自动凭证**（收货 / 应付 / 付款 / 退货）传的是
+/// 业务单号，谁也不能保证单据号永远 ≤ 64 字（单据号前缀由各模块自己拼）。列宽是库层护栏，
+/// 这一层护栏的意义是：越界时**报错要说清是哪个字段、几个字、上限几位** —— 用户和运维看到
+/// 「服务器内部错误」什么也做不了，看到「source_doc_no 有 78 个字符，超过列宽 64」才知道
+/// 该去找那张单的单号模板。
+///
+/// 计数口径对齐 PG 的 `varchar(n)`：按**字符**（`chars()`）而不是字节 —— 一个汉字在 UTF-8 里
+/// 占 3 字节但只占 1 个字符位，按字节算会把 22 个汉字误判成 66 > 64。
+pub(crate) fn check_source_len(field: &str, value: Option<&str>) -> DbResult<()> {
+    let Some(text) = value else {
+        return Ok(());
+    };
+    let len = text.chars().count();
+    if len > SOURCE_NO_MAX_CHARS {
+        return Err(DbError::InvalidValue(format!(
+            "凭证生成失败：{field} 有 {len} 个字符，超过列宽 {SOURCE_NO_MAX_CHARS} 位\
+             （biz_voucher.{field} 是 VARCHAR({SOURCE_NO_MAX_CHARS})）：{text}"
+        )));
+    }
+    Ok(())
+}
+
 /// [`post_voucher`] 的**外币变体**（M1-04）：凭证原币币种 / 锁定汇率 + 逐行原币金额。
 ///
 /// # 两个旁路参数
@@ -2093,6 +2135,10 @@ pub async fn post_voucher_fx(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
+    // 单号列宽护栏（V0419）：先于任何校验 / 任何 SQL —— 越界是**入参问题**，
+    // 要 400 说清字段与位数，不能落成 PG 22001 → 500「服务器内部错误」。
+    check_source_len("source_no", req.source_no)?;
+    check_source_len("source_doc_no", req.source_doc_no)?;
     if req.lines.len() < 2 {
         return Err(DbError::InvalidValue(format!(
             "凭证生成失败：至少要 2 条分录（当前 {} 行），会计上不构成一张凭证",

@@ -1,0 +1,134 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 115 tests
+test business::erp::voucher::tests::account_mapping_uses_voucher_rule ... ok
+test business::erp::voucher::tests::amount_basis_inventory_excludes_tax_payable_includes_tax ... ok
+test business::erp::voucher::tests::cancel_creates_red_voucher_with_negative_net_effect ... ok
+test business::erp::voucher::tests::cancel_marks_payable_cancelled ... ok
+test business::erp::voucher::tests::db_rejects_entry_with_both_sides ... ok
+test business::erp::voucher::tests::db_rejects_unbalanced_voucher ... ok
+test business::erp::voucher::tests::fix8_concurrent_takes_never_duplicate ... ok
+test business::erp::voucher::tests::fix8_seq_types_advance_independently ... ok
+test business::erp::voucher::tests::fix9_voucher_summary_uses_material_code_without_inventory_account ... ok
+test business::erp::voucher::tests::material_account_is_used_when_rule_missing ... ok
+test business::erp::voucher::tests::missing_rule_falls_back_to_default_accounts ... ok
+test business::erp::voucher::tests::party_label_never_emits_full_uuid ... ok
+test business::erp::voucher::tests::post_creates_open_payable_with_with_tax_amount ... ok
+test business::erp::voucher::tests::post_creates_posted_auto_voucher ... ok
+test business::erp::voucher::tests::post_creates_three_entries_debit_inventory_debit_tax_credit_payable ... ok
+test business::erp::voucher::tests::post_writes_back_voucher_and_payable_ids ... ok
+test business::erp::voucher::tests::receivable_cancel_reds_the_revenue_voucher ... ok
+test business::erp::voucher::tests::red_voucher_links_back_to_original ... ok
+test business::erp::voucher::tests::reversed_lines_swap_sides_and_keep_amounts ... ok
+test business::erp::voucher::tests::sales_revenue_amounts_absorbs_under_a_cent_and_rejects_a_cent ... ok
+test business::erp::voucher::tests::sales_revenue_split_merges_same_material_and_absorbs_tail ... ok
+test business::erp::voucher::tests::sales_revenue_voucher_posts_balanced_entries ... ok
+test business::erp::voucher::tests::sales_revenue_voucher_rejects_closed_period ... ok
+test business::erp::voucher::tests::sales_revenue_voucher_skips_zero_amount ... ok
+test business::erp::voucher::tests::sales_revenue_voucher_splits_revenue_by_material ... ok
+test business::erp::voucher::tests::so41_revenue_voucher_books_base_currency_amounts ... ok
+test business::erp::voucher::tests::so41_split_in_base_scales_material_lines ... ok
+test business::erp::voucher::tests::so41_stock_out_voucher_stays_in_base_currency ... ok
+test business::erp::voucher::tests::so41_validate_base_amounts_enforces_identity_and_sign ... ok
+test business::erp::voucher::tests::source_doc_no_records_business_doc_and_is_queryable ... ok
+test business::erp::voucher::tests::voucher_failure_rolls_back_inventory ... ok
+test business::erp::voucher::tests::voucher_no_format_is_pz_prefix_with_six_digits ... ok
+test business::erp::voucher::tests::voucher_period_follows_stock_in_date ... ok
+test business::erp::voucher::tests::voucher_totals_are_balanced ... ok
+test business::erp::voucher::tests::zero_tax_receipt_has_two_entries ... ok
+test business::erp::voucher::tests::zz_teardown_purges_finance_status_logs ... ok
+test business::erp::voucher::tests::zz_teardown_purges_fixture_accounts ... ok
+test business::erp::voucher::voucher_bridge::tests::biz_type_and_flow_code_match_seed ... ok
+test business::erp::voucher::voucher_bridge::tests::verdict_maps_only_final_states ... ok
+test business::erp::voucher::voucher_bridge::tests::voucher_status_is_never_pending_reverse ... ok
+test business::erp::voucher::voucher_linkage_tests::lnk06_create_audit_post_each_trigger_once ... ok
+test business::erp::voucher::voucher_linkage_tests::lnk06_excluded_generate_voucher_never_runs ... ok
+test business::erp::voucher::voucher_linkage_tests::lnk06_forbidden_actions_are_declared ... ok
+test business::erp::voucher::voucher_linkage_tests::lnk06_generate_voucher_rule_is_rejected_on_save ... ok
+test business::erp::voucher::voucher_linkage_tests::lnk06_repeat_post_does_not_trigger_twice ... ok
+test business::erp::voucher::voucher_linkage_tests::lnk06_reverse_triggers_posted_for_red_voucher ... ok
+test business::erp::voucher::voucher_multi::tests::debit_groups_sum_is_the_credit_amount ... ok
+test business::erp::voucher::voucher_multi::tests::explicit_line_is_single_sided ... ok
+test business::erp::voucher::voucher_port_impl::tests::account_pick_round_trips ... ok
+test business::erp::voucher::voucher_port_impl::tests::dept_aware_sql_keeps_soft_delete_and_status ... ok
+test business::erp::voucher::voucher_port_impl::tests::writer_reports_its_name ... ok
+test business::erp::voucher::voucher_query::tests::p2d1_query_validation ... ok
+test business::erp::voucher::voucher_query::tests::p2d1_red_voucher_detail_flags ... ok
+test business::erp::voucher::voucher_query::tests::p2d1_voucher_detail_matches_totals ... ok
+test business::erp::voucher::voucher_query::tests::p2d1_voucher_page_filters ... ok
+test business::erp::voucher::voucher_query::tests::pflow3b_res_carries_pending_reverse_instance_id ... ok
+test business::erp::voucher::voucher_query::tests::pflow3b_res_carries_reverse_reason ... ok
+test business::erp::voucher::voucher_query::tests::vtrace3_by_source_agrees_with_find_voucher_by_source ... ok
+test business::erp::voucher::voucher_query::tests::vtrace3_by_source_empty_when_no_voucher ... ok
+test business::erp::voucher::voucher_query::tests::vtrace3_by_source_query_validation ... ok
+test business::erp::voucher::voucher_query::tests::vtrace3_by_source_returns_blue_and_red_vouchers ... ok
+test business::erp::voucher::voucher_query::tests::vtrace7_entry_aux_names_joined ... ok
+test business::erp::voucher::voucher_query::tests::vtrace7_entry_sql_is_single_left_join ... ok
+test business::erp::voucher::voucher_query::tests::zz_teardown_purges_fixture_accounts ... ok
+test business::erp::voucher::voucher_write::tests::aux_dimensions_parse_is_lenient_but_bounded ... ok
+test business::erp::voucher::voucher_write::tests::aux_missing_is_400_with_account_code_and_field ... ok
+test business::erp::voucher::voucher_write::tests::biz_active_conflict_maps_to_409_with_voucher_no ... ok
+test business::erp::voucher::voucher_write::tests::e2e04_aux_id_must_be_uuid ... ok
+test business::erp::voucher::voucher_write::tests::e2e04_legacy_voucher_with_null_aux_is_not_blocked ... ok
+test business::erp::voucher::voucher_write::tests::e2e04_manual_voucher_with_dept_lands_and_shows_in_aux_balance ... ok
+test business::erp::voucher::voucher_write::tests::e2e04_manual_voucher_without_dimension_account_needs_no_aux ... ok
+test business::erp::voucher::voucher_write::tests::e2e04_manual_voucher_without_required_dept_is_rejected ... ok
+test business::erp::voucher::voucher_write::tests::m104_base_currency_voucher_is_unchanged ... ok
+test business::erp::voucher::voucher_write::tests::m104_convert_absorbs_tail_diff_into_largest_line ... ok
+test business::erp::voucher::voucher_write::tests::m104_convert_identity_when_rate_is_one ... ok
+test business::erp::voucher::voucher_write::tests::m104_convert_rejects_amount_rounding_to_zero ... ok
+test business::erp::voucher::voucher_write::tests::m104_convert_reports_unabsorbable_diff ... ok
+test business::erp::voucher::voucher_write::tests::m104_foreign_voucher_stores_base_and_fc_amounts ... ok
+test business::erp::voucher::voucher_write::tests::m104_fx_options_expose_locked_rate ... ok
+test business::erp::voucher::voucher_write::tests::m104_missing_rate_is_rejected_not_defaulted_to_one ... ok
+test business::erp::voucher::voucher_write::tests::m104_rate_mismatch_is_rejected ... ok
+test business::erp::voucher::voucher_write::tests::m104_reverse_keeps_currency_and_swaps_fc ... ok
+test business::erp::voucher::voucher_write::tests::m104_tail_diff_voucher_is_balanced_in_db ... ok
+test business::erp::voucher::voucher_write::tests::m104_unknown_currency_is_rejected ... ok
+test business::erp::voucher::voucher_write::tests::m104_unmarked_account_is_rejected ... ok
+test business::erp::voucher::voucher_write::tests::m1fix_over_long_source_no_is_a_param_error_not_500 ... ok
+test business::erp::voucher::voucher_write::tests::m1fix_source_len_guard_boundaries ... ok
+test business::erp::voucher::voucher_write::tests::m1fix_source_no_boundary_cases_are_persisted_verbatim ... ok
+test business::erp::voucher::voucher_write::tests::m1fix_source_no_length_budget_holds_for_worst_case ... ok
+test business::erp::voucher::voucher_write::tests::p4a_audit_by_other_lands_audited ... ok
+test business::erp::voucher::voucher_write::tests::p4a_audited_voucher_summary_is_locked ... ok
+test business::erp::voucher::voucher_write::tests::p4a_auto_voucher_still_posts_directly ... ok
+test business::erp::voucher::voucher_write::tests::p4a_create_lands_draft_with_creation_log ... ok
+test business::erp::voucher::voucher_write::tests::p4a_initial_audited_status_is_rejected ... ok
+test business::erp::voucher::voucher_write::tests::p4a_locked_statuses_are_posted_and_audited ... ok
+test business::erp::voucher::voucher_write::tests::p4a_only_posted_enters_ledger_and_trial_balance ... ok
+test business::erp::voucher::voucher_write::tests::p4a_only_un_audit_needs_reason ... ok
+test business::erp::voucher::voucher_write::tests::p4a_post_requires_audited ... ok
+test business::erp::voucher::voucher_write::tests::p4a_posted_is_terminal ... ok
+test business::erp::voucher::voucher_write::tests::p4a_self_audit_gate_matrix ... ok
+test business::erp::voucher::voucher_write::tests::p4a_self_audit_is_forbidden ... ok
+test business::erp::voucher::voucher_write::tests::p4a_un_audit_back_to_draft_keeps_reason ... ok
+test business::erp::voucher::voucher_write::tests::p4a_un_audit_requires_reason ... ok
+test business::erp::voucher::voucher_write::tests::p4a_voucher_state_machine_registry ... ok
+test business::erp::voucher::voucher_write::tests::p7_manual_voucher_balanced_lands_draft ... ok
+test business::erp::voucher::voucher_write::tests::p7_manual_voucher_unbalanced_is_rejected ... ok
+test business::erp::voucher::voucher_write::tests::p7_reverse_closed_period_is_conflict ... ok
+test business::erp::voucher::voucher_write::tests::p7_reverse_creates_red_voucher ... ok
+test business::erp::voucher::voucher_write::tests::p7_reverse_red_voucher_is_conflict ... ok
+test business::erp::voucher::voucher_write::tests::p7_reverse_requires_reason ... ok
+test business::erp::voucher::voucher_write::tests::p7_reverse_twice_is_conflict ... ok
+test business::erp::voucher::voucher_write::tests::p7_reverse_writes_back_reversed_by_and_keeps_posted ... ok
+test business::erp::voucher::voucher_write::tests::posted_voucher_summary_change_is_conflict ... ok
+test business::erp::voucher::voucher_write::tests::zz_m104_teardown_purges_fx_fixtures ... ok
+test business::erp::voucher::voucher_write::tests::zz_teardown_purges_voucher_status_logs ... ok
+
+test result: ok. 115 passed; 0 failed; 0 ignored; 0 measured; 5498 filtered out; finished in 4.93s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

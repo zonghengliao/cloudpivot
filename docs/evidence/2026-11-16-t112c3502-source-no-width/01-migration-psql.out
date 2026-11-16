@@ -1,0 +1,34 @@
+== 0 克隆模板库 cloudpivot_test → cp_t112c3502_t1
+  PASS  库已克隆（339 条迁移记录）
+== 1 修前现场：source_no = 32 / source_doc_no = 64
+  PASS  修前 source_no 是 VARCHAR(32)（缺陷可复现）
+  PASS  修前 33 字 INSERT 被 22001 拦（PG：value too long for type character varying(32)）
+== 2 up.sql 第 1 遍
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:76: NOTICE:  V0419: biz_voucher.source_no 由 VARCHAR(32) 放宽到 VARCHAR(64)
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:110: NOTICE:  V0419 自检一通过：source_no / source_doc_no 都 ≥ VARCHAR(64)
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:151: NOTICE:  V0419 自检二通过：source_no 能写 33 / 57 字，65 字仍被列宽拦（22001），探针零残留
+  PASS  up 自检通过（33/57 可写、65 被拦、探针零残留）
+  PASS  source_no 已放宽到 VARCHAR(64)
+  PASS  source_doc_no 仍是 VARCHAR(64)（V0357 原值，未动）
+== 3 up.sql 第 2 遍（幂等）
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:76: NOTICE:  V0419: biz_voucher.source_no 已是 VARCHAR(64)，跳过（幂等）
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:110: NOTICE:  V0419 自检一通过：source_no / source_doc_no 都 ≥ VARCHAR(64)
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.up.sql:151: NOTICE:  V0419 自检二通过：source_no 能写 33 / 57 字，65 字仍被列宽拦（22001），探针零残留
+  PASS  重复执行走「跳过」分支（幂等，不报错）
+  PASS  探针零残留
+== 4 down.sql 数据护栏：>32 字在场时必须拒绝收窄
+  PASS  有 33 字行时 down 被拒绝（不允许静默截断业务单号）
+  PASS  被拒后宽度仍是 64（事务回滚干净）
+== 5 清掉长行后 down 能收窄，且不误伤 source_doc_no
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.down.sql:39: NOTICE:  V0419 down: 数据护栏通过（无 > 32 字的 source_no）
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.down.sql:59: NOTICE:  V0419 down: biz_voucher.source_no 由 VARCHAR(64) 收窄回 VARCHAR(32)
+      psql:/opt/cloudpivot/backend/app/migrations/business/V0419__voucher_source_no_width.down.sql:86: NOTICE:  V0419 down 完成：source_no 回到 VARCHAR(32)，source_doc_no 保持 VARCHAR(64) 未动
+  PASS  down 自检通过
+  PASS  source_no 回到 VARCHAR(32)
+  PASS  source_doc_no 未被误伤（仍 64）
+== 6 再跑 up.sql（还原成迁移后状态，供真库单测）
+  PASS  重新放宽成功（32 → 64，同一文件可重放）
+  PASS  库已停在迁移后状态
+
+== 汇总：PASS=15 FAIL=0
+（库 cp_t112c3502_t1 保留给真库单测用；收场时 drop）

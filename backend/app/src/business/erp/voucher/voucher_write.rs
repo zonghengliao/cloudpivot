@@ -1298,6 +1298,31 @@ fn aux_field_name(code: &str) -> &'static str {
     }
 }
 
+/// 手工凭证的 `source_no` 文案（**外币单带币种 + 本位币合计**）。
+///
+/// # 为什么外币单要把两段金额都写进单号
+///
+/// 「手工凭证 100」在 USD 单上会被读成 100 元人民币 —— 清单页「按单号认金额」的用法直接错。
+/// 所以 M1-04 起外币单写 `手工凭证 {原币合计} {币种}（本位币 {本位币合计}）`。
+///
+/// # 长度预算（`biz_voucher.source_no` 的列宽 64 就是照它定的，见 V0419）
+///
+/// ```text
+/// 固定部分 15 字 = "手工凭证 "(5) + " "(1) + 币种 3 位(3) + "（本位币 "(5) + "）"(1)
+/// 两个金额串各 ≤ 21 字（NUMERIC(20,4) 的极限：16 位整数 + "." + 4 位小数）
+/// ⇒ 最坏 15 + 21 + 21 = 57 字 ≤ 64（余量 7）
+/// ```
+///
+/// 历史坑：这条文案在 `VARCHAR(32)` 的列上，原币合计 ≥ 1000（33 字）时建单直接 500
+/// （t_112c3502）；单测用 100 / 7.2（31 字）夹具所以红不了。改列宽时别把这里改回去，
+/// 改文案时先算一遍长度。
+fn manual_source_no(debit_total: Decimal, base_total: Decimal, currency: Option<&str>) -> String {
+    match currency {
+        Some(code) => format!("手工凭证 {debit_total} {code}（本位币 {base_total}）"),
+        None => format!("手工凭证 {debit_total}"),
+    }
+}
+
 /// 手工凭证事务的全部入参（结构体化，避开 `clippy::too_many_arguments`）。
 struct ManualVoucher<'a> {
     /// 待补科目快照的分录（**原币口径**：外币单是原币，本位币单就是本位币）。
@@ -1426,11 +1451,11 @@ async fn manual_in_tx(
         .iter()
         .fold(Decimal::ZERO, |acc, (debit, _)| acc + *debit)
         .round_dp(4);
-    let source_no = if fx.is_foreign {
-        format!("手工凭证 {debit_total} {}（本位币 {base_total}）", fx.currency_code)
-    } else {
-        format!("手工凭证 {debit_total}")
-    };
+    let source_no = manual_source_no(
+        debit_total,
+        base_total,
+        fx.is_foreign.then_some(fx.currency_code.as_str()),
+    );
     let voucher_id = voucher::post_voucher_fx(
         tx,
         &voucher::PostVoucher {
@@ -4167,6 +4192,269 @@ mod tests {
         let error = fx_options(Some("2026/10/15")).await.expect_err("非法日期必须 400");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, error_code::PARAM_INVALID);
+    }
+
+    // ==================== M1-FIX（t_112c3502）：`source_no` 列宽 32 → 64 ====================
+
+    /// 纯逻辑：单号文案的**长度预算** —— 外币单最坏 57 字，落在 V0419 的 `VARCHAR(64)` 内。
+    ///
+    /// 这条用例是「缺陷的最小复现」+「修复的判据」二合一：
+    /// * `500.0000 @8.5` → **恰好 32 字**：旧列宽能装下（边界内侧）；
+    /// * `1000.0000 @8.5` → **33 字**：旧列宽越界 1 字（真实故障现场，原币合计 ≥ 1000 全挂）；
+    /// * 两个 16 位整数金额 → **57 字**：NUMERIC(20,4) 的极限，必须仍在 64 以内。
+    ///
+    /// 改文案或改列宽的人先跑这条 —— 文案变长 / 列宽变窄会当场红。
+    #[test]
+    fn m1fix_source_no_length_budget_holds_for_worst_case() {
+        let cases = [
+            // (原币合计, 本位币合计, 期望全文, 期望长度, 是否旧列宽装得下)
+            (
+                "100.0000",
+                "850.0000",
+                "手工凭证 100.0000 EUR（本位币 850.0000）",
+                31,
+                true,
+            ),
+            (
+                "500.0000",
+                "4250.0000",
+                "手工凭证 500.0000 EUR（本位币 4250.0000）",
+                32,
+                true,
+            ),
+            (
+                "1000.0000",
+                "8500.0000",
+                "手工凭证 1000.0000 EUR（本位币 8500.0000）",
+                33,
+                false,
+            ),
+            (
+                "120000.0000",
+                "1020000.0000",
+                "手工凭证 120000.0000 EUR（本位币 1020000.0000）",
+                38,
+                false,
+            ),
+            (
+                "1234567890123456.1234",
+                "1234567890123456.1234",
+                "手工凭证 1234567890123456.1234 EUR（本位币 1234567890123456.1234）",
+                57,
+                false,
+            ),
+        ];
+        for (debit, base, expected, want_len, fits_old) in cases {
+            let text = manual_source_no(dec(debit), dec(base), Some("EUR"));
+            assert_eq!(text, expected, "文案必须逐字一致");
+            assert_eq!(
+                text.chars().count(),
+                want_len,
+                "长度预算算错：{text} 是 {} 字（预期 {want_len}）",
+                text.chars().count()
+            );
+            assert!(
+                text.chars().count() <= voucher::SOURCE_NO_MAX_CHARS,
+                "最坏情况也不许超过列宽 {}：{text}（{} 字）",
+                voucher::SOURCE_NO_MAX_CHARS,
+                text.chars().count()
+            );
+            assert_eq!(
+                want_len <= 32,
+                fits_old,
+                "32 字边界的判定要与缺陷现场一致（33 字就是在 VARCHAR(32) 上炸的那张单）"
+            );
+        }
+
+        // 本位币单不带币种、不带本位币合计（文案与 V0406 之前逐字相同）
+        let base_only = manual_source_no(dec("1000.0000"), dec("1000.0000"), None);
+        assert_eq!(base_only, "手工凭证 1000.0000");
+        assert_eq!(base_only.chars().count(), 14);
+    }
+
+    /// 纯逻辑：列宽护栏的三条边界（64 放行 / 65 拒绝 / 汉字按字符不按字节）。
+    ///
+    /// 护栏的意义是**把 22001 的 500 变成 400 + 可执行文案**（自动凭证路径没有长度护栏，
+    /// 见卡面「影响面」第二条）。
+    #[test]
+    fn m1fix_source_len_guard_boundaries() {
+        // 64 个 ASCII：放行（正好顶满）
+        assert!(
+            voucher::check_source_len("source_no", Some(&"a".repeat(64))).is_ok(),
+            "64 字必须放行（顶满列宽）"
+        );
+        // 65 个 ASCII：拒绝，文案点名字段 + 实际位数 + 上限
+        let err = voucher::check_source_len("source_no", Some(&"a".repeat(65)))
+            .expect_err("65 字必须被拦（否则落库就是 22001 → 500）");
+        let DbError::InvalidValue(message) = err else {
+            panic!("应当是参数错（handler 翻 400），实际 {err:?}");
+        };
+        assert!(message.contains("source_no"), "{message}");
+        assert!(message.contains("65"), "文案必须报实际位数：{message}");
+        assert!(message.contains("64"), "文案必须报上限：{message}");
+
+        // 字段名要跟着走：`source_doc_no` 越界不能报成 `source_no`
+        let err = voucher::check_source_len("source_doc_no", Some(&"单".repeat(65))).expect_err("65 个汉字必须被拦");
+        let DbError::InvalidValue(message) = err else {
+            panic!("应当是参数错，实际 {err:?}");
+        };
+        assert!(message.contains("source_doc_no"), "{message}");
+
+        // **按字符计数，不按字节**：64 个汉字 = 192 字节，但只占 64 个字符位 ⇒ 放行
+        // （按字节算会误判成 192 > 64，把合法的中文单号拦下来）
+        assert!(
+            voucher::check_source_len("source_no", Some(&"单".repeat(64))).is_ok(),
+            "64 个汉字（192 字节）必须放行：PG 的 varchar(n) 按字符计数"
+        );
+        // `None` 不校验（自动凭证 / 红冲没有来源单号）
+        assert!(voucher::check_source_len("source_no", None).is_ok());
+    }
+
+    /// 真库：`source_no` **32 字边界两侧 + 7 位本位币合计**都能建单，且单号逐字落库。
+    ///
+    /// 修前：`1000.0000`（33 字）→ PG 22001 → 500 + `10004 服务器内部错误`，一张都建不出来。
+    /// 修后：文案不变（前端/e2e 的旧断言继续有效），只是列宽够装了。
+    #[tokio::test]
+    async fn m1fix_source_no_boundary_cases_are_persisted_verbatim() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+
+        // 先钉住「迁移到位」：列宽必须是 V0419 之后的 64（不是就不必往下跑，报错指路）
+        let source_width: Option<i32> = db()
+            .scalar::<Option<i32>>(
+                "SELECT character_maximum_length::int FROM information_schema.columns \
+                  WHERE table_schema = 'public' AND table_name = 'biz_voucher' \
+                    AND column_name = 'source_no'",
+            )
+            .await
+            .expect("查 source_no 列宽");
+        assert_eq!(
+            source_width,
+            Some(64),
+            "biz_voucher.source_no 必须是 VARCHAR(64)：迁移 V0419 没应用（本用例的 33/38 字单号会在 22001 上挂）"
+        );
+        let doc_width: Option<i32> = db()
+            .scalar::<Option<i32>>(
+                "SELECT character_maximum_length::int FROM information_schema.columns \
+                  WHERE table_schema = 'public' AND table_name = 'biz_voucher' \
+                    AND column_name = 'source_doc_no'",
+            )
+            .await
+            .expect("查 source_doc_no 列宽");
+        assert_eq!(
+            doc_width,
+            Some(64),
+            "biz_voucher.source_doc_no 必须与 source_no 同量级（V0357 建的是 64）"
+        );
+
+        // (原币合计, 期望单号, 期望字数) —— 汇率固定 FX_RATE = 8.5，所以本位币 = 原币 × 8.5
+        let cases = [
+            // 31 字：旧列宽装得下（V0406 之后一直绿的那批，保留作对照）
+            ("100.0000", "手工凭证 100.0000 EUR（本位币 850.0000）", 31usize),
+            // 恰好 32 字：旧列宽的**边界内侧**，修前也是绿的（边界值没覆盖才漏了缺陷）
+            ("500.0000", "手工凭证 500.0000 EUR（本位币 4250.0000）", 32),
+            // 33 字：真实故障现场（PG: value too long for type character varying(32)）
+            ("1000.0000", "手工凭证 1000.0000 EUR（本位币 8500.0000）", 33),
+            // 7 位本位币合计（38 字）：金额位数变多同样不能溢出
+            ("120000.0000", "手工凭证 120000.0000 EUR（本位币 1020000.0000）", 38),
+        ];
+        for (debit, expected, want_len) in cases {
+            let created = create_fx(
+                Some(FX_CURRENCY),
+                None,
+                vec![fx_entry(FX_DEBIT, debit, "0"), fx_entry(FX_CREDIT, "0", debit)],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("外币单号 {debit} 必须能建单：{} {}", err.code, err.msg));
+
+            assert_eq!(
+                created.voucher.source_no.as_deref(),
+                Some(expected),
+                "出参单号必须逐字等于预期（{debit}）"
+            );
+            // 库里读回来必须也是同一个串（列表 / 详情 / 搜索走的是行）
+            let id = Uuid::parse_str(&created.voucher.id).expect("凭证 id 非法");
+            let row = find_voucher(db(), id).await.expect("读凭证").expect("凭证必须能读回");
+            assert_eq!(
+                row.source_no.as_deref(),
+                Some(expected),
+                "库里 source_no 必须逐字等于预期（{debit}）"
+            );
+            assert_eq!(
+                row.source_no.as_deref().map(|text| text.chars().count()),
+                Some(want_len),
+                "落库字数必须与预算一致（{debit}）"
+            );
+            // `source_doc_no = COALESCE(显式传入, source_no)`：同一串兜底也要落得下
+            assert_eq!(
+                row.source_doc_no.as_deref(),
+                Some(expected),
+                "source_doc_no 同源兜底必须与 source_no 一致（两列都得装得下）"
+            );
+        }
+    }
+
+    /// 真库：护栏把「单号超过列宽」翻成 **参数错**（400 + 10001），并且**一行都不落库**。
+    ///
+    /// 修前同一种输入的表现：PG 抛 22001，用户看到 500「服务器内部错误」，也没有可执行提示。
+    #[tokio::test]
+    async fn m1fix_over_long_source_no_is_a_param_error_not_500() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let inventory = voucher::account_required(db(), "1405", "单测科目").await.unwrap();
+        let payable = voucher::account_required(db(), "2202", "单测科目").await.unwrap();
+        let line = |line_no: i32, account: AccountRef, debit: &str, credit: &str| EntryLine {
+            line_no,
+            summary: "M1FIX 超长单号".to_string(),
+            account,
+            debit: dec(debit),
+            credit: dec(credit),
+            aux_supplier_id: None,
+            aux_material_id: None,
+            aux_warehouse_id: None,
+            aux_dept_id: None,
+        };
+        let over = "超".repeat(voucher::SOURCE_NO_MAX_CHARS + 1);
+        let err = voucher::post_voucher(
+            db(),
+            &voucher::PostVoucher {
+                voucher_type: voucher::VOUCHER_TYPE_AUTO,
+                source_type: "STOCK_IN",
+                source_id: None,
+                source_no: Some(over.as_str()),
+                source_doc_no: None,
+                voucher_date: voucher::today_cst(Utc::now()),
+                summary: "M1FIX 超长单号".to_string(),
+                lines: vec![line(1, inventory, "1", "0"), line(2, payable, "0", "1")],
+                remark: None,
+                red_of: None,
+                status: voucher::STATUS_POSTED,
+            },
+            Some(CREATOR),
+            Utc::now(),
+        )
+        .await
+        .expect_err("超过列宽的 source_no 必须被护栏拦下");
+        let DbError::InvalidValue(message) = err else {
+            panic!("应当是参数错（400 + 10001），实际 {err:?}");
+        };
+        assert!(message.contains("source_no"), "文案必须点名字段：{message}");
+        assert!(message.contains("65"), "文案必须报实际位数：{message}");
+        assert!(message.contains("64"), "文案必须报列宽上限：{message}");
+
+        // 被拒的凭证一条都不许留（护栏在工作顺序上先于任何 SQL，所以连取号都不该发生）
+        let left: i64 = db()
+            .scalar_with_params::<i64>(
+                "SELECT count(*) FROM biz_voucher WHERE summary = ?",
+                vec![Value::Text("M1FIX 超长单号".to_string())],
+            )
+            .await
+            .expect("查残留");
+        assert_eq!(left, 0, "被护栏拒掉的凭证不许留行");
     }
 
     /// 外币用例的收尾清场（名字 `zz_` 开头，libtest 按名排序 ⇒ 必然排在最后）。
