@@ -5356,7 +5356,8 @@ export interface ReceivableAging {
  * 编应收账龄分析表（`GET /business/erp/receivable/aging`，权限 `business:erp:receivable:aging`）。
  *
  * 入参与应付账龄**同一套语义**：`as_of` 优先；只传 `period` 用该期间末日；都空 = 今天（CST）。
- * 分档与应付**同源**（同一份 `BUCKETS` / `bucket_of`），不含 `WRITTEN_OFF` / `CANCELLED`
+ * 分档是 **30/60/90/180/365 七档**（后端 `payable_aging::AGING_BUCKETS`，机制与应付同源、
+ * 刻度更细；表头仍按响应 `buckets[]` 渲染，别写死）；不含 `WRITTEN_OFF` / `CANCELLED`
  * —— 坏账核销掉的、作废冲销的都不该再算作应收资产。
  */
 export function fetchReceivableAging(query: { period?: string; as_of?: string } = {}): Promise<ReceivableAging> {

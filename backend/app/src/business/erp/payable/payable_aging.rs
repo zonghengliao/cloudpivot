@@ -18,22 +18,28 @@
 //! （见 [`crate::business::erp::payable`]），所以账龄不需要再拿账期做二次推算 —— 表里
 //! 已经有到期日，直接用。
 //!
-//! # 分档（唯一真相在本文件的 [`BUCKETS`]）
+//! # 分档（两张档位表都在本文件，机制只有一份）
 //!
-//! | key | 名称 | 逾期天数 |
-//! |-----|------|----------|
-//! | `NOT_DUE` | 未到期 | ≤ 0 |
-//! | `D0_30`   | 1-30 天 | 1 – 30 |
-//! | `D31_60`  | 31-60 天 | 31 – 60 |
-//! | `D61_90`  | 61-90 天 | 61 – 90 |
-//! | `OVER_90` | 90 天以上 | ≥ 91 |
+//! 档位表是**数据**；机制（天数 → 档位、档位 → SQL `CASE`）按表参数化，只有一份。
 //!
-//! 边界（单测逐个钉住）：0 → 未到期（到期当天不算逾期）、1/30 → 1-30、31/60 → 31-60、
-//! 61/90 → 61-90、91 → 90 天以上。
+//! | 档位表 | 用在哪 | 档位 |
+//! |--------|--------|------|
+//! | [`BUCKETS`] | **应付**账龄（本文件，5 档） | 未到期 / 1-30 / 31-60 / 61-90 / 90 天以上 |
+//! | [`AGING_BUCKETS`] | **应收**账龄（`receivable_aging`，7 档，M1-19） | 未到期 / 1-30 / 31-60 / 61-90 / 91-180 / 181-365 / 365 天以上 |
 //!
-//! 分档逻辑**只有两份实现，且都是从同一张 [`BUCKETS`] 推出来的**：
-//! [`bucket_of`]（Rust 侧，给明细行用）和 [`bucket_case_sql`]（SQL 侧，给按供应商汇总用）。
-//! 这样加档位只改常量一处，两边不会漂移。
+//! 应付账龄的边界（单测逐个钉住）：0 → 未到期（到期当天不算逾期）、1/30 → 1-30、
+//! 31/60 → 31-60、61/90 → 61-90、91 → 90 天以上。
+//!
+//! 机制只由两个吃「档位表」参数的函数构成：[`bucket_of_in`]（Rust 侧，给明细行用）和
+//! [`bucket_case_sql_in`]（SQL 侧，给按对手方汇总用）；[`bucket_of`] / [`bucket_case_sql`]
+//! 是「按 [`BUCKETS`] 走」的薄包装（应付老调用点一个字都不用改）。
+//! 加 / 调档位只改档位表一处，Rust 与 SQL 两侧不会漂移。
+//!
+//! ⚠ 两张表**不是**「各抄一份阈值」：[`AGING_BUCKETS`] 的前四档与 [`BUCKETS`] 逐字相同
+//! （单测 `receivable_buckets_extend_payable_prefix` 钉住前缀相等），应收只是在
+//! 「90 天以上」那里再切成 91-180 / 181-365 / 365 天以上三段。
+//! 应付要不要也切细是「应付账龄补分档」（M1-21）那张卡的事，本卡不动 ⇒
+//! 应付报表的列布局与接口契约零变化。
 //!
 //! # 为什么明细在 Rust 侧再算一次分档
 //!
@@ -45,10 +51,11 @@
 //!
 //! SO-12 起了 `biz_receivable`（V0287，24 列逐列镜像 `biz_payable`），
 //! SO-13 的 [`crate::business::erp::receivable::receivable_aging`] 按本文件的算法做了应收账龄。
-//! **分档口径刻意只有一份**：应收那边直接用本模块的 [`BUCKETS`] / [`bucket_of`] /
-//! [`bucket_case_sql`] / [`money`] / [`overdue_days`] / [`resolve_as_of`]，
-//! 不复制常量、不另写阈值 —— 所以两张表的「未到期 / 1-30 / 31-60 / 61-90 / 90 天以上」
-//! 永远同边界。改本文件的档位，两张表一起变（应收侧单测逐天比对 −400..=400 兜底）。
+//! **算法与档位表都只有一份**：应收那边用本模块的 [`AGING_BUCKETS`] / [`bucket_of_in`] /
+//! [`bucket_case_sql_in`] / [`bucket_defs`] / [`empty_bucket_cells`] / [`money`] /
+//! [`overdue_days`] / [`resolve_as_of`]，不复制阈值、不另写算法 —— 两边共有的
+//! 「未到期 / 1-30 / 31-60 / 61-90」永远同边界（应收侧单测逐天比对 −400..=400 兜底），
+//! 应收多出的 91-180 / 181-365 / 365 天以上三段只在 [`AGING_BUCKETS`] 里定义。
 //!
 //! # 数据权限
 //!
@@ -94,7 +101,7 @@ pub const AGING_STATUSES: [&str; 3] = ["OPEN", "PARTIAL_PAID", "PENDING_CANCEL"]
 pub const DETAIL_LIMIT: usize = 1000;
 
 /// 一个账龄档位的定义。
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BucketSpec {
     /// 档位键（接口出参 / 前端列键）。
     pub key: &'static str,
@@ -106,7 +113,7 @@ pub struct BucketSpec {
     pub max_days: Option<i64>,
 }
 
-/// 账龄档位表 —— **分档的唯一真相**（Rust 与 SQL 两侧都从这里生成）。
+/// **应付**账龄档位表（5 档；应付报表的列布局就按它渲染）。
 pub const BUCKETS: [BucketSpec; 5] = [
     BucketSpec {
         key: "NOT_DUE",
@@ -140,26 +147,89 @@ pub const BUCKETS: [BucketSpec; 5] = [
     },
 ];
 
-/// 逾期天数 → 档位键（纯逻辑）。
+/// **应收**账龄档位表（7 档 = 未到期 + 30/60/90/180/365 六段，M1-19）。
 ///
-/// 按 [`BUCKETS`] 的顺序取第一个「上界 ≥ 天数」的档位；最后一个档位无上界，兜住全部。
-pub fn bucket_of(overdue_days: i64) -> &'static str {
-    for bucket in &BUCKETS {
+/// | key | 名称 | 逾期天数 |
+/// |-----|------|----------|
+/// | `NOT_DUE`   | 未到期     | ≤ 0 |
+/// | `D0_30`     | 1-30 天    | 1 – 30 |
+/// | `D31_60`    | 31-60 天   | 31 – 60 |
+/// | `D61_90`    | 61-90 天   | 61 – 90 |
+/// | `D91_180`   | 91-180 天  | 91 – 180 |
+/// | `D181_365`  | 181-365 天 | 181 – 365 |
+/// | `OVER_365`  | 365 天以上 | ≥ 366 |
+///
+/// 前四档与应付的 [`BUCKETS`] **逐字相同**（单测钉死前缀相等）；后三档是把应付的
+/// 「90 天以上」按 180/365 再切成三段 —— 长账龄要分层看（一年以上基本等于坏账候选，
+/// 三个月的账龄管理动作完全不同）。
+///
+/// 边界（单测逐个钉住）：0 → 未到期、1/30 → 1-30、31/60 → 31-60、61/90 → 61-90、
+/// 91/180 → 91-180、181/365 → 181-365、366 → 365 天以上。
+pub const AGING_BUCKETS: [BucketSpec; 7] = [
+    BucketSpec {
+        key: "NOT_DUE",
+        label: "未到期",
+        min_days: i64::MIN,
+        max_days: Some(0),
+    },
+    BucketSpec {
+        key: "D0_30",
+        label: "1-30 天",
+        min_days: 1,
+        max_days: Some(30),
+    },
+    BucketSpec {
+        key: "D31_60",
+        label: "31-60 天",
+        min_days: 31,
+        max_days: Some(60),
+    },
+    BucketSpec {
+        key: "D61_90",
+        label: "61-90 天",
+        min_days: 61,
+        max_days: Some(90),
+    },
+    BucketSpec {
+        key: "D91_180",
+        label: "91-180 天",
+        min_days: 91,
+        max_days: Some(180),
+    },
+    BucketSpec {
+        key: "D181_365",
+        label: "181-365 天",
+        min_days: 181,
+        max_days: Some(365),
+    },
+    BucketSpec {
+        key: "OVER_365",
+        label: "365 天以上",
+        min_days: 366,
+        max_days: None,
+    },
+];
+
+/// 逾期天数 → 档位键（纯逻辑，按给定档位表）。
+///
+/// 按表内顺序取第一个「上界 ≥ 天数」的档位；最后一个档位无上界，兜住全部。
+pub fn bucket_of_in(buckets: &[BucketSpec], overdue_days: i64) -> &'static str {
+    for bucket in buckets {
         match bucket.max_days {
             Some(max) if overdue_days > max => continue,
             _ => return bucket.key,
         }
     }
-    // 不会走到这里（最后一个档位 max_days = None），留兜底而不是 unwrap。
-    BUCKETS[BUCKETS.len() - 1].key
+    // 不会走到这里（调用方的表最后一个档位 max_days = None），留兜底而不是 unwrap。
+    buckets.last().map(|bucket| bucket.key).unwrap_or("NOT_DUE")
 }
 
-/// 由 [`BUCKETS`] 生成的 SQL `CASE` 表达式（`days_expr` 是「逾期天数」的 SQL 表达式）。
+/// 由给定档位表生成的 SQL `CASE` 表达式（`days_expr` 是「逾期天数」的 SQL 表达式）。
 ///
-/// 生成的形状：`CASE WHEN <expr> <= 0 THEN 'NOT_DUE' WHEN <expr> <= 30 THEN 'D0_30' … ELSE 'OVER_90' END`
-pub fn bucket_case_sql(days_expr: &str) -> String {
+/// 生成的形状：`CASE WHEN <expr> <= 0 THEN 'NOT_DUE' WHEN <expr> <= 30 THEN 'D0_30' … ELSE '<最后一档>' END`
+pub fn bucket_case_sql_in(buckets: &[BucketSpec], days_expr: &str) -> String {
     let mut sql = String::from("CASE");
-    for bucket in &BUCKETS {
+    for bucket in buckets {
         match bucket.max_days {
             Some(max) => sql.push_str(&format!(" WHEN {days_expr} <= {max} THEN '{}'", bucket.key)),
             None => sql.push_str(&format!(" ELSE '{}'", bucket.key)),
@@ -167,6 +237,42 @@ pub fn bucket_case_sql(days_expr: &str) -> String {
     }
     sql.push_str(" END");
     sql
+}
+
+/// 档位定义出参（渲染表头用），按给定档位表生成。
+pub fn bucket_defs(buckets: &[BucketSpec]) -> Vec<AgingBucketDef> {
+    buckets
+        .iter()
+        .map(|bucket| AgingBucketDef {
+            key: bucket.key.to_string(),
+            label: bucket.label.to_string(),
+            min_days: bucket.min_days,
+            max_days: bucket.max_days,
+        })
+        .collect()
+}
+
+/// 全 0 的档位金额行（客户行 / 汇总行的初值），按给定档位表生成。
+pub fn empty_bucket_cells(buckets: &[BucketSpec]) -> Vec<AgingBucketAmountRes> {
+    buckets
+        .iter()
+        .map(|bucket| AgingBucketAmountRes {
+            key: bucket.key.to_string(),
+            label: bucket.label.to_string(),
+            unpaid: Decimal::ZERO,
+            doc_count: 0,
+        })
+        .collect()
+}
+
+/// 逾期天数 → 档位键（按**应付**的 [`BUCKETS`]；薄包装，保留给应付老调用点）。
+pub fn bucket_of(overdue_days: i64) -> &'static str {
+    bucket_of_in(&BUCKETS, overdue_days)
+}
+
+/// 由**应付**的 [`BUCKETS`] 生成的 SQL `CASE` 表达式（薄包装）。
+pub fn bucket_case_sql(days_expr: &str) -> String {
+    bucket_case_sql_in(&BUCKETS, days_expr)
 }
 
 // ==================== 入参 ====================
@@ -1023,6 +1129,66 @@ mod tests {
         assert_eq!(bucket_of(90), "D61_90");
         assert_eq!(bucket_of(91), "OVER_90");
         assert_eq!(bucket_of(3650), "OVER_90");
+    }
+
+    /// ①b 应收档位表（30/60/90/180/365，M1-19）：前四档与应付逐字相同，
+    ///     90 天以上在应收被切成 91-180 / 181-365 / 365 天以上三格。
+    ///
+    /// 这条是「两张表不是各抄一份阈值」的机器化证明：谁动了共同的四档边界，这里立刻红。
+    #[test]
+    fn receivable_buckets_extend_payable_prefix() {
+        assert_eq!(AGING_BUCKETS.len(), 7, "未到期 + 30/60/90/180/365 六段");
+        assert_eq!(
+            AGING_BUCKETS.map(|bucket| bucket.key),
+            [
+                "NOT_DUE", "D0_30", "D31_60", "D61_90", "D91_180", "D181_365", "OVER_365"
+            ]
+        );
+        // 前四档：key / label / 上下界必须与应付逐字相同（一次比完整结构，不是逐个字段抄）
+        assert_eq!(
+            &AGING_BUCKETS[..4],
+            &BUCKETS[..4],
+            "应收的前四档必须与应付的 5 档表前四档逐字相同"
+        );
+        // 90 天以上那一段：应付 1 格 → 应收 3 格，区间起点与终点对得上（无缝、无重叠）
+        assert_eq!(AGING_BUCKETS[4].min_days, BUCKETS[4].min_days);
+        assert_eq!(AGING_BUCKETS[6].max_days, BUCKETS[4].max_days);
+        // 逐天：前 90 天两边完全一致（不是「差不多」）
+        for days in -400..=90i64 {
+            assert_eq!(
+                bucket_of_in(&AGING_BUCKETS, days),
+                bucket_of(days),
+                "第 {days} 天两表必须同档"
+            );
+        }
+        // 关键边界逐个钉住（180 / 365 两刀）
+        let expect = [
+            (91, "D91_180"),
+            (180, "D91_180"),
+            (181, "D181_365"),
+            (365, "D181_365"),
+            (366, "OVER_365"),
+            (3650, "OVER_365"),
+        ];
+        for (days, key) in expect {
+            assert_eq!(bucket_of_in(&AGING_BUCKETS, days), key, "应收第 {days} 天");
+            assert_eq!(
+                bucket_of(days),
+                "OVER_90",
+                "应付仍是 5 档（补分档是 M1-21 的事，本卡不动应付契约）"
+            );
+        }
+        // SQL 侧与 Rust 侧同源
+        let sql = bucket_case_sql_in(&AGING_BUCKETS, "d");
+        assert!(sql.contains("WHEN d <= 180 THEN 'D91_180'"), "实际：{sql}");
+        assert!(sql.contains("WHEN d <= 365 THEN 'D181_365'"), "实际：{sql}");
+        assert!(sql.ends_with("ELSE 'OVER_365' END"), "实际：{sql}");
+        assert!(!sql.contains("OVER_90"), "应收的 CASE 里不该再有 90 天以上这颗兜底档");
+        // 出参生成器按表宽度给出
+        assert_eq!(empty_bucket_cells(&AGING_BUCKETS).len(), 7);
+        assert_eq!(bucket_defs(&AGING_BUCKETS).len(), 7);
+        assert_eq!(empty_bucket_cells(&AGING_BUCKETS)[6].label, "365 天以上");
+        assert_eq!(bucket_defs(&AGING_BUCKETS)[5].max_days, Some(365));
     }
 
     /// ② 每个档位的上下界与 `bucket_of` 自洽（下界 - 1 必须落到上一档）。

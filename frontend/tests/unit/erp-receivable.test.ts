@@ -283,12 +283,16 @@ test('账龄格占比：合计为 0 或格为 0 一律 0（不产生 NaN 宽度�
 
 // ==================== 账龄看板文案 ====================
 
-test('账龄档位配色：未到期绿 / 90+ 红 / 未知灰', () => {
+test('账龄档位配色：30/60/90/180/365 七档都有色，未知键灰', () => {
   assert.equal(bucketThemeOf('NOT_DUE'), 'success');
   assert.equal(bucketThemeOf('D0_30'), 'primary');
   assert.equal(bucketThemeOf('D31_60'), 'warning');
   assert.equal(bucketThemeOf('D61_90'), 'warning');
-  assert.equal(bucketThemeOf('OVER_90'), 'danger');
+  // M1-19 起应收是 30/60/90/180/365 七档，长账龄三档都是红
+  assert.equal(bucketThemeOf('D91_180'), 'danger');
+  assert.equal(bucketThemeOf('D181_365'), 'danger');
+  assert.equal(bucketThemeOf('OVER_365'), 'danger');
+  assert.equal(bucketThemeOf('OVER_90'), 'danger', '旧 5 档口径的键仍兜底（历史响应）');
   assert.equal(bucketThemeOf('D180_PLUS'), 'default');
 });
 

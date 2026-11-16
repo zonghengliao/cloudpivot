@@ -6,9 +6,10 @@
  * - 列表 / 详情：`backend/app/src/business/erp/receivable_query.rs` 的 `ReceivableRes`
  *   → 前端类型 `@/api/business/erp` 的 `Receivable`（`ar_no` / `customer_name` /
  *   `source_no` / `amount` / `received_amount` / `unsettled_amount` / `due_date` / `status`）；
- * - 账龄：`receivable_aging.rs` 的 `ReceivableAgingRes`。**分档口径与应付同源**
- *   （同一份 `BUCKETS` / `bucket_of`），所以前端绝不写死 30/60/90 ——
- *   表头与分桶标签一律按响应里的 `buckets[]` 渲染，后端加档位前端自动跟上。
+ * - 账龄：`receivable_aging.rs` 的 `ReceivableAgingRes`。**分档 30/60/90/180/365（7 档）**，
+ *   档位表在后端 `payable_aging::AGING_BUCKETS`（机制与应付同源、刻度更细），
+ *   所以前端绝不写死 30/60/90 —— 表头与分桶标签一律按响应里的 `buckets[]` 渲染，
+ *   后端加档位前端自动跟上（这里只提供配色，认不出的键回落灰色，不会白屏）。
  * - 核销：坏账核销是 `PATCH /receivable/{id}/write-off`，原因 ≥ 4 字
  *   （`receivable::REASON_MIN_CHARS`）。收款单核销（`biz_receipt_allocation`）属
  *   SO-16/SO-17，**尚未落地** —— 详情里的「核销记录」面板据实显示空态，
@@ -371,10 +372,11 @@ export function agingPeriodStatusText(status: string | null | undefined): string
 }
 
 /**
- * 账龄档位配色：未到期绿、1-30 蓝、31-60 橙、61-90 橙、90+ 红。
+ * 账龄档位配色：未到期绿、1-30 蓝、31-60 / 61-90 橙、91-180 起红（越长越深）。
  *
- * 键是后端 `AgingBucketDef.key`（`payable_aging::BUCKETS` 同源），认不出就 `default` ——
- * 后端加档位时最多是灰色，不会白屏。
+ * 键是后端 `AgingBucketDef.key`（M1-19 起的 30/60/90/180/365 七档），
+ * 认不出就 `default` —— 后端加档位时最多是灰色，不会白屏。
+ * `OVER_90` 是旧 5 档口径的兜底键（历史响应 / 缓存），保留映射不删。
  */
 export function bucketThemeOf(key: string): 'default' | 'primary' | 'success' | 'warning' | 'danger' {
   switch (key) {
@@ -386,6 +388,12 @@ export function bucketThemeOf(key: string): 'default' | 'primary' | 'success' | 
       return 'warning';
     case 'D61_90':
       return 'warning';
+    case 'D91_180':
+      return 'danger';
+    case 'D181_365':
+      return 'danger';
+    case 'OVER_365':
+      return 'danger';
     case 'OVER_90':
       return 'danger';
     default:

@@ -851,12 +851,19 @@ const agingMaxOverdue = computed(() =>
   aging.value ? aging.value.customers.reduce((max, item) => Math.max(max, item.max_overdue_days), 0) : 0,
 );
 
-/** 档位配色（与 `bucketThemeOf` 同源，但表格里要的是 CSS 颜色值，不是 TDesign theme 名） */
+/**
+ * 档位配色（与 `bucketThemeOf` 同源，但表格里要的是 CSS 颜色值，不是 TDesign theme 名）。
+ * M1-19：应收账龄是 30/60/90/180/365 七档，91-180 起用 error 色阶（越长越深）；
+ * `OVER_90` 只为历史响应保留。
+ */
 const BUCKET_COLORS: Record<string, string> = {
   NOT_DUE: 'var(--td-success-color)',
   D0_30: 'var(--td-brand-color)',
   D31_60: 'var(--td-warning-color)',
   D61_90: 'var(--td-warning-color-light)',
+  D91_180: 'var(--td-error-color-light, rgba(213, 73, 65, 0.55))',
+  D181_365: 'var(--td-error-color, #d54941)',
+  OVER_365: 'var(--td-error-color-active, #b4463f)',
   OVER_90: 'var(--td-error-color)',
 };
 

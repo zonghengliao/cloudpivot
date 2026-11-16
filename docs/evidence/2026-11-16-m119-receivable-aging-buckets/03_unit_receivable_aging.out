@@ -1,0 +1,29 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 10 tests
+test business::erp::receivable::receivable_aging::tests::assemble_computes_ratio_and_detail_buckets ... ok
+test business::erp::receivable::receivable_aging::tests::bucket_boundaries_are_identical_to_payable ... ok
+test business::erp::receivable::receivable_aging::tests::db_bucket_boundaries_and_backet_source_agree ... ok
+test business::erp::receivable::receivable_aging::tests::db_customer_pivot_and_summary_are_consistent ... ok
+test business::erp::receivable::receivable_aging::tests::db_period_cutoff_excludes_later_documents ... ok
+test business::erp::receivable::receivable_aging::tests::db_report_end_to_end_exposes_seven_buckets ... ok
+test business::erp::receivable::receivable_aging::tests::overdue_and_as_of_are_shared_with_payable ... ok
+test business::erp::receivable::receivable_aging::tests::pivot_fills_missing_buckets_and_sorts_by_amount ... ok
+test business::erp::receivable::receivable_aging::tests::sql_bucket_case_comes_from_payable ... ok
+test business::erp::receivable::receivable_aging::tests::summary_sums_match_customers ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 5587 filtered out; finished in 0.18s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+
