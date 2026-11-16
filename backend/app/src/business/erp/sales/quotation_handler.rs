@@ -6,11 +6,12 @@
 //! |------|------|--------|------|
 //! | POST | `/business/erp/quotation` | `business:erp:quotation:create` | 建单（`DRAFT`，取号 `QT-yyyyMMdd-000001`） |
 //! | PUT | `/business/erp/quotation/{id}` | `business:erp:quotation:update` | 改单（**只有 DRAFT**，明细整单替换） |
-//! | GET | `/business/erp/quotation/{id}` | `business:erp:quotation:list` | 详情（含明细 + 客户编码/名称 + 是否过期） |
+//! | GET | `/business/erp/quotation/{id}` | `business:erp:quotation:list` | 详情（含明细 + 客户编码/名称 + 是否过期 + 审批） |
 //! | GET | `/business/erp/quotation/page` | `business:erp:quotation:list` | 分页（`quote_no` 模糊 / `status` / `customer_id` / `expired`） |
 //! | PATCH | `/business/erp/quotation/{id}/status` | `business:erp:quotation:status` | 状态流转（**只走 `LEGAL_EDGES` 的 6 条边**，其余 409） |
 //! | DELETE | `/business/erp/quotation/{id}` | `business:erp:quotation:delete` | 软删（**只有 DRAFT / CANCELLED**） |
 //! | POST | `/business/erp/quotation/{id}/convert` | `business:erp:quotation:convert` | **转销售订单（带行）**：ACCEPTED → 新建 SO + 回填 `converted_so_id`（M3-03） |
+//! | POST | `/business/erp/quotation/{id}/submit-approval` | `business:erp:quotation:status` | **提交审批**（M3-04；发起 `quotation_approve`，走 flow 不硬编码） |
 //!
 //! # 状态机（唯一真相：`state_machine::QUOTATION_EDGES`）
 //!
@@ -56,9 +57,29 @@
 //!
 //! # 不碰的东西
 //!
-//! - **不接审批流**：审批是 M3-04（本卡 `DocKind::Quotation::is_document() = false`）；
+//! - **审批不是状态**：审批是 `DRAFT → SENT` 的**前置条件**（M3-04）。
+//!   `biz_quotation.status` 五值域一个字没改，`ck_biz_quotation_status` 也没动 ——
+//!   口径与收款退款（`receipt_refund_bridge`）同一条路线，理由见那边模块注释。
 //! - **不写库存 / 不生成凭证**：转单只建 `DRAFT` 订单，一分钱一分货都没动；
 //! - **不改订单里的价格**：报价单是客户认过的价，转单只是把它搬进订单。
+
+//! # 审批流接线（M3-04）
+//!
+//! | 动作 | 谁做 | 单据状态 |
+//! |------|------|----------|
+//! | 提交审批 `POST /quotation/{id}/submit-approval` | 人（`quotation:status` 码） | **仍是 `DRAFT`**；发起 `quotation_approve` 实例 |
+//! | 审批通过 | 流程引擎回调 `quotation_approval_bridge::on_quotation_settled` | **自动发出** `DRAFT → SENT`（与人工发出同一条路径） |
+//! | 驳回 / 撤回 / 终止 | 同上 | 仍是 `DRAFT`（价格一分没对外，可改完再提） |
+//! | 直接 `PATCH status=SENT` | 人 | **409 + 66088**：没有 APPROVED 实例就发不出去 |
+//!
+//! 「没配流程」（`biz_flow_def` 里没有已发布的 `quotation_approve`）走
+//! `approval_gate::authorize_missing_flow`：**默认 409**，只有持 `business:erp:skip-approval`
+//! 且写明理由（≥10 字）的账号才能显式跳过 —— 跳过时**直接发出**（理由写进状态日志），
+//! 否则报价单会永远停在草稿且没人能发。
+//!
+//! 审批在跑时（有 `PENDING` 实例）不许改单 / 删单 / 换状态（409，报文给审批单号）；
+//! 作废（→`CANCELLED`）例外：**同一事务**里把在跑的审批撤掉（`cancel_approval_of`），
+//! 不留孤儿待办。
 //!
 //! # 数据权限
 //!
@@ -78,11 +99,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::erp::customer::customer_model::{self, CustomerRow, STATUS_ACTIVE};
 use crate::business::erp::inventory_transit::model as transit_model;
+use crate::business::erp::sales::quotation_approval_bridge;
 use crate::business::erp::sales::quotation_model::{
     self as model, NewLine, NewQuotation, QuotationLineRow, QuotationRow, Totals,
 };
 use crate::business::erp::sales::sales_order_model as so_model;
-use crate::business::erp::{currency, doc_shape};
+use crate::business::erp::{approval_gate, currency, doc_shape};
+use crate::business::flow::{engine, model as flow_model};
 use cloudpivot_kernel::business::shared::state_machine;
 use cloudpivot_kernel::shared::error_code;
 
@@ -255,6 +278,17 @@ pub struct QuotationStatusReq {
     pub reason: Option<String>,
 }
 
+/// 提交审批请求（M3-04；**可以完全不带 body**）。
+///
+/// 唯一用途是「没配 `quotation_approve` 流程时显式跳过审批」这个例外：
+/// 配了流程时带 `skip_approval` 会 400（不许绕过已配置的内控）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct QuotationSubmitReq {
+    /// 跳过审批片段（`skip_approval` / `skip_reason`）。
+    #[serde(flatten, default)]
+    pub approval: approval_gate::SkipApprovalReq,
+}
+
 /// 转销售订单请求（**可以完全不带 body**：`Option<Json<…>>`，`{}` 与无 body 都当默认值）。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ConvertQuotationReq {
@@ -388,6 +422,13 @@ pub struct QuotationRes {
     pub converted_so_id: Option<String>,
     /// 转单时间。
     pub converted_at: Option<String>,
+    /// 最近一轮审批实例 id（M3-04 / V0435；`None` = 从没提交过审批）。
+    pub approval_instance_id: Option<String>,
+    /// 审批摘要（**详情页**才有；列表页为 `None`，避免每行回查实例 —— 防 N+1）。
+    ///
+    /// 前端不要只看 `status` 判断「审批中」：审批不是状态，`status` 仍是 `DRAFT`，
+    /// 「已提交待批」只能从这里读（`approval.status == PENDING`）。
+    pub approval: Option<QuotationApprovalRes>,
     /// 备注。
     pub remark: Option<String>,
     /// 现在能不能改（= 状态是 `DRAFT`）。
@@ -427,6 +468,8 @@ impl QuotationRes {
             total_with_tax: row.total_with_tax,
             converted_so_id: row.converted_so_id.map(|id| id.to_string()),
             converted_at: row.converted_at.map(|at| at.to_rfc3339()),
+            approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
+            approval: None,
             remark: row.remark.clone(),
             editable: row.status == model::STATUS_DRAFT,
             deletable: model::DELETABLE_STATUSES.contains(&row.status.as_str()),
@@ -441,6 +484,52 @@ impl QuotationRes {
             update_by: row.update_by.map(|id| id.to_string()),
         }
     }
+}
+
+// ==================== 审批摘要（M3-04） ====================
+
+/// 报价单审批摘要（详情页 `approval` 段）。
+///
+/// 只读；提交审批走 `POST /quotation/{id}/submit-approval`，审批动作在审批中心
+/// （`POST /business/flow/task/{id}/approve`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct QuotationApprovalRes {
+    /// 审批实例 id。
+    pub instance_id: String,
+    /// 审批单号（`FLW-yyyyMMdd-XXXXXXXX`）。
+    pub instance_no: String,
+    /// 实例状态（`PENDING` / `APPROVED` / `REJECTED` / `WITHDRAWN` / `CANCELLED`）。
+    pub status: String,
+    /// 实例状态中文名（前端徽标直接用，不再自己映射一遍）。
+    pub status_label: String,
+    /// 还在等几个人批（`PENDING` 时的待办条数；其它状态恒 0）。
+    pub pending_tasks: i64,
+}
+
+impl QuotationApprovalRes {
+    /// 由桥的摘要构造（状态中文名在这里补，避免前端维护第二份映射）。
+    fn of(brief: &quotation_approval_bridge::ApprovalBrief) -> Self {
+        Self {
+            instance_id: brief.instance_id.to_string(),
+            instance_no: brief.instance_no.clone(),
+            status: brief.status.clone(),
+            status_label: instance_status_label(&brief.status),
+            pending_tasks: brief.pending_tasks,
+        }
+    }
+}
+
+/// 审批实例状态的中文名（未知值原样给「未知」，不 panic）。
+fn instance_status_label(status: &str) -> String {
+    match status.trim().to_ascii_uppercase().as_str() {
+        "PENDING" => "审批中",
+        "APPROVED" => "已通过",
+        "REJECTED" => "已驳回",
+        "WITHDRAWN" => "已撤回",
+        "CANCELLED" => "已终止",
+        _ => "未知",
+    }
+    .to_string()
 }
 
 // ==================== 纯逻辑：入参 → 行结构 ====================
@@ -603,6 +692,12 @@ async fn detail_of(id: Uuid) -> std::result::Result<QuotationRes, ApiError> {
         })
         .collect();
     let mut res = QuotationRes::of(&row, items, today);
+    // 审批摘要（M3-04）：详情页一次往返带上，前端不必再打审批中心拿「谁在等谁批」
+    res.approval = quotation_approval_bridge::latest_approval_of(db(), id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单审批实例"))?
+        .as_ref()
+        .map(QuotationApprovalRes::of);
     if let Some((_, code, name)) = model::customer_labels(&[row.customer_id])
         .await
         .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单客户"))?
@@ -699,6 +794,36 @@ pub async fn update_quotation(
              请作废本单后新开一张（客户手里那份报价不能被原地改掉）",
             model::status_label(&current.status),
             current.status
+        )));
+    }
+    // 审批闸（M3-04）：审批人还在等这一票时不许改（他看到的价必须就是最终价）；
+    // 已批未发时也不许改（改了价还拿旧批文发出 = 跳过复核）。
+    // 注意用 `held_by_approver` 而不是 `biz_instance_running`：退回发起人（`RESUBMIT` 待办）
+    // 时单据必须能改，改完回去点「重新提交」。
+    if quotation_approval_bridge::held_by_approver(id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = quotation_approval_bridge::latest_approval_of(db(), id)
+            .await
+            .ok()
+            .flatten()
+            .map(|brief| brief.instance_no)
+            .unwrap_or_else(|| "审批单".to_string());
+        return Err(conflict(format!(
+            "报价单 {} 正在审批中（{instance_no}），不能改：请先从审批中心撤回，或等审批结束后再改",
+            current.quote_no
+        )));
+    }
+    if quotation_approval_bridge::approved_instance_of(db(), id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单审批实例"))?
+        .is_some()
+    {
+        return Err(conflict(format!(
+            "报价单 {} 已通过审批但还没发出：请先「发出」（PATCH status=SENT，审批已通过会放行），\
+             或作废后重开一张再改 —— 改完价再发等于跳过复核",
+            current.quote_no
         )));
     }
     let customer_id = match req
@@ -857,11 +982,36 @@ pub async fn page_quotations(filter: QuotationFilter) -> std::result::Result<Pag
     })
 }
 
-/// 状态流转：边表校验 → 业务守卫 → 状态机留痕 → CAS 落库（同一事务）。
+/// 发出闸的模式（M3-04）。
+///
+/// `DRAFT → SENT` 是「把价格发给客户」这个对外承诺，所以这条边上有一个前置条件。
+/// 两种放行方式**都是显式的**：走完审批（默认），或「没配流程 + 持跳过权限 + 写明理由」
+/// （`approval_gate::authorize_missing_flow` 产出）。没有第三种。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IssueGate {
+    /// HTTP 入口：必须有 `APPROVED` 的审批实例，否则 409 + 66088。
+    RequireApproval,
+    /// 显式跳过审批：跳过理由由 `approval_gate` 产出（写进状态日志）。
+    Skipped(String),
+}
+
+/// 状态流转（HTTP 入口）：`DRAFT → SENT` 走**审批闸**（M3-04）。
 pub async fn change_quotation_status(
     operator: Option<Uuid>,
     id_raw: &str,
     req: QuotationStatusReq,
+) -> std::result::Result<QuotationRes, ApiError> {
+    change_status_with(operator, id_raw, req, IssueGate::RequireApproval).await
+}
+
+/// 状态流转：边表校验 → 业务守卫 → 状态机留痕 → CAS 落库（同一事务）。
+///
+/// `issue_gate` 只影响 `DRAFT → SENT` 一条边（其余边不用审批，见模块注释）。
+async fn change_status_with(
+    operator: Option<Uuid>,
+    id_raw: &str,
+    req: QuotationStatusReq,
+    issue_gate: IssueGate,
 ) -> std::result::Result<QuotationRes, ApiError> {
     let id = parse_uuid(id_raw, "id")?;
     let target = req.target_status.trim().to_string();
@@ -907,6 +1057,28 @@ pub async fn change_quotation_status(
 
     let reason = req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty());
 
+    // ①' 审批人还在等这一票时不许换状态（M3-04）：状态先被推走 = 两个真相。
+    // 例外是作废（→CANCELLED）：那条边要「连审批一起撤」，在事务里处理（见 ④）。
+    // 判据是「有没有 `PENDING` 的 APPROVAL 待办」，**不是**「实例在不在跑」——
+    // 驳回选「退发起人」后实例仍是 PENDING，但票在发起人手里（`RESUBMIT`），
+    // 那时单据必须可改可推进，否则「退回发起人」等于把单据锁死。
+    if target != model::STATUS_CANCELLED
+        && quotation_approval_bridge::held_by_approver(id)
+            .await
+            .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = quotation_approval_bridge::latest_approval_of(db(), id)
+            .await
+            .ok()
+            .flatten()
+            .map(|brief| brief.instance_no)
+            .unwrap_or_else(|| "审批单".to_string());
+        return Err(conflict(format!(
+            "报价单 {} 已在审批中（{instance_no}）：请等审批结果，或从审批中心撤回 / 作废本单后再改状态",
+            row.quote_no
+        )));
+    }
+
     // ② 需要原因的边（与 state_machine 的 QUOTATION_REASON_EDGES 同源，提前给人话）
     if state_machine::Entity::Quotation.needs_reason(&row.status, &target) && reason.is_none() {
         return Err(bad_request(format!(
@@ -920,11 +1092,41 @@ pub async fn change_quotation_status(
     }
 
     // ③ 业务守卫（按边逐个过）
+    // 发出前的三道（明细 / 客户 / 有效期）对「人工发出」与「审批通过后自动发出」是**同一套**。
+    let mut reason_owned: Option<String> = reason.map(str::to_string);
     if row.status == model::STATUS_DRAFT && target == model::STATUS_SENT {
         let lines = model::lines_of(id)
             .await
             .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单明细"))?;
         ensure_sendable(&row, &lines, today).await?;
+        // ③' 审批闸（M3-04）：没批过就发不出去。
+        match &issue_gate {
+            IssueGate::Skipped(skip_reason) => {
+                // 显式跳过（没配流程 + 持 skip-approval + 理由 ≥10 字）：理由写进状态日志
+                reason_owned = Some(skip_reason.clone());
+            }
+            IssueGate::RequireApproval => {
+                let approved = quotation_approval_bridge::approved_instance_of(db(), id)
+                    .await
+                    .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单审批实例"))?;
+                let Some(approved) = approved else {
+                    return Err(ApiError::new(
+                        409,
+                        error_code::ERP_QUOTATION_APPROVAL_REQUIRED,
+                        format!(
+                            "报价单 {} 还没通过审批，不能发出：请先调 \
+                             POST /business/erp/quotation/{id}/submit-approval 发起报价审批\
+                             （流程 {}）；审批通过后系统会自动发出，不需要再点一次",
+                            row.quote_no,
+                            quotation_approval_bridge::FLOW_CODE
+                        ),
+                    ));
+                };
+                if reason_owned.is_none() {
+                    reason_owned = Some(format!("审批通过（{}）发出", approved.instance_no));
+                }
+            }
+        }
     }
     if row.status == model::STATUS_SENT && target == model::STATUS_ACCEPTED {
         ensure_acceptable(&row, today)?;
@@ -948,13 +1150,30 @@ pub async fn change_quotation_status(
         &row.status,
         &target,
         state_machine::Operator::of(operator),
-        reason,
+        reason_owned.as_deref(),
         None,
     )
     .await
     {
         let _ = tx.rollback().await;
         return Err(error);
+    }
+    // ④' 作废：把在跑的审批**一起撤掉**（同一事务），否则留一堆指向死单的待办
+    // （审批人点进去发现单子已作废 —— 那是最典型的孤儿待办）。
+    if target == model::STATUS_CANCELLED {
+        let cancelled = quotation_approval_bridge::cancel_approval_of(
+            &tx,
+            id,
+            &row.quote_no,
+            reason_owned.as_deref().unwrap_or("报价单作废，撤回审批"),
+        )
+        .await
+        .map_err(|error| write_error(error, "撤回报价单审批"))?;
+        if cancelled.is_some() {
+            model::apply_approval_instance(&tx, id, None, operator, now)
+                .await
+                .map_err(|error| write_error(error, "清空报价单审批指针"))?;
+        }
     }
     let applied = model::apply_status(&tx, id, &row.status, &target, operator, now).await;
     match applied {
@@ -985,6 +1204,23 @@ pub async fn delete_quotation(operator: Option<Uuid>, id_raw: &str) -> std::resu
         .await
         .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询待删除报价单"))?
         .ok_or_else(not_found)?;
+    // 审批人还在等这一票时不许删（M3-04）：删了单就是孤儿待办。
+    // （退回发起人时允许删：那时票在发起人手里，他有权作废 / 重来。）
+    if quotation_approval_bridge::held_by_approver(id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = quotation_approval_bridge::latest_approval_of(db(), id)
+            .await
+            .ok()
+            .flatten()
+            .map(|brief| brief.instance_no)
+            .unwrap_or_else(|| "审批单".to_string());
+        return Err(conflict(format!(
+            "报价单 {} 正在审批中（{instance_no}），不能删除：请先从审批中心撤回，或等审批结束",
+            row.quote_no
+        )));
+    }
     if !model::DELETABLE_STATUSES.contains(&row.status.as_str()) {
         return Err(conflict(format!(
             "报价单 {} 当前状态是 {}（{}），不能删除：只有 {} 能删。\
@@ -1702,6 +1938,280 @@ pub async fn convert_quotation(
     Ok(render_conversion(&row, view, &labels, line_count, false, today))
 }
 
+// ==================== 审批（M3-04）：提交 / 回调自动发出 ====================
+
+/// 审批通过后「自动发出」的结果（回调据此决定日志口径）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueOutcome {
+    /// 本次真的发出去了（`DRAFT → SENT`）。
+    Issued,
+    /// 之前已经发出（重复回调）→ 幂等，不再动状态。
+    AlreadyIssued,
+    /// 当前状态不是草稿（被别的路径改过）→ 交人工处置，不乱推状态。
+    NotDraftable {
+        /// 当前状态。
+        status: String,
+    },
+}
+
+/// **审批通过后的发出执行体**（由 `quotation_approval_bridge::on_quotation_settled` 调）。
+///
+/// 与人工 `PATCH status=SENT` 走**同一条代码路径**（[`change_status_with`]：明细 / 客户 /
+/// 有效期三道守卫 → 审批闸 → 状态机留痕 → CAS），不另写一套 —— 两套写法迟早会在守卫上走岔。
+/// 此刻审批实例已是 `APPROVED`，所以审批闸对它是放行的。
+///
+/// # 失败口径（约定 11）
+///
+/// 这里**没有**「事务已提交后再失败」的窗口：发出一条路径一个事务，失败整笔回滚。
+/// 万一失败（例如有效期已过），报价单留在 `DRAFT` 且仍有 `APPROVED` 实例 ——
+/// 销售补好有效期后手工 `PATCH status=SENT` 即可补发（闸对它放行），
+/// 不会出现「批了却永远发不出去」的死局。
+pub async fn issue_after_approval(
+    quotation_id: Uuid,
+    operator: Option<Uuid>,
+    reason: &str,
+) -> std::result::Result<IssueOutcome, ApiError> {
+    let Some(row) = model::find_quotation(quotation_id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单"))?
+    else {
+        return Err(not_found());
+    };
+    match row.status.as_str() {
+        model::STATUS_SENT => return Ok(IssueOutcome::AlreadyIssued),
+        model::STATUS_DRAFT => {}
+        other => {
+            return Ok(IssueOutcome::NotDraftable {
+                status: other.to_string(),
+            });
+        }
+    }
+    let req = QuotationStatusReq {
+        target_status: model::STATUS_SENT.to_string(),
+        reason: Some(reason.to_string()),
+    };
+    change_status_with(operator, &quotation_id.to_string(), req, IssueGate::RequireApproval).await?;
+    Ok(IssueOutcome::Issued)
+}
+
+/// 提交审批（`POST /business/erp/quotation/{id}/submit-approval` 的唯一入口）。
+///
+/// # 前置（缺一条就 409，报文点名缺什么）
+///
+/// 1. 状态必须是 `DRAFT`（已发出的报价审批没有意义）；
+/// 2. 不能已有在跑的审批（`biz_instance_running` + 库侧唯一索引双保险）；
+/// 3. 不能已有**已通过但还没发出**的审批（先发出 / 作废，别堆第二轮）；
+/// 4. 发出前的三道守卫（明细 ≥ 1 / 客户未冻结 / 有效期未过）—— 审批通过后回调**直接发出**，
+///    批了却发不出去的单才是真正的坑，所以提交前就把这三关过掉。
+///
+/// # 没配流程
+///
+/// `published_quotation_flow == None` → `approval_gate::authorize_missing_flow`：
+/// 默认 409 + `66033`（fail-closed），只有持 `business:erp:skip-approval` 且理由 ≥ 10 字的
+/// 账号才能显式跳过 —— 此时**直接发出**（理由写进状态日志），
+/// 否则报价单会永远停在草稿且没人能发出去。
+pub async fn submit_approval(
+    operator: Option<Uuid>,
+    id_raw: &str,
+    gate: &approval_gate::ApprovalGate<'_>,
+) -> std::result::Result<QuotationRes, ApiError> {
+    let id = parse_uuid(id_raw, "id")?;
+    let row = model::find_quotation(id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单"))?
+        .ok_or_else(not_found)?;
+    if row.status != model::STATUS_DRAFT {
+        return Err(conflict(format!(
+            "报价单 {} 当前是「{}」（{}）：只有草稿（DRAFT）可以提交审批",
+            row.quote_no,
+            model::status_label(&row.status),
+            row.status
+        )));
+    }
+    if flow_model::biz_instance_running(quotation_approval_bridge::BIZ_TYPE, id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = quotation_approval_bridge::latest_approval_of(db(), id)
+            .await
+            .ok()
+            .flatten()
+            .map(|brief| brief.instance_no)
+            .unwrap_or_else(|| "审批单".to_string());
+        // 退回发起人（`RESUBMIT` 待办）与被审批人占着是两件事：前者要「重新提交」那一条待办，
+        // 不能走这里再建一个实例（库侧 `uk_biz_flow_instance_biz_active` 也会挡）。
+        if let Some(task_id) = quotation_approval_bridge::pending_resubmit_of(id)
+            .await
+            .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询重新提交待办"))?
+        {
+            return Err(conflict(format!(
+                "报价单 {} 被审批人退回待重新提交（{instance_no}）：请改完后在审批中心点「重新提交」\
+                 （待办 {task_id}），不要再走提交审批 —— 那会另起一轮",
+                row.quote_no
+            )));
+        }
+        return Err(conflict(format!(
+            "报价单 {} 已在审批中（{instance_no}）：请等审批结果，或从审批中心撤回后再提交",
+            row.quote_no
+        )));
+    }
+    if quotation_approval_bridge::approved_instance_of(db(), id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单审批实例"))?
+        .is_some()
+    {
+        return Err(conflict(format!(
+            "报价单 {} 已通过审批（还没发出）：不需要再审一轮，直接「发出」即可\
+             （PATCH status=SENT），或作废后重开一张",
+            row.quote_no
+        )));
+    }
+    // 发出前的三道守卫（与人工发出同一套）
+    let lines = model::lines_of(id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单明细"))?;
+    ensure_sendable(&row, &lines, model::today_cst(Utc::now())).await?;
+
+    match quotation_approval_bridge::published_quotation_flow()
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单审批流程"))?
+    {
+        Some(flow) => {
+            // 有流程就必须走流程：请求里带了 skip_approval 也要 400（不许绕过已配置的内控）
+            approval_gate::ensure_not_skipped(quotation_approval_bridge::FLOW_CODE, gate)?;
+            start_approval(&row, &flow, operator).await
+        }
+        None => {
+            let skip_reason = approval_gate::authorize_missing_flow(
+                quotation_approval_bridge::BIZ_TYPE,
+                quotation_approval_bridge::FLOW_CODE,
+                gate,
+            )?;
+            tracing::warn!(
+                quotation_id = %row.id,
+                quote_no = %row.quote_no,
+                %skip_reason,
+                "报价单提交审批：没有已发布的 quotation_approve 流程，按「显式跳过审批」直接发出\
+                 （理由已写 biz_status_log）"
+            );
+            let req = QuotationStatusReq {
+                target_status: model::STATUS_SENT.to_string(),
+                // 跳过理由整条写进状态日志（`authorize_missing_flow` 已经把用户填的理由并进去了）
+                reason: None,
+            };
+            change_status_with(operator, id_raw, req, IssueGate::Skipped(skip_reason)).await
+        }
+    }
+}
+
+/// [`submit_approval`] 的「有流程」分支：发起审批实例（报价单状态**不变**，仍是 `DRAFT`）。
+async fn start_approval(
+    row: &QuotationRow,
+    flow: &quotation_approval_bridge::QuotationFlow,
+    operator: Option<Uuid>,
+) -> std::result::Result<QuotationRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 报价单审批 {} 元", row.quote_no, row.total_with_tax)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(row.id),
+        biz_no: Some(row.quote_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: quotation_approval_bridge::form_data(row),
+    };
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "开启报价单审批事务"))?;
+    let mut out = match engine::start(&tx, &start).await {
+        Ok(out) => out,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(if flow_model::is_biz_active_duplicate(&error) {
+                flow_model::approval_in_progress("报价单", Some(row.quote_no.as_str()))
+            } else {
+                write_error(error, "发起报价单审批单")
+            });
+        }
+    };
+    if let Some(rejected) = out.rejected.take() {
+        let _ = tx.rollback().await;
+        return Err(rejected);
+    }
+    if out.instance_id != Some(instance_id) {
+        let _ = tx.rollback().await;
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            "审批单发起后返回的实例 id 与预生成的不一致（引擎内部错误）",
+        ));
+    }
+    let auto_finished = out.instance_status.eq_ignore_ascii_case("APPROVED");
+    if !auto_finished && !out.instance_status.eq_ignore_ascii_case("PENDING") {
+        let status = out.instance_status.clone();
+        let _ = tx.rollback().await;
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!("报价审批单发起后状态是 {status}（应为 PENDING）：流程定义可能没有可执行的审批节点"),
+        ));
+    }
+    // 把「最近一轮审批实例」写回单头（V0435）—— 与实例**同一事务**，
+    // 不会出现「实例建了、指针没落」（列表页显示不出审批中，人又看不到待办）。
+    model::apply_approval_instance(&tx, row.id, Some(instance_id), operator, now)
+        .await
+        .map_err(|error| write_error(error, "回写报价单审批实例"))?;
+    tx.commit()
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "提交报价单审批事务"))?;
+    // 锁外副作用（审批通知 / 客户自配的通知节点）：提交之后才发，失败只 WARN
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
+    }
+    tracing::info!(
+        quotation_id = %row.id,
+        quote_no = %row.quote_no,
+        %instance_id,
+        flow_code = %start.flow_code,
+        "报价单已提交审批（仍是草稿，等审批通过后自动发出）"
+    );
+    // 流程里没有任何可执行的审批节点（全被跳空）→ 实例在同一个事务里就走完了，
+    // 必须立刻跑一次「审批通过」的回调，否则报价单停在 DRAFT 且没有待办能推进它。
+    if auto_finished {
+        quotation_approval_bridge::on_quotation_settled(Some(instance_id), "APPROVED").await;
+    }
+    detail_of(row.id).await
+}
+
 // ==================== HTTP 入口 ====================
 
 /// 报价单分页。
@@ -1809,6 +2319,38 @@ pub async fn quotation_convert(
     Ok(Res::ok(
         convert_quotation(operator, &id, parse_convert_body(&body)?).await?,
     ))
+}
+
+/// 提交审批（M3-04）：发起 `quotation_approve` 审批实例，报价单**仍是草稿**。
+///
+/// 复用 `business:erp:quotation:status`（不另开码）：提交审批是「推进这张单」的一个动作，
+/// 与收款退款（V0297）/ 销售订单（SO-06）同一口径 —— 另开码就要多一行菜单，而它并没有
+/// 独立授权语义（能改状态的人就是要能送审）。
+///
+/// 请求体可空（一键提交不必拼 `{}`）；带 body 时可写 `skip_approval` / `skip_reason`
+/// （只在「没配流程」时生效，需要 `business:erp:skip-approval` 权限码）。
+#[nik::permission(
+    path = "/business/erp/quotation/{id}/submit-approval",
+    method = "POST",
+    permission = "business:erp:quotation:status"
+)]
+#[nik::post("/business/erp/quotation/{id}/submit-approval")]
+pub async fn quotation_submit_approval(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> ResResult<QuotationRes> {
+    let operator = cloudpivot_kernel::utils::current_user_uuid(&claims);
+    // 空 body = 不请求跳过审批（与转单同口径：`Option<Json<…>>` 在空 body 上会 400）
+    let text = String::from_utf8_lossy(&body);
+    let req: QuotationSubmitReq = if text.trim().is_empty() {
+        QuotationSubmitReq::default()
+    } else {
+        serde_json::from_str(&text)
+            .map_err(|error| ApiError::new(400, error_code::PARAM_INVALID, format!("请求体不是合法 JSON：{error}")))?
+    };
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+    Ok(Res::ok(submit_approval(operator, &id, &gate).await?))
 }
 
 /// 权限码自检：6 个码、无重复、前缀 `business:erp:quotation:`（V0433 / V0434 的菜单行逐字对应）。
@@ -1952,6 +2494,7 @@ mod tests {
             total_with_tax: dec(amount) + dec(tax),
             converted_so_id: None,
             converted_at: None,
+            approval_instance_id: None,
             remark: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),

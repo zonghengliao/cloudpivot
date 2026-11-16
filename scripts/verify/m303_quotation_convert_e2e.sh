@@ -164,7 +164,15 @@ if [ "${MIGRATIONS:-0}" -ge 360 ]; then
 else
     bad "迁移数异常（success = ${MIGRATIONS:-?}，应 ≥ 360）"
 fi
-assert_eq "434" "$MAX_VERSION" "最大已应用版本 = 434（本卡 V0434 是最后一号）"
+assert_eq "435" "$MAX_VERSION" "最大已应用版本 = 435（V0435 报价单审批流程 + 列；M3-04 之后又加了一号）"
+# ---------- 2') 把 quotation_approve 下线（M3-04 起「发出」要过审批；本脚本不验审批） ----------
+# 本脚本验的是「状态机 / 转单」。V0435 起 `DRAFT → SENT` 是审批通过后的自动动作，
+# 所以这里把流程下线，让「发出」走另一条**真实**出口：
+# `POST /submit-approval` + `skip_approval`（`approval_gate::authorize_missing_flow`），
+# 理由写进状态日志。与「人工 PATCH」共用同一条 `change_status_with`（三道守卫照跑）。
+psql_q "UPDATE biz_flow_def SET status = 'DRAFT' WHERE flow_code = 'quotation_approve'" >/dev/null
+assert_eq "DRAFT" "$(psql_q "SELECT status FROM biz_flow_def WHERE flow_code='quotation_approve'")" \
+    "quotation_approve 已下线（本脚本走「没配流程 + 显式跳过」出口）"
 
 # ---------- 2) V0434 落地形态（不依赖 HTTP 回显，直接查库） ----------
 echo

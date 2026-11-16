@@ -1965,6 +1965,20 @@ pub const ERP_CASHFLOW_ITEM_INVALID: i32 = 66086;
 /// 只有「校验 / 出表」这类要求闭合的入口才报它。
 pub const ERP_CASHFLOW_WORKSHEET_UNBALANCED: i32 = 66087;
 
+/// 报价单**没有已通过的审批实例**，本次「发出」被拒绝（HTTP 409，销售链 · M3-04 · `66088`）。
+///
+/// 报价单的 `DRAFT → SENT`（把价格发给客户）是一次**对外承诺**：价格与条款一旦落到客户
+/// 手里就收不回来（只能撤回并留痕）。所以这条边是「审批的前置条件」而不是单据状态
+/// （口径与 66044 收款退款同源，见 `quotation_approval_bridge` 模块注释）。
+///
+/// 为什么单独给码而不复用 [`RESOURCE_CONFLICT`]（`10002`）：前端要能区分「单据状态冲突」
+/// （刷新重试）与「还没走审批」（去提交审批），报文里也要能稳定拿到 `flow_code`。
+///
+/// 合法出路两条：① 调 `POST /business/erp/quotation/{id}/submit-approval` 发起审批
+/// （审批通过后回调**自动发出**，不需要再手工点一次）；② 没配流程时由持
+/// `business:erp:skip-approval` 的账号在提交时写明理由（≥10 字）显式跳过。
+pub const ERP_QUOTATION_APPROVAL_REQUIRED: i32 = 66088;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -2298,6 +2312,8 @@ mod tests {
             (ERP_CASHFLOW_WORKSHEET_PERIOD_LOCKED, 66085),
             (ERP_CASHFLOW_ITEM_INVALID, 66086),
             (ERP_CASHFLOW_WORKSHEET_UNBALANCED, 66087),
+            // 报价单发出前的审批前置（66088；M3-04 —— 与 66044 同源：审批是「发出」的前置条件）
+            (ERP_QUOTATION_APPROVAL_REQUIRED, 66088),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

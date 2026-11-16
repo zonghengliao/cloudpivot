@@ -108,6 +108,25 @@ def err_of(method, path, body=None, token=None):
     return status, resp.get("code"), resp.get("msg") or resp.get("message") or ""
 
 
+SKIP_REASON = "E2E：本脚本验状态机 / 转单，不验审批（quotation_approve 已下线）"
+
+
+def send_quote(token, quotation_id):
+    """发出报价单（M3-04 起 = 「没配流程 + 显式跳过审批」这条真实出口）。
+
+    与人工 PATCH 走**同一条** `change_status_with` 路径（三道守卫照跑），
+    只是审批闸换成 `IssueGate::Skipped`（理由由 `approval_gate` 产出并写进状态日志）。
+    """
+    return ok_data("POST", f"/business/erp/quotation/{quotation_id}/submit-approval",
+                   {"skip_approval": True, "skip_reason": SKIP_REASON}, token)
+
+
+def send_quote_err(token, quotation_id):
+    """发出报价单（预期失败）：返回 (status, code, msg)。"""
+    return err_of("POST", f"/business/erp/quotation/{quotation_id}/submit-approval",
+                  {"skip_approval": True, "skip_reason": SKIP_REASON}, token)
+
+
 def login_admin():
     status, body = call("POST", "/system/auth/login", {"username": "admin", "password": ADMIN_OLD})
     if status == 200 and isinstance(body, dict) and body.get("code") == 0:
@@ -159,7 +178,7 @@ def accepted_quotation(token, customer_id, material_id, item2_material=None):
         "items": items,
     }
     quote = ok_data("POST", "/business/erp/quotation", body, token)
-    quote = ok_data("PATCH", f"/business/erp/quotation/{quote['id']}/status", {"target_status": "SENT"}, token)
+    quote = send_quote(token, quote['id'])
     eq("夹具报价单已发出", "SENT", quote["status"])
     quote = ok_data("PATCH", f"/business/erp/quotation/{quote['id']}/status", {"target_status": "ACCEPTED"}, token)
     eq("夹具报价单已接受（可转单）", "ACCEPTED", quote["status"])
@@ -259,7 +278,7 @@ def main():
     eq("DRAFT 转单 → 409", 409, status)
     check("DRAFT 文案点名当前状态", "DRAFT" in msg, msg)
 
-    sent = ok_data("PATCH", f"/business/erp/quotation/{draft['id']}/status", {"target_status": "SENT"}, token)
+    sent = send_quote(token, draft['id'])
     eq("（夹具）草稿已发出", "SENT", sent["status"])
     status, _code, msg = err_of("POST", f"/business/erp/quotation/{draft['id']}/convert", None, token)
     eq("SENT 转单 → 409", 409, status)

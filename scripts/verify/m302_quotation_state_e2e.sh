@@ -160,18 +160,26 @@ if [ "${MIGRATIONS:-0}" -ge 360 ]; then
 else
     bad "迁移数异常（success = ${MIGRATIONS:-?}，应 ≥ 360）"
 fi
-assert_eq "433" "$MAX_VERSION" "最大已应用版本 = 433（本卡 V0433 是最后一号）"
+assert_eq "435" "$MAX_VERSION" "最大已应用版本 = 435（V0435 报价单审批流程 + 列；M3-04 之后又加了一号）"
+# ---------- 2') 把 quotation_approve 下线（M3-04 起「发出」要过审批；本脚本不验审批） ----------
+# 本脚本验的是「状态机 / 转单」。V0435 起 `DRAFT → SENT` 是审批通过后的自动动作，
+# 所以这里把流程下线，让「发出」走另一条**真实**出口：
+# `POST /submit-approval` + `skip_approval`（`approval_gate::authorize_missing_flow`），
+# 理由写进状态日志。与「人工 PATCH」共用同一条 `change_status_with`（三道守卫照跑）。
+psql_q "UPDATE biz_flow_def SET status = 'DRAFT' WHERE flow_code = 'quotation_approve'" >/dev/null
+assert_eq "DRAFT" "$(psql_q "SELECT status FROM biz_flow_def WHERE flow_code='quotation_approve'")" \
+    "quotation_approve 已下线（本脚本走「没配流程 + 显式跳过」出口）"
 
 # ---------- 2) V0433 落地形态（不依赖 HTTP 回显，直接查库） ----------
 echo
 echo "== 2) V0433 权限码 / 菜单落地形态（SQL 直查）"
 assert_eq "1" "$(psql_q "SELECT count(*) FROM schema_migrations WHERE version = '433' AND success")" \
     "schema_migrations 登记 V0433（version=433，成功）"
-assert_eq "5" "$(psql_q "SELECT count(*) FROM sys_menu WHERE deleted_at IS NULL AND auth_code LIKE 'business:erp:quotation:%'")" \
-    "sys_menu 里 5 个 quotation 权限码齐全"
-assert_eq "4" "$(psql_q "SELECT count(*) FROM sys_menu WHERE deleted_at IS NULL AND menu_type=3
+assert_eq "6" "$(psql_q "SELECT count(*) FROM sys_menu WHERE deleted_at IS NULL AND auth_code LIKE 'business:erp:quotation:%'")" \
+    "sys_menu 里 6 个 quotation 权限码齐全（V0433 五个 + V0434 转单）"
+assert_eq "5" "$(psql_q "SELECT count(*) FROM sys_menu WHERE deleted_at IS NULL AND menu_type=3
     AND parent_id='20000000-0000-0000-0000-000000004331'::uuid")" \
-    "4 个按钮挂在报价单页下"
+    "5 个按钮挂在报价单页下（4 个 V0433 + 转单）"
 assert_eq "报价单" "$(psql_q "SELECT title FROM sys_menu WHERE id='20000000-0000-0000-0000-000000004331'::uuid")" \
     "页面 title 是短菜单名（约定 12：侧栏显示名）"
 assert_eq "f" "$(psql_q "SELECT is_visible FROM sys_menu WHERE id='20000000-0000-0000-0000-000000004331'::uuid")" \

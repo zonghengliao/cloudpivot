@@ -20,6 +20,7 @@ use super::{
     payable::payable_bridge,
     purchase::{purchase_bridge, purchase_return_bridge},
     receipt_refund_bridge, requisition_bridge,
+    sales::quotation_approval_bridge,
     sales::sales_approval_bridge,
     stockin::stockin_query,
     stocktake::stocktake_bridge,
@@ -59,6 +60,12 @@ fn approval_entries_use_registered_biz_types() {
         ("purchase_return_bridge::BIZ_TYPE", purchase_return_bridge::BIZ_TYPE),
         ("cost_period_bridge::BIZ_TYPE", cost_period_bridge::BIZ_TYPE),
         ("receipt_refund_bridge::BIZ_TYPE", receipt_refund_bridge::BIZ_TYPE),
+        // M3-04：报价单审批（发出前置）—— 新审批线一律进这张清单，否则
+        // `biz_flow_def` 又会长出域外值而无人拦（t_c49010bf 的教训）。
+        (
+            "quotation_approval_bridge::BIZ_TYPE",
+            quotation_approval_bridge::BIZ_TYPE,
+        ),
     ] {
         assert!(
             registered.contains(&value),

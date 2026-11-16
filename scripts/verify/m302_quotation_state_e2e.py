@@ -108,6 +108,25 @@ def err_of(method, path, body=None, token=None):
     return status, resp.get("code"), resp.get("msg") or resp.get("message") or ""
 
 
+SKIP_REASON = "E2E：本脚本验状态机 / 转单，不验审批（quotation_approve 已下线）"
+
+
+def send_quote(token, quotation_id):
+    """发出报价单（M3-04 起 = 「没配流程 + 显式跳过审批」这条真实出口）。
+
+    与人工 PATCH 走**同一条** `change_status_with` 路径（三道守卫照跑），
+    只是审批闸换成 `IssueGate::Skipped`（理由由 `approval_gate` 产出并写进状态日志）。
+    """
+    return ok_data("POST", f"/business/erp/quotation/{quotation_id}/submit-approval",
+                   {"skip_approval": True, "skip_reason": SKIP_REASON}, token)
+
+
+def send_quote_err(token, quotation_id):
+    """发出报价单（预期失败）：返回 (status, code, msg)。"""
+    return err_of("POST", f"/business/erp/quotation/{quotation_id}/submit-approval",
+                  {"skip_approval": True, "skip_reason": SKIP_REASON}, token)
+
+
 def login_admin():
     status, body = call("POST", "/system/auth/login", {"username": "admin", "password": ADMIN_OLD})
     if status == 200 and isinstance(body, dict) and body.get("code") == 0:
@@ -224,8 +243,8 @@ def main():
     eq("备注被更新", "M3-02 E2E 改单", updated["remark"])
 
     # ---------------------------------------------------------------- ④ 发出
-    print("\n④ DRAFT → SENT（发出后冻结）")
-    sent = ok_data("PATCH", f"/business/erp/quotation/{quote_id}/status", {"target_status": "SENT"}, token)
+    print("\n④ DRAFT → SENT（发出后冻结；M3-04 起「发出」= 审批通过 / 显式跳过才放行）")
+    sent = send_quote(token, quote_id)
     eq("状态 = SENT", "SENT", sent["status"])
     eq("已发出不可编辑", False, sent["editable"])
     eq("已发出不可删除", False, sent["deletable"])
@@ -253,7 +272,7 @@ def main():
     print("\n⑥ 新单 SENT → REJECTED（拒绝必须给原因；拒绝是终态）")
     rejected_id = ok_data("POST", "/business/erp/quotation",
                           create_quote(token, customer_id, material_id), token)["id"]
-    ok_data("PATCH", f"/business/erp/quotation/{rejected_id}/status", {"target_status": "SENT"}, token)
+    send_quote(token, rejected_id)
     status, code, msg = err_of("PATCH", f"/business/erp/quotation/{rejected_id}/status",
                                {"target_status": "REJECTED"}, token)
     eq("客户拒绝缺原因 → 400", 400, status)
@@ -296,8 +315,7 @@ def main():
     expired = ok_data("POST", "/business/erp/quotation", expired_body, token)
     eq("过期报价单能建（valid_until >= quote_date 即可）", True, expired["expired"])
     eq("状态仍是 DRAFT（没有 EXPIRED 状态）", "DRAFT", expired["status"])
-    status, code, msg = err_of("PATCH", f"/business/erp/quotation/{expired['id']}/status",
-                               {"target_status": "SENT"}, token)
+    status, code, msg = send_quote_err(token, expired['id'])
     eq("过期单发出 → 409", 409, status)
     check("409 文案说「有效期已过」", "有效期" in msg, msg)
     # 改期后可发出
@@ -307,7 +325,7 @@ def main():
     }, token)
     refreshed = ok_data("GET", f"/business/erp/quotation/{expired['id']}", token=token)
     eq("改期后未过期", False, refreshed["expired"])
-    fixed = ok_data("PATCH", f"/business/erp/quotation/{expired['id']}/status", {"target_status": "SENT"}, token)
+    fixed = send_quote(token, expired['id'])
     eq("改期后可以发出", "SENT", fixed["status"])
 
     # ---------------------------------------------------------------- ⑨ 入参校验

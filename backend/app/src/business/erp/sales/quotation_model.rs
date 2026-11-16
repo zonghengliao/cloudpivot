@@ -59,9 +59,10 @@ pub const TABLE: &str = "biz_quotation";
 /// 明细表名。
 pub const LINE_TABLE: &str = "biz_quotation_line";
 
-/// 单头列清单（与 V0432 逐列对应）。
+/// 单头列清单（与 V0432 + V0435 的加列逐列对应）。
 pub const COLUMNS: &str = "id, quote_no, customer_id, quote_date, valid_until, status, \
-     total_amount, total_tax, total_with_tax, converted_so_id, converted_at, remark, \
+     total_amount, total_tax, total_with_tax, converted_so_id, converted_at, \
+     approval_instance_id, remark, \
      created_at, updated_at, create_by, update_by, deleted_at";
 
 /// 明细列清单（与 V0432 逐列对应）。
@@ -299,6 +300,12 @@ pub struct QuotationRow {
     pub converted_so_id: Option<Uuid>,
     /// 转单时间（与 `converted_so_id` 成对）。
     pub converted_at: Option<DateTime<Utc>>,
+    /// 最近一轮审批实例（M3-04 / V0435 加列；`None` = 从没提交过审批）。
+    ///
+    /// 只是**弱引用**（无外键）：实例被引擎清理 / 归档后这张单还能读。
+    /// 它存在的意义是「列表页一条 SQL 就能显示审批状态」，不必逐行回查详情
+    /// （与 `biz_receipt_refund.approval_instance_id` / `biz_sales_order` 同口径）。
+    pub approval_instance_id: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -328,6 +335,7 @@ impl QuotationRow {
             total_with_tax: row.get_typed("total_with_tax")?,
             converted_so_id: row.get_typed("converted_so_id")?,
             converted_at: row.get_typed("converted_at")?,
+            approval_instance_id: row.get_typed("approval_instance_id")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
@@ -772,6 +780,37 @@ pub async fn apply_status(
             operator_text,
             Value::from(&id),
             Value::Text(from.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 审批实例回填（M3-04 / V0435）：把「最近一轮审批实例」写回报价单头。
+///
+/// 只写 `approval_instance_id` 一列，**不动状态**（审批不是状态）。调用方必须在
+/// 「发起实例」的**同一个事务**里调它：实例建了、指针没落，列表页就显示不出「审批中」，
+/// 而人又看不到待办来推进它（约定 11 的中间态）。
+///
+/// `None` 表示清空指针（作废 / 删除时把在跑的审批撤掉之后顺手清掉）。
+pub async fn apply_approval_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    instance_id: Option<Uuid>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} \
+                SET approval_instance_id = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ? AND deleted_at IS NULL"
+        ),
+        vec![
+            instance_id.map(Value::from).unwrap_or(Value::Null),
+            Value::from(now),
+            operator_text,
+            Value::from(&id),
         ],
     )
     .await

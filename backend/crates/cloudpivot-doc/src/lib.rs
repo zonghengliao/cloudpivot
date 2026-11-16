@@ -259,8 +259,11 @@ pub enum DocKind {
     SalarySheet,
     /// 销售报价单 `biz_quotation`（M3-01 / M3-02，销售链「报价 → 订单」的前一手）。
     ///
-    /// **不是可审批单据**（M3-04 才接审批流）：`DRAFT → SENT → ACCEPTED / REJECTED`，
-    /// 另有 `CANCELLED`（撤回 / 报错重来）。边表在 `state_machine::QUOTATION_EDGES`。
+    /// **可审批单据**（M3-04 起）：`DRAFT → SENT → ACCEPTED / REJECTED`，另有
+    /// `CANCELLED`（撤回 / 报错重来）。边表在 `state_machine::QUOTATION_EDGES`。
+    ///
+    /// 审批（`biz_type = QUOTATION_APPROVE` / 流程 `quotation_approve`）是
+    /// 「发出」的前置条件，**不是**状态 —— 五值状态域一个字没改（与收款退款同路线）。
     /// 它**会写 `biz_status_log`**（谁在什么时候把报价发了出去、客户接受还是拒绝），
     /// 所以必须落在本域里 —— 否则 `entity_registry_is_covered_by_doc_kind` 直接红，
     /// 巡检 `biz_type_domain.py` 也会把正常轨迹判成域外值。
@@ -491,8 +494,12 @@ impl DocKind {
                 // 员工与劳动合同是主数据（状态流转由 state_machine 管，但没有审批 / 作废），
                 // 考勤批次是「锁定 / 解锁」的作业批次（与会计期间同型）。
                 | DocKind::LeaveRequest
-                | DocKind::SalarySheet // 报价单**不在**这里：M3-04 才接审批流，本卡（M3-02）只有状态机。
-                                       // 接审批之后把它挪进上面的清单（届时附件 / 提醒口径一并评估）。
+                | DocKind::SalarySheet
+                // 销售链 M3-04：报价单在接审批流时挪进清单（M3-02 留的收口项）。
+                // 注意：附件 / 提醒白名单（`ATTACHMENT_DOC_KINDS` / `REMINDER_DOC_KINDS`）
+                // 是另外两张清单，本卡**没有**动 —— `is_document()` 管的是
+                // 「可审批 / 可作废的单据」，别把两件事混成一件。
+                | DocKind::Quotation
         )
     }
 
@@ -722,6 +729,17 @@ pub enum FlowBizType {
     ///
     /// 通过只到「审批已过」，过账（生成凭证、结平批次）在过账事务里做。
     CostSettle,
+    /// 销售报价单审批（`quotation_approve`，销售链 M3-04 / V0435）。
+    ///
+    /// 报价单「发给客户」（`DRAFT → SENT`）的前置条件：审批通过回调**自动发出**，
+    /// 驳回 / 撤回则留在 `DRAFT`（可改完再提）。与 `RECEIPT_REFUND` 同一条路线 ——
+    /// **审批不是一个状态**，`biz_quotation.status` 的五值域一个字没改。
+    ///
+    /// 金额分级（`< 10 万` 只销售主管 / `≥ 10 万` 加财务经理）写在流程定义的条件边上，
+    /// 不是代码里的 if/else。
+    ///
+    /// 顺序：追加在末尾（前端 `FLOW_BIZ_TYPES` 是保序逐字比对）。
+    QuotationApprove,
 }
 
 impl FlowBizType {
@@ -731,7 +749,7 @@ impl FlowBizType {
     /// （`hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`），
     /// 每套都有一个独立 `biz_type`；§8.1 的「+3」是卡面笔误（漏数了 `HR_EMPLOYEE_RESIGN`）。
     /// 少一个值 = 第 4 套流程落不了 `biz_flow_def.biz_type`，所以按 §3.2 ⑨ 的 4 个落。
-    pub const ALL: [FlowBizType; 24] = [
+    pub const ALL: [FlowBizType; 25] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -759,6 +777,8 @@ impl FlowBizType {
         FlowBizType::PrApprove,
         FlowBizType::PrtApprove,
         FlowBizType::CostSettle,
+        // 销售链 M3-04：报价单审批（追加在末尾，前端镜像保序）
+        FlowBizType::QuotationApprove,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -806,6 +826,7 @@ impl FlowBizType {
             FlowBizType::PrApprove => "PR_APPROVE",
             FlowBizType::PrtApprove => "PRT_APPROVE",
             FlowBizType::CostSettle => "COST_SETTLE",
+            FlowBizType::QuotationApprove => "QUOTATION_APPROVE",
         }
     }
 
@@ -839,6 +860,8 @@ impl FlowBizType {
             FlowBizType::PrApprove => "pr_approve",
             FlowBizType::PrtApprove => "prt_approve",
             FlowBizType::CostSettle => "cost_settle_approve",
+            // M3-04：与 V0435 种下的 `flow_code` 逐字一致（`ck_biz_flow_def_code` 只认小写）
+            FlowBizType::QuotationApprove => "quotation_approve",
         }
     }
 
@@ -871,6 +894,7 @@ impl FlowBizType {
             FlowBizType::PrApprove => "采购申请审批",
             FlowBizType::PrtApprove => "采购退货审批",
             FlowBizType::CostSettle => "成本结算审批",
+            FlowBizType::QuotationApprove => "报价单审批",
         }
     }
 
@@ -912,6 +936,8 @@ impl FlowBizType {
             FlowBizType::SoApprove => DocKind::SaleOrder,
             FlowBizType::PrtApprove => DocKind::PurchaseReturn,
             FlowBizType::CostSettle => DocKind::CostPeriod,
+            // M3-04：报价单审批挂在报价单上（审批详情能点进单据）
+            FlowBizType::QuotationApprove => DocKind::Quotation,
             FlowBizType::PrApprove => return None,
             FlowBizType::TaskAccept | FlowBizType::Other => return None,
         })
@@ -1661,7 +1687,7 @@ const DOC_KIND_VALUES: [&str; 37] = [
     "QUOTATION",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 24] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 25] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1688,6 +1714,8 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 24] = [
     "PR_APPROVE",
     "PRT_APPROVE",
     "COST_SETTLE",
+    // 销售链 M3-04：报价单审批（「发出」的前置条件，V0435 种）
+    "QUOTATION_APPROVE",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 23] = [

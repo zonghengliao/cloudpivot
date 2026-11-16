@@ -17,5 +17,6 @@ pub mod sales_target_handler;
 pub mod sales_target_model;
 
 // ==================== 销售链：报价单（M3-02：CRUD + 状态机） ====================
+pub mod quotation_approval_bridge;
 pub mod quotation_handler;
 pub mod quotation_model;

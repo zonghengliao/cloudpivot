@@ -51,9 +51,11 @@ use cloudpivot_kernel::business::shared::separation;
 
 /// 受内控约束的业务类型（`biz_flow_instance.biz_type` 落库原值）。
 ///
-/// **恰好 16 个**：与 P2-33 在 `erp::doc_reader_impl` 注册的 16 条审批线一一对应，
+/// **恰好 17 个**：与 P2-33 在 `erp::doc_reader_impl` 注册的 17 条受控审批线一一对应
+/// （第 18 个实现 `STOCK_TRANSFER` 只接回调、不受内控约束），
 /// 也与改造前那段 16 段 `if biz_type == *_bridge::BIZ_TYPE` 的集合逐字一致
-/// （`stockin` 的两个码 `STOCK_IN_POST` / `STOCK_IN_CANCEL` 共用一条桥）。
+/// （`stockin` 的两个码 `STOCK_IN_POST` / `STOCK_IN_CANCEL` 共用一条桥；
+/// M3-04 起多出 `QUOTATION_APPROVE` 这一条报价单审批线）。
 ///
 /// # 为什么是常量而不是「注册表里有几个实现」
 ///
@@ -62,7 +64,7 @@ use cloudpivot_kernel::business::shared::separation;
 /// ——那是改变生产行为（多拦一批人），不属于「解环」。
 /// 集合变动的唯一入口是「新增一条审批线」：那时注册表多一个实现，这里同步加一个码，
 /// `flow::doc_reader_tests::governed_codes_match_registered_readers` 双向对账。
-pub const GOVERNED_CODES: [&str; 16] = [
+pub const GOVERNED_CODES: [&str; 17] = [
     // 采购链
     "PO_APPROVE",
     "PR_APPROVE",
@@ -84,6 +86,8 @@ pub const GOVERNED_CODES: [&str; 16] = [
     // 销售 / 成本
     "SO_APPROVE",
     "COST_SETTLE",
+    // 销售链 M3-04：报价单审批（发出前置；制单人不可自审自己报的价）
+    "QUOTATION_APPROVE",
 ];
 
 /// 「制单人不可自审」的留痕原因（写进 `biz_flow_task.comment`，审批详情直接展示）。

@@ -45,6 +45,7 @@
 //! | 15 | `COST_SETTLE` | `biz_cost_period` | `batch_no` | `status` | `create_by` | [`cost_period_bridge::on_cost_settle_decided`] |
 //! | 16 | `RECEIPT_REFUND` | `biz_receipt_refund` | `refund_no` | `status` | `create_by` | [`receipt_refund_bridge::on_refund_settled`] |
 //! | 17 | `STOCK_TRANSFER` | `biz_stock_transfer` | `transfer_no` | `status` | `create_by` | [`transfer_approval_settle::on_transfer_settled`] |
+//! | 18 | `QUOTATION_APPROVE` | `biz_quotation` | `quote_no` | `status` | `create_by` | [`quotation_approval_bridge::on_quotation_settled`] |
 //!
 //! **第 17 行是 P2-34 补的**：调拨单的终态回调原来住在 `flow::task_bridge`（直连 ERP），
 //! 搬进 ERP 后需要一个入口被调起 —— 注册表就是那个入口。它**不在**内控受控集合里
@@ -125,7 +126,7 @@ use crate::business::erp::payable::{payable_bridge, payable_payment, payable_que
 use crate::business::erp::purchase::{
     purchase_bridge, purchase_model, purchase_requisition_dto, purchase_return_bridge, purchase_return_dto,
 };
-use crate::business::erp::sales::{sales_approval_bridge, sales_model};
+use crate::business::erp::sales::{quotation_approval_bridge, quotation_model, sales_approval_bridge, sales_model};
 use crate::business::erp::stockin::{stockin_base, stockin_bridge};
 use crate::business::erp::stocktake::{stocktake_bridge, stocktake_model};
 use crate::business::erp::transfer::{transfer_approval_settle, transfer_model};
@@ -220,13 +221,18 @@ pub enum ErpDoc {
     /// （`flow::internal_control::GOVERNED_CODES` 里没有它），所以本变体的 `guard` 是放行、
     /// `creator` 是 `None` —— 与改造前逐字一致。
     StockTransfer,
+    /// 销售报价单审批（`QUOTATION_APPROVE`，销售链 M3-04）。
+    ///
+    /// 审批是「发出」（`DRAFT → SENT`）的前置条件，不是单据状态；通过回调**自动发出**，
+    /// 驳回 / 撤回留在草稿。受内控约束（制单人不可自审，`GOVERNED_CODES` 已登记）。
+    QuotationApprove,
 }
 
 impl ErpDoc {
-    /// 全部实现（= 注册表里应当出现的 17 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
+    /// 全部实现（= 注册表里应当出现的 18 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
     ///
-    /// 16 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
-    pub const ALL: [ErpDoc; 17] = [
+    /// 17 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
+    pub const ALL: [ErpDoc; 18] = [
         ErpDoc::PurchaseOrder,
         ErpDoc::StockInPost,
         ErpDoc::StockInCancel,
@@ -244,6 +250,7 @@ impl ErpDoc {
         ErpDoc::CostSettle,
         ErpDoc::ReceiptRefund,
         ErpDoc::StockTransfer,
+        ErpDoc::QuotationApprove,
     ];
 
     /// 审批业务类型（注册表键）。
@@ -266,6 +273,7 @@ impl ErpDoc {
             ErpDoc::CostSettle => FlowBizType::CostSettle,
             ErpDoc::ReceiptRefund => FlowBizType::ReceiptRefund,
             ErpDoc::StockTransfer => FlowBizType::StockTransfer,
+            ErpDoc::QuotationApprove => FlowBizType::QuotationApprove,
         }
     }
 
@@ -289,6 +297,7 @@ impl ErpDoc {
             ErpDoc::CostSettle => "成本核算批次",
             ErpDoc::ReceiptRefund => "收款退款单",
             ErpDoc::StockTransfer => "调拨单",
+            ErpDoc::QuotationApprove => "报价单",
         }
     }
 
@@ -412,6 +421,13 @@ impl ErpDoc {
                 creator: "create_by",
                 label: |status| receipt_refund::status_label(status).to_string(),
             },
+            ErpDoc::QuotationApprove => DocSpec {
+                table: "biz_quotation",
+                doc_no: "quote_no",
+                status: "status",
+                creator: "create_by",
+                label: |status| quotation_model::status_label(status).to_string(),
+            },
         }
     }
 
@@ -473,6 +489,9 @@ impl ErpDoc {
                 // P2-34：回调本体从 `flow::task_bridge` 搬进 ERP（`transfer_approval_settle`）。
                 let _ = transfer_approval_settle::on_transfer_settled(instance_id, instance_status).await;
             }
+            ErpDoc::QuotationApprove => {
+                let _ = quotation_approval_bridge::on_quotation_settled(instance_id, instance_status).await;
+            }
         }
     }
 
@@ -500,6 +519,7 @@ impl ErpDoc {
             // 调拨单今天没有内控闸（`flow::internal_control::GOVERNED_CODES` 里没有它）。
             // 补闸 = 多拦一批人 = 改变生产行为，不属于「解环」，所以这里显式放行。
             ErpDoc::StockTransfer => Ok(()),
+            ErpDoc::QuotationApprove => quotation_approval_bridge::guard_self_approval(task_id, operator).await,
         }
     }
 
@@ -528,6 +548,7 @@ impl ErpDoc {
             // 返回 `None` 而不是随便取一个 id：哪天有人把 STOCK_TRANSFER 加进受控集合，
             // 这里必须显式补上「制单人取哪一列」，不能靠一个静默的兜底值。
             ErpDoc::StockTransfer => Ok(None),
+            ErpDoc::QuotationApprove => quotation_approval_bridge::internal_control_creator(biz_id).await,
         }
     }
 }
@@ -577,7 +598,7 @@ impl DocReader for ErpDocReader {
     }
 }
 
-/// 全部 ERP 单据查询器（17 个，顺序 = [`ErpDoc::ALL`]）。
+/// 全部 ERP 单据查询器（18 个，顺序 = [`ErpDoc::ALL`]）。
 pub fn readers() -> Vec<Arc<dyn DocReader>> {
     ErpDoc::ALL
         .iter()
@@ -585,7 +606,7 @@ pub fn readers() -> Vec<Arc<dyn DocReader>> {
         .collect()
 }
 
-/// 把 17 个实现注册进**给定的**注册表（单测用；生产走 [`register_all`]）。
+/// 把 18 个实现注册进**给定的**注册表（单测用；生产走 [`register_all`]）。
 ///
 /// 返回注册成功的个数。重复注册（同一 `biz_type` 两个实现）返回 `Err` 且点名 ——
 /// 不静默覆盖：两个实现抢一个键时「谁赢取决于注册顺序」，那种不确定性必须在启动期暴露。
@@ -598,7 +619,7 @@ pub fn register_into(registry: &mut DocRegistry) -> std::result::Result<usize, S
 
 /// 启动期注册到**进程级**注册表（[`crate::bootstrap`] 调用；请求期不许调）。
 ///
-/// 返回注册个数（`Ok(17)`），失败时返回点名的 `Err`（重复注册 = 编程错误）。
+/// 返回注册个数（`Ok(18)`），失败时返回点名的 `Err`（重复注册 = 编程错误）。
 pub fn register_all() -> std::result::Result<usize, String> {
     let readers = readers();
     let count = readers.len();
