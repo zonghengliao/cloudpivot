@@ -257,11 +257,21 @@ pub enum DocKind {
     /// `POSTED`/`REVERSED`/`CANCELLED`；过账在同一事务里生成两张凭证
     /// （计提 `PAYROLL_ACCRUAL` + 发放 `PAYROLL_PAYMENT`，都挂在本单上）。
     SalarySheet,
+    /// 销售报价单 `biz_quotation`（M3-01 / M3-02，销售链「报价 → 订单」的前一手）。
+    ///
+    /// **不是可审批单据**（M3-04 才接审批流）：`DRAFT → SENT → ACCEPTED / REJECTED`，
+    /// 另有 `CANCELLED`（撤回 / 报错重来）。边表在 `state_machine::QUOTATION_EDGES`。
+    /// 它**会写 `biz_status_log`**（谁在什么时候把报价发了出去、客户接受还是拒绝），
+    /// 所以必须落在本域里 —— 否则 `entity_registry_is_covered_by_doc_kind` 直接红，
+    /// 巡检 `biz_type_domain.py` 也会把正常轨迹判成域外值。
+    ///
+    /// 追加在末尾（不插中间）：顺序 = 前端 `DOC_KINDS` 的顺序。
+    Quotation,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 36] = [
+    pub const ALL: [DocKind; 37] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -305,6 +315,8 @@ impl DocKind {
         DocKind::LeaveRequest,
         DocKind::AttendancePeriod,
         DocKind::SalarySheet,
+        // 销售链（M3-02）：报价单 —— 「报价 → 订单」的前一手，会写 `biz_status_log`。
+        DocKind::Quotation,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -349,6 +361,8 @@ impl DocKind {
             DocKind::LeaveRequest => "LEAVE_REQUEST",
             DocKind::AttendancePeriod => "ATTENDANCE_PERIOD",
             DocKind::SalarySheet => "SALARY_SHEET",
+            // 销售链（M3-02）：报价单
+            DocKind::Quotation => "QUOTATION",
         }
     }
 
@@ -394,6 +408,8 @@ impl DocKind {
             DocKind::LeaveRequest => "请假单",
             DocKind::AttendancePeriod => "考勤期间",
             DocKind::SalarySheet => "薪资单",
+            // 销售链（M3-02）：报价单
+            DocKind::Quotation => "报价单",
         }
     }
 
@@ -438,6 +454,8 @@ impl DocKind {
             DocKind::LeaveRequest => "biz_leave_request",
             DocKind::AttendancePeriod => "biz_attendance_period",
             DocKind::SalarySheet => "biz_salary_sheet",
+            // 销售链（M3-02）：报价单头表
+            DocKind::Quotation => "biz_quotation",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -473,7 +491,8 @@ impl DocKind {
                 // 员工与劳动合同是主数据（状态流转由 state_machine 管，但没有审批 / 作废），
                 // 考勤批次是「锁定 / 解锁」的作业批次（与会计期间同型）。
                 | DocKind::LeaveRequest
-                | DocKind::SalarySheet
+                | DocKind::SalarySheet // 报价单**不在**这里：M3-04 才接审批流，本卡（M3-02）只有状态机。
+                                       // 接审批之后把它挪进上面的清单（届时附件 / 提醒口径一并评估）。
         )
     }
 
@@ -499,6 +518,7 @@ impl DocKind {
             DocKind::Invoice => "invoice",
             DocKind::SalesReturn => "sales-return",
             DocKind::PurchaseReturn => "purchase-return",
+            DocKind::Quotation => "quotation",
             _ => return None,
         })
     }
@@ -1599,7 +1619,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 36] = [
+const DOC_KIND_VALUES: [&str; 37] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1637,6 +1657,8 @@ const DOC_KIND_VALUES: [&str; 36] = [
     "LEAVE_REQUEST",
     "ATTENDANCE_PERIOD",
     "SALARY_SHEET",
+    // 销售链（M3-02）：报价单（会写 biz_status_log.entity_type）
+    "QUOTATION",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 24] = [

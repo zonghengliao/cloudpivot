@@ -75,9 +75,9 @@ function rustAttachmentDocKinds(source: string): string[] {
   return variants;
 }
 
-// ==================== ① 值域：36 值逐字 + 同序 ====================
+// ==================== ① 值域：37 值逐字 + 同序 ====================
 
-test('DocKind::ALL ↔ DOC_KINDS：36 个业务对象逐字、同序（HR-06 的 5 类在末尾）', () => {
+test('DocKind::ALL ↔ DOC_KINDS：37 个业务对象逐字、同序（HR 5 类 + M3-02 报价单在末尾）', () => {
   const source = rustSource();
   const asStr = new Map(rustPairs(source, 'DocKind', 'pub const fn as_str'));
   const rust = rustDocKindAll(source).map((variant) => {
@@ -86,22 +86,23 @@ test('DocKind::ALL ↔ DOC_KINDS：36 个业务对象逐字、同序（HR-06 的
     return value;
   });
 
-  assert.equal(rust.length, 36, `后端 DocKind::ALL 应为 36 值，实际 ${rust.length}`);
+  assert.equal(rust.length, 37, `后端 DocKind::ALL 应为 37 值，实际 ${rust.length}`);
   assert.deepEqual([...DOC_KINDS], rust, 'DOC_KINDS 与后端 DocKind::ALL 不一致（顺序也要一致）');
 
-  // HR 五类：追加在末尾（不插中间），且顺序与后端一致
-  assert.deepEqual([...DOC_KINDS].slice(-5), [
+  // 末尾 6 类：HR 五类（HR-06）+ 报价单（M3-02），全部追加在后端枚举末尾（不插中间）
+  assert.deepEqual([...DOC_KINDS].slice(-6), [
     'EMPLOYEE',
     'EMPLOYEE_CONTRACT',
     'LEAVE_REQUEST',
     'ATTENDANCE_PERIOD',
     'SALARY_SHEET',
+    'QUOTATION',
   ]);
 });
 
-// ==================== ② 中文名：36 个逐字 ====================
+// ==================== ② 中文名：37 个逐字 ====================
 
-test('DocKind::label() ↔ DOC_KIND_LABELS：36 个中文名逐字一致（不许只改一边）', () => {
+test('DocKind::label() ↔ DOC_KIND_LABELS：37 个中文名逐字一致（不许只改一边）', () => {
   const source = rustSource();
   const asStr = new Map(rustPairs(source, 'DocKind', 'pub const fn as_str'));
   const labels = new Map(rustPairs(source, 'DocKind', 'pub const fn label'));
@@ -113,13 +114,13 @@ test('DocKind::label() ↔ DOC_KIND_LABELS：36 个中文名逐字一致（不�
     rust[value] = label;
   }
 
-  assert.equal(Object.keys(rust).length, 36, `后端应有 36 个中文名，实际 ${Object.keys(rust).length}`);
+  assert.equal(Object.keys(rust).length, 37, `后端应有 37 个中文名，实际 ${Object.keys(rust).length}`);
   assert.deepEqual({ ...DOC_KIND_LABELS }, rust, 'DOC_KIND_LABELS 与后端 DocKind::label() 不一致');
 });
 
-// ==================== ③ 实体表：有表的 35 项逐条 ====================
+// ==================== ③ 实体表：有表的 36 项逐条 ====================
 
-test('DocKind::table() ↔ DOC_KIND_TABLES：有表的 35 项逐条相等（虚拟对象不列）', () => {
+test('DocKind::table() ↔ DOC_KIND_TABLES：有表的 36 项逐条相等（虚拟对象不列）', () => {
   const source = rustSource();
   const asStr = new Map(rustPairs(source, 'DocKind', 'pub const fn as_str'));
   const tables = new Map(rustPairs(source, 'DocKind', 'pub const fn table'));
@@ -131,7 +132,7 @@ test('DocKind::table() ↔ DOC_KIND_TABLES：有表的 35 项逐条相等（虚�
     rust[value] = table;
   }
 
-  assert.equal(Object.keys(rust).length, 35, `后端有表的对象应为 35 个，实际 ${Object.keys(rust).length}`);
+  assert.equal(Object.keys(rust).length, 36, `后端有表的对象应为 36 个，实际 ${Object.keys(rust).length}`);
   assert.deepEqual({ ...DOC_KIND_TABLES }, rust, 'DOC_KIND_TABLES 与后端 DocKind::table() 不一致');
 });
 

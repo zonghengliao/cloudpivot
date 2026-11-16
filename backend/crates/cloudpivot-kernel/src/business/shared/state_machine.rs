@@ -547,6 +547,82 @@ pub const SALES_ORDER_EDGES: [(&str, &str); 11] = [
     ("SUBMITTED", "DRAFT"),
 ];
 
+// ==================== 销售报价单（M3-02） ====================
+
+/// 实体类型：销售报价单（`biz_quotation`，销售链 M3-02）。
+///
+/// 落库值 `QUOTATION`（`DocKind::Quotation`）。状态机只在**单据头**上流转
+/// （明细 `biz_quotation_line` 没有状态列）。报价单**不是可审批单据**
+/// （`DocKind::is_document() = false`，M3-04 才接审批流），但每次流转都写
+/// `biz_status_log` —— 谁在什么时候把报价发了出去、客户接受还是拒绝，
+/// 事后必须能查。
+pub const ENTITY_QUOTATION: &str = DocKind::Quotation.as_str();
+
+/// 报价单合法边（卡面 M3-02「草稿→已发→已接受/已拒绝」+ 反向，6 条）。
+///
+/// ```text
+/// DRAFT     → SENT        发出报价（守卫：≥1 行明细 / 客户未冻结 / 未过有效期；发出后明细与单价冻结）
+/// SENT      → ACCEPTED    客户接受（守卫：未过有效期 —— 过期价不能被接受，要重报）
+/// SENT      → REJECTED    客户拒绝（**要原因**：价格 / 交期 / 竞品，复盘报价用）
+/// DRAFT     → CANCELLED   草稿作废（从未对外发出过，不要原因）
+/// SENT      → CANCELLED   已发出撤回（**要原因**：客户手里那份报价要能对上「为什么作废」）
+/// ACCEPTED  → CANCELLED   客户反悔 / 录错（**要原因**；已转销售订单的不许作废，见 handler）
+/// ```
+///
+/// # 没有的边（每条都是一个真问题）
+///
+/// - **没有 `SENT → DRAFT`**：报价一旦发出，客户手里那份就是「报了多少」的唯一凭据。
+///   允许原地打回草稿改价 = 客户拿到的纸和库里对不上（M3-01 建表注释同口径：
+///   改价要走**新报价单**）。
+/// - **没有 `REJECTED → *`**：客户拒绝是终态，要重报就开新单（`REJECTED → DRAFT`
+///   会让「这张报价被拒过」的历史消失）。`REJECTED` 不是软删，历史保留。
+/// - **没有 `CANCELLED → *`**：作废终态。
+/// - **没有 `ACCEPTED → SENT`**：接受之后再「发回给客户」没有业务含义（要改条款 = 新单）。
+///
+/// # 与卡面的差异（只报不改）
+///
+/// 卡面写「草稿→已发→已接受/已拒绝」三条边；本表另有 3 条反向边
+/// （`DRAFT / SENT / ACCEPTED → CANCELLED`），依据 ARCH-7 §12.3「正向必配反向」：
+/// 只有三条正向边时，一张报价单发出去就永久停在 `SENT`（界面上没有任何可点的按钮，
+/// 与 AGENTS.md 约定 11「单据停在中间态」同一类坑）。
+pub const QUOTATION_EDGES: [(&str, &str); 6] = [
+    ("DRAFT", "SENT"),
+    ("SENT", "ACCEPTED"),
+    ("SENT", "REJECTED"),
+    ("DRAFT", "CANCELLED"),
+    ("SENT", "CANCELLED"),
+    ("ACCEPTED", "CANCELLED"),
+];
+
+/// 报价单的 BASE_EDGES（与 [`QUOTATION_EDGES`] 逐条对应，顺序一致）。
+///
+/// **六条全是 mandatory**：没有「捷径」可配 —— 发出 / 接受 / 拒绝 / 三条作废
+/// 每一步都对外产生承诺，配置层关掉任何一条都会让报价单卡死在某个状态。
+pub const QUOTATION_BASE: [BaseEdge; 6] = [
+    BaseEdge::mandatory("DRAFT", "SENT", "发出报价", false),
+    BaseEdge::mandatory("SENT", "ACCEPTED", "客户接受", false),
+    BaseEdge::mandatory("SENT", "REJECTED", "客户拒绝", true),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("SENT", "CANCELLED", "撤回已发出的报价", true),
+    BaseEdge::mandatory("ACCEPTED", "CANCELLED", "已接受的报价作废（客户反悔 / 录错）", true),
+];
+
+/// 需要 reason 的报价单边：客户拒绝与两条「已对外发出后」的作废。
+///
+/// `DRAFT → CANCELLED` 不要原因 —— 草稿从未对外产生任何影响。
+/// `SENT → REJECTED` 要原因：拒绝理由是下一版报价的唯一输入（价格？交期？竞品？），
+/// 没有它就等于「这张单白报了」。`SENT / ACCEPTED → CANCELLED` 要原因：
+/// 客户手里那份报价单还在，系统里必须能回答「为什么后来不算了」。
+pub const QUOTATION_REASON_EDGES: [(&str, &str); 3] =
+    [("SENT", "REJECTED"), ("SENT", "CANCELLED"), ("ACCEPTED", "CANCELLED")];
+
+/// 报价单入账态：**只有草稿可写**，其余四个状态一律锁定。
+///
+/// 与销售订单的 `SALES_ORDER_LOCKED` 同型但更严：销售订单的 `DRAFT` 之后还有
+/// 「审批驳回打回草稿」的回头路，报价单没有回草稿的边，所以 `SENT` 一起锁死
+/// （发出即冻结单价与明细，M3-01 建表注释的既定口径）。
+pub const QUOTATION_LOCKED: [&str; 4] = ["SENT", "ACCEPTED", "REJECTED", "CANCELLED"];
+
 /// 发货单合法边（ARCH-7 §4.2，4 条，唯一真相）。
 ///
 /// ```text
@@ -2053,11 +2129,17 @@ pub enum Entity {
     /// （V0383 的 `ck_biz_sal_sheet_status`，**无 `CANCELLED`**），边表见
     /// [`SALARY_SHEET_EDGES`]。过账出两张凭证（计提 + 发放），红冲出两张红字凭证。
     SalarySheet,
+    /// 销售报价单 `biz_quotation`（销售链 M3-02）。
+    ///
+    /// 状态域五值 `DRAFT`/`SENT`/`ACCEPTED`/`REJECTED`/`CANCELLED`，边表见
+    /// [`QUOTATION_EDGES`]。**不是可审批单据**（M3-04 才接审批流），但每次流转写
+    /// `biz_status_log`：报价发出 / 客户接受 / 客户拒绝都必须能追溯到人和时间。
+    Quotation,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 29] = [
+    pub const ALL: [Entity; 30] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -2089,6 +2171,8 @@ impl Entity {
         Entity::LeaveRequest,
         Entity::AttendancePeriod,
         Entity::SalarySheet,
+        // 销售链（M3-02）：报价单
+        Entity::Quotation,
     ];
 
     /// 落库的 `entity_type`。
@@ -2123,6 +2207,7 @@ impl Entity {
             Entity::LeaveRequest => ENTITY_LEAVE_REQUEST,
             Entity::AttendancePeriod => ENTITY_ATTENDANCE_PERIOD,
             Entity::SalarySheet => ENTITY_SALARY_SHEET,
+            Entity::Quotation => ENTITY_QUOTATION,
         }
     }
 
@@ -2163,6 +2248,7 @@ impl Entity {
             Entity::LeaveRequest => "请假单",
             Entity::AttendancePeriod => "考勤期间",
             Entity::SalarySheet => "薪资单",
+            Entity::Quotation => "报价单",
         }
     }
 
@@ -2198,6 +2284,7 @@ impl Entity {
             Entity::LeaveRequest => &LEAVE_EDGES,
             Entity::AttendancePeriod => &ATTENDANCE_PERIOD_EDGES,
             Entity::SalarySheet => &SALARY_SHEET_EDGES,
+            Entity::Quotation => &QUOTATION_EDGES,
         }
     }
 
@@ -2236,6 +2323,7 @@ impl Entity {
             Entity::LeaveRequest => &LEAVE_BASE,
             Entity::AttendancePeriod => &ATTENDANCE_PERIOD_BASE,
             Entity::SalarySheet => &SALARY_SHEET_BASE,
+            Entity::Quotation => &QUOTATION_BASE,
         }
     }
 
@@ -2276,6 +2364,7 @@ impl Entity {
             Entity::LeaveRequest => &LEAVE_REASON_EDGES,
             Entity::AttendancePeriod => &ATTENDANCE_PERIOD_REASON_EDGES,
             Entity::SalarySheet => &SALARY_SHEET_REASON_EDGES,
+            Entity::Quotation => &QUOTATION_REASON_EDGES,
         }
     }
 
@@ -2311,6 +2400,7 @@ impl Entity {
             Entity::LeaveRequest => &LEAVE_LOCKED,
             Entity::AttendancePeriod => &ATTENDANCE_PERIOD_LOCKED,
             Entity::SalarySheet => &SALARY_SHEET_LOCKED,
+            Entity::Quotation => &QUOTATION_LOCKED,
         }
     }
 
@@ -5522,7 +5612,7 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            29,
+            30,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\
@@ -5532,7 +5622,8 @@ mod contract_tests {
              → 23（COST_OBJECT，成本核算 ARCH-9 §4.1）\
              → 24（COST_PERIOD，成本核算 ARCH-9 §4.1 结算批次）\
              → 29（HR-08：EMPLOYEE / EMPLOYEE_CONTRACT / LEAVE_REQUEST / \
-             ATTENDANCE_PERIOD / SALARY_SHEET，人力资源 ARCH-9 §4.2）"
+             ATTENDANCE_PERIOD / SALARY_SHEET，人力资源 ARCH-9 §4.2）\
+             → 30（QUOTATION，销售链 M3-02 报价单）"
         );
 
         // ③ as_str

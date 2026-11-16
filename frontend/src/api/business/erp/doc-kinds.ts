@@ -76,6 +76,7 @@ export const DOC_KINDS = [
   'LEAVE_REQUEST',
   'ATTENDANCE_PERIOD',
   'SALARY_SHEET',
+  'QUOTATION',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -121,6 +122,8 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   LEAVE_REQUEST: '请假单',
   ATTENDANCE_PERIOD: '考勤期间',
   SALARY_SHEET: '薪资单',
+  // 销售链（M3-02）：报价单
+  QUOTATION: '报价单',
 };
 
 /**
@@ -174,6 +177,8 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   LEAVE_REQUEST: 'biz_leave_request',
   ATTENDANCE_PERIOD: 'biz_attendance_period',
   SALARY_SHEET: 'biz_salary_sheet',
+  // 销售链（M3-02）：报价单头表
+  QUOTATION: 'biz_quotation',
 };
 
 /**

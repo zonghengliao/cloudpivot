@@ -540,6 +540,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'LEAVE_REQUEST',     'biz_leave_request',     'deleted_at', '请假单（HR §4.4：DRAFT → SUBMITTED → APPROVED / CANCELLED）'),
     ('STATUS_ENTITY', 'ATTENDANCE_PERIOD', 'biz_attendance_period', 'deleted_at', '月度考勤批次（HR §4.5：DRAFT → SUBMITTED → LOCKED，可解锁回 DRAFT）'),
     ('STATUS_ENTITY', 'SALARY_SHEET',      'biz_salary_sheet',      'deleted_at', '薪资单（HR §4.7：DRAFT → CALCULATED → SUBMITTED → APPROVED → POSTED / REVERSED / CANCELLED）'),
+    -- 销售链 M3-02：报价单进状态日志（`quotation_handler` 的建单 / 发出 / 接受 / 拒绝 / 作废都写 entity_type=QUOTATION）
+    ('STATUS_ENTITY', 'QUOTATION',         'biz_quotation',         'deleted_at', '销售报价单（M3-02：DRAFT → SENT → ACCEPTED / REJECTED，另三条 → CANCELLED）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),

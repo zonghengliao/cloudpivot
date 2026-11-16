@@ -1,0 +1,26 @@
+test business::erp::sales::quotation_model::tests::line_amounts_round_half_away_from_zero ... ok
+test business::erp::sales::quotation_model::tests::main_chain_edges_allowed ... ok
+test business::erp::sales::quotation_model::tests::next_quote_no_is_consecutive_on_real_db ... ok
+test business::erp::sales::quotation_model::tests::only_draft_is_writable ... ok
+test business::erp::sales::quotation_model::tests::page_filters_quote_no_status_customer_and_expiry ... ok
+test business::erp::sales::quotation_model::tests::quote_no_format_and_parse ... ok
+test business::erp::sales::quotation_model::tests::reason_edges_are_client_reject_and_post_send_cancels ... ok
+test business::erp::sales::quotation_model::tests::soft_delete_only_from_deletable_statuses ... ok
+test business::erp::sales::quotation_model::tests::status_domain_matches_check_constraint ... ok
+test business::erp::sales::quotation_model::tests::totals_are_exact_sums_of_rounded_lines ... ok
+test business::erp::sales::quotation_model::tests::update_quotation_replaces_lines_and_cas_on_draft ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 5878 filtered out; finished in 0.14s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+
