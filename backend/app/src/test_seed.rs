@@ -336,10 +336,15 @@ pub async fn ensure_supplier(code: &str, name: &str) -> Uuid {
 }
 
 /// 客户。
+///
+/// ⚠ `biz_customer.status` 是 **VARCHAR + `ck_biz_customer_status CHECK (status IN ('ACTIVE','FROZEN'))`**
+/// （V0260），与其它主数据表的 `smallint 1/0` **不是一套**：写 `1` 会直接撞 CHECK 23514。
+/// 这个 `ensure_*` 在 M1-22 之前没有调用方，写 `1` 的错误一直没暴露（首个用户是
+/// `receivable::aging_partial_tests` 的账龄夹具）。
 pub async fn ensure_customer(code: &str, name: &str) -> Uuid {
     let id = fixture_uuid(&format!("customer:{code}"));
     upsert_id(
-        "INSERT INTO biz_customer (id, code, name, status) VALUES (?, ?, ?, 1) \
+        "INSERT INTO biz_customer (id, code, name, status) VALUES (?, ?, ?, 'ACTIVE') \
          ON CONFLICT DO NOTHING",
         vec![
             Value::from(&id),

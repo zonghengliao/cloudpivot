@@ -102,6 +102,12 @@ pub mod receivable_aging;
 pub mod receivable_bridge;
 pub mod receivable_query;
 
+/// 账龄单测（M1-22）：跨期 + 部分收款（部分核销后的余额分摊）。
+/// 真库用例走 `receipt::create → receipt::allocate → 账龄出表` 一条真写路径。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod aging_partial_tests;
+
 // ==================== 权限码（与 V0288 的 sys_menu.auth_code 逐字一致） ====================
 
 /// 手工挂账。

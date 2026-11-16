@@ -659,7 +659,11 @@ pub fn assemble(
 // ==================== 接口层 ====================
 
 /// 参数校验 + 快照事务统一入口。
-async fn build_report(query: &ReceivableAgingQuery) -> std::result::Result<ReceivableAgingRes, ApiError> {
+///
+/// `pub(crate)`：M1-22 的真库用例（`receivable::aging_partial_tests`）要走**接口整条链**
+/// （基准日解析 → REPEATABLE READ 快照 → 透视 → 组装），而不是自己在测试里拼一份
+/// `snapshot` —— 否则测到的是测试代码，不是出表那条路。
+pub(crate) async fn build_report(query: &ReceivableAgingQuery) -> std::result::Result<ReceivableAgingRes, ApiError> {
     let today = voucher::today_cst(Utc::now());
     // 基准日解析复用应付账龄的同一个实现（as_of 优先 → period 末日 → 今天）
     let as_of = payable_aging::resolve_as_of(query.as_of.as_deref(), query.period.as_deref(), today)?;
