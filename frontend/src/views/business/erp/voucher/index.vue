@@ -88,6 +88,35 @@
           <span class="mono muted">{{ row.period }}</span>
         </template>
 
+        <!-- M1-11：币种 / 汇率。外币行打 tag（一眼挑出来），本位币行按普通文字。
+             tooltip 说清「借方 / 贷方列是本位币」——这是本页最容易看错的一处。 -->
+        <template #currency_code="{ row }">
+          <t-tooltip :content="voucherCurrencyTip(row)" placement="top-left" :show-arrow="true">
+            <span class="fx-currency" :data-testid="`voucher-currency-${row.voucher_no}`">
+              <t-tag
+                v-if="isForeignVoucher(row)"
+                size="small"
+                variant="light"
+                theme="warning"
+                :data-testid="`voucher-currency-tag-${row.voucher_no}`"
+              >
+                {{ row.currency_code }}
+              </t-tag>
+              <span v-else class="mono muted">{{ dash(row.currency_code) }}</span>
+            </span>
+          </t-tooltip>
+        </template>
+
+        <template #exchange_rate="{ row }">
+          <span
+            class="mono"
+            :class="{ muted: !isForeignVoucher(row) }"
+            :data-testid="`voucher-rate-${row.voucher_no}`"
+          >
+            {{ voucherRateText(row) }}
+          </span>
+        </template>
+
         <template #summary="{ row }">
           <span :data-testid="`voucher-summary-${row.voucher_no}`">{{ dash(row.summary) }}</span>
         </template>
@@ -322,6 +351,29 @@
                   <span class="field__label">会计期间</span>
                   <span class="field__value mono">{{ dash(detail.period) }}</span>
                 </div>
+                <!-- M1-11：币种 / 汇率（单头）。外币行的借方 / 贷方是**折算后**的本位币，
+                     原币金额在下面分录表的「原币」列 —— 两处必须成对看。 -->
+                <div class="field">
+                  <span class="field__label">币种</span>
+                  <span class="field__value mono" data-testid="voucher-detail-currency">
+                    <t-tag
+                      v-if="detailForeign"
+                      size="small"
+                      variant="light"
+                      theme="warning"
+                      data-testid="voucher-detail-foreign-tag"
+                    >
+                      外币
+                    </t-tag>
+                    {{ dash(detail.currency_code) }}
+                  </span>
+                </div>
+                <div class="field">
+                  <span class="field__label">汇率</span>
+                  <span class="field__value mono" data-testid="voucher-detail-rate">
+                    {{ voucherRateDetailText(detail) }}
+                  </span>
+                </div>
                 <div class="field">
                   <span class="field__label">摘要</span>
                   <span class="field__value">{{ dash(detail.summary) }}</span>
@@ -413,6 +465,12 @@
                     {{ tag.text }}
                   </t-tag>
                 </template>
+                <!-- M1-11：原币金额（只有外币凭证才有这一列，见 `entryColumns`） -->
+                <template #fc_amount="{ row }">
+                  <span class="money" :data-testid="`voucher-entry-fc-${row.line_no}`">
+                    {{ entryFxAmountText(row, detail?.currency_code) }}
+                  </span>
+                </template>
                 <template #debit_amount="{ row }">
                   <span class="money" :data-testid="`voucher-entry-debit-${row.line_no}`">
                     {{ toCents(row.debit_amount) === 0 ? '' : formatMoney(row.debit_amount) }}
@@ -427,7 +485,7 @@
 
               <!-- ★★ 借贷平衡可视化：合计行 + 绿勾 / 红字警告 ★★ -->
               <div class="balance" :class="balanceClass" data-testid="voucher-balance">
-                <div class="balance__label">合计</div>
+                <div class="balance__label">{{ detailForeign ? '合计（本位币）' : '合计' }}</div>
                 <div class="balance__debit money" data-testid="voucher-balance-debit">
                   {{ formatCents(balance.debitCents) }}
                 </div>
@@ -439,6 +497,31 @@
                   <span data-testid="voucher-balance-text">
                     {{ balanceText(balance.balanced, balance.diffCents) }}
                   </span>
+                </div>
+              </div>
+
+              <!--
+                M1-11：外币凭证的「原币合计」。
+                上面那行合计是本位币（折算后），这一行才是用户当初录进去的原币 ——
+                两边各自平一次，才能回答「我录的 USD 借贷是不是一样多」。
+                尾差（0.0001 量级）由后端吸收到金额最大的一行，所以原币也有可能差一个最小单位。
+              -->
+              <div
+                v-if="detailForeign"
+                class="balance balance--fx"
+                :class="fxTotals.balanced ? 'balance--ok' : 'balance--bad'"
+                data-testid="voucher-balance-fx"
+              >
+                <div class="balance__label">原币合计（{{ detail?.currency_code }}）</div>
+                <div class="balance__debit money" data-testid="voucher-balance-fx-debit">
+                  {{ formatFxAmount(fxTotals.debitTenThousandths) }}
+                </div>
+                <div class="balance__credit money" data-testid="voucher-balance-fx-credit">
+                  {{ formatFxAmount(fxTotals.creditTenThousandths) }}
+                </div>
+                <div class="balance__verdict">
+                  <t-icon :name="balanceIcon(fxTotals.balanced)" />
+                  <span data-testid="voucher-balance-fx-text">{{ fxBalanceText }}</span>
                 </div>
               </div>
 
@@ -801,12 +884,19 @@ import {
   canReverseVoucher as canReverse,
   canWithdrawReverse as canWithdrawReverseVoucher,
   emptyVoucherFilter,
+  entryFxAmountText,
+  formatFxAmount,
   formatFxRate,
   formatTenThousandths,
   fxPreview,
+  isForeignVoucher,
   isPendingReverse,
   isVoucherFiltered,
   sourceTypeLabel,
+  sumEntryFx,
+  voucherCurrencyTip,
+  voucherRateDetailText,
+  voucherRateText,
   voucherStatusLabel,
   voucherStatusTheme,
   voucherTitleOf,
@@ -854,6 +944,10 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'voucher_no', title: '凭证号', width: 230 },
   { colKey: 'voucher_date', title: '日期', width: 90 },
   { colKey: 'period', title: '期间', width: 100 },
+  // M1-11：外币凭证的「录入口径」两列 —— 币种 + 建单时锁定的汇率。
+  // 本位币行（99%+）汇率列给「—」而不是一排 1.0000：那一列只在真有外币时才有信息量。
+  { colKey: 'currency_code', title: '币种', width: 80 },
+  { colKey: 'exchange_rate', title: '汇率', width: 100, align: 'right' },
   { colKey: 'summary', title: '摘要', minWidth: 180, ellipsis: true },
   { colKey: 'source_type', title: '来源', width: 130 },
   // E2E-FIX-5 ②：业务单据号（退货单号落在这里；一张业务单 → 多张凭证的查询键）
@@ -864,16 +958,6 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'status', title: '状态', width: 100 },
   // P0-FIX-4B：操作列从「查看 / 红冲」扩成「查看 + 审核链三动作 + 红冲」，80px 放不下
   { colKey: 'op', title: '操作', width: 220, fixed: 'right' },
-];
-
-/** 分录列（★ 借方 / 贷方两列并排，空的那侧不写 0，与纸质凭证同排版） */
-const entryColumns: PrimaryTableCol[] = [
-  { colKey: 'line_no', title: '行', width: 56, align: 'center' },
-  { colKey: 'summary', title: '摘要', minWidth: 140, ellipsis: true },
-  { colKey: 'account', title: '科目', minWidth: 200 },
-  { colKey: 'aux', title: '辅助核算', minWidth: 150 },
-  { colKey: 'debit_amount', title: '借方', width: 130, align: 'right' },
-  { colKey: 'credit_amount', title: '贷方', width: 130, align: 'right' },
 ];
 
 const statusFilterOptions = VOUCHER_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
@@ -1123,6 +1207,57 @@ const detailVisible = ref(false);
 const drawerTab = ref<'detail' | 'trace'>('detail');
 const detailLoading = ref(false);
 const detail = ref<VoucherDetailEx | null>(null);
+
+/**
+ * M1-11：抽屉里这张凭证是不是外币（判据在 `voucher-logic.ts::isForeignVoucher`，单测钉死）。
+ *
+ * 抽屉打开的一瞬间只有列表行（`emptyDetail`），凭证相同的两个字段（`currency_code` /
+ * `exchange_rate`）**列表行就有**，所以币种 / 汇率格与「原币」列不会等详情回来才出现 ——
+ * 详情回来后 entries 补齐，原币金额才有值。
+ */
+const detailForeign = computed(() => isForeignVoucher(detail.value));
+
+/**
+ * 分录列（★ 借方 / 贷方两列并排，空的那侧不写 0，与纸质凭证同排版）。
+ *
+ * M1-11：外币凭证多一列「原币（USD）」，且借方 / 贷方两列的标题改成「借方（本位币）」——
+ * 否则用户看着 `借方 7,200.00` 再对原币 1,000.00 会以为录错了。
+ * 列是 computed：本位币凭证的分录表**多一个字都不加**（与改动前逐像素一致）。
+ */
+const entryColumns = computed<PrimaryTableCol[]>(() => {
+  const foreign = detailForeign.value;
+  const currencyCode = detail.value?.currency_code ?? '';
+  const cols: PrimaryTableCol[] = [
+    { colKey: 'line_no', title: '行', width: 56, align: 'center' },
+    { colKey: 'summary', title: '摘要', minWidth: 140, ellipsis: true },
+    { colKey: 'account', title: '科目', minWidth: 200 },
+    { colKey: 'aux', title: '辅助核算', minWidth: 150 },
+  ];
+  if (foreign) {
+    cols.push({
+      colKey: 'fc_amount',
+      title: currencyCode ? `原币（${currencyCode}）` : '原币金额',
+      width: 130,
+      align: 'right',
+    });
+  }
+  cols.push(
+    { colKey: 'debit_amount', title: foreign ? '借方（本位币）' : '借方', width: 130, align: 'right' },
+    { colKey: 'credit_amount', title: foreign ? '贷方（本位币）' : '贷方', width: 130, align: 'right' },
+  );
+  return cols;
+});
+
+/** 原币合计（万分之一元整数；外币凭证才有意义）。 */
+const fxTotals = computed(() => sumEntryFx(detail.value?.entries ?? []));
+
+/** 原币合计的结论文案（与「合计」行的本位币口径分开说，避免看着像两个不同的平）。 */
+const fxBalanceText = computed(() => {
+  if (fxTotals.value.balanced) {
+    return '原币借贷平衡';
+  }
+  return `原币借贷不平，差额 ${formatFxAmount(Math.abs(fxTotals.value.diffTenThousandths))}`;
+});
 
 /**
  * 审批进度（C2 + P1-FIX-11）。
@@ -2079,6 +2214,13 @@ onMounted(() => {
   gap: 8px;
   min-width: 0;
 }
+
+/* M1-11：列表「币种」列 —— tag 与文字保持同一基线（TDesign 的 td 行高会把 tag 顶偏） */
+.fx-currency {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 /* ==================== 抽屉 ==================== */
 
 .drawer {
@@ -2236,6 +2378,14 @@ onMounted(() => {
 
 .balance-alert {
   margin-top: 12px;
+}
+
+/* M1-11：外币凭证的「原币合计」行 —— 独立一张小结（不复用上面那行的外框，避免两条合计粘成一条看不出是两个口径） */
+.balance--fx {
+  margin-top: 8px;
+  border-top: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  font-size: 13px;
 }
 
 /* ==================== 操作列 / 关联凭证 / 弹窗（P7） ==================== */

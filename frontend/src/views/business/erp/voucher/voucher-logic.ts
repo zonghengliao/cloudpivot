@@ -25,7 +25,7 @@
  */
 import type { VoucherEntryLine, VoucherRow, VoucherStatus, VoucherType } from '@/api/business/erp';
 import type { TagTheme } from '../payable/payable-logic';
-import { dash, toCents, toNumber } from '../shared/money';
+import { dash, formatCents, toCents, toNumber } from '../shared/money';
 
 /** 每页条数（与其它 ERP 列表页同口径） */
 export const VOUCHER_PAGE_SIZE = 20;
@@ -516,5 +516,155 @@ export function fxPreview(
     baseDebitTenThousandths: baseDebit,
     baseCreditTenThousandths: baseCredit,
     baseDiffTenThousandths: baseDebit - baseCredit,
+  };
+}
+
+/* ==================== M1-11：凭证页币种 / 汇率列（展示口径） ==================== */
+
+/**
+ * 币种 / 汇率两列能读到的最小形状（列表行 `VoucherRow` 与详情 `VoucherDetail`
+ * 都带这两个字段，且列表 / 详情 / 红冲回执三处同源下发）。
+ */
+export interface VoucherFxLike {
+  /** 凭证原币币种（本位币凭证 = 账套本位币码） */
+  currency_code?: string | null;
+  /** 建单锁定的汇率：`1 原币 = exchange_rate 本位币`（本位币凭证恒 1） */
+  exchange_rate?: number | string | null;
+}
+
+/**
+ * 外币凭证判据：**建单锁定的汇率 ≠ 1**。
+ *
+ * 为什么不用「币种 ≠ 本位币」比：本位币码要额外拉一次 `fx-options` 才知道（列表页
+ * 没打开弹窗时拿不到），而汇率是**随行下发**的，判据自洽、零额外请求。
+ * 后端口径保证两种情形都不会误判：
+ * * 本位币凭证 `exchange_rate` 恒 `1`（M1-01/V0406 起）；
+ * * 外币单取不到 SPOT 牌价时建单直接 400（`voucher_write::resolve_fx`），
+ *   所以不会存在「外币币种 + 汇率 1」的行。
+ */
+export function isForeignVoucher(row: VoucherFxLike | null | undefined): boolean {
+  if (!row) {
+    return false;
+  }
+  const rate = toNumber(row.exchange_rate);
+  return Number.isFinite(rate) && rate > 0 && rate !== 1;
+}
+
+/**
+ * 列表「汇率」列文案：外币给锁定的汇率（最多 8 位、去尾随 0 —— 与录入区
+ * `formatFxRate` 同一个格式，JPY 类 0.04x 牌价不会被压成 0.0400），本位币给 `—`。
+ *
+ * 本位币行**不**铺一排 `1.0000`：那既占宽度又让人以为「每张单都折算了」。
+ */
+export function voucherRateText(row: VoucherFxLike | null | undefined): string {
+  return isForeignVoucher(row) ? formatFxRate(row?.exchange_rate) : dash(undefined);
+}
+
+/**
+ * 详情「汇率」格文案（带语义，不只是一个裸数字）：
+ * 外币 → `7.2（1 USD 折本位币，建单锁定）`；本位币 → `1（本位币凭证，不折算）`。
+ */
+export function voucherRateDetailText(row: VoucherFxLike | null | undefined): string {
+  if (!isForeignVoucher(row)) {
+    return '1（本位币凭证，不折算）';
+  }
+  const code = (row?.currency_code ?? '').trim();
+  return `${formatFxRate(row?.exchange_rate)}（1 ${code} 折本位币，建单锁定）`;
+}
+
+/** 列表「币种」列 tooltip：外币说清「金额按原币录、本位币是换算结果」，本位币一句带过。 */
+export function voucherCurrencyTip(row: VoucherFxLike | null | undefined): string {
+  if (!isForeignVoucher(row)) {
+    return '本位币凭证：分录金额即本位币，汇率恒 1（不折算）';
+  }
+  const code = (row?.currency_code ?? '').trim();
+  return `外币凭证：分录按 ${code} 原币录入，借方 / 贷方列显示的是按锁定汇率折算后的本位币金额`;
+}
+
+/**
+ * 元 → **万分之一元**整数（4 位小数、五入）。
+ *
+ * `fc_debit_amount` / `fc_credit_amount` 是 `NUMERIC(20,4)`（V0409），
+ * 原币金额的比较与累加都换成这个整数单位，避免浮点残留把「平」算成「不平」。
+ */
+export function toTenThousandths(value: number | string | null | undefined): number {
+  const num = toNumber(value);
+  if (!Number.isFinite(num)) {
+    return 0;
+  }
+  const rounded = Math.round(Math.abs(num) * 10000 + 1e-6);
+  if (rounded === 0) {
+    return 0;
+  }
+  return num < 0 ? -rounded : rounded;
+}
+
+/**
+ * 万分之一元 → 文案：**能整除到分就给 2 位**（`1,000.00`），否则给 4 位（`0.0481`）。
+ *
+ * 原币金额落库精度是 4 位，但录入界面按 2 位输入，绝大多数行是 `1000.0000`；
+ * 直接铺 4 位会让整张分录表看着像「多了两位零」。真有 3~4 位小数的币种（如 KWD/BHD）
+ * 又必须显示出来 —— 所以按需给位数，而不是一律截断。
+ */
+export function formatFxAmount(valueTenThousandths: number): string {
+  const tw = Math.round(Number.isFinite(valueTenThousandths) ? valueTenThousandths : 0);
+  if (tw % 100 === 0) {
+    return formatCents(tw / 100);
+  }
+  return formatTenThousandths(tw);
+}
+
+/**
+ * 分录「原币」列文案：外币分录给 `USD 1,000.00`（带币种，避免横向看串），
+ * 本位币分录（`fc_*` 两列都是 `null`）给 `—`。
+ */
+export function entryFxAmountText(
+  entry: Pick<VoucherEntryLine, 'fc_debit_amount' | 'fc_credit_amount'> | null | undefined,
+  currencyCode: string | null | undefined,
+): string {
+  if (!entry) {
+    return dash(undefined);
+  }
+  const debit = toTenThousandths(entry.fc_debit_amount);
+  const credit = toTenThousandths(entry.fc_credit_amount);
+  const amount = debit !== 0 ? debit : credit;
+  if (amount === 0) {
+    return dash(undefined);
+  }
+  const code = (currencyCode ?? '').trim();
+  return code ? `${code} ${formatFxAmount(amount)}` : formatFxAmount(amount);
+}
+
+/** 原币合计（万分之一元整数）。 */
+export interface FxTotals {
+  /** 借方原币合计 */
+  debitTenThousandths: number;
+  /** 贷方原币合计 */
+  creditTenThousandths: number;
+  /** 差额 = 借 − 贷（万分之一元；0 = 原币借贷相等） */
+  diffTenThousandths: number;
+  /** 原币借贷是否相等 */
+  balanced: boolean;
+}
+
+/**
+ * 逐行累加**原币**发生额（`fc_*` 为 `null` 的行按 0 计 —— 外币凭证不会混入本位币行，
+ * 真混进来了也不该把本位币金额当成原币加进去）。
+ */
+export function sumEntryFx(
+  entries: ReadonlyArray<Pick<VoucherEntryLine, 'fc_debit_amount' | 'fc_credit_amount'>>,
+): FxTotals {
+  let debit = 0;
+  let credit = 0;
+  for (const entry of entries) {
+    debit += toTenThousandths(entry.fc_debit_amount);
+    credit += toTenThousandths(entry.fc_credit_amount);
+  }
+  const diff = debit - credit;
+  return {
+    debitTenThousandths: debit,
+    creditTenThousandths: credit,
+    diffTenThousandths: diff,
+    balanced: diff === 0,
   };
 }
