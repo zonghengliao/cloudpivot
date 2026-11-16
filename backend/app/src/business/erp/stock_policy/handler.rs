@@ -41,8 +41,11 @@ use axum::extract::{Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::stock_policy::dto::{self, PolicyFilter, PolicyRes, SavePolicyReq};
+use crate::business::erp::stock_policy::dto::{
+    self, PolicyFilter, PolicyRes, SavePolicyReq, WaterCheckReq, WaterCheckRes,
+};
 use crate::business::erp::stock_policy::model::{self, PolicyRow};
+use crate::business::erp::stock_policy::water_check;
 use cloudpivot_kernel::shared::error_code;
 use cloudpivot_kernel::utils;
 
@@ -54,9 +57,15 @@ pub const PERM_LIST: &str = "business:erp:stock-policy:list";
 pub const PERM_SAVE: &str = "business:erp:stock-policy:save";
 /// 删除一格水位设置（软删 = 回退物料级）。
 pub const PERM_DELETE: &str = "business:erp:stock-policy:delete";
+/// 执行一次水位检查（M2-14：低于最低水位 → 生成待办 / 回升 → 自动收口）。
+///
+/// 它是**写**码而不是读码：一次检查会建待办（`biz_task`）也会关待办。
+/// 用 `list` 这类读码会让「只能看水位设置」的人顺带改任务表（`authz_tests::o13`
+/// 就是拦这件事的）。
+pub const PERM_CHECK: &str = "business:erp:stock-policy:check";
 
 /// 本模块全部权限码（`perm_menu_gate.py` 要求每个都在 `sys_menu` 有承载行）。
-pub const STOCK_POLICY_PERMISSIONS: [&str; 3] = [PERM_LIST, PERM_SAVE, PERM_DELETE];
+pub const STOCK_POLICY_PERMISSIONS: [&str; 4] = [PERM_LIST, PERM_SAVE, PERM_DELETE, PERM_CHECK];
 
 // ==================== 错误出口 ====================
 
@@ -229,6 +238,40 @@ pub async fn delete_policy_of(operator: Option<Uuid>, id_raw: &str) -> std::resu
     Ok(())
 }
 
+// ==================== 水位检查（M2-14） ====================
+
+/// 执行一次水位检查（手动触发 / 验收 / 补跑）。
+///
+/// # 语义
+///
+/// 与定时任务 [`crate::business::erp::stock_policy::water_check::run_background`]
+/// **同一个任务体**（[`water_check::run_check`]），只有两点不同：
+///
+/// 1. 可以限定范围（物料 / 仓库）—— 排障「这一格怎么没生成待办」用；
+/// 2. 可以 `dry_run`（只算不写）；
+/// 3. **角色下没人时负责人兜底成触发人自己**（source = `OPERATOR`）。理由：手动触发是
+///    「我现在就要这件事有人管」，而空库里常常还没配仓管主管角色 —— 那时返回
+///    `skipped_no_owner=N` 却一条待办都不建，用户会以为功能坏了。
+///
+/// 一小时内连点两次不会重复建单（未完成待办唯一索引 + 本轮预读），第二条的计数落在
+/// `skipped_open` 里 —— 幂等，不是错误。
+///
+/// # 异常情况
+///
+/// - 参数非法（UUID 格式）→ 400 + 10001，点名是哪个字段；
+/// - 读库 / 建单失败 → 500（单格失败已计入 `failed`，不会让整轮报错）；
+/// - 无 `business:erp:stock-policy:check` → 403（宏层）。
+pub async fn check_water_of(
+    operator: Option<Uuid>,
+    req: WaterCheckReq,
+) -> std::result::Result<WaterCheckRes, ApiError> {
+    let material_id = parse_optional_uuid(req.material_id.as_deref(), "material_id")?;
+    let warehouse_id = parse_optional_uuid(req.warehouse_id.as_deref(), "warehouse_id")?;
+    water_check::run_check(material_id, warehouse_id, req.dry_run, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "执行水位检查"))
+}
+
 // ==================== HTTP 入口 ====================
 
 /// 水位设置分页。
@@ -273,21 +316,46 @@ pub async fn stock_policy_delete_api(
     Ok(Res::ok(()))
 }
 
+/// 执行一次水位检查（M2-14：低于最低水位 → 生成待办 / 回升 → 自动收口）。
+///
+/// `POST` 而不是 `GET`：它会写 `biz_task`（建待办 / 关待办），幂等性由未完成待办唯一索引
+/// 保证（重复点 = `skipped_open` 计数，不是重复建单），但语义是**动作**不是**查询**。
+#[nik::permission(
+    path = "/business/erp/stock-policy/check",
+    method = "POST",
+    permission = "business:erp:stock-policy:check"
+)]
+#[nik::post("/business/erp/stock-policy/check")]
+pub async fn stock_policy_check_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<WaterCheckReq>,
+) -> ResResult<WaterCheckRes> {
+    let operator = utils::current_user_uuid(&claims);
+    Ok(Res::ok(check_water_of(operator, req).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 权限码与 V0428 逐字一致；三个码互不相同（少一个就等于少一个开关）。
+    /// 权限码与 V0428 / V0429 逐字一致；四个码互不相同（少一个就等于少一个开关）。
     #[test]
     fn permission_codes_match_migration() {
-        assert_eq!(STOCK_POLICY_PERMISSIONS, [PERM_LIST, PERM_SAVE, PERM_DELETE]);
+        assert_eq!(
+            STOCK_POLICY_PERMISSIONS,
+            [PERM_LIST, PERM_SAVE, PERM_DELETE, PERM_CHECK]
+        );
         assert_eq!(PERM_LIST, "business:erp:stock-policy:list");
         assert_eq!(PERM_SAVE, "business:erp:stock-policy:save");
         assert_eq!(PERM_DELETE, "business:erp:stock-policy:delete");
+        assert_eq!(PERM_CHECK, "business:erp:stock-policy:check");
         assert_ne!(PERM_LIST, PERM_SAVE);
         assert_ne!(PERM_SAVE, PERM_DELETE);
         assert_ne!(PERM_LIST, PERM_DELETE);
-        println!("[M2-13] 权限码 list / save / delete（V0428，三码互不相同）✓");
+        assert_ne!(PERM_CHECK, PERM_LIST);
+        assert_ne!(PERM_CHECK, PERM_SAVE);
+        assert_ne!(PERM_CHECK, PERM_DELETE);
+        println!("[M2-13/M2-14] 权限码 list / save / delete / check（四码互不相同）✓");
     }
 
     /// 非法 UUID / 空 id 必须 400 + 10001，且文案点名字段（不静默当作没传）。

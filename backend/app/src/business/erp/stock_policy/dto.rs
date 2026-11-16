@@ -322,6 +322,93 @@ pub fn resolve_max_qty(policy: Option<&PolicyLevels>) -> Option<Decimal> {
     policy.filter(|levels| levels.enabled).and_then(|levels| levels.max_qty)
 }
 
+// ==================== 水位检查（M2-14）的入参 / 出参 ====================
+//
+// 卡：t_df0d7d48（M2-14【M2·仓库】安全库存：水位检查（低于 → 生成待办））。
+// 检查本体（扫描 / 判定 / 待办生成与收口）在 [`crate::business::erp::stock_policy::water_check`]，
+// 本处只放**契约**：一个入参、一组出参字段。分开的理由与 M2-13 一致 ——
+// dto 回答「长什么样」，water_check 回答「怎么算」。
+
+/// 触发一次水位检查（`POST /business/erp/stock-policy/check`，M2-14）。
+///
+/// 三个字段都可留空：**默认全库扫**。这是刻意的默认 —— 「检查水位」是运维/仓管的一句话动作，
+/// 让他先挑物料再检查等于多一步；限定范围是排查用的（「这个物料怎么没生成待办」）。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct WaterCheckReq {
+    /// 只查这个物料（留空 = 全部物料）。
+    pub material_id: Option<String>,
+    /// 只查这个仓库（留空 = 全部仓库）。
+    pub warehouse_id: Option<String>,
+    /// 只算不写（留空 = `false`）。
+    ///
+    /// `true` 时**不创建也不关闭**任何待办，只在响应里给出「本来会做什么」——
+    /// 用于验收、排障（「为什么这一格没有待办」），以及上线前先看一眼会炸出多少条。
+    pub dry_run: bool,
+}
+
+/// 一行「低于最低水位」的明细（出参）。数量一律走**文本**（与 ERP 其余数量出参同口径：
+/// `NUMERIC` 直接序列化成 JSON number 会在前端丢精度）。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct WaterCheckItem {
+    /// 库存行 id（= 待办的 `doc_id`）。
+    pub inventory_id: String,
+    /// 物料 id。
+    pub material_id: String,
+    /// 物料编码。
+    pub material_code: String,
+    /// 物料名称。
+    pub material_name: String,
+    /// 仓库 id。
+    pub warehouse_id: String,
+    /// 仓库名称（仓库被删时为「未知仓库」）。
+    pub warehouse_name: String,
+    /// 账面结存（`biz_inventory.qty`，已过账；可为负）。
+    pub qty: String,
+    /// 生效最低水位。
+    pub min_qty: String,
+    /// 缺口 = 最低水位 − 结存（正数）。
+    pub gap_qty: String,
+    /// 水位来源：`POLICY`（该格设置）/ `MATERIAL`（物料级安全库存）/ `NONE`。
+    pub min_source: String,
+    /// 本格在这一轮发生了什么：`RAISED` 新建待办 / `EXISTS` 已有未完成待办 /
+    /// `RECENT` 重提醒间隔内刚提醒过 / `NO_OWNER` 定位不到负责人 / `DRY_RUN` 只算不写。
+    pub action: String,
+    /// 新建的待办编号（只有 `RAISED` 有）。
+    pub task_no: Option<String>,
+}
+
+/// 一轮水位检查的结果。
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct WaterCheckRes {
+    /// 本轮扫描的格数（物料 × 仓库）。
+    pub scanned: u64,
+    /// 低于最低水位的格数。
+    pub low: u64,
+    /// 本轮**新建**的待办数。
+    pub raised: u64,
+    /// 已有未完成待办而跳过的格数。
+    pub skipped_open: u64,
+    /// 重提醒间隔内刚提醒过而跳过的格数。
+    pub skipped_recent: u64,
+    /// 定位不到负责人而跳过的格数（已打 WARN，不静默丢弃）。
+    pub skipped_no_owner: u64,
+    /// 库存回升而**自动关闭**的待办数（`dry_run` 时是「将会关闭」的条数）。
+    pub closed: u64,
+    /// 单格处理失败（数据库异常等，下一轮自动重试；已打 WARN）。
+    pub failed: u64,
+    /// 本次是否只算不写。
+    pub dry_run: bool,
+    /// 本轮使用的负责人（UUID 文本；`None` = 没人可派）。
+    pub owner: Option<String>,
+    /// 负责人从哪来：`ROLE`（仓管主管角色）/ `OPERATOR`（手动触发人兜底）/ `NONE`。
+    pub owner_source: String,
+    /// 低于水位的明细（上限 [`crate::business::erp::stock_policy::water_check::MAX_ITEMS`] 条）。
+    pub items: Vec<WaterCheckItem>,
+    /// 一句给人看的结论（定时任务页 / 日志 / 接口回显共用）。
+    pub message: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

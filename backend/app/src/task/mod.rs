@@ -286,6 +286,9 @@ impl Scheduler {
         // R-P1-2：业务提醒任务包（应付到期 07:10 / 采购超期 07:20 / 合同到期 07:30 / 低库存 07:40）。
         // 幂等由 biz_reminder_log 台账（单据 × 类型 × 业务日唯一）+ 通知幂等键两层保证。
         crate::business::erp::reminder::register_builtin(self);
+        // M2-14：安全库存水位检查（每小时第 7 分）—— 结存 < 生效最低水位 → 生成待办，
+        // 回升 → 自动收口。幂等三层：未完成待办部分唯一索引（V0429）+ 本轮预读 + 重提醒间隔。
+        crate::business::erp::stock_policy::water_check::register_builtin(self);
         // P16：收货作废审批的**孤儿实例回收**（每 10 分钟）。
         // 判据：审批还在跑、单据却已删除或已不是「作废审批中」→ 终止审批单（P11 教训：
         // 不回收就是审批中心一堆点进去 404 的待办，且下一次发起会被 uk_ 唯一索引永久堵死）。
@@ -594,6 +597,8 @@ pub fn is_registered_target(target: &str) -> bool {
         || target == crate::support::invariant::runner::TASK_NAME
         // R-P1-2：4 类业务提醒（应付到期 / 采购超期 / 合同到期 / 低库存）
         || crate::business::erp::reminder::RemindKind::from_task_name(target).is_some()
+        // M2-14：安全库存水位检查
+        || target == crate::business::erp::stock_policy::water_check::TASK_NAME
 }
 
 /// 执行指定处理器。
@@ -647,6 +652,13 @@ pub async fn run_handler(invoke_target: &str, params: Option<JsonValue>) -> std:
                     .await
                     .map_err(|e| utils::db_error(e, "执行账务不变量巡检并落库"))?;
             Ok(crate::support::invariant::runner::summary(&record))
+        }
+        // M2-14：安全库存水位检查（定时任务页「执行一次」与内置 cron 共用同一任务体）。
+        // 返回摘要 `erp_stock_water_check: scanned=… raised=… closed=…`，与 sys_job_log 一致。
+        target if target == crate::business::erp::stock_policy::water_check::TASK_NAME => {
+            crate::business::erp::stock_policy::water_check::run_background()
+                .await
+                .map_err(|e| utils::db_error(e, "执行安全库存水位检查"))
         }
         // SO-38：客户信用额度兜底重算（定时任务页「执行一次」走这里，与内置 cron 共用任务体）。
         // 重算发现漂移会**修正并记 biz_credit_log**（cause = RECOMPUTE），返回摘要给出明细。
