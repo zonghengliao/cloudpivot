@@ -224,7 +224,10 @@ impl LayerRow {
 
 /// `numeric` 一律 `::text` 出来再解析成定点数（驱动不做 `numeric → Decimal` 的直接映射，
 /// 与 `inventory_transit::model::parse_decimal` 同款；顺带避开浮点丢精度）。
-fn parse_decimal(row: &Row, column: &str) -> DbResult<Decimal> {
+///
+/// `pub(crate)`：M2-09 的库龄分段报表（`inventory_aging::report::model`）也读同一批
+/// `numeric` 列，共用这一份解析（两处各写一遍迟早有一处忘记 `::text`）。
+pub(crate) fn parse_decimal(row: &Row, column: &str) -> DbResult<Decimal> {
     let text = row.get_typed::<String>(column)?;
     text.trim()
         .parse::<Decimal>()

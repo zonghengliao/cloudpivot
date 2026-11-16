@@ -1,0 +1,28 @@
+=== python3 scripts/lint/scope_gate.py --root . ===
+  PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support}
+  PASS：跳过清单与 SKIP_MANIFEST 逐条一致（170 条；多一个少一个都不放行）
+  PASS：0 处
+闸② 判定面（v2）：扫描生产面 36 个文件 / 跳过测试面 2 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/crates/cloudpivot-kernel/src/{business/shared,shared,utils}
+  PASS：跳过清单与 SKIP_MANIFEST 逐条一致（2 条；多一个少一个都不放行）
+  PASS：0 处
+
+=== python3 scripts/verify/perm_menu_gate.py（连 cp_m209_report_test）===
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+==> 闸：PASS
+
+=== bash scripts/verify/menu_invariants.sh cp_m209_report_test ===
+═══ 菜单结构不变量 ═══
+库: cp_m209_report_test
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            518  ✅ (400-520)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 121 条，全部命中
+结果: 全绿 ✅

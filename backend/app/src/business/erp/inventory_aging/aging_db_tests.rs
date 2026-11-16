@@ -44,7 +44,10 @@ use crate::business::erp::inventory_aging::handler;
 use crate::test_seed;
 
 /// 真库用例必须串行（共用全局 `db()` 与同一批 `M208-` 夹具）。
-static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+///
+/// `pub(crate)`：M2-09 的库龄分段报表用例（`report::report_db_tests`）用**同一个**锁串行
+/// —— 两批用例共用一个 `db()` 连接池，各锁各的等于没锁。
+pub(crate) static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const WAREHOUSE_A_CODE: &str = "M208-WHA";
 const WAREHOUSE_B_CODE: &str = "M208-WHB";
@@ -88,7 +91,7 @@ async fn mat_b() -> Uuid {
     test_seed::ensure_material(MAT_B_CODE, "库龄物料乙").await
 }
 
-async fn ensure_db() -> bool {
+pub(crate) async fn ensure_db() -> bool {
     use tokio::sync::OnceCell;
     static READY: OnceCell<bool> = OnceCell::const_new();
     *READY
@@ -117,7 +120,7 @@ async fn ensure_db() -> bool {
         .await
 }
 
-async fn exec(statement: &str, params: Vec<Value>) {
+pub(crate) async fn exec(statement: &str, params: Vec<Value>) {
     db().execute_with_params(statement, params)
         .await
         .unwrap_or_else(|error| panic!("执行失败：{error}\n{statement}"));
@@ -167,7 +170,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 
 /// 一张入库单头（`in_date` = 业务日期；`in_type='OTHER'` 免得撞「采购必须带供应商」的 CHECK，
 /// `is_sourceless = true` 是 `ck_biz_si_sourceless_pair` 对「无源单」的硬要求）。
-async fn insert_stock_in(in_no: &str, warehouse_id: Uuid, in_date: &str, qty: &str) -> Uuid {
+pub(crate) async fn insert_stock_in(in_no: &str, warehouse_id: Uuid, in_date: &str, qty: &str) -> Uuid {
     let id = Uuid::now_v7();
     exec(
         "INSERT INTO biz_stock_in (id, in_no, in_type, warehouse_id, in_date, status, total_qty, is_sourceless) \
@@ -185,7 +188,7 @@ async fn insert_stock_in(in_no: &str, warehouse_id: Uuid, in_date: &str, qty: &s
 }
 
 /// 入库单明细（批号挂在这一行上；`(stock_in_id, line_no)` 唯一）。
-async fn insert_stock_in_item(stock_in_id: Uuid, material_id: Uuid, qty: &str, lot_no: &str) {
+pub(crate) async fn insert_stock_in_item(stock_in_id: Uuid, material_id: Uuid, qty: &str, lot_no: &str) {
     let unit_id = test_seed::ensure_unit().await;
     exec(
         "INSERT INTO biz_stock_in_item \
@@ -204,7 +207,7 @@ async fn insert_stock_in_item(stock_in_id: Uuid, material_id: Uuid, qty: &str, l
 }
 
 /// 一张出库单头（`out_date` = 业务日期）。
-async fn insert_stock_out(out_no: &str, warehouse_id: Uuid, out_date: &str, qty: &str) -> Uuid {
+pub(crate) async fn insert_stock_out(out_no: &str, warehouse_id: Uuid, out_date: &str, qty: &str) -> Uuid {
     let id = Uuid::now_v7();
     exec(
         "INSERT INTO biz_stock_out (id, out_no, out_type, warehouse_id, out_date, status, total_qty) \
@@ -225,7 +228,7 @@ async fn insert_stock_out(out_no: &str, warehouse_id: Uuid, out_date: &str, qty:
 ///
 /// `posted_at` 单独传：本卡最关键的口径就是「过账时间 ≠ 业务日期」（补录单据）。
 #[allow(clippy::too_many_arguments)]
-async fn insert_txn(
+pub(crate) async fn insert_txn(
     material_id: Uuid,
     warehouse_id: Uuid,
     txn_type: &str,

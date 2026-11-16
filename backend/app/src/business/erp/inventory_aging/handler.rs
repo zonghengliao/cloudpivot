@@ -50,12 +50,15 @@ pub const INVENTORY_AGING_PERMISSIONS: [&str; 1] = [PERM_LIST];
 // ==================== 校验原语 ====================
 
 /// `400 + 66006`：筛选项非法。
-fn bad_filter(message: impl Into<String>) -> ApiError {
+///
+/// `pub(crate)`：M2-09 的库龄分段报表（`inventory_aging::report::handler`）与本模块
+/// 共用同一套「非法筛选 → 400 + 66006」出口。
+pub(crate) fn bad_filter(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::ERP_FILTER_INVALID, message.into())
 }
 
 /// 可选 UUID（空白 → `None`；非法 → 400，**不静默当作没传**）。
-fn parse_opt_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
+pub(crate) fn parse_opt_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(None),
         Some(text) => Uuid::parse_str(text)
@@ -65,7 +68,7 @@ fn parse_opt_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<
 }
 
 /// 可选日期（`yyyy-MM-dd`；空白 → `None`；格式不对 → 400）。
-fn parse_opt_date(raw: Option<&str>, field: &str) -> std::result::Result<Option<NaiveDate>, ApiError> {
+pub(crate) fn parse_opt_date(raw: Option<&str>, field: &str) -> std::result::Result<Option<NaiveDate>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(None),
         Some(text) => NaiveDate::parse_from_str(text, "%Y-%m-%d")

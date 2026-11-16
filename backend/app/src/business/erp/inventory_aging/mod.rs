@@ -1,17 +1,19 @@
-//! 库龄（M2-08）：**按批次入库时间算 FIFO 库龄层**的只读模块。
+//! 库龄：**按批次入库时间算 FIFO 库龄层**的只读模块（M2-08 计算 + M2-09 分段报表）。
 //!
-//! 卡：t_397dc77c（M2-08【M2·仓库】库龄：计算（按批次入库时间））；拆卡依据
-//! `docs/planning/20261113-新卡清单.md` §M2 的 M2-08 行 —— 本卡只做**计算**，
-//! 0-30/31-60/61-90/90+ 的报表是 M2-09、呆滞料标记是 M2-10、前端页是 M2-12。
+//! 卡：t_397dc77c（M2-08【M2·仓库】库龄：计算（按批次入库时间））+ t_4e2cb6f6
+//! （M2-09【M2·仓库】库龄分析：报表（0-30/31-60/61-90/90+））；拆卡依据
+//! `docs/planning/20261113-新卡清单.md` §M2 的 M2-08 / M2-09 行 —— M2-08 只做**计算**，
+//! 0-30/31-60/61-90/90+ 的分段报表是 M2-09、呆滞料标记是 M2-10、前端页是 M2-12。
 //!
 //! ```text
 //! 流水（唯一真相）        biz_inventory_txn（V0137，追加写；IN 一笔 = 一个批次层）
-//! 计算（本卡）            biz_inventory_aging_layers(p_as_of, p_material_id, p_warehouse_id)
+//! 计算（M2-08）           biz_inventory_aging_layers(p_as_of, p_material_id, p_warehouse_id)
 //!                           └─ V0424 建在库层的 SQL 函数：FIFO 累计 + 夹 0 + 业务日期
-//! 取数（本卡）            inventory_aging::{dto, model, handler}   ← 批次层分页（GET …/page）
-//! 互证（本卡）            inventory_aging::fifo                    ← 同一算法的 Rust 参考实现
-//! 权限码                  business:erp:inventory-aging:list       （V0424，menu_type=3）
-//! 下游                    M2-09 报表 / M2-10 呆滞料 / M2-12 前端页 共用同一个库函数
+//! 取数（M2-08）           inventory_aging::{dto, model, handler}   ← 批次层分页（GET …/page）
+//! 互证（M2-08）           inventory_aging::fifo                    ← 同一算法的 Rust 参考实现
+//! 报表（M2-09）           inventory_aging::report                  ← 分档汇总（GET …/report）
+//! 权限码                  …:inventory-aging:list（V0424）/ …:inventory-aging:report（V0425）
+//! 下游                    M2-10 呆滞料 / M2-12 前端页 共用同一个库函数
 //! ```
 //!
 //! # 为什么把 FIFO 写进库函数，而不是写在每个调用方的 SQL 里
@@ -44,6 +46,13 @@ pub mod dto;
 pub mod fifo;
 pub mod handler;
 pub mod model;
+/// 库龄分段报表（M2-09 · V0425）：按 物料 × 仓库 汇总 0-30 / 31-60 / 61-90 / 90 天以上 四档。
+///
+/// 子模块四件套（`mod + dto + model + handler`），语义上是本模块的**第二个视图**：
+/// 明细（`GET …/page`，一层一行）与报表（`GET …/report`，一格一行）共用同一个库函数
+/// `biz_inventory_aging_layers(...)`，**没有第二份 FIFO**；两者各自一个权限码
+/// （`…:inventory-aging:list` / `…:inventory-aging:report`）。
+pub mod report;
 
 /// 库龄计算的纯逻辑用例（不连库）。
 #[cfg(test)]

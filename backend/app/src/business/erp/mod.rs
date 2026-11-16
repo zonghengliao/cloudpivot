@@ -175,8 +175,10 @@ pub mod handler;
 pub mod income_statement;
 /// 库龄（M2-08 · V0424）：**按批次入库时间算 FIFO 库龄层**的只读模块 ——
 /// 流水 `biz_inventory_txn` 的每笔 `IN` 是一个批次层，结存按先入先出摊回各层。
-/// FIFO 算法只住在库函数 `biz_inventory_aging_layers(...)` 里（M2-09 报表 / M2-10 呆滞料
+/// FIFO 算法只住在库函数 `biz_inventory_aging_layers(...)` 里（M2-10 呆滞料
 /// 复用同一个函数），本模块只做取数与契约；Rust 侧另有一份纯逻辑参考实现专供对拍。
+/// 分段报表（0-30 / 31-60 / 61-90 / 90 天以上）在子模块 [`inventory_aging::report`]
+/// （M2-09 · V0425），与该库函数同源。
 pub mod inventory_aging;
 pub mod inventory_audit;
 /// 在途库存查询（M2-04 · V0421）：在途账 `biz_inventory_in_transit` 的两条只读入口 ——

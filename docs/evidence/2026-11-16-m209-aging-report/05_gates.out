@@ -1,0 +1,12 @@
+=== cargo fmt -p cloudpivot -- --check（本包格式，M2-08 同款口径）===
+rc=0（无 Diff）
+
+=== cargo fmt --all -- --check（workspace 全量，含 vendored nik-*）===
+rc!=0（有 Diff；与 HEAD 是否相同见下）
+
+=== cargo clippy --lib -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+
+=== cargo clippy --lib --all-targets -- -D warnings ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 29s
