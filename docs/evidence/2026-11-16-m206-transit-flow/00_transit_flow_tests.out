@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 7 tests
+test business::erp::inventory_transit::transit_flow_tests::full_flow_three_stages_stay_balanced ... [M2-06] 主链路：在途 0→6→0，库存 20→20→14，对账两段 balanced
+ok
+test business::erp::inventory_transit::transit_flow_tests::multi_material_shipment_receives_every_line ... [M2-06] 多物料：在途 8（2 行）→ 0，库存甲 −5 / 乙 −3
+ok
+test business::erp::inventory_transit::transit_flow_tests::read_apis_agree_with_each_other ... [M2-06] 三方读数一致：明细=汇总=对账 14 → 签一张后同为 6
+ok
+test business::erp::inventory_transit::transit_flow_tests::split_shipments_accumulate_and_drain_transit ... [M2-06] 分两次发货：在途 3+4=7 → 签一张剩 4 → 全签 0，库存 20→13
+ok
+test business::erp::inventory_transit::transit_flow_tests::transit_and_availability_are_per_warehouse ... [M2-06] 按仓算可用量：仓乙 0 库存过账被拒，仓甲 10 → 5
+ok
+test business::erp::inventory_transit::transit_flow_tests::transit_holds_available_qty_so_the_same_goods_cannot_ship_twice ... [M2-06] 在途占可用量：账面 10 / 在途 8 时发 5 被拒 409；补货 3 后重试成功
+ok
+test business::erp::inventory_transit::transit_flow_tests::unposted_shipments_are_out_of_the_transit_books ... [M2-06] 未过账单不入账：在途 4（过账）→ 9（三张全部过账），全程无假红
+ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 5667 filtered out; finished in 1.27s
+
+transit=0

@@ -1,0 +1,24 @@
+== M2-06 在途库存「发货→签收」全流程单测 · 演练（PG 172.18.10.145:5432 / 库 cp_m206_flow_drill_2795931）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m206_flow_drill_2795931
+== 1) 补齐业务迁移 V0405…V0422（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 18 条业务迁移全部应用成功
+  [32mPASS[0m 在途账表存在（V0420）（=biz_inventory_in_transit）
+  [32mPASS[0m 在途读码就位（V0421）（=1）
+  [32mPASS[0m 在途对账码就位（V0422）（=1）
+== 2) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡（7 条全流程用例）：business::erp::inventory_transit::transit_flow_tests 全绿（7 条）（=7）
+  [32mPASS[0m 本卡（7 条全流程用例）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 整组在途（本卡 7 + M2-04 查询 + M2-05 对账 + 纯逻辑）：business::erp::inventory_transit 全绿（48 条）（=48）
+  [32mPASS[0m 整组在途（本卡 7 + M2-04 查询 + M2-05 对账 + 纯逻辑）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 上游发货域（过账 / 签收写路径未被破坏）：business::erp::shipment 全绿（46 条）（=46）
+  [32mPASS[0m 上游发货域（过账 / 签收写路径未被破坏）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+== 3) 夹具清场（不允许把 M206- 残留带出本组）
+  [32mPASS[0m biz_shipment 无 M206- 残留（=0）
+  [32mPASS[0m biz_sales_order 无 M206- 残留（=0）
+  [32mPASS[0m 在途账无 M206 夹具行（=0）
+  [32mPASS[0m 库存账无 M206 库存（=0）
+
+== 汇总：PASS=16 FAIL=0 ==
+ALL PASS

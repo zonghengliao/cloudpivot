@@ -48,6 +48,10 @@ mod transit_query_tests;
 #[cfg(test)]
 mod transit_reconcile_tests;
 
+/// 在途「发货 → 签收」全流程单测（M2-06）：跨四张卡的一致性。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod transit_flow_tests;
+
 pub use dto::{
     TransitFilter, TransitReconcileFilter, TransitReconcileRes, TransitReconcileRow, TransitReconcileTotals,
     TransitRes, TransitSummaryFilter, TransitSummaryRes, TransitSummaryRow,
