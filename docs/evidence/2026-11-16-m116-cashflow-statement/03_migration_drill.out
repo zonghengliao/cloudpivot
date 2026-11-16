@@ -1,0 +1,42 @@
+== M1-16 / V0417 真库往返演练（出表两个权限码）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 演练库=cp_m116_stmt_drill_2667650
+
+  ---- 演练库已从 cloudpivot_test 克隆
+  [32mPASS[0m V0414 前置已应用
+  [32mPASS[0m V0415 前置已应用（底稿两码）
+  [32mPASS[0m V0416 前置已应用（调整项两码）
+  [32mPASS[0m 演练前出表两码不存在（本卡新增）（=0）
+  [32mPASS[0m 演练前「现金流量表」页面下已有 4 个按钮（底稿 2 + 调整项 2）（=4）
+  [32mPASS[0m V0417 第一次应用成功
+  [32mPASS[0m 自检 NOTICE 已打印（自检块真的跑了）
+  ---- 权限节点
+  [32mPASS[0m 两个按钮节点在位（挂「现金流量表」页面 · menu_type=3 · 无 path）（=2）
+  [32mPASS[0m 两个码与后端常量逐字一致（=business:erp:cashflow-statement:export,business:erp:cashflow-statement:list）
+  [32mPASS[0m 一码一节点（无重复行）（=2）
+  [32mPASS[0m 同父 sort 50 / 60（接在 10/20/30/40 之后）（=50,60）
+  [32mPASS[0m 「现金流量表」页面下共 6 个按钮（底稿 2 + 调整项 2 + 出表 2）（=6）
+  [32mPASS[0m 同父无重复 sort_order（=0）
+  [32mPASS[0m title 为 4 字短名（=出表查看,出表导出）
+  [32mPASS[0m title 合菜单规范（≤12 字、无标点）（=0）
+  ---- 授权
+  [32mPASS[0m 授权齐（2 个目标角色 × 2 码）（=4）
+  [32mPASS[0m FINANCE_DIRECTOR 没授（无页码 ⇒ 会成孤儿按钮）（=0）
+  [32mPASS[0m 前置四个码不受影响（底稿 2 + 调整项 2）（=4）
+  ---- 幂等
+  [32mPASS[0m V0417 第二次应用成功（重放不报错）
+  [32mPASS[0m 重放不攒行（仍 2 行）（=2）
+  [32mPASS[0m 重放不覆盖管理员改过的 title（ON CONFLICT DO NOTHING）（=出表查看_已改）
+  [32mPASS[0m 重放不攒重复授权（仍 4 行）（=4）
+  ---- 回滚
+  [32mPASS[0m down 成功
+  [32mPASS[0m down 后两个节点已清（=0）
+  [32mPASS[0m down 后授权已清（=0）
+  [32mPASS[0m down 不动前置四个码（=4）
+  [32mPASS[0m down 重放幂等（第二次也成功）
+  ---- 可重放
+  [32mPASS[0m down 之后 V0417 可重放
+  [32mPASS[0m 重放后两节点回来（=2）
+  [32mPASS[0m 重放后授权回来（=4）
+
+== 汇总：PASS=30 FAIL=0 ==
+drill exit=0

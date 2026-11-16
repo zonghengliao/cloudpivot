@@ -1,0 +1,101 @@
+== M1-16 由底稿生成现金流量表 · 真 HTTP 实测 ==
+   PG=172.18.10.145:5432 库=cp_m116_stmt_e2e 端口=18095
+
+== 0) 准备库（模板只到 V0404，剩下交给真引擎）==
+  PASS  克隆完成（应用前 versioned 迁移 = 326）
+  PASS  模板库里还没有底稿表（本卡前置迁移确实未应用）
+  PASS  腾出 admin 用户名（改名 admin_pre_m116）
+
+== 1) 真启动（引擎应用 V0405..V0417）+ 迁移断言 ==
+  PASS  后端真启动成功（http://127.0.0.1:18095/health 200）
+  PASS  引擎应用了新迁移（326 → 339）
+  PASS  V0414 / V0415 / V0416 / V0417 四条都登记为已应用（=414,415,416,417）
+  PASS  底稿表已建（V0414）（=1）
+  PASS  出表两码已在菜单表（V0417）（=2）
+
+== 1b) 重启一次 → 0 条新迁移（引擎幂等）==
+  PASS  重启后迁移数不变（不重放）（=339）
+  PASS  重启后菜单不重复（仍 2 行）（=2）
+
+== 2) 登录 + 鉴权闸 ==
+  PASS  admin 登录取到 access_token
+  PASS  首登强制改密完成
+  PASS  用新口令重新登录成功
+  PASS  未带 token → 401（鉴权闸真的在）
+
+== 3) 造期间 + 用 M1-14 的 PUT 录两张底稿（上期 900/400 → 500；本期 1200/700 → 1000）==
+  PASS  两个期间就位（1913-04 / 1913-05）（=2）
+  PASS  上期底稿 PUT 200（勾稽闭合）
+  PASS  上期底稿闭合（.data.check.balanced = true）
+  PASS  本期底稿 PUT 200（勾稽闭合）
+  PASS  本期底稿闭合（.data.check.balanced = true）
+
+== 4) GET statement（三栏报表）==
+  PASS  GET statement 200
+  PASS  报表编码（.data.report_code = CASH_FLOW_WORKSHEET）
+  PASS  报表名称（.data.report_name = 现金流量表）
+  PASS  本期期间回显（.data.period = 1913-05）
+  PASS  上期期间（上一会计期间）（.data.previous_period = 1913-04）
+  PASS  本期列名（.data.current_label = 本期金额）
+  PASS  上期列名（.data.previous_label = 上期金额）
+  PASS  数据来源 = 底稿（.data.source = WORKSHEET）
+  PASS  三大活动分区（[.data.sections[]] | length = 3）
+  PASS  分区顺序固定（[.data.sections[].activity] | join(",") = OPERATING,INVESTING,FINANCING）
+  PASS  本期销售收款 1200（(([.data.sections[] | select(.activity=="OPERATING")][0].inflow[] | select(.item_code=="OPER_SALES_RECEIPTS") | .current | tonumber) == 1200) = true）
+  PASS  上期销售收款 900（(([.data.sections[] | select(.activity=="OPERATING")][0].inflow[] | select(.item_code=="OPER_SALES_RECEIPTS") | .previous | tonumber) == 900) = true）
+  PASS  本期采购付款 700（(([.data.sections[] | select(.activity=="OPERATING")][0].outflow[] | select(.item_code=="OPER_PURCHASE_PAYMENTS") | .current | tonumber) == 700) = true）
+  PASS  上期采购付款 400（(([.data.sections[] | select(.activity=="OPERATING")][0].outflow[] | select(.item_code=="OPER_PURCHASE_PAYMENTS") | .previous | tonumber) == 400) = true）
+  PASS  流入小计 1200（(([.data.sections[] | select(.activity=="OPERATING")][0].inflow_total.current | tonumber) == 1200) = true）
+  PASS  上期流入小计 900（(([.data.sections[] | select(.activity=="OPERATING")][0].inflow_total.previous | tonumber) == 900) = true）
+  PASS  经营活动净额 500（(([.data.sections[] | select(.activity=="OPERATING")][0].net.current | tonumber) == 500) = true）
+  PASS  上期经营活动净额 500（(([.data.sections[] | select(.activity=="OPERATING")][0].net.previous | tonumber) == 500) = true）
+  PASS  现金净增加额 500（((.data.net_increase.current | tonumber) == 500) = true）
+  PASS  期初余额 500（((.data.opening.current | tonumber) == 500) = true）
+  PASS  期末余额 1000（((.data.closing.current | tonumber) == 1000) = true）
+  PASS  上期期初 0（((.data.opening.previous | tonumber) == 0) = true）
+  PASS  上期期末 500（((.data.closing.previous | tonumber) == 500) = true）
+  PASS  勾稽闭合（出表闸打开）（.data.check.balanced = true）
+  PASS  报表加减关系成立（.data.check.arithmetic_ok = true）
+  PASS  上期也闭合（.data.check.previous_balanced = true）
+  PASS  结论是整句人话（.data.check.message | contains("勾稽闭合") = true）
+  PASS  列示行数（配置项全列 + 已录行）（.data.line_count > 10 = true）
+  PASS  默认不隐藏零行（.data.hidden_zero_lines = 0）
+  PASS  口径说明跟着报表走（.data.source_note | contains("底稿") = true）
+  PASS  GET statement&hide_zero=true 200
+  PASS  隐藏了未录入的零行（.data.hidden_zero_lines > 0 = true）
+  PASS  隐藏零行不改变净增加额（((.data.net_increase.current | tonumber) == 500) = true）
+
+== 5) GET export（xlsx 真文件）==
+  PASS  export 200
+  PASS  xlsx 是真文件（6874 字节）
+  PASS  Content-Type 是 xlsx
+  PASS  文件名带期间（RFC5987 中文名）
+  PASS  文件头是 ZIP（PK）
+
+== 6) 把期末改坏 → GET 仍 200 但不闭合；export → 400 + 66087 ==
+  PASS  未闭合时 GET 仍 200（页面要能打开去补）
+  PASS  勾稽不闭合（.data.check.balanced = false）
+  PASS  差额精确 -100（期末多了 100：期初+净增加额−期末）（((.data.check.diff | tonumber) == -100) = true）
+  PASS  问题逐条点名（.data.check.current.problems | length > 0 = true）
+  PASS  未闭合时 export → 400（出表闸）
+  PASS  错误码 66087（底稿勾稽不平）（.code = 66087）
+  PASS  报文说未闭合（.msg | contains("未闭合") = true）
+  PASS  报文点名期间（.msg | contains("1913-05") = true）
+scripts/verify/m116_statement_http_e2e.sh: line 304: warning: command substitution: ignored null byte in input
+  PASS  修平后 export 恢复 200
+
+== 7) 期间 / 参数闸 ==
+  PASS  不存在的期间 → 400
+  PASS  错误码 66010（期间不存在）（.code = 66010）
+  PASS  报文点名期间（.msg | contains("会计期间") = true）
+  PASS  非法期间格式 → 400
+  PASS  错误码 10001（参数非法）（.code = 10001）
+  PASS  报文说清格式（.msg | contains("yyyy-MM") = true）
+
+== 8) DB 对账 ==
+  PASS  菜单两码挂「现金流量表」页面（=2）
+  PASS  授权齐（超管 + 财务经理 × 2 码）（=4）
+  PASS  底稿行数 = 8（两期 × (2 明细 + 期初 + 期末)）（=8）
+
+== 汇总：PASS=75 FAIL=0 ==
+e2e exit=0

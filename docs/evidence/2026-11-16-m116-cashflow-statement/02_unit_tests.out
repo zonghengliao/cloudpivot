@@ -1,0 +1,63 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 08s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 42 tests
+test business::erp::cashflow_adjust::tests::anchors_are_fixed_and_not_configurable ... ok
+test business::erp::cashflow_adjust::tests::catalog_matches_constants ... ok
+test business::erp::cashflow_adjust::tests::compose_list_keeps_totals_independent_of_filter ... ok
+test business::erp::cashflow_adjust::tests::create_update_toggle_roundtrip ... ok
+test business::erp::cashflow_adjust::tests::cross_row_audit_catches_double_counting ... ok
+test business::erp::cashflow_adjust::tests::duplicate_basis_is_rejected ... ok
+test business::erp::cashflow_adjust::tests::enums_are_closed ... ok
+test business::erp::cashflow_adjust::tests::item_code_shape_is_strict ... ok
+test business::erp::cashflow_adjust::tests::item_name_counts_chars_not_bytes ... ok
+test business::erp::cashflow_adjust::tests::manual_rows_reject_basis_and_pattern ... ok
+test business::erp::cashflow_adjust::tests::pattern_grammar_accepts_four_forms ... ok
+test business::erp::cashflow_adjust::tests::permissions_are_well_formed ... ok
+test business::erp::cashflow_adjust::tests::row_audit_names_zero_match_rows ... ok
+test business::erp::cashflow_adjust::tests::seed_template_is_complete ... ok
+test business::erp::cashflow_adjust::tests::shape_rule_separates_account_and_manual ... ok
+test business::erp::cashflow_adjust::tests::unknown_id_is_404 ... ok
+test business::erp::cashflow_statement::tests::absent_previous_period_is_reported ... ok
+test business::erp::cashflow_statement::tests::check_is_exact_and_gates_export ... ok
+test business::erp::cashflow_statement::tests::compose_puts_current_and_previous_in_two_columns ... ok
+test business::erp::cashflow_statement::tests::cross_period_direction_change_is_reported ... ok
+test business::erp::cashflow_statement::tests::export_table_is_three_columns ... ok
+test business::erp::cashflow_statement::tests::hide_zero_drops_empty_config_rows ... ok
+test business::erp::cashflow_statement::tests::hide_zero_keeps_entered_zero_rows ... ok
+test business::erp::cashflow_statement::tests::inactive_item_still_appears ... ok
+test business::erp::cashflow_statement::tests::missing_balances_are_null_not_zero ... ok
+test business::erp::cashflow_statement::tests::missing_previous_period_leaves_column_null ... ok
+test business::erp::cashflow_statement::tests::permissions_are_well_formed ... ok
+test business::erp::cashflow_statement::tests::previous_only_rows_survive ... ok
+test business::erp::cashflow_statement::tests::statement_reads_two_periods_from_real_worksheet ... ok
+test business::erp::cashflow_statement::tests::unbalanced_worksheet_blocks_export_but_not_read ... ok
+test business::erp::cashflow_worksheet::tests::amount_guards_are_load_bearing ... ok
+test business::erp::cashflow_worksheet::tests::compose_sheet_merges_three_sources ... ok
+test business::erp::cashflow_worksheet::tests::disabled_item_history_stays_readable_but_not_writable ... ok
+test business::erp::cashflow_worksheet::tests::draft_check_writes_nothing ... ok
+test business::erp::cashflow_worksheet::tests::flow_writes_take_snapshots_from_config ... ok
+test business::erp::cashflow_worksheet::tests::period_guards_block_writes ... ok
+test business::erp::cashflow_worksheet::tests::period_shape_is_strict ... ok
+test business::erp::cashflow_worksheet::tests::permissions_are_well_formed ... ok
+test business::erp::cashflow_worksheet::tests::reconcile_closes_exactly ... ok
+test business::erp::cashflow_worksheet::tests::reconcile_is_exact_to_four_decimals ... ok
+test business::erp::cashflow_worksheet::tests::reconcile_names_missing_parts ... ok
+test business::erp::cashflow_worksheet::tests::save_roundtrip_is_closed_and_idempotent ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 5542 filtered out; finished in 0.29s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+
+tests exit=0

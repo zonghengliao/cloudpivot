@@ -39,6 +39,7 @@
 //! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
 //! | [`cashflow_worksheet`] | 现金流**底稿**录入 + 勾稽校验（直接法）：期初 + 流入 − 流出 = 期末，upsert 幂等 | **M1-14** |
 //! | [`cashflow_adjust`] | **间接法调整项配置**（净利润 → 经营活动现金流量）：12 行模板 + 4 个取数口径，配置 CRUD + 取数自检（不算金额、不出表） | **M1-15** |
+//! | [`cashflow_statement`] | **由底稿生成现金流量表**（直接法三栏：项目 / 本期 / 上期）：只读底稿汇总 + 出表闸（未闭合 400 + 66087） | **M1-16** |
 //! | [`payable::payable_aging`] | 应付账款**账龄分析**：按到期日分 未到期 / 1-30 / 31-60 / 61-90 / 90+ 五档 + 按供应商汇总 + 明细 | **P1-FIX-8A** |
 //! | [`report::report_item_admin`] | 报表项**维护面**（HTTP）：列表 / 新增 / 编辑 / 排序 / 启停 / 取数预览 + 整表公式校验 | **P1-FIX-8B** |
 //! | [`report::report_item_model`] | `biz_report_item` 的数据访问层（含停用行、引用关系、科目目录） | **P1-FIX-8B** |
@@ -124,6 +125,8 @@ pub mod cancel_cascade;
 pub mod cash_flow;
 /// 间接法调整项配置（M1-15）：净利润 → 经营活动现金流量的调整项 + 取数口径，配置 CRUD。
 pub mod cashflow_adjust;
+/// 由底稿生成现金流量表（M1-16）：三栏报表（项目 / 本期金额 / 上期金额）+ 出表闸。
+pub mod cashflow_statement;
 /// 现金流底稿录入 + 勾稽校验（直接法，M1-14）：期初 + 流入 − 流出 = 期末。
 pub mod cashflow_worksheet;
 /// 主数据编码策略（CODE-08）：`erp.master_data.allow_manual_code` 的唯一读取点 + 建单闸。
