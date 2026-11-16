@@ -243,6 +243,10 @@ mod cancel_cascade_tests;
 #[cfg(test)]
 mod flow_biz_type_contract_tests;
 
+/// 多币种单测（M1-10）：汇率变动 / 期末调汇 / 报表折算的跨模块串联。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod fx_cycle_tests;
+
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod aux_tests;
