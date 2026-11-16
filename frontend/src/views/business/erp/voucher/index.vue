@@ -1227,23 +1227,43 @@ const detailForeign = computed(() => isForeignVoucher(detail.value));
 const entryColumns = computed<PrimaryTableCol[]>(() => {
   const foreign = detailForeign.value;
   const currencyCode = detail.value?.currency_code ?? '';
-  const cols: PrimaryTableCol[] = [
-    { colKey: 'line_no', title: '行', width: 56, align: 'center' },
-    { colKey: 'summary', title: '摘要', minWidth: 140, ellipsis: true },
-    { colKey: 'account', title: '科目', minWidth: 200 },
-    { colKey: 'aux', title: '辅助核算', minWidth: 150 },
-  ];
+  // 外币时是 7 列，抽屉只有 760px：把「行 / 摘要 / 科目 / 辅助核算」四列压窄，
+  // 让「原币 + 借方（本位币） + 贷方（本位币）」三列**不用横向滚动就能同屏对比**
+  // —— 外币账最常看的就是「原币 100 ↔ 本位币 720」这一对。本位币凭证沿用原宽度。
+  const cols: PrimaryTableCol[] = foreign
+    ? [
+        { colKey: 'line_no', title: '行', width: 44, align: 'center' },
+        { colKey: 'summary', title: '摘要', minWidth: 96, ellipsis: true },
+        { colKey: 'account', title: '科目', minWidth: 140 },
+        { colKey: 'aux', title: '辅助核算', minWidth: 84 },
+      ]
+    : [
+        { colKey: 'line_no', title: '行', width: 56, align: 'center' },
+        { colKey: 'summary', title: '摘要', minWidth: 140, ellipsis: true },
+        { colKey: 'account', title: '科目', minWidth: 200 },
+        { colKey: 'aux', title: '辅助核算', minWidth: 150 },
+      ];
   if (foreign) {
     cols.push({
       colKey: 'fc_amount',
       title: currencyCode ? `原币（${currencyCode}）` : '原币金额',
-      width: 130,
+      width: 116,
       align: 'right',
     });
   }
   cols.push(
-    { colKey: 'debit_amount', title: foreign ? '借方（本位币）' : '借方', width: 130, align: 'right' },
-    { colKey: 'credit_amount', title: foreign ? '贷方（本位币）' : '贷方', width: 130, align: 'right' },
+    {
+      colKey: 'debit_amount',
+      title: foreign ? '借方（本位币）' : '借方',
+      width: foreign ? 118 : 130,
+      align: 'right',
+    },
+    {
+      colKey: 'credit_amount',
+      title: foreign ? '贷方（本位币）' : '贷方',
+      width: foreign ? 118 : 130,
+      align: 'right',
+    },
   );
   return cols;
 });
