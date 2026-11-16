@@ -97,6 +97,7 @@ OWNER_RULES: list[tuple[str, str, str]] = [
     ("biz_payment", "erp", "finance"),
     ("biz_report_item", "erp", "report"),
     ("biz_cashflow_item", "erp", "report"),
+    ("biz_cashflow_worksheet", "erp", "report"),
     ("biz_opening_balance", "erp", "opening"),
     ("biz_opening_inventory", "erp", "opening"),
     ("biz_accounting_period", "erp", "period"),

@@ -1,0 +1,55 @@
+== M1-13 / V0414 真库往返演练（现金流底稿表）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 演练库=cp_m113_v0414_drill_2640220
+
+  ---- 演练库已从 cloudpivot_test 克隆
+  [32mPASS[0m 克隆库升级前表不存在（=0）
+
+== 1) up 第一次 ==
+  [32mPASS[0m up 第一次执行成功（建表 + 自检块通过）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0414__cashflow_worksheet.up.sql:99: NOTICE:  V0414: 前置表齐备，开始建现金流底稿表
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0414__cashflow_worksheet.up.sql:320: NOTICE:  V0414 自检通过：biz_cashflow_worksheet 建表 + 7 条 CHECK + 4 条索引 + 7 组行为探针（明细行非负/唯一 upsert/每期一份期初/期间格式）
+
+== 2) up 第二次（幂等）==
+  [32mPASS[0m up 重复执行成功（幂等，探针零残留）
+
+== 3) 结构断言 ==
+  [32mPASS[0m 列数 = 14（=14）
+  [32mPASS[0m 7 个关键列的长度/精度/可空性（amount = NUMERIC(18,4)）（=7）
+  [32mPASS[0m line_type 默认 FLOW（=FLOW）
+  [32mPASS[0m 7 条 CHECK 在位（=7）
+  [32mPASS[0m 4 条索引在位（=4）
+  [32mPASS[0m 两条唯一索引都是「部分唯一索引」（余额行 item_code 为 NULL，普通唯一约束挡不住重复）（=2）
+  [32mPASS[0m 表注释在位（说明这是底稿行不是分类配置）（=1）
+
+== 4) 行为断言（约束真的会拦）==
+  [32mPASS[0m 明细行可写（=1）
+  [32mPASS[0m 同期间同项目第二次写入是 upsert（一行，金额被覆盖）（=1200.0000|1）
+  [32mPASS[0m 负数明细行被 ck_biz_cashflow_ws_flow_amount 拦下（=1）
+  [32mPASS[0m 明细行缺 activity/direction 被 ck_biz_cashflow_ws_flow_shape 拦下（=1）
+  [32mPASS[0m 非法 line_type 被拦下（item_code/activity/direction 留空，只违反这一条 CHECK）（=1）
+  [32mPASS[0m 非法期间 2026-13 被拦下（否则这行永远聚合不进任何一期）（=1）
+  [32mPASS[0m 余额行（三要素为空）可写（=1）
+  [32mPASS[0m 同期间第二个期初余额被 uk_biz_cashflow_ws_balance 拦下（两个期末=两个真相）（=1）
+  [32mPASS[0m 期末余额可写（=1）
+  [32mPASS[0m 余额行允许负数（银行透支/受限资金录得进）（=-20.0000）
+
+== 5) 勾稽契约：期初 + 流入 − 流出 = 期末（单表聚合）==
+  [32mPASS[0m 勾稽闭合（500 + 1000 − 500 = 1000）（=0.0000）
+  [32mPASS[0m 按活动分流入/流出小计（经营活动 1000 / 300）（=OPERATING|1000.0000|300.0000）
+  [32mPASS[0m 探针行已清空（=0）
+
+== 6) down ×2（回滚 + 幂等）==
+  [32mPASS[0m down 第一次执行成功
+  [32mPASS[0m 回滚后表已移除（=0）
+  [32mPASS[0m down 重复执行成功（幂等）
+
+== 7) 回滚后重放 up ==
+  [32mPASS[0m 回滚后重放 up 成功
+  [32mPASS[0m 重放后 14 列回来了（=14）
+
+== 8) down 护栏反证（有底稿行必须拒绝回滚）==
+  [32mPASS[0m down 被护栏拒绝并给出去向说明
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0414__cashflow_worksheet.down.sql:32: ERROR:  V0414 down 拒绝执行：biz_cashflow_worksheet 已有 1 行底稿，回滚会丢掉编制结果（要回滚请先导出/作废这些底稿行）
+  [32mPASS[0m 拒绝回滚后结构未被破坏（14 列仍在）（=14）
+
+== 汇总：PASS=30 FAIL=0 ==

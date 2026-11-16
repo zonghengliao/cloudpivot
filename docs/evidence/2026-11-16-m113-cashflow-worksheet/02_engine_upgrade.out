@@ -1,0 +1,27 @@
+== M1-13 / V0414 真引擎实测（现金流底稿表）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 升级库=cp_m113_upgrade 端口=18090
+
+== A) 克隆库升级（真引擎：模板库 → cp_m113_upgrade）==
+  升级前：versioned 最大 version=404（V0413 之后都是本卡要验的）
+  PASS  克隆库升级前不存在 biz_cashflow_worksheet
+  PASS  克隆库真启动成功（/health 200）
+  数据库迁移完成: 应用 10 个迁移
+  PASS  引擎应用了 10 个迁移（含 V0414）
+  PASS  V0414 自检块在真引擎里通过（NOTICE 已打印 ⇒ 方言拆分器把 DO 块切对了）
+  schema_migrations：414/true/app/migrations/business/V0414__cashflow_worksheet.up.sql
+  PASS  schema_migrations 登记 414/true/源文件（指纹已登记）
+
+== B) 结构落地 ==
+  PASS  14 列齐
+  PASS  amount = NUMERIC(18,4) NOT NULL
+  PASS  7 条 CHECK 在位
+  PASS  两条部分唯一索引在位
+  PASS  2 条普通索引在位（列表/跨期取数）
+  PASS  索引总数 5 = 2 唯一 + 2 普通 + 1 主键
+  PASS  升级后表内 0 行（自检探针已自清场）
+
+== C) 重启幂等 ==
+  PASS  重启：应用 0 个迁移（引擎级幂等，指纹一致）
+  PASS  重启后结构不变（14 列）
+
+== 汇总：PASS=14 FAIL=0 ==

@@ -1,0 +1,39 @@
+== \d biz_cashflow_worksheet（V0414 应用后的真实结构，2026-11-16 实测）==
+                           Table "public.biz_cashflow_worksheet"
+   Column    |           Type           | Collation | Nullable |          Default          
+-------------+--------------------------+-----------+----------+---------------------------
+ id          | uuid                     |           | not null | gen_random_uuid()
+ period_code | character varying(7)     |           | not null | 
+ line_type   | character varying(8)     |           | not null | 'FLOW'::character varying
+ item_code   | character varying(32)    |           |          | 
+ item_name   | character varying(64)    |           | not null | 
+ activity    | character varying(12)    |           |          | 
+ direction   | character varying(8)     |           |          | 
+ amount      | numeric(18,4)            |           | not null | 0
+ sort_order  | integer                  |           | not null | 0
+ remark      | character varying(255)   |           |          | 
+ create_by   | uuid                     |           |          | 
+ created_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ update_by   | uuid                     |           |          | 
+ updated_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "biz_cashflow_worksheet_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_cashflow_ws_item_code" btree (item_code) WHERE item_code IS NOT NULL
+    "idx_biz_cashflow_ws_period" btree (period_code, sort_order)
+    "uk_biz_cashflow_ws_balance" UNIQUE, btree (period_code, line_type) WHERE line_type::text <> 'FLOW'::text
+    "uk_biz_cashflow_ws_item" UNIQUE, btree (period_code, item_code) WHERE item_code IS NOT NULL
+Check constraints:
+    "ck_biz_cashflow_ws_activity" CHECK (activity IS NULL OR (activity::text = ANY (ARRAY['OPERATING'::character varying, 'INVESTING'::character varying, 'FINANCING'::character varying]::text[])))
+    "ck_biz_cashflow_ws_direction" CHECK (direction IS NULL OR (direction::text = ANY (ARRAY['INFLOW'::character varying, 'OUTFLOW'::character varying]::text[])))
+    "ck_biz_cashflow_ws_flow_amount" CHECK (line_type::text <> 'FLOW'::text OR amount >= 0::numeric)
+    "ck_biz_cashflow_ws_flow_shape" CHECK (line_type::text = 'FLOW'::text AND item_code IS NOT NULL AND activity IS NOT NULL AND direction IS NOT NULL OR line_type::text <> 'FLOW'::text AND item_code IS NULL AND activity IS NULL AND direction IS NULL)
+    "ck_biz_cashflow_ws_line_type" CHECK (line_type::text = ANY (ARRAY['FLOW'::character varying, 'OPENING'::character varying, 'CLOSING'::character varying]::text[]))
+    "ck_biz_cashflow_ws_name" CHECK (length(btrim(item_name::text)) > 0)
+    "ck_biz_cashflow_ws_period" CHECK (period_code::text ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'::text)
+
+
+== 底稿行三种 line_type 的字段形状（实测）==
+ line_type | count 
+-----------+-------
+(0 rows)
+

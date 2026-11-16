@@ -1,0 +1,18 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.84s
+     Running tests/m1_13_cashflow_worksheet_migration.rs (target/debug/deps/m1_13_cashflow_worksheet_migration-b603e57aa7090b5d)
+
+running 10 tests
+test v0414_down_is_idempotent_and_guarded ... ok
+test v0414_has_no_currency_column_and_no_soft_delete ... ok
+test v0414_creates_exactly_one_table_idempotently ... ok
+test v0414_has_no_physical_foreign_keys ... ok
+test v0414_self_check_raises_exceptions ... ok
+test v0414_splits_cleanly_with_engine_splitter ... ok
+test v0414_up_and_down_exist ... ok
+test v0414_unique_indexes_are_partial ... ok
+test v0414_keeps_all_seven_check_constraints ... ok
+test v0414_columns_have_designed_shape ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
