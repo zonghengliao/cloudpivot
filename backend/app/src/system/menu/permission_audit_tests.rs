@@ -104,6 +104,23 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
         "business:hr:salary-item:page",
         "页面显形码（V0401）：薪资项页；后端按 salary-item:list 判全量列表，本码只给前端路由。",
     ),
+    // ---- ERP 在途库存页（V0423，卡 t_10d54ac1）----
+    (
+        "business:erp:inventory-transit:page",
+        "页面显形码（V0423）：在途库存页；两个只读接口按 inventory-transit:list 判（V0421），\
+         本码只给前端路由（侧栏显隐 + meta.permission）。与 V0418 的 \
+         business:erp:report:receivable-aging 同形：页面行不复用取数码，避免同码两行节点、\
+         也不动上游 m204/m205 验证据本钉死的「取数码只有 1 个 menu_type=3 节点」。",
+    ),
+    // ---- ERP 应收账龄分析页（V0418，卡 t_55590fbd / M1-23）----
+    // M1-23 落地时漏登记了这条（V0418 明确「页面码后端零引用」，但没进台账），
+    // 于是 N14 在 V0418 之后一直是红的 —— 卡 t_10d54ac1（M2-07）跑本组门禁时实测报红，
+    // 顺手补登记（只登记既有事实，不动菜单/授权，也不碰 M1-23 的页面）。
+    (
+        "business:erp:report:receivable-aging",
+        "页面显形码（V0418/M1-23）：应收账龄分析页；取数走 business:erp:receivable:aging\
+         （V0288 按钮行），本码只给前端路由。M1-23 落地时漏登记，M2-07 跑门禁时补。",
+    ),
 ];
 
 /// **已种菜单、后端校验点尚未落地**的权限码 → 落地它的卡（临时例外，落地即删）。

@@ -1,0 +1,31 @@
+### 2026-11-16 20:11:43 CST  门禁复跑（只跑便宜的；build / 全量单测的输出见 README 实测记录）
+
+## backend: cargo fmt -- --check
+rc=0
+
+## backend: cargo clippy --lib --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+rc=0
+
+## frontend: pnpm typecheck
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+rc=0
+
+## frontend: pnpm typecheck:unit
+> @cloudpivot/web@0.1.0 typecheck:unit /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js -p tsconfig.unit.json --noEmit
+
+rc=0
+
+## frontend: 单卡单测（tests/unit/m207-transit-page.test.ts）
+# tests 32
+# suites 0
+# pass 32
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 123.211424
+rc=0

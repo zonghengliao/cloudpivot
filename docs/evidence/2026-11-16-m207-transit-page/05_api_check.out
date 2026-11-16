@@ -1,0 +1,37 @@
+  PASS 登录 admin
+  PASS 菜单树含 /business/erp/inventory-transit
+  PASS 菜单 title = 在途库存
+  PASS 菜单 auth_code = 页面显形码
+  PASS 菜单 component 指向前端页面
+  PASS 明细接口 200
+  PASS 明细缺省 3 行（只看 IN_TRANSIT）
+  PASS 明细全部 status=IN_TRANSIT
+  PASS 明细 Σqty_in_transit = 130
+  PASS 明细带物料/仓库/客户名字（无 N+1 补齐）
+  PASS 明细带账龄 age_days（PG 算）
+  PASS 状态中文名由后端给
+  PASS status=RECEIVED 出 1 行已签收
+  PASS 已签收行在途量为 0
+  PASS status=CANCELLED 出 1 行已作废
+  PASS 汇总接口 200
+  PASS 汇总 2 组（物料×发货仓）
+  PASS 汇总合计在途 130
+  PASS 汇总发货单 3 张
+  PASS 汇总在途行 3 行
+  PASS 汇总未截断
+  PASS 汇总首行是 螺丝×主仓 在途 110
+  PASS 汇总首行最早发货日 + 最长在途天数有值
+  PASS 按 material_id 筛出 1 行（钢板）
+  PASS 按 warehouse_id 筛汇总 → 1 组 / 110
+  PASS 按 customer_id 筛出 1 行（天津乙客户）
+  PASS 按 shipment_id 筛出 1 行（M207-SH3）
+  PASS 日期区间筛出 0 行（不是报错）
+  PASS 非法参数 400+66006：material_id=not-a-uuid
+  PASS 非法参数 400+66006：ship_date_from=2026-13-01
+  PASS 非法参数 400+66006：status=UNKNOWN
+  PASS 非法参数 400+66006：ship_date_from=2026-11-30&ship_date_to=2026-11-01
+  PASS 明细全量 Σqty_in_transit == 汇总 total_qty_in_transit
+  PASS 匿名访问 page 被拒（401）
+  PASS 匿名访问 summary 被拒（401）
+
+═══ PASS=35 FAIL=0 ═══

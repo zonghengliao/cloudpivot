@@ -1132,6 +1132,25 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '库存流水', permission: 'business:erp:inventory-txn:list', tab: 'txn' },
       },
       {
+        // ==================== ERP 在途库存（M2-07，卡 t_10d54ac1） ====================
+        // `sys_menu`（V0423 种子 …004230）path = `/business/erp/inventory-transit`，
+        // component `business/erp/inventory-transit/index`；**手工注册**，漏了 = 点菜单 404
+        // （`system::menu::tests::n08` 会判红）。
+        //
+        // 权限码用**页面显形码** `business:erp:inventory-transit:page`（V0423 页面行），
+        // 与取数码 `business:erp:inventory-transit:list`（V0421 按钮行，挂在「即时库存」页下）
+        // 刻意分开 —— 取数码由两个只读接口在**后端**判，页面码只判侧栏显隐与本路由守卫；
+        // 后端源码零引用（登记在 `permission_audit_tests::ROUTE_LEVEL_ONLY`）。
+        //
+        // 为什么不把页面行的 auth_code 直接写成取数码：那会让同一个码在 `sys_menu` 出现两行
+        // （授权树两个同名勾选框），而 V0421/M2-06 的验证据本已按「取数码只有 1 个承载节点」
+        // 钉死（`scripts/verify/m204_transit_query_drill.sh`）。理由见 V0423 文件头。
+        path: 'business/erp/inventory-transit',
+        name: 'BusinessErpInventoryTransit',
+        component: () => import('@/views/business/erp/inventory-transit/index.vue'),
+        meta: { title: '在途库存', permission: 'business:erp:inventory-transit:page' },
+      },
+      {
         // ==================== ERP 采购明细（卡 t_6f023cee / BUG-SYS-01） ====================
         // `sys_menu` 的 path `/business/erp/purchase-order-item`（menu_type=2）。路由与组件
         // 自 t_6f023cee 起就已注册（本 record 就是），缺的只是菜单可见性 —— 该行曾被设为
