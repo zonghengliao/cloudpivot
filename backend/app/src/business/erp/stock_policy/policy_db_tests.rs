@@ -15,6 +15,11 @@
 // | `effective_of_applies_policy_then_material_then_unset` | 三级回退（策略启用 > 物料级 > 不判）+ 停用回退 + min=0 阻断回退 |
 // | `effective_of_is_empty_for_unknown_material` | 物料不存在 → 不判水位，不报错 |
 // | `handler_rejects_bad_input_and_missing_rows` | 非法 UUID / 物料不存在 / 删不存在的行 → 400 / 404 人话 |
+// | `batch_creates_all_cells_then_overwrites_and_counts` | 批量（M2-17）：2×2=4 格一次写；再批全覆盖；created/updated 分开计数；留空覆盖成 NULL |
+// | `batch_rolls_back_everything_when_one_material_is_missing` | 批量原子性：任一物料 / 仓库不存在 → 404 + 整批回滚 |
+// | `batch_dedupes_input_and_recreates_soft_deleted_cells` | 入参去重（同格两次=一格）；软删格重设算新建 |
+// | `batch_rejects_over_limit_before_touching_the_db` | 铺开 > 2000 格 → 400，碰库之前拦住 |
+// | `import_definition_upserts_by_cell_and_keeps_blank_max_as_null` | 导入定义（`business.erp.stock-policy`）：编码→id JOIN、max 空落 NULL、重导按格覆盖 |
 // | `zz_teardown_purges_fixtures` | 清场：`M213-` 物料的水位行 0 条，`safety_stock` 复位 0 |
 //
 // # 为什么夹具直接用 `test_seed::ensure_*` + 直插设置行
@@ -43,7 +48,8 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::inventory_aging::aging_db_tests::{DB_LOCK, ensure_db, exec};
 use crate::business::erp::stock_policy::dto::{
-    self, MinSource, PolicyFilter, PolicyWrite, STATUS_DISABLED, STATUS_ENABLED, SavePolicyReq,
+    self, BatchSavePolicyReq, MAX_BATCH_CELLS, MinSource, PolicyFilter, PolicyWrite, STATUS_DISABLED, STATUS_ENABLED,
+    SavePolicyReq,
 };
 use crate::business::erp::stock_policy::{handler, model};
 use crate::test_seed;
@@ -510,6 +516,278 @@ async fn handler_rejects_bad_input_and_missing_rows() {
         .expect("分页");
     assert_eq!(total, 0);
     println!("[M2-13] 入口校验：非法 UUID / 负数 / 最高≤最低 / 物料或仓库不存在 / 删空 → 400·404 ✓");
+}
+
+// ==================== 批量设置（M2-17） ====================
+
+/// 批量设置：2 物料 × 2 仓库 = 4 格一次写；第二次同批 = 全部覆盖（created/updated 分开计数）。
+#[tokio::test]
+async fn batch_creates_all_cells_then_overwrites_and_counts() {
+    let Some(_guard) = setup().await else { return };
+    let (m1, m2, w1, w2) = (mat_a().await, mat_b().await, warehouse_a().await, warehouse_b().await);
+    cleanup().await;
+
+    let req = BatchSavePolicyReq {
+        material_ids: vec![m1.to_string(), m2.to_string()],
+        warehouse_ids: vec![w1.to_string(), w2.to_string()],
+        min_qty: dec("100"),
+        max_qty: Some(dec("500")),
+        status: None,
+        remark: Some("  M2-17 批量  ".to_string()),
+    };
+    let res = handler::save_policy_batch_of(None, req.clone())
+        .await
+        .expect("批量设置");
+    assert_eq!(res.cells, 4, "2 物料 × 2 仓库 = 4 格");
+    assert_eq!(res.created, 4, "第一次全部是新建");
+    assert_eq!(res.updated, 0);
+    assert!(res.message.contains("4 格"), "{}", res.message);
+
+    // 四格都在，且四列都按入参落库（备注两端空白被去掉）
+    for (material_id, warehouse_id) in [(m1, w1), (m1, w2), (m2, w1), (m2, w2)] {
+        let row = model::policy_find_by_key(material_id, warehouse_id)
+            .await
+            .expect("查格")
+            .unwrap_or_else(|| panic!("{material_id}/{warehouse_id} 应已建行"));
+        assert_eq!(row.min_qty, dec("100"));
+        assert_eq!(row.max_qty, Some(dec("500")));
+        assert_eq!(row.status, STATUS_ENABLED);
+        assert_eq!(row.remark.as_deref(), Some("M2-17 批量"));
+    }
+
+    // 再发一次（改最低水位、去掉最高水位）→ 全部覆盖，不新建第二行
+    let again = BatchSavePolicyReq {
+        min_qty: dec("250"),
+        max_qty: None,
+        remark: None,
+        ..req
+    };
+    let res = handler::save_policy_batch_of(None, again).await.expect("再批量设置");
+    assert_eq!(res.cells, 4);
+    assert_eq!(res.created, 0, "第二次一格都不新建");
+    assert_eq!(res.updated, 4, "第二次四格全是覆盖");
+
+    let (_, total) = model::policy_page(Some(m1), None, None, None, 1, 50)
+        .await
+        .expect("分页");
+    assert_eq!(total, 2, "同一物料只在这两个仓库各一行（没有重复行）");
+    let row = model::policy_find_by_key(m1, w1).await.expect("查格").expect("应存在");
+    assert_eq!(row.min_qty, dec("250"));
+    assert_eq!(row.max_qty, None, "最高水位留空 = 覆盖成 NULL（不是保留旧值）");
+    assert_eq!(row.remark, None, "备注留空 = 覆盖成 NULL");
+
+    cleanup().await;
+    println!("[M2-17] 批量设置：4 格新建 → 再批 4 格覆盖；created/updated 分开计数；留空覆盖成 NULL ✓");
+}
+
+/// 批量设置是**一个事务**：物料不存在时整批回滚，其余格一行都不落。
+#[tokio::test]
+async fn batch_rolls_back_everything_when_one_material_is_missing() {
+    let Some(_guard) = setup().await else { return };
+    let (m1, w1, w2) = (mat_a().await, warehouse_a().await, warehouse_b().await);
+    cleanup().await;
+
+    let ghost = Uuid::now_v7();
+    let req = BatchSavePolicyReq {
+        material_ids: vec![m1.to_string(), ghost.to_string()],
+        warehouse_ids: vec![w1.to_string(), w2.to_string()],
+        min_qty: dec("10"),
+        max_qty: None,
+        status: None,
+        remark: None,
+    };
+    let error = handler::save_policy_batch_of(None, req)
+        .await
+        .expect_err("物料不存在必须 404");
+    assert_eq!(error.status, 404);
+    assert!(error.msg.contains("物料"), "{}", error.msg);
+    assert!(error.msg.contains("整批未写入"), "{}", error.msg);
+
+    let (_, total) = model::policy_page(Some(m1), None, None, None, 1, 50)
+        .await
+        .expect("分页");
+    assert_eq!(total, 0, "整批回滚：合法物料那一格也不能留下");
+
+    // 仓库不存在同理
+    let req = BatchSavePolicyReq {
+        material_ids: vec![m1.to_string()],
+        warehouse_ids: vec![w1.to_string(), Uuid::now_v7().to_string()],
+        min_qty: dec("10"),
+        max_qty: None,
+        status: None,
+        remark: None,
+    };
+    let error = handler::save_policy_batch_of(None, req)
+        .await
+        .expect_err("仓库不存在必须 404");
+    assert_eq!(error.status, 404);
+    assert!(error.msg.contains("仓库"), "{}", error.msg);
+    let (_, total) = model::policy_page(Some(m1), None, None, None, 1, 50)
+        .await
+        .expect("分页");
+    assert_eq!(total, 0, "仓库不存在时同样整批回滚");
+
+    cleanup().await;
+    println!("[M2-17] 批量原子性：任一物料 / 仓库不存在 → 404 + 整批回滚（一格都不留）✓");
+}
+
+/// 入参去重与「软删格可重建」两个易混点：同一 id 传两次只落一格；软删过的格重新建行。
+#[tokio::test]
+async fn batch_dedupes_input_and_recreates_soft_deleted_cells() {
+    let Some(_guard) = setup().await else { return };
+    let (m1, w1) = (mat_a().await, warehouse_a().await);
+    cleanup().await;
+
+    let req = BatchSavePolicyReq {
+        material_ids: vec![m1.to_string(), m1.to_string()],
+        warehouse_ids: vec![w1.to_string(), format!("  {}  ", w1)],
+        min_qty: dec("30"),
+        max_qty: None,
+        status: Some(STATUS_DISABLED),
+        remark: None,
+    };
+    let res = handler::save_policy_batch_of(None, req).await.expect("批量设置");
+    assert_eq!(res.cells, 1, "同一格传两次仍是一格");
+    assert_eq!(res.duplicate_materials, 1);
+    assert_eq!(res.duplicate_warehouses, 1);
+    assert_eq!(res.created, 1);
+    let row = model::policy_find_by_key(m1, w1).await.expect("查格").expect("应存在");
+    assert_eq!(row.status, STATUS_DISABLED, "status 传 0 = 停用");
+
+    // 软删该格 → 再批量设置一次 = 新建（部分唯一索引只看存活行），历史行保留
+    handler::delete_policy_of(None, &row.id.to_string())
+        .await
+        .expect("软删");
+    let req = BatchSavePolicyReq {
+        material_ids: vec![m1.to_string()],
+        warehouse_ids: vec![w1.to_string()],
+        min_qty: dec("40"),
+        max_qty: None,
+        status: None,
+        remark: None,
+    };
+    let res = handler::save_policy_batch_of(None, req).await.expect("软删后重设");
+    assert_eq!(res.created, 1, "软删过的格算新建（不是覆盖那条已删行）");
+    assert_eq!(res.updated, 0);
+
+    let alive: i64 = db()
+        .scalar_with_params(
+            "SELECT COUNT(*) FROM biz_material_stock_policy \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&m1), Value::from(&w1)],
+        )
+        .await
+        .expect("计数");
+    assert_eq!(alive, 1, "存活行恰好 1 条");
+
+    cleanup().await;
+    println!("[M2-17] 批量：入参去重（同格两次=一格）；软删后重设算新建、存活行仍 1 条 ✓");
+}
+
+/// 铺开格数上限在**碰库之前**就拦住（2 001 格 → 400），库里的格数不变。
+#[tokio::test]
+async fn batch_rejects_over_limit_before_touching_the_db() {
+    let Some(_guard) = setup().await else { return };
+    let (m1, w1) = (mat_a().await, warehouse_a().await);
+    cleanup().await;
+
+    let materials: Vec<String> = std::iter::once(m1.to_string())
+        .chain((1..=MAX_BATCH_CELLS).map(|_| Uuid::now_v7().to_string()))
+        .collect();
+    let req = BatchSavePolicyReq {
+        material_ids: materials,
+        warehouse_ids: vec![w1.to_string()],
+        min_qty: dec("10"),
+        max_qty: None,
+        status: None,
+        remark: None,
+    };
+    let error = handler::save_policy_batch_of(None, req)
+        .await
+        .expect_err("超上限必须 400");
+    assert_eq!(error.status, 400);
+    assert!(error.msg.contains("2000"), "{}", error.msg);
+
+    let (_, total) = model::policy_page(Some(m1), None, None, None, 1, 50)
+        .await
+        .expect("分页");
+    assert_eq!(total, 0, "超上限的请求不写任何格");
+
+    cleanup().await;
+    println!("[M2-17] 批量上限：2001 格 → 400（碰库之前拦住，一格不写）✓");
+}
+
+/// Excel 导入定义（M2-17）：按「物料编码 + 仓库编码」在库端解析成 id 并 upsert。
+///
+/// 这里直接调定义的 `persist`（框架在事务里调的就是它），覆盖三件框架不管的事：
+/// 编码 → id 的 JOIN、`max_qty` 留空落 NULL、`ON CONFLICT (material_id, warehouse_id)` 覆盖。
+#[tokio::test]
+async fn import_definition_upserts_by_cell_and_keeps_blank_max_as_null() {
+    use crate::business::impexp::builtin::erp_setting::StockPolicyImport;
+    use crate::business::impexp::definition::{ImportCtx, ImportDefinition, RowValues};
+
+    let Some(_guard) = setup().await else { return };
+    let (m1, m2, w1, w2) = (mat_a().await, mat_b().await, warehouse_a().await, warehouse_b().await);
+    cleanup().await;
+
+    let definition = StockPolicyImport;
+    let ctx = ImportCtx {
+        task_id: Uuid::now_v7(),
+        operator: None,
+        mode: crate::business::impexp::definition::ImportMode::Strict,
+    };
+    let row = |row_no: u32, material_code: &str, warehouse_code: &str, min: &str, max: &str| {
+        let mut values = RowValues {
+            row_no,
+            ..Default::default()
+        };
+        values.fields.insert("material_code", material_code.to_string());
+        values.fields.insert("warehouse_code", warehouse_code.to_string());
+        values.fields.insert("min_qty", min.to_string());
+        values.fields.insert("max_qty", max.to_string());
+        values.fields.insert("status", "1".to_string());
+        values.fields.insert("remark", "导入".to_string());
+        values
+    };
+    let rows = vec![
+        row(2, MAT_A_CODE, WAREHOUSE_A_CODE, "50", ""),
+        row(3, MAT_B_CODE, WAREHOUSE_B_CODE, "60", "600"),
+    ];
+
+    let tx = db().begin().await.expect("begin");
+    let affected = definition.persist(&tx, &rows, &ctx).await.expect("导入入库");
+    tx.commit().await.expect("commit");
+    assert_eq!(affected, 2, "两行都落库");
+
+    let first = model::policy_find_by_key(m1, w1)
+        .await
+        .expect("查格")
+        .expect("导入应建行");
+    assert_eq!(first.min_qty, dec("50"));
+    assert_eq!(first.max_qty, None, "最高水位留空 = NULL（不是 0）");
+    let second = model::policy_find_by_key(m2, w2).await.expect("查格").expect("应建行");
+    assert_eq!(second.max_qty, Some(dec("600")));
+
+    // 重导同一份文件（改数值）→ 覆盖同一格，不产生第二行
+    let rows = vec![
+        row(2, MAT_A_CODE, WAREHOUSE_A_CODE, "70", ""),
+        row(3, MAT_B_CODE, WAREHOUSE_B_CODE, "80", "800"),
+    ];
+    let tx = db().begin().await.expect("begin");
+    let affected = definition.persist(&tx, &rows, &ctx).await.expect("重导入库");
+    tx.commit().await.expect("commit");
+    assert_eq!(affected, 2, "UPSERT 命中两格");
+
+    let again = model::policy_find_by_key(m1, w1).await.expect("查格").expect("应存在");
+    assert_eq!(again.id, first.id, "同一格：id 不变（覆盖而不是新建）");
+    assert_eq!(again.min_qty, dec("70"));
+    let (_, total) = model::policy_page(Some(m1), None, None, None, 1, 50)
+        .await
+        .expect("分页");
+    assert_eq!(total, 1, "重导后仍只有一行");
+
+    cleanup().await;
+    println!("[M2-17] 导入定义：编码→id JOIN 落库、max 留空落 NULL、重导按格覆盖（id 不变、行数不增）✓");
 }
 
 /// 常量口径：三状态域与 DDL 的 CHECK、契约里的缺省值对齐（改一处必改另一处）。

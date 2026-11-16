@@ -14,6 +14,7 @@
 //!
 //! - [`dict_item`]：`system.dict_item`（字典项导入 / 导出，A3 的端到端载体）；
 //! - [`master_data`]：ERP 主数据 6 个导入定义；
+//! - [`erp_setting`]：ERP **设置类**导入定义（安全库存水位 `business.erp.stock-policy`，M2-17）；
 //! - [`erp_doc`]：ERP 单据 3 个导出定义；
 //! - [`hr`]：考勤台账 / 员工档案导入；
 //! - [`user_export`]：`system.user` 导出定义（批次 B · B6 的导出脱敏载体，P2-39 由
@@ -21,6 +22,7 @@
 
 pub mod dict_item;
 pub mod erp_doc;
+pub mod erp_setting;
 pub mod hr;
 pub mod master_data;
 pub mod user_export;
@@ -60,6 +62,10 @@ pub fn register(registry: &mut DefinitionRegistry) -> std::result::Result<(), St
     // HR-47（卡 `t_b0808afe`）：员工档案导入（`hr.employee`）。同样只注册导入：
     // 员工导出走 `/business/hr/employee/export`（列级脱敏 + 数据范围），不进批量导出清单。
     registry.register_import(std::sync::Arc::new(hr::employee::EmployeeImport))?;
+    // M2-17（卡 t_58a23185）：安全库存水位设置导入（`business.erp.stock-policy`）。
+    // 只注册导入：水位设置导出没有契约（页面用列表 + 打印即可），画一个点了 404 的导出
+    // 按钮比没有按钮更糟。幂等键是「物料 × 仓库」组合，故独立模块（见该文件头注释）。
+    registry.register_import(std::sync::Arc::new(erp_setting::StockPolicyImport))?;
     // 批次 B · B6：`sys_user` 导出定义（三个敏感列），P2-39 由 `masking/user_export.rs`
     // 搬入本目录——导出定义归导出域，脱敏只经 `masking::masker::Masker` 接缝参与，
     // 于是依赖只剩 `impexp → masking` 一个方向。

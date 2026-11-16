@@ -5,6 +5,7 @@
 //! |------|------|--------|------|
 //! | GET | `/business/erp/stock-policy/page` | `business:erp:stock-policy:list` | 分页（物料 / 仓库 / 状态 / 关键字） |
 //! | PUT | `/business/erp/stock-policy` | `business:erp:stock-policy:save` | 设置一格水位（按 物料 × 仓库 **upsert**） |
+//! | PUT | `/business/erp/stock-policy/batch` | `business:erp:stock-policy:save` | 批量设置（`物料 × 仓库` 笛卡尔积，M2-17） |
 //! | DELETE | `/business/erp/stock-policy/{id}` | `business:erp:stock-policy:delete` | 软删（= 该格回退物料级 `safety_stock`） |
 //!
 //! # 为什么设置是 upsert 而不是 create + update
@@ -42,7 +43,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::stock_policy::dto::{
-    self, PolicyFilter, PolicyRes, SavePolicyReq, WaterCheckReq, WaterCheckRes,
+    self, BatchSavePolicyReq, BatchSavePolicyRes, PolicyFilter, PolicyRes, SavePolicyReq, WaterCheckReq, WaterCheckRes,
 };
 use crate::business::erp::stock_policy::model::{self, PolicyRow};
 use crate::business::erp::stock_policy::water_check;
@@ -238,6 +239,132 @@ pub async fn delete_policy_of(operator: Option<Uuid>, id_raw: &str) -> std::resu
     Ok(())
 }
 
+// ==================== 批量设置（M2-17） ====================
+
+/// 批量设置水位：`material_ids × warehouse_ids` 的笛卡尔积，**同一事务全有或全无**。
+///
+/// # 语义
+///
+/// 与单格 upsert（[`save_policy_of`]）是**同一个动作按格铺开**：同一份
+/// `min_qty` / `max_qty` / `status` / `remark`、同一套校验（[`dto::checked_write`]）、
+/// 同一个唯一键口径（`uk_biz_msp_mat_wh`）。已存在的格被覆盖，不存在的新建，
+/// 软删过的格按部分唯一索引重新建一行。
+///
+/// # 为什么要有这个接口（而不是前端循环发 N 次 PUT）
+///
+/// 1. **原子性**：前端循环发 200 次，第 137 次失败时前 136 格已经写进去了 ——
+///    用户看到「设置了一部分」，而他没有任何办法知道是哪一部分；
+/// 2. **往返次数**：2 000 格 = 2 000 次 HTTP + 2 000 次事务，比一条语句慢两个量级；
+/// 3. **回执**：一次请求能给出「新建 N 格 / 覆盖 M 格」，前端能直接告诉用户发生了什么。
+///
+/// # 异常情况
+///
+/// - 参数非法（空列表 / 非法 UUID / 负数水位 / 最高 ≤ 最低 / 状态域外 / 超 2 000 格）
+///   → 400 + 10001，文案点名是哪一项、第几个；
+/// - 物料或仓库不存在 / 已删 → 404 + 10002，点名是哪一边（最多列 5 个 id）；
+/// - 库层 CHECK / 唯一键兜底 → 400 / 409；
+/// - 数据库异常 → 500（事务已回滚，一格都没写）。
+pub async fn save_policy_batch_of(
+    operator: Option<Uuid>,
+    req: BatchSavePolicyReq,
+) -> std::result::Result<BatchSavePolicyRes, ApiError> {
+    let plan = req.to_plan().map_err(bad_request)?;
+
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启批量设置事务"))?;
+
+    // 前置校验：物料 / 仓库都可能因为「别人刚删了」而在入参合法之后消失，
+    // 所以放在事务里查（与随后的写入同一个快照）。
+    let materials: Vec<Uuid> = unique_of(&plan.cells, |(material_id, _)| *material_id);
+    let warehouses: Vec<Uuid> = unique_of(&plan.cells, |(_, warehouse_id)| *warehouse_id);
+
+    let missing_materials = match model::missing_materials(&tx, &materials).await {
+        Ok(ids) => ids,
+        Err(error) => return Err(rollback_db(tx, error, "校验物料存在性").await),
+    };
+    if !missing_materials.is_empty() {
+        let detail = id_list_text(&missing_materials);
+        let _ = tx.rollback().await;
+        return Err(not_found(format!("物料不存在或已删除（{detail}），整批未写入")));
+    }
+
+    let missing_warehouses = match model::missing_warehouses(&tx, &warehouses).await {
+        Ok(ids) => ids,
+        Err(error) => return Err(rollback_db(tx, error, "校验仓库存在性").await),
+    };
+    if !missing_warehouses.is_empty() {
+        let detail = id_list_text(&missing_warehouses);
+        let _ = tx.rollback().await;
+        return Err(not_found(format!("仓库不存在或已删除（{detail}），整批未写入")));
+    }
+
+    let existing = match model::existing_pair_count(&tx, &plan.cells).await {
+        Ok(count) => count,
+        Err(error) => return Err(rollback_db(tx, error, "统计已有水位设置").await),
+    };
+    if let Err(error) = model::policy_upsert_batch(&tx, &plan.cells, &plan.write, operator).await {
+        // 库层 CHECK / 唯一键 / 连接异常：统一回滚 + 翻人话（400 / 409 / 500），不静默吞
+        return Err(rollback_db(tx, error, "批量设置水位").await);
+    }
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交批量设置事务"))?;
+
+    let cells = plan.cells.len();
+    let created = cells.saturating_sub(existing);
+    Ok(BatchSavePolicyRes::build(
+        cells,
+        created,
+        existing,
+        (plan.duplicate_materials, plan.duplicate_warehouses),
+    ))
+}
+
+/// 回滚事务并把数据库错误翻成接口错误（400 / 409 / 500）。
+///
+/// # 参数
+///
+/// - `tx`：待回滚的事务（消费掉 —— 回滚后不再使用，编译期就挡住「回滚了还写」）。
+/// - `error`：原始数据库错误。
+/// - `ctx`：哪一步失败的（拼进文案）。
+///
+/// # 返回值
+///
+/// 永远返回 [`ApiError`]（调用方 `return Err(rollback_db(..).await)`）。
+/// 回滚失败只打 WARN，不覆盖原始错误 —— 用户要看的是「为什么没写进去」，不是「回滚也失败了」。
+async fn rollback_db(tx: Transaction, error: DbError, ctx: &str) -> ApiError {
+    if let Err(rollback_error) = tx.rollback().await {
+        tracing::warn!(error = %rollback_error, ctx, "批量设置水位：回滚事务失败（连接可能已断）");
+    }
+    write_error(error, ctx)
+}
+
+/// 按投影取去重后的 id（保持首次出现顺序）；批量里「物料列表 / 仓库列表」各要一份。
+fn unique_of(pairs: &[(Uuid, Uuid)], pick: impl Fn(&(Uuid, Uuid)) -> Uuid) -> Vec<Uuid> {
+    let mut out: Vec<Uuid> = Vec::with_capacity(pairs.len());
+    let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::with_capacity(pairs.len());
+    for pair in pairs {
+        let id = pick(pair);
+        if seen.insert(id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// 把一组 id 写成一句人话（最多 5 个，其余折成「等 N 个」）——错误文案不刷屏。
+fn id_list_text(ids: &[Uuid]) -> String {
+    const SHOW: usize = 5;
+    let shown: Vec<String> = ids.iter().take(SHOW).map(Uuid::to_string).collect();
+    if ids.len() > SHOW {
+        format!("{} 等 {} 个", shown.join(", "), ids.len())
+    } else {
+        shown.join(", ")
+    }
+}
+
 // ==================== 水位检查（M2-14） ====================
 
 /// 执行一次水位检查（手动触发 / 验收 / 补跑）。
@@ -314,6 +441,25 @@ pub async fn stock_policy_delete_api(
     let operator = utils::current_user_uuid(&claims);
     delete_policy_of(operator, &id).await?;
     Ok(Res::ok(()))
+}
+
+/// 批量设置水位（`material_ids × warehouse_ids` 的笛卡尔积，一个事务）。
+///
+/// 权限码复用 `business:erp:stock-policy:save`：它**就是**「设置水位」这个动作，
+/// 只是这次一次设置多格。单独发一个 `:batch` 码会让授权树里出现「能改一格、不能改十格」
+/// 这种没人想要的组合。
+#[nik::permission(
+    path = "/business/erp/stock-policy/batch",
+    method = "PUT",
+    permission = "business:erp:stock-policy:save"
+)]
+#[nik::put("/business/erp/stock-policy/batch")]
+pub async fn stock_policy_batch_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<BatchSavePolicyReq>,
+) -> ResResult<BatchSavePolicyRes> {
+    let operator = utils::current_user_uuid(&claims);
+    Ok(Res::ok(save_policy_batch_of(operator, req).await?))
 }
 
 /// 执行一次水位检查（M2-14：低于最低水位 → 生成待办 / 回升 → 自动收口）。

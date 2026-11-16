@@ -9,10 +9,15 @@
 //!                  ├─ min_qty  最低水位（= 该格的安全库存阈值）
 //!                  └─ max_qty  最高水位（NULL = 未设 = 不判超储）
 //! 设置接口         PUT    /business/erp/stock-policy          …:stock-policy:save    （upsert）
+//! 批量设置（M2-17）PUT    /business/erp/stock-policy/batch    …:stock-policy:save    （笛卡尔积，一个事务）
+//! 导入（M2-17）    POST   /business/impexp/import/upload?biz_type=business.erp.stock-policy
+//!                  （impexp 通用三段：模板 → 上传预检 → 确认入库；定义在
+//!                   `impexp::builtin::erp_setting`，本模块不复制 xlsx 解析 / 校验）
 //! 列表接口         GET    /business/erp/stock-policy/page     …:stock-policy:list
 //! 删除接口         DELETE /business/erp/stock-policy/{id}     …:stock-policy:delete  （软删 = 回退物料级）
 //! 检查接口（M2-14） POST   /business/erp/stock-policy/check    …:stock-policy:check   （手动触发 / dry_run）
 //! 定时任务（M2-14） erp_stock_water_check  每小时 :07 UTC，低水位 → 生成待办、回升 → 自动收口
+//! 页面（M2-17）    /business/erp/stock-policy   显形码 business:erp:stock-policy:page（V0431）
 //! 生效水位         dto::resolve_min_qty / resolve_max_qty（三级回退的唯一实现）
 //!                  model::effective_of(物料, 仓库) → EffectiveLevels（读一格）
 //! 结存             永远现算 biz_inventory.qty —— 设置表里不存、不缓存
@@ -24,10 +29,16 @@
 //! | 卡 | 做什么 | 状态 |
 //! |:--|:--|:--:|
 //! | M2-13 | 表 + 设置/列表/删除接口 + 生效水位的取值口径（纯函数 + 一个读数入口） | ✅ |
-//! | M2-14（本卡） | 水位检查：结存 < 最低水位 → **生成待办**；回升 → **自动收口** | ✅ |
-//! | M2-15 | 补货建议：最低水位 + 在途 + 未清订单 → 建议量 | ❌ 不做 |
-//! | M2-16 | 安全库存单测扩充 | ❌ 不做 |
-//! | M2-17 | 前端设置页 | ❌ 不做 |
+//! | M2-14 | 水位检查：结存 < 最低水位 → **生成待办**；回升 → **自动收口** | ✅ |
+//! | M2-15 | 补货建议：最低水位 + 在途 + 未清订单 → 建议量 | ✅（`replenish` 模块） |
+//! | M2-16 | 安全库存单测扩充 | ✅ |
+//! | M2-17（本卡） | **前端设置页 + 批量设置接口 + Excel 导入定义** | ✅ |
+//!
+//! M2-17 只加三样，**不动水位口径**：批量设置（[`handler::save_policy_batch_of`]，笛卡尔积
+//! 一个事务）、单格与批量共用的四列校验（[`dto::checked_write`]）、Excel 导入定义
+//! （`impexp::builtin::erp_setting::StockPolicyImport`，走通用导入向导）。
+//! `resolve_min_qty` / `resolve_max_qty` / `effective_of` 一行没改 —— 页面批量写进去的值，
+//! 与 M2-14 判水位、M2-15 给补货建议读到的值，仍是同一个口径。
 //!
 //! 所以本模块**不建采购单 / 调拨单**（M2-15 的补货建议才给建议量），
 //! 不算「超储」（那是 M2-15 的 `max_qty` 消费者）。M2-14 只做两件事：**发待办**、**收待办**。
@@ -88,13 +99,13 @@ mod policy_db_tests;
 mod water_check_db_tests;
 
 pub use dto::{
-    EffectiveMin, MinSource, PolicyFilter, PolicyLevels, PolicyRes, PolicyWrite, STATUS_DISABLED, STATUS_ENABLED,
-    SavePolicyReq, WaterCheckItem, WaterCheckReq, WaterCheckRes, max_qty_allowed, min_qty_allowed, resolve_max_qty,
-    resolve_min_qty,
+    BatchPolicyPlan, BatchSavePolicyReq, BatchSavePolicyRes, EffectiveMin, MAX_BATCH_CELLS, MinSource, PolicyFilter,
+    PolicyLevels, PolicyRes, PolicyWrite, STATUS_DISABLED, STATUS_ENABLED, SavePolicyReq, WaterCheckItem,
+    WaterCheckReq, WaterCheckRes, checked_write, max_qty_allowed, min_qty_allowed, resolve_max_qty, resolve_min_qty,
 };
 pub use handler::{
     PERM_CHECK, PERM_DELETE, PERM_LIST, PERM_SAVE, STOCK_POLICY_PERMISSIONS, check_water_of, delete_policy_of,
-    page_policy_of, save_policy_of,
+    page_policy_of, save_policy_batch_of, save_policy_of,
 };
 pub use model::{
     EffectiveLevels, POLICY_TARGET, PolicyRow, effective_of, policy_find_by_id, policy_find_by_key, policy_page,

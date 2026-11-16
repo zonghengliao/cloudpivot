@@ -34,7 +34,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model_base::{find_by_id, page_of};
 use crate::business::erp::stock_policy::dto::{
-    EffectiveMin, PolicyLevels, PolicyWrite, resolve_max_qty, resolve_min_qty,
+    self, EffectiveMin, PolicyLevels, PolicyWrite, resolve_max_qty, resolve_min_qty,
 };
 use cloudpivot_kernel::business::shared::scope;
 use cloudpivot_kernel::utils;
@@ -361,9 +361,175 @@ pub async fn policy_soft_delete(id: Uuid, operator: Option<Uuid>) -> DbResult<u6
     .await
 }
 
+// ==================== 批量设置（M2-17） ====================
+
+/// 这些物料里**不存在或已软删**的那几个（批量前置校验，一条 SQL，不 N+1）。
+///
+/// # 参数
+///
+/// - `tx`：事务（与随后的写入同一个快照）。
+/// - `ids`：待校验的物料 id（已去重；空列表直接返回空 Vec，不发 SQL）。
+///
+/// # 返回值
+///
+/// 查不到的 id 列表（保持入参顺序）。空 = 全都存在。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]（宁可整批失败，也不对「查不出来」当作「存在」往下写）。
+pub async fn missing_materials(tx: &Transaction, ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
+    missing_in_table(tx, "biz_material", ids).await
+}
+
+/// 这些仓库里**不存在或已软删**的那几个（与 [`missing_materials`] 同口径）。
+pub async fn missing_warehouses(tx: &Transaction, ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
+    missing_in_table(tx, "biz_warehouse", ids).await
+}
+
+/// `ids` 里在 `table` 中查不到的（表名是编译期常量，不接受运行时输入）。
+async fn missing_in_table(tx: &Transaction, table: &'static str, ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let payload = serde_json::to_string(&ids.iter().map(Uuid::to_string).collect::<Vec<_>>())
+        .map_err(|error| DbError::InvalidValue(format!("id 列表序列化失败：{error}")))?;
+    let sql = format!(
+        "SELECT v.id::text AS id FROM jsonb_array_elements_text(?::jsonb) AS v(id) \
+          WHERE NOT EXISTS (SELECT 1 FROM {table} t WHERE t.id = v.id::uuid AND t.deleted_at IS NULL)"
+    );
+    let rows = tx.find_with_params(&sql, vec![Value::Json(payload)]).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let text: String = row.get_typed("id")?;
+        if let Ok(id) = Uuid::parse_str(&text) {
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
+/// 这些格里**已有存活设置行**的个数（用来把「新建」与「覆盖」分开计数）。
+///
+/// # 参数
+///
+/// - `tx`：事务。
+/// - `pairs`：去重后的 `(物料, 仓库)`。
+///
+/// # 返回值
+///
+/// 命中数（0 到 `pairs.len()`）；软删行**不算**（部分唯一索引只看存活行 ⇒ 软删格会新建）。
+pub async fn existing_pair_count(tx: &Transaction, pairs: &[(Uuid, Uuid)]) -> DbResult<usize> {
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    let payload = serde_json::to_string(
+        &pairs
+            .iter()
+            .map(|(material_id, warehouse_id)| {
+                serde_json::json!({
+                    "material_id": material_id.to_string(),
+                    "warehouse_id": warehouse_id.to_string(),
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| DbError::InvalidValue(format!("格列表序列化失败：{error}")))?;
+    let count: i64 = {
+        let rows = tx
+            .find_with_params(
+                "SELECT COUNT(*) AS n FROM biz_material_stock_policy p \
+                   JOIN jsonb_to_recordset(?::jsonb) AS v(material_id text, warehouse_id text) \
+                     ON p.material_id = v.material_id::uuid AND p.warehouse_id = v.warehouse_id::uuid \
+                  WHERE p.deleted_at IS NULL",
+                vec![Value::Json(payload)],
+            )
+            .await?;
+        rows.first().map(|row| row.get_typed("n")).transpose()?.unwrap_or(0)
+    };
+    usize::try_from(count).map_err(|_| DbError::InvalidValue(format!("命中行数溢出：{count}")))
+}
+
+/// 批量 upsert（**一条语句**，交给调用方的事务提交）。
+///
+/// # 参数
+///
+/// - `tx`：事务（handler 开，成功后 commit）。
+/// - `pairs`：去重后的 `(物料, 仓库)`（调用方已校验物料 / 仓库存在）。
+/// - `write`：四列内容（[`dto::checked_write`] 校验过）。
+/// - `operator`：操作人（写 `create_by` / `update_by`）。
+///
+/// # 返回值
+///
+/// 数据库回报的影响行数（新建 + 覆盖）。
+///
+/// # 异常情况
+///
+/// - 同键两行（入参没去重）→ 驱动会报 `ON CONFLICT DO UPDATE` 二次命中，按 [`DbError`] 抛出；
+/// - 库层 CHECK（`min_qty >= 0` / `max_qty > min_qty` / `status IN (0,1)`）兜底，handler 翻 400。
+///
+/// # 为什么整个批次一条 SQL
+///
+/// 格子数上限 2 000（[`dto::MAX_BATCH_CELLS`]），`jsonb_to_recordset` 一次提交两千行是
+/// 常规量级；拆成 2 000 条往返会让「3 秒的批量」变成「2 分钟」，而且中途失败时前半截已写，
+/// 用户看到的是「设了一半」。一条语句 + 一个事务 = 全有或全无。
+pub async fn policy_upsert_batch(
+    tx: &Transaction,
+    pairs: &[(Uuid, Uuid)],
+    write: &dto::PolicyWrite,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    let payload = serde_json::to_string(
+        &pairs
+            .iter()
+            .map(|(material_id, warehouse_id)| {
+                serde_json::json!({
+                    "id": Uuid::now_v7().to_string(),
+                    "material_id": material_id.to_string(),
+                    "warehouse_id": warehouse_id.to_string(),
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| DbError::InvalidValue(format!("格列表序列化失败：{error}")))?;
+    let operator_text = uuid_raw(operator);
+    let affected = tx
+        .execute_with_params(
+            "INSERT INTO biz_material_stock_policy \
+                 (id, material_id, warehouse_id, min_qty, max_qty, status, remark, \
+                  created_at, updated_at, create_by, update_by) \
+             SELECT v.id::uuid, v.material_id::uuid, v.warehouse_id::uuid, \
+                    ?::text::numeric, NULLIF(?::text,'')::numeric, ?::text::smallint, ?, \
+                    now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid \
+               FROM jsonb_to_recordset(?::jsonb) AS v(id text, material_id text, warehouse_id text) \
+             ON CONFLICT (material_id, warehouse_id) WHERE deleted_at IS NULL \
+             DO UPDATE SET min_qty = EXCLUDED.min_qty, max_qty = EXCLUDED.max_qty, \
+                           status = EXCLUDED.status, remark = EXCLUDED.remark, \
+                           updated_at = now(), update_by = EXCLUDED.update_by",
+            vec![
+                Value::Text(write.min_qty.to_string()),
+                Value::Text(write.max_qty.map(|qty| qty.to_string()).unwrap_or_default()),
+                Value::Text(write.status.to_string()),
+                Value::from(write.remark.clone()),
+                Value::Text(operator_text.clone()),
+                Value::Text(operator_text),
+                Value::Json(payload),
+            ],
+        )
+        .await?;
+    Ok(affected)
+}
+
 /// 可选 uuid 的绑参文本：`None` → 空串（SQL 侧 `NULLIF(?::text,'')::uuid` 转 NULL）。
+fn uuid_raw(value: Option<Uuid>) -> String {
+    value.map(|id| id.to_string()).unwrap_or_default()
+}
+
+/// 同 [`uuid_raw`]，包成绑参值。
 fn uuid_text(value: Option<Uuid>) -> Value {
-    Value::Text(value.map(|id| id.to_string()).unwrap_or_default())
+    Value::Text(uuid_raw(value))
 }
 
 // ==================== 单测（纯逻辑，不碰库） ====================

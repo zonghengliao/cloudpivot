@@ -1167,6 +1167,22 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '库龄分析', permission: 'business:erp:inventory-aging:page' },
       },
       {
+        // ==================== ERP 安全库存设置（M2-17，卡 t_58a23185） ====================
+        // `sys_menu`（V0431 页面行 …004310）path = `/business/erp/stock-policy`，
+        // component `business/erp/stock-policy/index`；**手工注册**，漏了 = 点菜单 404
+        // （`system::menu::tests::n08` 判红）。
+        //
+        // 权限码用**页面显形码** `business:erp:stock-policy:page`（V0431 页面行），与四个接口码
+        // `…:stock-policy:{list,save,delete,check}`（V0428 / V0429 按钮行，都挂在「即时库存」页下）
+        // 刻意分开 —— 接口码由各自的 handler 判，页面码只判侧栏显隐与本路由守卫；后端源码
+        // 零引用（登记在 `permission_audit_tests::ROUTE_LEVEL_ONLY`）。页内再按 `list` / `save` /
+        // `delete` 决定列表可用性与按钮可点性。
+        path: 'business/erp/stock-policy',
+        name: 'BusinessErpStockPolicy',
+        component: () => import('@/views/business/erp/stock-policy/index.vue'),
+        meta: { title: '安全库存', permission: 'business:erp:stock-policy:page' },
+      },
+      {
         // ==================== ERP 采购明细（卡 t_6f023cee / BUG-SYS-01） ====================
         // `sys_menu` 的 path `/business/erp/purchase-order-item`（menu_type=2）。路由与组件
         // 自 t_6f023cee 起就已注册（本 record 就是），缺的只是菜单可见性 —— 该行曾被设为

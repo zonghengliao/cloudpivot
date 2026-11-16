@@ -45,6 +45,7 @@
 //! `biz_material` 上从来没有最高水位这个字段（V0137），凭空造一个「缺省最高水位」就是拍数。
 
 use nik::prelude::rust_decimal::Decimal;
+use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 // ==================== 常量 ====================
@@ -163,31 +164,227 @@ impl SavePolicyReq {
     /// 非法值报 400 并**点名是哪一项**（`min_qty` / `max_qty` / `status`），
     /// 不静默夹取（把 `-5` 悄悄改成 0 会让用户以为「我设的就是 -5」）。
     pub fn to_write(&self) -> std::result::Result<PolicyWrite, String> {
-        if !min_qty_allowed(self.min_qty) {
+        checked_write(self.min_qty, self.max_qty, self.status, self.remark.clone())
+    }
+}
+
+/// 单格与批量共用的**唯一**校验实现（两处各写一份的那天起，就会有一处漏判）。
+///
+/// # 参数
+///
+/// - `min_qty` / `max_qty` / `status` / `remark`：与 [`SavePolicyReq`] 同名的四个字段原值。
+///
+/// # 返回值
+///
+/// 归一化后的 [`PolicyWrite`]（`remark` 空白 → `None`，`status` 缺省 → `1`）。
+///
+/// # 异常情况
+///
+/// 最低水位负数 / 最高水位 ≤ 最低水位 / 状态不在 `{1, 0}` 时返回人话（handler 翻 400）。
+pub fn checked_write(
+    min_qty: Decimal,
+    max_qty: Option<Decimal>,
+    status: Option<i16>,
+    remark: Option<String>,
+) -> std::result::Result<PolicyWrite, String> {
+    if !min_qty_allowed(min_qty) {
+        return Err(format!(
+            "min_qty 必须 >= 0（当前 {min_qty}）：0 = 该物料在该仓库本格不预警"
+        ));
+    }
+    if !max_qty_allowed(min_qty, max_qty) {
+        return Err(format!(
+            "max_qty（{}）必须严格大于 min_qty（{min_qty}）：相等的上下界是空区间，请清空最高水位或提高它",
+            max_qty.map(|qty| qty.to_string()).unwrap_or_else(|| "空".to_string()),
+        ));
+    }
+    let status = status.unwrap_or(STATUS_ENABLED);
+    if !is_valid_status(status) {
+        return Err(format!("status 只能是 1（启用）或 0（停用），当前 {status}"));
+    }
+    Ok(PolicyWrite {
+        min_qty,
+        max_qty,
+        status,
+        remark: normalize_remark(remark),
+    })
+}
+
+// ==================== 批量设置（M2-17） ====================
+//
+// 卡：t_58a23185（M2-17【M2·仓库】安全库存：前端设置页 —— 批量设置 + 导入）。
+//
+// 一次请求 = 「这些物料 × 这些仓库，都设成同一个水位」。它与单格 upsert 的差别**只在
+// 铺开的格数**：同一份 `min_qty` / `max_qty` / `status` / `remark`，同一套校验
+// （[`checked_write`]），同一个唯一键冲突口径。所以它不是一个新概念，是「同一个动作
+// 按笛卡尔积铺开」—— 语义仍按格覆盖，不叠加、不做差量。
+
+/// 一次批量设置最多铺开多少格（物料数 × 仓库数）。
+///
+/// 2 000 的来源：一个客户上百个物料、十来个仓库，全选也只上千格；再大就不是「在页面上
+/// 圈一批」的场景，而该走 Excel 导入（`business.erp.stock-policy`，单文件 20 000 行）。
+/// 上限存在的意义是**把误操作挡在门外**：全选 20 000 个物料 × 20 个仓库 = 40 万行，
+/// 一次请求写 40 万行既拖垮库，也没人会看那 40 万行。
+pub const MAX_BATCH_CELLS: usize = 2000;
+
+/// 批量设置水位（`PUT /business/erp/stock-policy/batch`）。
+///
+/// 铺开规则：`material_ids × warehouse_ids` 的**笛卡尔积**，各自先按入参顺序去重
+/// （同一 id 传两次不会变成两格 —— 那会撞唯一键）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchSavePolicyReq {
+    /// 物料 id 列表（至少 1 个；重复项自动去掉）。
+    pub material_ids: Vec<String>,
+    /// 仓库 id 列表（至少 1 个；重复项自动去掉）。
+    pub warehouse_ids: Vec<String>,
+    /// 最低水位（必填；`>= 0`，`0` = 这些格明示不预警）。
+    pub min_qty: Decimal,
+    /// 最高水位（选填；`null` / 不传 = 未设；设了必须 > `min_qty`）。
+    #[serde(default)]
+    pub max_qty: Option<Decimal>,
+    /// 状态（选填；不传 = 1 启用）。
+    #[serde(default)]
+    pub status: Option<i16>,
+    /// 备注（选填；**整批一份**，空白 → 落 `NULL`）。
+    #[serde(default)]
+    pub remark: Option<String>,
+}
+
+/// 展开后的一次批量设置（handler 落库前的唯一形态）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchPolicyPlan {
+    /// 去重后的格（`(物料, 仓库)`，顺序 = 入参顺序的笛卡尔积）。
+    pub cells: Vec<(Uuid, Uuid)>,
+    /// 四列内容（校验后）。
+    pub write: PolicyWrite,
+    /// 入参里被去掉的重复物料 id 个数（回显给用户「你传了 12 个，实际 10 个」）。
+    pub duplicate_materials: usize,
+    /// 入参里被去掉的重复仓库 id 个数。
+    pub duplicate_warehouses: usize,
+}
+
+impl BatchSavePolicyReq {
+    /// 契约校验 + 展开成格子（纯逻辑，不碰库）。
+    ///
+    /// # 返回值
+    ///
+    /// [`BatchPolicyPlan`]：去重后的 `物料 × 仓库`、通过 [`checked_write`] 的四列内容、
+    /// 以及被去掉的重复项个数（回显用）。
+    ///
+    /// # 异常情况
+    ///
+    /// - 物料 / 仓库列表为空 → 人话（`至少选一个物料`）；
+    /// - 列表里有空串 / 非法 UUID → 点名**第几个**（`material_ids[3] 不是合法 UUID`），
+    ///   不静默跳过（跳过 = 用户以为设了 10 格，实际只设了 9 格且没人告诉他）；
+    /// - 铺开格数超过 [`MAX_BATCH_CELLS`] → 点名实际格数与上限，并给出替代动作（走导入）。
+    pub fn to_plan(&self) -> std::result::Result<BatchPolicyPlan, String> {
+        let (materials, raw_materials) = parse_uuid_list(&self.material_ids, "material_ids")?;
+        let (warehouses, raw_warehouses) = parse_uuid_list(&self.warehouse_ids, "warehouse_ids")?;
+        if materials.is_empty() {
+            return Err("material_ids 不能为空：批量设置至少选一个物料".to_string());
+        }
+        if warehouses.is_empty() {
+            return Err("warehouse_ids 不能为空：批量设置至少选一个仓库".to_string());
+        }
+
+        let cell_count = materials.len().saturating_mul(warehouses.len());
+        if cell_count > MAX_BATCH_CELLS {
             return Err(format!(
-                "min_qty 必须 >= 0（当前 {}）：0 = 该物料在该仓库本格不预警",
-                self.min_qty
+                "一次最多批量设置 {MAX_BATCH_CELLS} 格（物料 {} × 仓库 {} = {cell_count} 格）：\
+                 请减少物料 / 仓库，或改用「导入」按 Excel 逐行设置",
+                materials.len(),
+                warehouses.len()
             ));
         }
-        if !max_qty_allowed(self.min_qty, self.max_qty) {
-            return Err(format!(
-                "max_qty（{}）必须严格大于 min_qty（{}）：相等的上下界是空区间，请清空最高水位或提高它",
-                self.max_qty
-                    .map(|qty| qty.to_string())
-                    .unwrap_or_else(|| "空".to_string()),
-                self.min_qty
-            ));
+
+        let write = checked_write(self.min_qty, self.max_qty, self.status, self.remark.clone())?;
+        let mut cells = Vec::with_capacity(cell_count);
+        for material_id in &materials {
+            for warehouse_id in &warehouses {
+                cells.push((*material_id, *warehouse_id));
+            }
         }
-        let status = self.status.unwrap_or(STATUS_ENABLED);
-        if !is_valid_status(status) {
-            return Err(format!("status 只能是 1（启用）或 0（停用），当前 {status}"));
-        }
-        Ok(PolicyWrite {
-            min_qty: self.min_qty,
-            max_qty: self.max_qty,
-            status,
-            remark: normalize_remark(self.remark.clone()),
+        Ok(BatchPolicyPlan {
+            cells,
+            write,
+            duplicate_materials: raw_materials - materials.len(),
+            duplicate_warehouses: raw_warehouses - warehouses.len(),
         })
+    }
+}
+
+/// UUID 文本列表 → 去重后的 [`Uuid`] 列表（保持首次出现的顺序）。
+///
+/// # 参数
+///
+/// - `raw`：入参原值（允许两端空白；空串也算非法 —— 前端选了空行是 bug，不该静默少一格）；
+/// - `field`：字段名（错误文案里点名，形如 `material_ids[2]`）。
+///
+/// # 返回值
+///
+/// `(去重后的 id 列表, 入参里非空的项数)`；后者用于算「去掉了几个重复」。
+///
+/// # 异常情况
+///
+/// 任一项不是合法 UUID → `Err(人话)`。
+fn parse_uuid_list(raw: &[String], field: &str) -> std::result::Result<(Vec<Uuid>, usize), String> {
+    let mut out: Vec<Uuid> = Vec::with_capacity(raw.len());
+    let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::with_capacity(raw.len());
+    let mut total = 0usize;
+    for (index, text) in raw.iter().enumerate() {
+        let value = text.trim();
+        if value.is_empty() {
+            return Err(format!("{field}[{index}] 是空值：请去掉空行后重试"));
+        }
+        let id =
+            Uuid::parse_str(value).map_err(|error| format!("{field}[{index}] 不是合法 UUID（`{value}`）：{error}"))?;
+        total += 1;
+        if seen.insert(id) {
+            out.push(id);
+        }
+    }
+    Ok((out, total))
+}
+
+/// 批量设置的执行结果（回显「设了几格、其中新建几格、覆盖几格」）。
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct BatchSavePolicyRes {
+    /// 本次铺开的格数（去重后）。
+    pub cells: u64,
+    /// 其中**新建**的行数（该格之前没有存活的设置行）。
+    pub created: u64,
+    /// 其中**覆盖**的行数（该格之前已有存活设置行）。
+    pub updated: u64,
+    /// 入参里被去掉的重复物料数（`0` = 没传重复）。
+    pub duplicate_materials: u64,
+    /// 入参里被去掉的重复仓库数。
+    pub duplicate_warehouses: u64,
+    /// 一句给人看的结论（页面直接展示）。
+    pub message: String,
+}
+
+impl BatchSavePolicyRes {
+    /// 由「格数 / 新建 / 覆盖 / 去重数」拼出回执（含文案）。
+    pub fn build(cells: usize, created: usize, updated: usize, duplicates: (usize, usize)) -> Self {
+        let (duplicate_materials, duplicate_warehouses) = duplicates;
+        let mut message = format!("已设置 {cells} 格水位：新建 {created} 格，覆盖 {updated} 格");
+        if duplicate_materials + duplicate_warehouses > 0 {
+            message.push_str(&format!(
+                "（入参已去重：重复物料 {duplicate_materials} 个、重复仓库 {duplicate_warehouses} 个）"
+            ));
+        }
+        if cells > 0 && created == 0 && updated == 0 {
+            // 理论不可达（cells = created + updated），留着是为了「DB 回报不一致」时有据可查
+            message.push_str("；注意：数据库回报的影响行数与格数不一致，请核对");
+        }
+        Self {
+            cells: u64::try_from(cells).unwrap_or(u64::MAX),
+            created: u64::try_from(created).unwrap_or(u64::MAX),
+            updated: u64::try_from(updated).unwrap_or(u64::MAX),
+            duplicate_materials: u64::try_from(duplicate_materials).unwrap_or(u64::MAX),
+            duplicate_warehouses: u64::try_from(duplicate_warehouses).unwrap_or(u64::MAX),
+            message,
+        }
     }
 }
 
@@ -551,5 +748,130 @@ mod tests {
         assert!(!PolicyLevels::new(dec("1"), None, STATUS_DISABLED).enabled);
         assert!(!PolicyLevels::new(dec("1"), None, 7).enabled, "域外值按停用，不 panic");
         println!("[M2-13] status → enabled 折算：1=启用、0/域外=停用 ✓");
+    }
+
+    // ---------- 批量设置（M2-17） ----------
+
+    /// 造一份批量入参（默认启用、无备注）。
+    fn batch(materials: &[Uuid], warehouses: &[Uuid], min: &str, max: Option<&str>) -> BatchSavePolicyReq {
+        BatchSavePolicyReq {
+            material_ids: materials.iter().map(Uuid::to_string).collect(),
+            warehouse_ids: warehouses.iter().map(Uuid::to_string).collect(),
+            min_qty: dec(min),
+            max_qty: max.map(dec),
+            status: None,
+            remark: None,
+        }
+    }
+
+    /// 笛卡尔积展开 + 去重：3 物料 × 2 仓库 = 6 格；重复 id 不会变成两格。
+    #[test]
+    fn batch_expands_cartesian_product_and_dedupes() {
+        let m1 = Uuid::now_v7();
+        let m2 = Uuid::now_v7();
+        let w1 = Uuid::now_v7();
+        let w2 = Uuid::now_v7();
+        let plan = batch(&[m1, m2, m1], &[w1, w2], "100", Some("500"))
+            .to_plan()
+            .expect("合法");
+        assert_eq!(plan.cells.len(), 4, "2 物料 × 2 仓库 = 4 格");
+        assert_eq!(plan.duplicate_materials, 1, "重复物料被去掉并计数");
+        assert_eq!(plan.duplicate_warehouses, 0);
+        assert_eq!(plan.write.min_qty, dec("100"));
+        assert_eq!(plan.write.max_qty, Some(dec("500")));
+        assert_eq!(plan.write.status, STATUS_ENABLED, "不传 status = 启用");
+        // 顺序 = 入参顺序的笛卡尔积（物料外层、仓库内层）
+        assert_eq!(plan.cells[0], (m1, w1));
+        assert_eq!(plan.cells[1], (m1, w2));
+        assert_eq!(plan.cells[2], (m2, w1));
+        assert_eq!(plan.cells[3], (m2, w2));
+        println!("[M2-17] 批量展开：2×2=4 格、重复物料去 1 个、顺序稳定 ✓");
+    }
+
+    /// 空列表 / 空串 / 非法 UUID 一律 400 人话，且**点名第几项**（不静默跳过）。
+    #[test]
+    fn batch_rejects_bad_lists_and_names_the_index() {
+        let m1 = Uuid::now_v7();
+        let w1 = Uuid::now_v7();
+
+        let empty_material = batch(&[], &[w1], "100", None);
+        let error = empty_material.to_plan().expect_err("空物料必须拒");
+        assert!(error.contains("material_ids"), "{error}");
+
+        let empty_warehouse = batch(&[m1], &[], "100", None);
+        let error = empty_warehouse.to_plan().expect_err("空仓库必须拒");
+        assert!(error.contains("warehouse_ids"), "{error}");
+
+        let mut blank = batch(&[m1], &[w1], "100", None);
+        blank.material_ids.push("   ".to_string());
+        let error = blank.to_plan().expect_err("空串必须拒");
+        assert!(error.contains("material_ids[1]"), "要点名第几项：{error}");
+
+        let mut bad = batch(&[m1], &[w1], "100", None);
+        bad.warehouse_ids[0] = "not-a-uuid".to_string();
+        let error = bad.to_plan().expect_err("非法 UUID 必须拒");
+        assert!(error.contains("warehouse_ids[0]"), "要点名第几项：{error}");
+        println!("[M2-17] 批量入参：空列表 / 空串 / 非法 UUID → 400 并点名第几项 ✓");
+    }
+
+    /// 铺开格数上限：恰好 2000 通过，2001 拒绝且给出替代动作（走导入）。
+    #[test]
+    fn batch_cell_limit_is_2000_and_says_what_to_do_instead() {
+        let at_limit: Vec<Uuid> = (0..MAX_BATCH_CELLS).map(|_| Uuid::now_v7()).collect();
+        let plan = batch(&at_limit, &[Uuid::now_v7()], "10", None)
+            .to_plan()
+            .expect("恰好 2000 格应通过");
+        assert_eq!(plan.cells.len(), MAX_BATCH_CELLS);
+
+        let over_limit: Vec<Uuid> = (0..=MAX_BATCH_CELLS).map(|_| Uuid::now_v7()).collect();
+        let error = batch(&over_limit, &[Uuid::now_v7()], "10", None)
+            .to_plan()
+            .expect_err("2001 格必须拒");
+        assert!(error.contains("2000"), "{error}");
+        assert!(error.contains("导入"), "要给出替代动作：{error}");
+        println!("[M2-17] 批量上限：2000 通过 / 2001 拒绝并指路「导入」 ✓");
+    }
+
+    /// 四列校验与单格共用同一份实现：min<0 / max<=min / status 域外 一律拒。
+    #[test]
+    fn batch_reuses_the_single_cell_validation() {
+        let m1 = Uuid::now_v7();
+        let w1 = Uuid::now_v7();
+
+        let error = batch(&[m1], &[w1], "-1", None).to_plan().expect_err("负水位必须拒");
+        assert!(error.contains("min_qty"), "{error}");
+
+        let error = batch(&[m1], &[w1], "100", Some("100"))
+            .to_plan()
+            .expect_err("相等必须拒");
+        assert!(error.contains("max_qty"), "{error}");
+
+        let mut bad_status = batch(&[m1], &[w1], "100", None);
+        bad_status.status = Some(2);
+        let error = bad_status.to_plan().expect_err("状态域外必须拒");
+        assert!(error.contains("status"), "{error}");
+
+        // 备注空白 → NULL（与单格同口径）
+        let mut blank_remark = batch(&[m1], &[w1], "100", None);
+        blank_remark.remark = Some("   ".to_string());
+        assert_eq!(blank_remark.to_plan().expect("合法").write.remark, None);
+        println!("[M2-17] 批量四列校验复用 checked_write：min<0 / max<=min / status 域外 → 400 ✓");
+    }
+
+    /// 回执文案：新建 / 覆盖 / 去重数都要说出来（用户要能一眼看出「这次覆盖了 3 格」）。
+    #[test]
+    fn batch_result_message_states_counts() {
+        let plain = BatchSavePolicyRes::build(6, 4, 2, (0, 0));
+        assert_eq!(plain.cells, 6);
+        assert_eq!(plain.created, 4);
+        assert_eq!(plain.updated, 2);
+        assert!(plain.message.contains("6 格"), "{}", plain.message);
+        assert!(plain.message.contains("新建 4"), "{}", plain.message);
+        assert!(plain.message.contains("覆盖 2"), "{}", plain.message);
+
+        let deduped = BatchSavePolicyRes::build(4, 0, 4, (2, 1));
+        assert!(deduped.message.contains("重复物料 2"), "{}", deduped.message);
+        assert!(deduped.message.contains("重复仓库 1"), "{}", deduped.message);
+        println!("[M2-17] 批量回执：格数 / 新建 / 覆盖 / 去重数逐项写明 ✓");
     }
 }
