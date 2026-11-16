@@ -10,6 +10,7 @@
 //! | GET | `/business/erp/quotation/page` | `business:erp:quotation:list` | 分页（`quote_no` 模糊 / `status` / `customer_id` / `expired`） |
 //! | PATCH | `/business/erp/quotation/{id}/status` | `business:erp:quotation:status` | 状态流转（**只走 `LEGAL_EDGES` 的 6 条边**，其余 409） |
 //! | DELETE | `/business/erp/quotation/{id}` | `business:erp:quotation:delete` | 软删（**只有 DRAFT / CANCELLED**） |
+//! | POST | `/business/erp/quotation/{id}/convert` | `business:erp:quotation:convert` | **转销售订单（带行）**：ACCEPTED → 新建 SO + 回填 `converted_so_id`（M3-03） |
 //!
 //! # 状态机（唯一真相：`state_machine::QUOTATION_EDGES`）
 //!
@@ -35,11 +36,29 @@
 //! 「已过期」一律**现算**（`today > valid_until`，按 CST），不进状态机、不落状态列 ——
 //! M3-01 建表注释的既定口径（做过期状态就要定时翻转 + 时钟回拨对账）。
 //!
+//! # 转销售订单（M3-03）
+//!
+//! `POST /quotation/{id}/convert` —— 一键转单，**带行**、**保留来源**、**幂等**：
+//!
+//! | 事项 | 口径 |
+//! |------|------|
+//! | 可转状态 | **只有 `ACCEPTED`**（客户已接受 = 已成交）。`SENT` 先走 `PATCH /status` 标接受（那条边自带「未过期」守卫） |
+//! | 带行 | 报价明细逐行搬成订单明细：物料 / 数量 / 单价 / 税率 / 行金额**整列搬**，不重新报价、不重新算金额 |
+//! | 金额守卫 | 行金额必须等于「单价 × 数量」重算值；明细汇总必须等于单头三项合计（对不上 → 409，先修报价单） |
+//! | 保留来源 | ① 结构化：`biz_quotation.converted_so_id` + `converted_at`（V0432 的部分唯一索引保证一张订单只被一张报价认领）；② 人可读：订单备注固定追加「由报价单 QT-… 转换」；③ 轨迹：`biz_status_log` 一行 `ACCEPTED→ACCEPTED, action=CONVERT, biz_ref=SALES_ORDER/SO-…` |
+//! | 幂等 | 已转过再点 → **不再建第二张**，200 回原订单（`meta.already_converted = true`） |
+//! | 事务 | 建订单 + 回填报价单 + 写轨迹 **同一个事务**；任一步失败整笔回滚（约定 11：不留孤订单、不留只回链一半的单） |
+//! | 并发 | 转单前 `SELECT … FOR UPDATE` 锁报价单行 —— 两个并发请求只有一个能建单 |
+//! | 币种 | 报价单没有币种列 ⇒ 按账套本位币记（`exchange_rate = 1`）；外币报价要转外币单是另一个决定（报价单先补币种列） |
+//! | 客户 | 必须存在、未软删、`ACTIVE`（冻结客户 → 409）；已接受但**今天已过期**仍可转（接受发生在有效期内，过期约束的是「接受时」） |
+//!
+//! 新订单状态 = `DRAFT`：转单只把「成交价」搬过去，提交审批 / 占信用 / 出库仍走订单自己的流程。
+//!
 //! # 不碰的东西
 //!
-//! - **不转销售订单**：转单是 M3-03（本卡只回链 `converted_so_id` 的读取与守卫）；
 //! - **不接审批流**：审批是 M3-04（本卡 `DocKind::Quotation::is_document() = false`）；
-//! - **不写库存 / 不生成凭证**：报价阶段客户还没下单，一分钱一分货都没动。
+//! - **不写库存 / 不生成凭证**：转单只建 `DRAFT` 订单，一分钱一分货都没动；
+//! - **不改订单里的价格**：报价单是客户认过的价，转单只是把它搬进订单。
 //!
 //! # 数据权限
 //!
@@ -49,6 +68,7 @@
 //! ```
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Path, Query};
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
@@ -61,10 +81,12 @@ use crate::business::erp::inventory_transit::model as transit_model;
 use crate::business::erp::sales::quotation_model::{
     self as model, NewLine, NewQuotation, QuotationLineRow, QuotationRow, Totals,
 };
+use crate::business::erp::sales::sales_order_model as so_model;
+use crate::business::erp::{currency, doc_shape};
 use cloudpivot_kernel::business::shared::state_machine;
 use cloudpivot_kernel::shared::error_code;
 
-// ==================== 权限码（与 V0433 的 sys_menu.auth_code 逐字一致） ====================
+// ==================== 权限码（与 V0433 / V0434 的 sys_menu.auth_code 逐字一致） ====================
 
 /// 列表 / 详情。
 pub const PERM_LIST: &str = "business:erp:quotation:list";
@@ -76,10 +98,25 @@ pub const PERM_UPDATE: &str = "business:erp:quotation:update";
 pub const PERM_DELETE: &str = "business:erp:quotation:delete";
 /// 状态流转。
 pub const PERM_STATUS: &str = "business:erp:quotation:status";
+/// 转销售订单（M3-03；V0434 种的行）。
+pub const PERM_CONVERT: &str = "business:erp:quotation:convert";
 
-/// 报价单域全部权限码（顺序 = V0433 的 VALUES 顺序；`perm_menu_gate.py` 要求每个都在
-/// `sys_menu` 有承载行）。
-pub const QUOTATION_PERMISSIONS: [&str; 5] = [PERM_LIST, PERM_CREATE, PERM_UPDATE, PERM_DELETE, PERM_STATUS];
+/// 报价单域全部权限码（顺序 = V0433 + V0434 的 VALUES 顺序；`perm_menu_gate.py` 要求
+/// 每个都在 `sys_menu` 有承载行）。
+pub const QUOTATION_PERMISSIONS: [&str; 6] = [
+    PERM_LIST,
+    PERM_CREATE,
+    PERM_UPDATE,
+    PERM_DELETE,
+    PERM_STATUS,
+    PERM_CONVERT,
+];
+
+/// 转单在 `biz_status_log.action` 里的动作码（状态不变，动作是「转单」）。
+///
+/// 借用固定 32 字符以内的动词，前端时间线据此显示「转销售订单 SO-…」而不是
+/// 一行读起来像脏数据的 `ACCEPTED → ACCEPTED`。
+pub const CONVERT_ACTION: &str = "CONVERT";
 
 /// 一张报价单最多多少行明细（与销售订单 / 采购单同口径：超过就是导入脚本出问题了）。
 pub const MAX_LINES: usize = 200;
@@ -216,6 +253,24 @@ pub struct QuotationStatusReq {
     /// 原因（客户拒绝 / 已发出后作废必填）。
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+/// 转销售订单请求（**可以完全不带 body**：`Option<Json<…>>`，`{}` 与无 body 都当默认值）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ConvertQuotationReq {
+    /// 下单日期（`yyyy-MM-dd`，留空 = 今天 CST）。**默认今天，不是报价日期** ——
+    /// 订单日期是「客户下单那天」，报价可能是两周前发的。
+    #[serde(default)]
+    pub order_date: Option<String>,
+    /// 要求交期（`yyyy-MM-dd`，留空 = 未约定；不能早于 `order_date`）。
+    #[serde(default)]
+    pub delivery_date: Option<String>,
+    /// 销售员 id（留空 = 不指定；填了必须存在且启用）。
+    #[serde(default)]
+    pub salesperson_id: Option<String>,
+    /// 备注（留空 = `由报价单 QT-… 转换`；填了会拼在来源前面，来源不会被覆盖）。
+    #[serde(default)]
+    pub remark: Option<String>,
 }
 
 /// 分页筛选。
@@ -956,6 +1011,697 @@ pub async fn delete_quotation(operator: Option<Uuid>, id_raw: &str) -> std::resu
     Ok(())
 }
 
+// ==================== 转销售订单（M3-03）====================
+
+/// 转单出参的单头段（`data.header`，与 ERP 单据出参三段式一致，见 `doc_shape`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ConvertedOrderHeader {
+    /// 新销售订单 id。
+    pub so_id: String,
+    /// 新销售订单号（`SO-yyyyMMdd-000001`）。
+    pub so_no: String,
+    /// 订单状态（新建 = `DRAFT`）。
+    pub status: String,
+    /// 状态中文名。
+    pub status_label: String,
+    /// 客户 id（沿用报价单客户）。
+    pub customer_id: String,
+    /// 客户编码（软删客户 → `None`）。
+    pub customer_code: Option<String>,
+    /// 客户名称（软删客户 → `None`）。
+    pub customer_name: Option<String>,
+    /// 下单日期（`yyyy-MM-dd`）。
+    pub order_date: String,
+    /// 要求交期（未指定 → `None`）。
+    pub delivery_date: Option<String>,
+    /// 销售员 id（未指定 → `None`）。
+    pub salesperson_id: Option<String>,
+    /// 销售员姓名。
+    pub salesperson_name: Option<String>,
+    /// 不含税合计。
+    pub total_amount: Decimal,
+    /// 税额合计。
+    pub total_tax: Decimal,
+    /// 价税合计。
+    pub total_with_tax: Decimal,
+    /// 原币币种（转单默认账套本位币，见模块文档）。
+    pub currency_code: String,
+    /// 建单锁定的汇率（本位币单恒 1）。
+    pub exchange_rate: Decimal,
+    /// 本位币不含税金额。
+    pub base_total_amount: Decimal,
+    /// 本位币税额。
+    pub base_total_tax: Decimal,
+    /// 本位币价税合计。
+    pub base_total_with_tax: Decimal,
+    /// 订单备注（默认带「由报价单 QT-… 转换」，来源在单据上永远读得到）。
+    pub remark: Option<String>,
+}
+
+/// 转单出参的明细段（`data.items`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ConvertedOrderLine {
+    /// 行号（1 起，与报价单行号一一对应）。
+    pub line_no: i32,
+    /// 物料 id。
+    pub material_id: String,
+    /// 物料编码（软删物料 → `None`）。
+    pub material_code: Option<String>,
+    /// 物料名称（软删物料 → `None`）。
+    pub material_name: Option<String>,
+    /// 规格。
+    pub spec: Option<String>,
+    /// 计量单位名。
+    pub unit_name: Option<String>,
+    /// 数量（原样搬自报价行）。
+    pub qty: Decimal,
+    /// 不含税单价（原样搬自报价行，**不重新报价**）。
+    pub price: Decimal,
+    /// 行不含税金额。
+    pub amount: Decimal,
+    /// 税率百分数。
+    pub tax_rate: Decimal,
+    /// 行税额。
+    pub tax_amount: Decimal,
+}
+
+/// 转单出参（`data.header` / `data.items` / `data.meta` 三段式）。
+#[derive(Debug, Clone, Serialize)]
+pub struct QuotationConvertRes {
+    /// 新销售订单单头。
+    pub header: ConvertedOrderHeader,
+    /// 新销售订单明细（行数与报价单一致）。
+    pub items: Vec<ConvertedOrderLine>,
+    /// 附属信息：报价单回链 / 是否幂等命中 / 行数。
+    pub meta: doc_shape::DocMeta,
+}
+
+/// 出参需要的主数据名字（一次性查齐，避免 N+1，也避免构造出参时再失败）。
+struct OrderLabels {
+    customer_code: Option<String>,
+    customer_name: Option<String>,
+    salesperson_name: Option<String>,
+    materials: std::collections::HashMap<Uuid, transit_model::MaterialBrief>,
+}
+
+/// 落库后订单的统一视图（新建路径与幂等路径都先收敛到这里，出参只拼一遍）。
+struct OrderView {
+    so_id: Uuid,
+    so_no: String,
+    status: String,
+    order_date: NaiveDate,
+    delivery_date: Option<NaiveDate>,
+    salesperson_id: Option<Uuid>,
+    total_amount: Decimal,
+    total_tax: Decimal,
+    total_with_tax: Decimal,
+    currency_code: String,
+    exchange_rate: Decimal,
+    base_total_amount: Decimal,
+    base_total_tax: Decimal,
+    base_total_with_tax: Decimal,
+    remark: Option<String>,
+    items: Vec<LineView>,
+}
+
+/// 订单明细行的统一视图。
+struct LineView {
+    line_no: i32,
+    material_id: Uuid,
+    qty: Decimal,
+    price: Decimal,
+    amount: Decimal,
+    tax_rate: Decimal,
+    tax_amount: Decimal,
+}
+
+impl OrderView {
+    /// 由库里的订单行 + 明细行构造（幂等路径用）。
+    fn from_rows(row: &so_model::SalesOrderRow, items: &[so_model::SalesOrderItemRow]) -> Self {
+        Self {
+            so_id: row.id,
+            so_no: row.so_no.clone(),
+            status: row.status.clone(),
+            order_date: row.order_date,
+            delivery_date: row.delivery_date,
+            salesperson_id: row.salesperson_id,
+            total_amount: row.total_amount,
+            total_tax: row.total_tax,
+            total_with_tax: row.total_with_tax,
+            currency_code: row.currency_code.clone(),
+            exchange_rate: row.exchange_rate,
+            base_total_amount: row.base_total_amount,
+            base_total_tax: row.base_total_tax,
+            base_total_with_tax: row.base_total_with_tax,
+            remark: row.remark.clone(),
+            items: items
+                .iter()
+                .map(|item| LineView {
+                    line_no: item.line_no,
+                    material_id: item.material_id,
+                    qty: item.qty,
+                    price: item.price,
+                    amount: item.amount,
+                    tax_rate: item.tax_rate,
+                    tax_amount: item.tax_amount,
+                })
+                .collect(),
+        }
+    }
+}
+
+// ---------- 纯逻辑（单测直接调，不连库）----------
+
+/// 能不能转单：只有「客户已接受」（`ACCEPTED`）的报价单可以。
+///
+/// 为什么不是 `SENT`：销售订单要占信用、要出库、要生成应收与凭证 —— 那是**已成交**的意思。
+/// 报价发出去只代表「我方报了价」，客户还没表态。`SENT` 的单请先走状态接口标成
+/// 「客户已接受」（M3-02 的 `PATCH /status`，它自己带「未过期」守卫），再来转单。
+fn ensure_convertible(row: &QuotationRow) -> std::result::Result<(), ApiError> {
+    if row.status == model::STATUS_ACCEPTED {
+        return Ok(());
+    }
+    let hint = if row.status == model::STATUS_SENT {
+        "请先在状态接口把报价单标成「客户已接受」（ACCEPTED），再转销售订单"
+    } else {
+        "只有「客户已接受」（ACCEPTED）的报价单能转销售订单"
+    };
+    Err(conflict(format!(
+        "报价单 {} 当前是「{}」（{}），不能转销售订单：{hint}",
+        row.quote_no,
+        model::status_label(&row.status),
+        row.status
+    )))
+}
+
+/// 报价行 → 销售订单行（**金额整列搬，不算第二次**），并做四道数据自检。
+///
+/// 单测直接调这个函数（不连库）：它决定「转出来的订单和报价单是不是同一笔钱」。
+///
+/// | 自检 | 为什么 |
+/// |------|--------|
+/// | 至少 1 行 | 空单转出来的订单提交上去，审批人批的是空单 |
+/// | `qty > 0` / `price >= 0` / `tax_rate ∈ [0,100]` | 与两张表的 CHECK 逐条对应，先给人话 |
+/// | 每行 `amount` / `tax_amount` 与「单价 × 数量」重算一致 | 库里被绕过写入口改脏时，直接搬过去等于把脏数据洗成订单 |
+/// | 明细汇总 == 单头三项合计 | 订单金额与报价单金额必须是同一分钱 |
+fn plan_order_items(
+    row: &QuotationRow,
+    lines: &[QuotationLineRow],
+) -> std::result::Result<(Vec<so_model::NewItem>, so_model::Totals), ApiError> {
+    if lines.is_empty() {
+        return Err(conflict(format!(
+            "报价单 {} 没有明细，不能转销售订单（空的销售订单提交上去，审批人批的是一张空单）",
+            row.quote_no
+        )));
+    }
+    let mut items = Vec::with_capacity(lines.len());
+    for line in lines {
+        if line.qty <= Decimal::ZERO {
+            return Err(conflict(format!(
+                "报价单 {} 第 {} 行数量是 {}（必须 > 0），不能转销售订单：请先核对这张报价单的明细",
+                row.quote_no, line.line_no, line.qty
+            )));
+        }
+        if line.price < Decimal::ZERO {
+            return Err(conflict(format!(
+                "报价单 {} 第 {} 行单价是 {}（不能为负），不能转销售订单",
+                row.quote_no, line.line_no, line.price
+            )));
+        }
+        if line.tax_rate < Decimal::ZERO || line.tax_rate > Decimal::from(100) {
+            return Err(conflict(format!(
+                "报价单 {} 第 {} 行税率是 {}（必须在 0–100 之间），不能转销售订单",
+                row.quote_no, line.line_no, line.tax_rate
+            )));
+        }
+        let (amount, tax_amount) = model::line_amounts(line.qty, line.price, line.tax_rate);
+        if amount != line.amount || tax_amount != line.tax_amount {
+            return Err(conflict(format!(
+                "报价单 {} 第 {} 行的金额与「单价 × 数量」对不上（库里 amount = {}，重算 = {}；\
+                 tax_amount = {}，重算 = {}）：先把这张报价单的明细修对再转单\
+                 （否则等于把脏金额洗成一张要出库、要开票的销售订单）",
+                row.quote_no, line.line_no, line.amount, amount, line.tax_amount, tax_amount
+            )));
+        }
+        items.push(so_model::NewItem {
+            material_id: line.material_id,
+            qty: line.qty,
+            price: line.price,
+            tax_rate: line.tax_rate,
+            amount: line.amount,
+            tax_amount: line.tax_amount,
+        });
+    }
+    let totals = so_model::Totals::of(&items);
+    if totals.amount != row.total_amount || totals.tax != row.total_tax || totals.with_tax != row.total_with_tax {
+        return Err(conflict(format!(
+            "报价单 {} 的明细汇总（不含税 {} / 税额 {} / 价税 {}）与单头合计（{} / {} / {}）不一致：\
+             先把这张报价单的合计修对再转单",
+            row.quote_no,
+            totals.amount,
+            totals.tax,
+            totals.with_tax,
+            row.total_amount,
+            row.total_tax,
+            row.total_with_tax
+        )));
+    }
+    Ok((items, totals))
+}
+
+/// 转单请求体解析（纯逻辑，单测直接调）。
+///
+/// 空 body（含纯空白）= 全默认参数（前端「一键转单」不必先拼 `{}`）；
+/// 有 body 必须是合法 JSON 对象 —— 非法 JSON 一律 **400**，绝不静默当没传
+/// （静默吞掉 `delivery_date` 会让用户以为交期设上了）。
+fn parse_convert_body(body: &[u8]) -> std::result::Result<ConvertQuotationReq, ApiError> {
+    let text = std::str::from_utf8(body)
+        .map_err(|_| bad_request("转单请求体必须是 UTF-8 编码的 JSON"))?
+        .trim();
+    if text.is_empty() {
+        return Ok(ConvertQuotationReq::default());
+    }
+    serde_json::from_str(text).map_err(|error| bad_request(format!("转单请求体不是合法的 JSON 参数：{error}")))
+}
+
+/// 订单备注：**永远带来源**（`由报价单 QT-… 转换`）。
+/// 来源有两层：结构化的是 `biz_quotation.converted_so_id`（M3-03 回填），
+/// 人可读的是这句备注 —— 订单单独导出去 / 打印出来后，只有备注能回答「这单是哪张报价换的」。
+fn compose_order_remark(quote_no: &str, requested: Option<&str>) -> String {
+    match requested.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(text) => format!("{text}｜由报价单 {quote_no} 转换"),
+        None => format!("由报价单 {quote_no} 转换"),
+    }
+}
+
+/// 主数据名字一次查齐（客户 / 销售员 / 物料）。
+async fn labels_for(
+    customer_id: Uuid,
+    salesperson_id: Option<Uuid>,
+    material_ids: &[Uuid],
+) -> std::result::Result<OrderLabels, ApiError> {
+    let customer = customer_model::customer_find_by_id(customer_id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询转单客户"))?;
+    let salesperson_name = match salesperson_id {
+        None => None,
+        Some(id) => so_model::salesperson_labels(&[id])
+            .await
+            .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询转单销售员"))?
+            .into_iter()
+            .next()
+            .map(|(_, name)| name),
+    };
+    let materials = transit_model::material_labels(material_ids)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "批量查询转单物料"))?
+        .into_iter()
+        .map(|brief| (brief.id, brief))
+        .collect();
+    Ok(OrderLabels {
+        customer_code: customer.as_ref().map(|row| row.code.clone()),
+        customer_name: customer.as_ref().map(|row| row.name.clone()),
+        salesperson_name,
+        materials,
+    })
+}
+
+/// 出参构造（**纯函数**：名字都已查齐，构造过程不可能失败）。
+fn render_conversion(
+    row: &QuotationRow,
+    view: OrderView,
+    labels: &OrderLabels,
+    line_count: usize,
+    already_converted: bool,
+    today: NaiveDate,
+) -> QuotationConvertRes {
+    let items: Vec<ConvertedOrderLine> = view
+        .items
+        .iter()
+        .map(|item| {
+            let (code, name, spec, unit) = match labels.materials.get(&item.material_id) {
+                Some(brief) => (
+                    Some(brief.code.clone()),
+                    Some(brief.name.clone()),
+                    brief.spec.clone(),
+                    brief.unit_name.clone(),
+                ),
+                None => (None, None, None, None),
+            };
+            ConvertedOrderLine {
+                line_no: item.line_no,
+                material_id: item.material_id.to_string(),
+                material_code: code,
+                material_name: name,
+                spec,
+                unit_name: unit,
+                qty: item.qty,
+                price: item.price,
+                amount: item.amount,
+                tax_rate: item.tax_rate,
+                tax_amount: item.tax_amount,
+            }
+        })
+        .collect();
+    let meta = doc_shape::DocMeta::empty()
+        .with_extra("quotation_id", serde_json::json!(row.id.to_string()))
+        .with_extra("quote_no", serde_json::json!(row.quote_no))
+        .with_extra("quotation_status", serde_json::json!(row.status))
+        .with_extra("quotation_expired", serde_json::json!(row.expired_on(today)))
+        .with_extra("line_count", serde_json::json!(line_count))
+        .with_extra("already_converted", serde_json::json!(already_converted));
+    QuotationConvertRes {
+        header: ConvertedOrderHeader {
+            so_id: view.so_id.to_string(),
+            so_no: view.so_no,
+            status_label: so_model::status_label(&view.status).to_string(),
+            status: view.status,
+            customer_id: row.customer_id.to_string(),
+            customer_code: labels.customer_code.clone(),
+            customer_name: labels.customer_name.clone(),
+            order_date: view.order_date.to_string(),
+            delivery_date: view.delivery_date.map(|date| date.to_string()),
+            salesperson_id: view.salesperson_id.map(|id| id.to_string()),
+            salesperson_name: labels.salesperson_name.clone(),
+            total_amount: view.total_amount,
+            total_tax: view.total_tax,
+            total_with_tax: view.total_with_tax,
+            currency_code: view.currency_code,
+            exchange_rate: view.exchange_rate,
+            base_total_amount: view.base_total_amount,
+            base_total_tax: view.base_total_tax,
+            base_total_with_tax: view.base_total_with_tax,
+            remark: view.remark,
+        },
+        items,
+        meta,
+    }
+}
+
+/// 幂等路径：报价单已经转过单 → 回那张订单（**不再建第二张**）。
+async fn existing_conversion(
+    row: &QuotationRow,
+    so_id: Uuid,
+    today: NaiveDate,
+) -> std::result::Result<QuotationConvertRes, ApiError> {
+    let order = so_model::find_order(so_id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询报价单已转出的销售订单"))?
+        .ok_or_else(|| {
+            conflict(format!(
+                "报价单 {} 记录的销售订单 {so_id} 已不存在（被删除 / 数据被改）：\
+                 不能重复转单，请人工核对后处理",
+                row.quote_no
+            ))
+        })?;
+    let items = so_model::items_of(so_id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询已转出订单的明细"))?;
+    let material_ids: Vec<Uuid> = items.iter().map(|item| item.material_id).collect();
+    let labels = labels_for(row.customer_id, order.salesperson_id, &material_ids).await?;
+    let line_count = items.len();
+    let view = OrderView::from_rows(&order, &items);
+    Ok(render_conversion(row, view, &labels, line_count, true, today))
+}
+
+/// 客户必须存在、未软删且 `ACTIVE`（**冻结客户不许开新订单**，与销售订单建单同口径）。
+///
+/// 这里刻意不复用报价单侧的 `require_active_customer`（它给 400）：转单是「开一张要出库、
+/// 要占信用的订单」，客户冻结属于**当前状态冲突**，给 409 才说得清。
+async fn ensure_customer_convertible(customer_id: Uuid) -> std::result::Result<CustomerRow, ApiError> {
+    let customer = customer_model::customer_find_by_id(customer_id)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "查询转单客户"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                404,
+                error_code::RESOURCE_NOT_FOUND,
+                format!("客户 {customer_id} 不存在或已删除（客户是弱引用，转单前必须校验）"),
+            )
+        })?;
+    if customer.status != STATUS_ACTIVE {
+        return Err(conflict(format!(
+            "客户 `{}`（{}）已冻结（{}）：不能新开销售订单，请先解冻再转单",
+            customer.code, customer.name, customer.status
+        )));
+    }
+    Ok(customer)
+}
+
+/// 转销售订单（**带行**，一次事务：建订单 + 回填报价单 + 写轨迹）。
+///
+/// # 事务边界（与「采购申请 → 采购订单」的关键区别）
+///
+/// 采购申请转单用的是「先提交 PO 再回写申请单」两段事务，留下一段已知的中间态；
+/// 这里**全部在一个事务里**（`sales_order_model::create_order` 收执行器，不自己开事务）：
+///
+/// ```text
+/// BEGIN
+///   SELECT … FROM biz_quotation WHERE id = ? FOR UPDATE     -- 锁单：并发第二个请求在这里排队
+///   已转过 → ROLLBACK，返回那张订单（幂等，200 + meta.already_converted = true）
+///   状态守卫 / 明细自检 / 客户未冻结 / 汇率锁定
+///   INSERT biz_sales_order(+item)                           -- 新订单 DRAFT，取号 SO-…
+///   UPDATE biz_quotation SET converted_so_id, converted_at  -- CAS：status 未变 且 尚未转单
+///   INSERT biz_status_log（QUOTATION，ACCEPTED→ACCEPTED，action=CONVERT，biz_ref=SALES_ORDER/SO-…）
+/// COMMIT
+/// ```
+///
+/// 任何一步失败 → 整笔回滚：**不会出现「订单建了、报价单没回链」或「回链了、订单没建」**
+/// （约定 11：不许留只能改库才能收拾的中间态）。
+///
+/// # 币种
+/// 报价单没有币种列（V0432 口径：报价阶段不锁汇率），转单按**账套本位币**记
+/// （`currency::lock(None, …)`），`exchange_rate = 1`。外币报价要转外币订单，
+/// 是另一个决定（报价单先补币种列），不在本卡。
+pub async fn convert_quotation(
+    operator: Option<Uuid>,
+    id_raw: &str,
+    req: ConvertQuotationReq,
+) -> std::result::Result<QuotationConvertRes, ApiError> {
+    let id = parse_uuid(id_raw, "id")?;
+    let today = model::today_cst(Utc::now());
+    let order_date = parse_date(req.order_date.as_deref(), "order_date")?.unwrap_or(today);
+    let delivery_date = parse_date(req.delivery_date.as_deref(), "delivery_date")?;
+    if let Some(delivery) = delivery_date
+        && delivery < order_date
+    {
+        return Err(bad_request(format!(
+            "delivery_date（{delivery}）不能早于 order_date（{order_date}）"
+        )));
+    }
+    let salesperson_id = match req
+        .salesperson_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        None => None,
+        Some(raw) => Some(parse_uuid(raw, "salesperson_id")?),
+    };
+    if let Some(salesperson) = salesperson_id
+        && so_model::active_salesperson(salesperson)
+            .await
+            .map_err(|error| cloudpivot_kernel::utils::db_error(error, "校验转单销售员"))?
+            .is_none()
+    {
+        return Err(bad_request(format!(
+            "销售员 {salesperson} 不存在、已删除或已停用：只能选启用状态的账号（停用账号不该再接新单计佣）"
+        )));
+    }
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "开启转单事务"))?;
+
+    // ① 锁单（并发第二个请求在这里排队，拿到的是「已转过」的最新行）
+    let row = match model::lock_quotation(&tx, id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(not_found());
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(cloudpivot_kernel::utils::db_error(error, "锁定报价单"));
+        }
+    };
+
+    // ② 幂等：已经转过 → 回那张订单，绝不建第二张
+    if let Some(so_id) = row.converted_so_id {
+        let _ = tx.rollback().await;
+        return existing_conversion(&row, so_id, today).await;
+    }
+
+    // ③ 状态守卫 + 明细自检（纯逻辑，读的是锁内快照）
+    if let Err(error) = ensure_convertible(&row) {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
+    let lines = match model::lines_of_in(&tx, id).await {
+        Ok(lines) => lines,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(cloudpivot_kernel::utils::db_error(error, "查询待转单报价单明细"));
+        }
+    };
+    let (items, totals) = match plan_order_items(&row, &lines) {
+        Ok(plan) => plan,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+
+    // ④ 客户 / 汇率（读，不写）
+    let customer = match ensure_customer_convertible(row.customer_id).await {
+        Ok(customer) => customer,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    let locked = match currency::lock(db(), None, order_date)
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "取转单汇率"))
+        .and_then(|outcome| outcome.into_locked("销售订单（由报价单转换）"))
+    {
+        Ok(locked) => locked,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    debug_assert_eq!(locked.exchange_rate, Decimal::from(1), "本位币单汇率恒为 1");
+    let remark = compose_order_remark(&row.quote_no, req.remark.as_deref());
+    let material_ids: Vec<Uuid> = items.iter().map(|item| item.material_id).collect();
+    // 名字在提交前查齐：提交之后再查失败虽然不影响数据（重试走幂等路径），但会白扔一次 500
+    let labels = match labels_for(row.customer_id, salesperson_id, &material_ids).await {
+        Ok(labels) => labels,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    let base_amounts = currency::BaseAmounts::of(totals.amount, totals.tax, locked.exchange_rate);
+    let new_order = so_model::NewSalesOrder {
+        customer_id: row.customer_id,
+        // 报价单不挂合同（V0432 无 contract_id）：合同在订单上另行关联，不在这里猜
+        contract_id: None,
+        salesperson_id,
+        order_date,
+        delivery_date,
+        remark: Some(remark.as_str()),
+    };
+
+    // ⑤ 建订单（同一个事务）
+    let (so_id, so_no) = match so_model::create_order(
+        &tx,
+        &new_order,
+        &items,
+        &totals,
+        &locked,
+        state_machine::Operator::of(operator),
+        now,
+    )
+    .await
+    {
+        Ok(created) => created,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(write_error(error, "转单建销售订单"));
+        }
+    };
+
+    // ⑥ 回填报价单（CAS：状态没变 且 还没转过）—— 0 行就整笔回滚，绝不留孤订单
+    let affected = match model::mark_converted(&tx, id, &row.status, so_id, operator, now).await {
+        Ok(affected) => affected,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(write_error(error, "转单回填报价单"));
+        }
+    };
+    if affected == 0 {
+        let _ = tx.rollback().await;
+        return Err(conflict(format!(
+            "报价单 {} 的状态在本次转单期间已被改动（期望 {} 且未转过），请刷新后重试",
+            row.quote_no, row.status
+        )));
+    }
+
+    // ⑦ 轨迹：状态没变（ACCEPTED→ACCEPTED）但这是一次业务事件，走 log_event 留痕
+    let reason = format!("转销售订单 {so_no}");
+    if let Err(error) = state_machine::log_event(
+        &tx,
+        state_machine::ENTITY_QUOTATION,
+        id,
+        &row.quote_no,
+        &row.status,
+        Some(CONVERT_ACTION),
+        state_machine::Operator::of(operator),
+        Some(&reason),
+        Some(("SALES_ORDER", &so_no)),
+    )
+    .await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
+
+    tx.commit()
+        .await
+        .map_err(|error| cloudpivot_kernel::utils::db_error(error, "提交转单事务"))?;
+    tracing::info!(
+        quotation_id = %id,
+        quote_no = %row.quote_no,
+        so_id = %so_id,
+        so_no = %so_no,
+        lines = items.len(),
+        total_with_tax = %totals.with_tax,
+        "报价单转销售订单完成"
+    );
+
+    let view = OrderView {
+        so_id,
+        so_no,
+        status: so_model::STATUS_DRAFT.to_string(),
+        order_date,
+        delivery_date,
+        salesperson_id,
+        total_amount: totals.amount,
+        total_tax: totals.tax,
+        total_with_tax: totals.with_tax,
+        currency_code: locked.currency_code.clone(),
+        exchange_rate: locked.exchange_rate,
+        base_total_amount: base_amounts.amount,
+        base_total_tax: base_amounts.tax,
+        base_total_with_tax: base_amounts.with_tax,
+        remark: Some(remark),
+        items: items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| LineView {
+                line_no: i32::try_from(index + 1).unwrap_or(i32::MAX),
+                material_id: item.material_id,
+                qty: item.qty,
+                price: item.price,
+                amount: item.amount,
+                tax_rate: item.tax_rate,
+                tax_amount: item.tax_amount,
+            })
+            .collect(),
+    };
+    let line_count = items.len();
+    // 客户行刚刚查过（冻结客户在上面就 409 了）；名字没查到时用这里的兜底
+    let mut labels = labels;
+    if labels.customer_code.is_none() {
+        labels.customer_code = Some(customer.code.clone());
+        labels.customer_name = Some(customer.name.clone());
+    }
+    Ok(render_conversion(&row, view, &labels, line_count, false, today))
+}
+
 // ==================== HTTP 入口 ====================
 
 /// 报价单分页。
@@ -1042,7 +1788,30 @@ pub async fn quotation_delete(
     Ok(Res::ok(delete_quotation(operator, &id).await?))
 }
 
-/// 权限码自检：5 个码、无重复、前缀 `business:erp:quotation:`（V0433 的菜单行逐字对应）。
+/// 转销售订单（一键转单，带行；已转过 → 幂等回同一张订单）。
+///
+/// 请求体用 `Bytes` 而不是 `Json<…>`：一键转单的调用方常常**不带 body**
+/// （`opt = None` + `Content-Type: application/json` 也会让 `Json` 提取器报
+/// 「Failed to parse the request body as JSON: EOF」）。空 body 一律当默认参数，
+/// 有 body 才按 JSON 解析，非法 JSON 给 400（不静默当没传）。
+#[nik::permission(
+    path = "/business/erp/quotation/{id}/convert",
+    method = "POST",
+    permission = "business:erp:quotation:convert"
+)]
+#[nik::post("/business/erp/quotation/{id}/convert")]
+pub async fn quotation_convert(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> ResResult<QuotationConvertRes> {
+    let operator = cloudpivot_kernel::utils::current_user_uuid(&claims);
+    Ok(Res::ok(
+        convert_quotation(operator, &id, parse_convert_body(&body)?).await?,
+    ))
+}
+
+/// 权限码自检：6 个码、无重复、前缀 `business:erp:quotation:`（V0433 / V0434 的菜单行逐字对应）。
 pub fn all_permissions() -> Vec<&'static str> {
     QUOTATION_PERMISSIONS.to_vec()
 }
@@ -1068,18 +1837,18 @@ mod tests {
         }
     }
 
-    /// 权限码：5 个、无重复、统一前缀（与 V0433 的 sys_menu 行逐字一致）。
+    /// 权限码：6 个、无重复、统一前缀（与 V0433 / V0434 的 sys_menu 行逐字一致）。
     #[test]
     fn permission_codes_are_unique_and_prefixed() {
-        assert_eq!(QUOTATION_PERMISSIONS.len(), 5);
-        assert_eq!(all_permissions().len(), 5);
+        assert_eq!(QUOTATION_PERMISSIONS.len(), 6);
+        assert_eq!(all_permissions().len(), 6);
         let prefix = "business:erp:quotation:";
         let mut seen = std::collections::BTreeSet::new();
         for code in QUOTATION_PERMISSIONS {
             assert!(code.starts_with(prefix), "{code} 前缀必须统一");
             assert!(seen.insert(code), "{code} 重复");
         }
-        for suffix in ["list", "create", "update", "delete", "status"] {
+        for suffix in ["list", "create", "update", "delete", "status", "convert"] {
             assert!(
                 QUOTATION_PERMISSIONS.contains(&format!("{prefix}{suffix}").as_str()),
                 "缺权限码 {prefix}{suffix}"
@@ -1164,5 +1933,505 @@ mod tests {
         let err = parse_uuid("  abc  ", "customer_id").expect_err("非法值必须拒");
         assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
         assert!(err.msg.contains("customer_id"), "文案要指名字段");
+    }
+
+    // ==================== 转单：纯逻辑（M3-03） ====================
+
+    /// 一张报价单（只有转单用得上的字段有真实值）。
+    fn quote_row(status: &str, amount: &str, tax: &str) -> QuotationRow {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 17).expect("固定日期");
+        QuotationRow {
+            id: Uuid::now_v7(),
+            quote_no: "QT-20261117-000001".to_string(),
+            customer_id: Uuid::now_v7(),
+            quote_date: today,
+            valid_until: today,
+            status: status.to_string(),
+            total_amount: dec(amount),
+            total_tax: dec(tax),
+            total_with_tax: dec(amount) + dec(tax),
+            converted_so_id: None,
+            converted_at: None,
+            remark: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            create_by: None,
+            update_by: None,
+            deleted_at: None,
+        }
+    }
+
+    fn quote_line(line_no: i32, qty: &str, price: &str, rate: &str) -> QuotationLineRow {
+        let (amount, tax_amount) = model::line_amounts(dec(qty), dec(price), dec(rate));
+        QuotationLineRow {
+            id: Uuid::now_v7(),
+            quotation_id: Uuid::now_v7(),
+            line_no,
+            material_id: Uuid::now_v7(),
+            qty: dec(qty),
+            price: dec(price),
+            amount,
+            tax_rate: dec(rate),
+            tax_amount,
+            remark: None,
+        }
+    }
+
+    /// 只有 ACCEPTED 能转单；SENT 的文案要告诉用户「先标接受」。
+    #[test]
+    fn convert_guard_only_accepts_accepted() {
+        ensure_convertible(&quote_row(model::STATUS_ACCEPTED, "0", "0")).expect("已接受的单必须能转");
+        for status in [model::STATUS_DRAFT, model::STATUS_REJECTED, model::STATUS_CANCELLED] {
+            let err = ensure_convertible(&quote_row(status, "0", "0")).expect_err("非 ACCEPTED 一律不能转");
+            assert_eq!(err.status, 409, "状态冲突给 409 不是 400：{status}");
+            assert!(err.msg.contains(status), "文案要带当前状态码：{}", err.msg);
+        }
+        let sent = ensure_convertible(&quote_row(model::STATUS_SENT, "0", "0")).expect_err("SENT 不能直接转单");
+        assert!(sent.msg.contains("客户已接受"), "SENT 要给可执行提示：{}", sent.msg);
+        assert!(sent.msg.contains("ACCEPTED"), "提示要给出目标状态码：{}", sent.msg);
+    }
+
+    /// 转单带行：物料 / 数量 / 单价 / 税率 / 行金额原样搬，单头三项合计一致。
+    #[test]
+    fn convert_plan_copies_lines_verbatim() {
+        let lines = vec![quote_line(1, "3", "17.655", "13"), quote_line(2, "2.5", "100", "0")];
+        let amount = lines[0].amount + lines[1].amount;
+        let tax = lines[0].tax_amount + lines[1].tax_amount;
+        let row = quote_row(model::STATUS_ACCEPTED, &amount.to_string(), &tax.to_string());
+        let (items, totals) = plan_order_items(&row, &lines).expect("干净数据应通过");
+        assert_eq!(items.len(), 2);
+        for (item, line) in items.iter().zip(lines.iter()) {
+            assert_eq!(item.material_id, line.material_id, "物料不能换");
+            assert_eq!(item.qty, line.qty);
+            assert_eq!(item.price, line.price);
+            assert_eq!(item.tax_rate, line.tax_rate);
+            assert_eq!(item.amount, line.amount, "行金额必须整列搬，不重算");
+            assert_eq!(item.tax_amount, line.tax_amount);
+        }
+        assert_eq!(totals.amount, row.total_amount);
+        assert_eq!(totals.tax, row.total_tax);
+        assert_eq!(totals.with_tax, row.total_with_tax, "价税合计要与报价单同一分钱");
+        // 6 位小数单价 × 数量：金额 4 位定标（3 × 17.655 = 52.9650）
+        assert_eq!(items[0].amount, dec("52.9650"));
+    }
+
+    /// 脏数据一律 409 拒绝（不许把脏金额洗成一张要出库、要开票的订单）。
+    #[test]
+    fn convert_plan_rejects_dirty_data() {
+        // ① 空明细
+        let row = quote_row(model::STATUS_ACCEPTED, "0", "0");
+        let err = plan_order_items(&row, &[]).expect_err("空明细不能转");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("没有明细"), "{}", err.msg);
+
+        // ② 数量 0 / 单价负 / 税率越界
+        for (qty, price, rate, needle) in [
+            ("0", "10", "13", "数量"),
+            ("1", "-0.01", "13", "单价"),
+            ("1", "10", "100.0001", "税率"),
+        ] {
+            let line = quote_line(1, qty, price, rate);
+            // 让单头与行一致，确保命中的是「行级校验」而不是「合计不一致」
+            let row = quote_row(
+                model::STATUS_ACCEPTED,
+                &line.amount.to_string(),
+                &line.tax_amount.to_string(),
+            );
+            let err = plan_order_items(&row, std::slice::from_ref(&line)).expect_err("非法行必须拒");
+            assert_eq!(err.status, 409);
+            assert!(err.msg.contains(needle), "文案要指名字段（{needle}）：{}", err.msg);
+        }
+
+        // ③ 行金额被绕过写入口改脏 → 拒绝（不能原样搬过去）
+        let mut line = quote_line(1, "2", "10", "13");
+        line.amount = dec("999.9999");
+        let row = quote_row(
+            model::STATUS_ACCEPTED,
+            &line.amount.to_string(),
+            &line.tax_amount.to_string(),
+        );
+        let err = plan_order_items(&row, std::slice::from_ref(&line)).expect_err("脏行金额必须拒");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("对不上"), "{}", err.msg);
+
+        // ④ 明细汇总与单头合计不一致 → 拒绝
+        let line = quote_line(1, "2", "10", "13");
+        let row = quote_row(model::STATUS_ACCEPTED, "1", "1");
+        let err = plan_order_items(&row, std::slice::from_ref(&line)).expect_err("合计不一致必须拒");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("不一致"), "{}", err.msg);
+    }
+
+    /// 订单备注永远带来源（用户填的备注只是前缀，不能把来源顶掉）。
+    #[test]
+    fn convert_remark_always_keeps_source() {
+        assert_eq!(
+            compose_order_remark("QT-20261117-000001", None),
+            "由报价单 QT-20261117-000001 转换"
+        );
+        assert_eq!(
+            compose_order_remark("QT-20261117-000001", Some("   ")),
+            "由报价单 QT-20261117-000001 转换",
+            "空白备注等同没填"
+        );
+        assert_eq!(
+            compose_order_remark("QT-20261117-000001", Some("款到发货")),
+            "款到发货｜由报价单 QT-20261117-000001 转换"
+        );
+    }
+
+    /// 请求体解析：空 body = 默认参数；有 body 必须合法 JSON（非法一律 400，不静默吞）。
+    #[test]
+    fn convert_body_is_optional_but_never_silently_ignored() {
+        // 空 / 纯空白 body → 全默认（前端「一键转单」不用先拼 `{}`）
+        for empty in [&b""[..], b"   ", b"\n\t "] {
+            let req = parse_convert_body(empty).expect("空 body 必须走默认值");
+            assert!(req.order_date.is_none() && req.delivery_date.is_none());
+            assert!(req.salesperson_id.is_none() && req.remark.is_none());
+        }
+        // 合法 JSON：字段全部可选
+        let req = parse_convert_body(r#"{"order_date":"2026-11-17","remark":"款到发货"}"#.as_bytes())
+            .expect("合法 JSON 应解析成功");
+        assert_eq!(req.order_date.as_deref(), Some("2026-11-17"));
+        assert_eq!(req.remark.as_deref(), Some("款到发货"));
+        assert!(parse_convert_body(b"{}").expect("空对象合法").order_date.is_none());
+        // 非法 JSON / 非 UTF-8 → 400（静默当没传会让用户以为交期设上了）
+        for bad in [&b"{"[..], b"[1,2,3]", b"order_date=2026-11-17"] {
+            let err = parse_convert_body(bad).expect_err("非法 JSON 必须 400");
+            assert_eq!(err.status, 400);
+            assert!(err.msg.contains("JSON"), "文案要说清是请求体问题：{}", err.msg);
+        }
+        let err = parse_convert_body(&[0xff, 0xfe]).expect_err("非 UTF-8 必须 400");
+        assert_eq!(err.status, 400);
+    }
+
+    // ==================== 转单：真库用例（M3-03） ====================
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    /// 夹具客户编码（清场按它定位 —— 单号是取号器生成的，不能按前缀删单据）。
+    const CUSTOMER_CODE: &str = "M303-CUST";
+
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                match cloudpivot_kernel::shared::test_fixture::connect(&url).await {
+                    Ok(connection) => match set_db(connection) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            println!("SKIP: set_db 失败（{err}）");
+                            false
+                        }
+                    },
+                    Err(err) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        cleanup().await;
+        Some(guard)
+    }
+
+    /// 清场：状态日志 → 销售订单（明细 CASCADE）→ 报价单（明细 CASCADE）→ 夹具客户。
+    async fn cleanup() {
+        let statements: [(&str, Vec<nik::prelude::Value>); 5] = [
+            (
+                "DELETE FROM biz_status_log \
+                  WHERE entity_id IN (SELECT id FROM biz_quotation \
+                                        WHERE customer_id IN (SELECT id FROM biz_customer WHERE code = ?))",
+                vec![Value::from(CUSTOMER_CODE)],
+            ),
+            (
+                "DELETE FROM biz_status_log \
+                  WHERE entity_id IN (SELECT id FROM biz_sales_order \
+                                        WHERE customer_id IN (SELECT id FROM biz_customer WHERE code = ?))",
+                vec![Value::from(CUSTOMER_CODE)],
+            ),
+            (
+                "DELETE FROM biz_sales_order \
+                  WHERE customer_id IN (SELECT id FROM biz_customer WHERE code = ?)",
+                vec![Value::from(CUSTOMER_CODE)],
+            ),
+            (
+                "DELETE FROM biz_quotation \
+                  WHERE customer_id IN (SELECT id FROM biz_customer WHERE code = ?)",
+                vec![Value::from(CUSTOMER_CODE)],
+            ),
+            (
+                "DELETE FROM biz_customer WHERE code = ?",
+                vec![Value::from(CUSTOMER_CODE)],
+            ),
+        ];
+        for (sql, params) in statements {
+            if let Err(err) = db().execute_with_params(sql, params).await {
+                panic!("清理夹具失败：{err}\nSQL: {sql}");
+            }
+        }
+    }
+
+    /// 夹具客户（ACTIVE）。存在则复用。
+    async fn fixture_customer() -> Uuid {
+        db().execute_with_params(
+            "INSERT INTO biz_customer (id, code, name, credit_limit, status) \
+             VALUES (gen_random_uuid(), ?, 'M3-03 夹具客户', 1000000, 'ACTIVE') \
+             ON CONFLICT DO NOTHING",
+            vec![Value::from(CUSTOMER_CODE)],
+        )
+        .await
+        .expect("插夹具客户应成功");
+        db().scalar_with_params(
+            "SELECT id FROM biz_customer WHERE code = ? AND deleted_at IS NULL",
+            vec![Value::from(CUSTOMER_CODE)],
+        )
+        .await
+        .expect("查夹具客户应成功")
+    }
+
+    fn new_line(qty: &str, price: &str, rate: &str) -> NewLine {
+        let (qty, price, rate) = (dec(qty), dec(price), dec(rate));
+        let (amount, tax_amount) = model::line_amounts(qty, price, rate);
+        NewLine {
+            material_id: Uuid::now_v7(),
+            qty,
+            price,
+            tax_rate: rate,
+            amount,
+            tax_amount,
+            remark: None,
+        }
+    }
+
+    /// 建一张报价单并推到 `status`（按合法边逐跳 CAS，不绕过状态机）。
+    async fn quotation_in_status(customer: Uuid, status: &str, lines: &[NewLine]) -> Uuid {
+        let today = model::today_cst(Utc::now());
+        let totals = model::Totals::of(lines);
+        let tx = db().begin().await.expect("开事务");
+        let (id, _no) = model::create_quotation(
+            &tx,
+            &model::NewQuotation {
+                customer_id: customer,
+                quote_date: today,
+                valid_until: today + nik::prelude::chrono::Duration::days(14),
+                remark: Some("M3-03 转单夹具"),
+            },
+            lines,
+            &totals,
+            state_machine::Operator::of(None),
+            Utc::now(),
+        )
+        .await
+        .expect("建报价单应成功");
+        let path: &[&str] = match status {
+            model::STATUS_DRAFT => &[],
+            model::STATUS_SENT => &[model::STATUS_SENT],
+            model::STATUS_ACCEPTED => &[model::STATUS_SENT, model::STATUS_ACCEPTED],
+            other => panic!("夹具不支持的中间状态：{other}"),
+        };
+        let mut from = model::STATUS_DRAFT;
+        for target in path {
+            let affected = model::apply_status(&tx, id, from, target, None, Utc::now())
+                .await
+                .expect("状态流转应成功");
+            assert_eq!(affected, 1, "CAS 应命中（{from} → {target}）");
+            from = target;
+        }
+        tx.commit().await.expect("提交");
+        id
+    }
+
+    async fn order_count(customer: Uuid) -> i64 {
+        db().scalar_with_params(
+            "SELECT count(*) FROM biz_sales_order WHERE customer_id = ? AND deleted_at IS NULL",
+            vec![Value::from(&customer)],
+        )
+        .await
+        .expect("统计订单数应成功")
+    }
+
+    /// 转单主链：ACCEPTED → 新 DRAFT 订单（行数与金额逐行一致）+ 报价单回填 + 轨迹一行。
+    #[tokio::test]
+    async fn convert_creates_order_with_lines_and_backfills_quotation() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer().await;
+        let lines = vec![new_line("3", "17.655", "13"), new_line("2.5", "100", "0")];
+        let quotation_id = quotation_in_status(customer, model::STATUS_ACCEPTED, &lines).await;
+        let before = model::find_quotation(quotation_id)
+            .await
+            .expect("查报价单")
+            .expect("报价单必须存在");
+
+        let res = convert_quotation(None, &quotation_id.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect("转单应成功");
+
+        // ① 订单单头：DRAFT / SO- 单号 / 金额与报价单同一分钱 / 本位币汇率 1 / 备注带来源
+        assert!(res.header.so_no.starts_with("SO-"), "订单号前缀：{}", res.header.so_no);
+        assert_eq!(res.header.status, so_model::STATUS_DRAFT);
+        assert_eq!(res.header.total_amount, before.total_amount);
+        assert_eq!(res.header.total_tax, before.total_tax);
+        assert_eq!(res.header.total_with_tax, before.total_with_tax);
+        assert_eq!(res.header.exchange_rate, Decimal::from(1));
+        assert_eq!(
+            res.header.base_total_with_tax, before.total_with_tax,
+            "本位币单 base = 原币"
+        );
+        let remark = res.header.remark.clone().unwrap_or_default();
+        assert!(remark.contains(&before.quote_no), "订单备注必须留来源：{remark}");
+        assert_eq!(res.meta.extra.get("already_converted"), Some(&serde_json::json!(false)));
+
+        // ② 明细逐行搬（物料 / 数量 / 单价 / 税率 / 金额）
+        assert_eq!(res.items.len(), 2);
+        for (item, line) in res.items.iter().zip(lines.iter()) {
+            assert_eq!(item.material_id, line.material_id.to_string());
+            assert_eq!(item.qty, line.qty);
+            assert_eq!(item.price, line.price);
+            assert_eq!(item.tax_rate, line.tax_rate);
+            assert_eq!(item.amount, line.amount);
+            assert_eq!(item.tax_amount, line.tax_amount);
+        }
+        // 库里也真的落了这两行（不是只在出参里对）
+        let so_id = Uuid::parse_str(&res.header.so_id).expect("订单 id 是 uuid");
+        let stored = so_model::items_of(so_id).await.expect("查订单明细");
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].line_no, 1);
+        assert_eq!(stored[1].line_no, 2);
+        assert_eq!(stored[0].amount, lines[0].amount);
+
+        // ③ 报价单回填（converted_so_id + converted_at 成对）
+        let after = model::find_quotation(quotation_id)
+            .await
+            .expect("查报价单")
+            .expect("报价单必须存在");
+        assert_eq!(after.converted_so_id, Some(so_id), "必须回填转成的订单 id");
+        assert!(after.converted_at.is_some(), "converted_at 必须与 id 成对");
+        assert_eq!(after.status, model::STATUS_ACCEPTED, "转单不改状态（仍是已接受）");
+
+        // ④ 轨迹：状态不变但动作是 CONVERT，biz_ref 指向订单
+        let log: (String, String, String) = db()
+            .find_with_params(
+                "SELECT COALESCE(action,'') AS action, to_status, COALESCE(biz_ref_no,'') AS biz_ref_no \
+                   FROM biz_status_log \
+                  WHERE entity_type = 'QUOTATION' AND entity_id = ?::uuid AND action = ? \
+                  ORDER BY created_at DESC LIMIT 1",
+                vec![Value::from(&quotation_id), Value::from(CONVERT_ACTION)],
+            )
+            .await
+            .expect("查轨迹应成功")
+            .first()
+            .map(|row| {
+                (
+                    row.get_typed("action").unwrap_or_default(),
+                    row.get_typed("to_status").unwrap_or_default(),
+                    row.get_typed("biz_ref_no").unwrap_or_default(),
+                )
+            })
+            .expect("必须有 CONVERT 轨迹行");
+        assert_eq!(log.0, CONVERT_ACTION);
+        assert_eq!(log.1, model::STATUS_ACCEPTED, "状态没变（ACCEPTED→ACCEPTED）");
+        assert_eq!(log.2, res.header.so_no, "轨迹要指向订单号");
+    }
+
+    /// 幂等：再点一次不建第二张订单，200 回原单（`already_converted = true`）。
+    #[tokio::test]
+    async fn convert_is_idempotent_and_never_builds_two_orders() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer().await;
+        let lines = vec![new_line("1", "10", "13")];
+        let quotation_id = quotation_in_status(customer, model::STATUS_ACCEPTED, &lines).await;
+
+        let first = convert_quotation(None, &quotation_id.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect("第一次转单应成功");
+        assert!(!first.meta.extra["already_converted"].as_bool().unwrap_or(true));
+        let second = convert_quotation(None, &quotation_id.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect("第二次转单应成功（幂等）");
+        assert_eq!(second.header.so_id, first.header.so_id, "必须回同一张订单");
+        assert_eq!(second.header.so_no, first.header.so_no);
+        assert_eq!(
+            second.meta.extra.get("already_converted"),
+            Some(&serde_json::json!(true)),
+            "第二次要标记 already_converted = true"
+        );
+        assert_eq!(order_count(customer).await, 1, "重复转单绝不能建出第二张订单");
+        assert_eq!(second.items.len(), 1, "幂等路径也要带明细");
+    }
+
+    /// 守卫：非 ACCEPTED 一律 409，且**一张订单都不许建**（不能留半截数据）。
+    #[tokio::test]
+    async fn convert_refuses_non_accepted_and_leaves_no_order() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer().await;
+        let lines = vec![new_line("1", "10", "13")];
+
+        // SENT：提示先标「客户已接受」
+        let sent = quotation_in_status(customer, model::STATUS_SENT, &lines).await;
+        let err = convert_quotation(None, &sent.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect_err("SENT 不能转单");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("客户已接受"), "文案要给可执行提示：{}", err.msg);
+        assert_eq!(order_count(customer).await, 0, "被守卫挡下时不许建订单");
+        assert!(
+            model::find_quotation(sent)
+                .await
+                .expect("查报价单")
+                .expect("报价单在")
+                .converted_so_id
+                .is_none(),
+            "被守卫挡下时不许回填"
+        );
+
+        // DRAFT：同样 409
+        let draft = quotation_in_status(customer, model::STATUS_DRAFT, &lines).await;
+        let err = convert_quotation(None, &draft.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect_err("DRAFT 不能转单");
+        assert_eq!(err.status, 409);
+        assert_eq!(order_count(customer).await, 0);
+
+        // 客户冻结：ACCEPTED 也转不了，且订单数仍为 0（整笔回滚）
+        let accepted = quotation_in_status(customer, model::STATUS_ACCEPTED, &lines).await;
+        db().execute_with_params(
+            "UPDATE biz_customer SET status = 'FROZEN' WHERE id = ?",
+            vec![Value::from(&customer)],
+        )
+        .await
+        .expect("冻结客户应成功");
+        let err = convert_quotation(None, &accepted.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect_err("冻结客户不能转单");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("冻结"), "{}", err.msg);
+        assert_eq!(order_count(customer).await, 0, "失败路径不许留孤订单");
+        db().execute_with_params(
+            "UPDATE biz_customer SET status = 'ACTIVE' WHERE id = ?",
+            vec![Value::from(&customer)],
+        )
+        .await
+        .expect("解冻客户应成功");
+
+        // 解冻后同一张单能转（证明前置失败没有留下「转不了」的中间态）
+        let ok = convert_quotation(None, &accepted.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect("解冻后应能转单");
+        assert_eq!(ok.header.status, so_model::STATUS_DRAFT);
+        assert_eq!(order_count(customer).await, 1);
     }
 }

@@ -935,6 +935,18 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     state_machine::ENTITY_LEAVE_REQUEST,
     state_machine::ENTITY_ATTENDANCE_PERIOD,
     state_machine::ENTITY_SALARY_SHEET,
+    // 销售链 M3（报价单，M3-02 注册实体 / M3-03 接转单）：报价单的状态流转入口
+    // （`quotation_handler::change_quotation_status`）**不调联动引擎** ——
+    // 报价单的所有边只改自身状态（DRAFT/SENT/ACCEPTED/REJECTED/CANCELLED），
+    // 没有「另一张单据跟着变状态」的语义；「报价 → 订单」是一次**人工触发的转换**
+    // （`POST /quotation/{id}/convert`），不是可配置的联动规则：它要锁单、要整列搬金额、
+    // 要在同一事务里回填 `converted_so_id` 并写轨迹，通用引擎的动作码（生成凭证 /
+    // 写库存 / 建任务 / 发通知）拼不出这个形状；把它做成规则就等于「配了规则谁都能
+    // 一键开订单」，那是权限决策不是联动配置。
+    // 真要按报价单触发（例如「客户接受后通知销售经理」）时，移进 `TRIGGER_SPECS`
+    // 并给 `wired = true` + `proofs`（漂移守卫 `wired_triggers_match_call_sites`
+    // 会同时要求两者）。
+    state_machine::ENTITY_QUOTATION,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

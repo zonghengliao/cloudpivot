@@ -1,0 +1,36 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 29 tests
+test business::erp::sales::quotation_handler::tests::build_line_rejects_bad_input_and_computes_amounts ... ok
+test business::erp::sales::quotation_handler::tests::build_lines_enforces_count_bounds ... ok
+test business::erp::sales::quotation_handler::tests::convert_body_is_optional_but_never_silently_ignored ... ok
+test business::erp::sales::quotation_handler::tests::convert_creates_order_with_lines_and_backfills_quotation ... ok
+test business::erp::sales::quotation_handler::tests::convert_guard_only_accepts_accepted ... ok
+test business::erp::sales::quotation_handler::tests::convert_is_idempotent_and_never_builds_two_orders ... ok
+test business::erp::sales::quotation_handler::tests::convert_plan_copies_lines_verbatim ... ok
+test business::erp::sales::quotation_handler::tests::convert_plan_rejects_dirty_data ... ok
+test business::erp::sales::quotation_handler::tests::convert_refuses_non_accepted_and_leaves_no_order ... ok
+test business::erp::sales::quotation_handler::tests::convert_remark_always_keeps_source ... ok
+test business::erp::sales::quotation_handler::tests::parse_date_is_strict ... ok
+test business::erp::sales::quotation_handler::tests::parse_uuid_never_silently_ignores ... ok
+test business::erp::sales::quotation_handler::tests::permission_codes_are_unique_and_prefixed ... ok
+test business::erp::sales::quotation_model::tests::apply_status_is_compare_and_swap ... ok
+test business::erp::sales::quotation_model::tests::create_quotation_persists_header_lines_and_log ... ok
+test business::erp::sales::quotation_model::tests::expiry_boundary_is_inclusive_on_valid_until ... ok
+test business::erp::sales::quotation_model::tests::illegal_transitions_rejected ... ok
+test business::erp::sales::quotation_model::tests::legal_edges_use_declared_status_domain ... ok
+test business::erp::sales::quotation_model::tests::line_amounts_round_half_away_from_zero ... ok
+test business::erp::sales::quotation_model::tests::main_chain_edges_allowed ... ok
+test business::erp::sales::quotation_model::tests::next_quote_no_is_consecutive_on_real_db ... ok
+test business::erp::sales::quotation_model::tests::only_draft_is_writable ... ok
+test business::erp::sales::quotation_model::tests::page_filters_quote_no_status_customer_and_expiry ... ok
+test business::erp::sales::quotation_model::tests::quote_no_format_and_parse ... ok
+test business::erp::sales::quotation_model::tests::reason_edges_are_client_reject_and_post_send_cancels ... ok
+test business::erp::sales::quotation_model::tests::soft_delete_only_from_deletable_statuses ... ok
+test business::erp::sales::quotation_model::tests::status_domain_matches_check_constraint ... ok
+test business::erp::sales::quotation_model::tests::totals_are_exact_sums_of_rounded_lines ... ok
+test business::erp::sales::quotation_model::tests::update_quotation_replaces_lines_and_cas_on_draft ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 5878 filtered out; finished in 0.40s
+

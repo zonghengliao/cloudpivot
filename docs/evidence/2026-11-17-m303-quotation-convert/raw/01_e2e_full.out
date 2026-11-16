@@ -1,0 +1,119 @@
+== M3-03 报价单 → 销售订单转换（带行）E2E ==
+   PG=172.18.10.145:5432  演练库=cp_m303_convert_e2e_2994237  服务=http://127.0.0.1:18231
+
+  [32mPASS[0m 库名合规（含 e2e）
+  [32mPASS[0m 端口 18231 空闲
+  ---- cargo build（debug，确保二进制与当前源码一致）
+  [32mPASS[0m cargo build 成功
+  [32mPASS[0m 二进制在位（/opt/cloudpivot/backend/target/debug/cloudpivot）
+
+== 1) 空库首启（迁移 + bootstrap + V0434 种转单权限码）
+  [32mPASS[0m 建空库 cp_m303_convert_e2e_2994237
+  [32mPASS[0m 服务就绪（http://127.0.0.1:18231/health，pid 2994255）
+  [32mPASS[0m 迁移全部应用（schema_migrations.success = 366，最大版本 = 434）
+  [32mPASS[0m 最大已应用版本 = 434（本卡 V0434 是最后一号）（=434）
+
+== 2) V0434 转单权限码 / 菜单落地形态（SQL 直查）
+  [32mPASS[0m schema_migrations 登记 V0434（version=434，成功）（=1）
+  [32mPASS[0m sys_menu 里 6 个 quotation 权限码齐全（V0433 五个 + V0434 转单）（=6）
+  [32mPASS[0m 转单码 business:erp:quotation:convert 有唯一承载行（=1）
+  [32mPASS[0m 5 个按钮挂在报价单页下（4 个 V0433 + 转单）（=5）
+  [32mPASS[0m 转单按钮 sort_order = 50（同父唯一）（=50）
+  [32mPASS[0m 迁移不静默扩权（转单码没有自动授给任何角色）（=0）
+
+== 3) 真接口断言（转单带行 / 回链 / 幂等 / 守卫 / 带参）
+  [32mPASS[0m 真接口断言全绿（77 条）
+       PASS 空库首启：admin 首登 must_change_password=true
+       PASS 首次登录改密
+       PASS 夹具客户建出（默认 ACTIVE）
+       PASS 夹具物料建出
+       PASS 夹具报价单已发出
+       PASS 夹具报价单已接受（可转单）
+       PASS 报价单价税合计 = 259.8505
+       PASS 接受后仍未转单
+       PASS 订单号形态 SO-yyyyMMdd-NNNNNN
+       PASS 订单状态 = DRAFT
+       PASS 订单状态中文名 = 草稿
+       PASS 客户沿用报价单客户
+       PASS 客户名称已回填（约定 13）
+       PASS 订单不含税金额 = 报价单
+       PASS 订单税额 = 报价单
+       PASS 订单价税合计 = 报价单（同一分钱）
+       PASS 本位币单汇率 = 1
+       PASS 本位币金额 = 原币金额
+       PASS 订单备注保留来源（由报价单 QT-… 转换）
+       PASS 明细行数 = 报价行数（带行）
+       PASS 行号与报价行一一对应
+       PASS 第 1 行金额 = 3×17.655 = 52.9650
+       PASS 第 1 行税额 = 52.9650×13% = 6.8855
+       PASS 第 1 行单价原样搬
+       PASS 第 1 行税率原样搬
+       PASS 第 1 行物料 id 原样搬
+       PASS 物料编码已回填（约定 13：*_id 必配 *_name）
+       PASS 物料名称已回填
+       PASS 第 2 行金额 = 2×100 = 200
+       PASS 第 2 行税额 = 0
+       PASS meta.quotation_id 回链报价单
+       PASS meta.quote_no
+       PASS meta.quotation_status = ACCEPTED
+       PASS meta.line_count = 2
+       PASS 首次转单 already_converted = false
+       PASS meta.quotation_expired = false
+       PASS 报价单 converted_so_id = 新订单
+       PASS 报价单 converted_at 非空
+       PASS 转单不改报价单状态（仍 ACCEPTED）
+       PASS 订单详情单号一致
+       PASS 订单详情状态 DRAFT
+       PASS 订单详情价税合计
+       PASS 订单详情明细 2 行
+       PASS 订单详情第 1 行金额
+       PASS 订单详情备注带来源
+       PASS 幂等回同一张订单
+       PASS 幂等回同一单号
+       PASS 幂等标记 already_converted = true
+       PASS 幂等路径也带明细
+       PASS 客户名下订单仍只有 1 张
+       PASS DRAFT 转单 → 409
+       PASS DRAFT 文案点名当前状态
+       PASS （夹具）草稿已发出
+       PASS SENT 转单 → 409
+       PASS SENT 文案提示先标「客户已接受」
+       PASS SENT 文案给出目标状态码 ACCEPTED
+       PASS 不存在的报价单 → 404
+       PASS 非法 uuid → 400
+       PASS 守卫路径没有多建订单（仍 1 张）
+       PASS 已转单仍可作废？→ 409
+       PASS 作废文案点名已转成销售订单
+       PASS 已接受（非 DRAFT/CANCELLED）删除 → 409
+       PASS 夹具报价单已发出
+       PASS 夹具报价单已接受（可转单）
+       PASS 下单日 = 传入值
+       PASS 交期 = 传入值
+       PASS 备注 = 用户备注｜由报价单 QT-… 转换
+       PASS 第二张订单号与第一张不同
+       PASS 夹具报价单已发出
+       PASS 夹具报价单已接受（可转单）
+       PASS 交期早于下单日 → 400
+       PASS 文案点名字段
+       PASS 不存在的销售员 → 400
+       PASS 文案点名销售员
+       PASS 参数失败后同一张单仍可转
+       PASS 第三张订单已转过标记为 false
+       PASS 最终订单数 = 3（主链 + 带参 + 参数失败重试）
+     ==== M3-03 真接口断言结果：PASS=77 FAIL=0 ====
+
+== 4) 转单落库形态（biz_quotation 回链 + biz_status_log + biz_sales_order）
+  [32mPASS[0m 3 张报价单回填了 converted_so_id（=3）
+  [32mPASS[0m converted_so_id / converted_at 成对（没有只填一半的）（=0）
+  [32mPASS[0m 只建出 3 张销售订单（重复点转单没有多建）（=3）
+  [32mPASS[0m 3 行 CONVERT 轨迹（ACCEPTED→ACCEPTED，状态没变但留了痕）（=3）
+  [32mPASS[0m CONVERT 轨迹都指向订单号（biz_ref_no 不空）（=0）
+  [32mPASS[0m 3 张订单金额与报价单逐项相等（价税不差一分钱）（=3）
+  [32mPASS[0m 订单行数 = 报价行数（带行，不丢行）（=0）
+  [32mPASS[0m 转出来的订单都还是 DRAFT（转单不动订单流程）（=0）
+  ---- 转单订单：SO-20261117-000001 ← QT-20261117-000001 / SO-20261117-000002 ← QT-20261117-000003 / SO-20261117-000003 ← QT-20261117-000004
+
+== 5) 菜单结构不变量（menu_invariants.sh / 8 条）
+  [32mPASS[0m menu_invariants 8 条全绿
+
+==== M3-03 演练结果：PASS=24 FAIL=0 ====

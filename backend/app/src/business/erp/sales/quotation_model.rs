@@ -463,10 +463,36 @@ pub async fn find_quotation(id: Uuid) -> DbResult<Option<QuotationRow>> {
     find_by_id(TABLE, COLUMNS, id, true, QuotationRow::from_row).await
 }
 
+/// 在事务里**锁住**一张报价单（`SELECT … FOR UPDATE`），把同一张单上的并发转单串行化。
+///
+/// 必须在事务里调用。不存在 / 已软删 → `None`（调用方报 404）。
+///
+/// 为什么转单必须加锁（M3-03）：
+/// ① 转单是「建销售订单 + 回填 `converted_so_id`」两件事，只有 CAS 没有锁时，
+///    两个并发请求会各建一张订单，各自 CAS 只有一张能成功 —— 失败那张的订单**已经建出来了**，
+///    只能靠回滚兜住；有锁则在建单前就把第二个请求挡住（它读到的就是「已转过」）。
+/// ② 与 `biz_quotation` 的行锁同序（只有这一把锁），不会和别的链路互锁。
+pub async fn lock_quotation(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<QuotationRow>> {
+    // SCOPE-EXEMPT: 报价单是 ERP 单据表（V0432 无归属列），锁单行不产出用户可见行集。
+    let rows = ex
+        .query_sql(
+            format!("SELECT {COLUMNS} FROM {TABLE} WHERE id = ? AND deleted_at IS NULL FOR UPDATE"),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    rows.first().map(QuotationRow::from_row).transpose()
+}
+
 /// 取一张报价单的明细（行号升序）。
 pub async fn lines_of(quotation_id: Uuid) -> DbResult<Vec<QuotationLineRow>> {
+    lines_of_in(db(), quotation_id).await
+}
+
+/// 取明细的**指定执行器**版本（转单时要在持有行锁的同一事务里读明细，
+/// 否则「锁住的单头」与「读到的明细」可能来自两个快照）。
+pub async fn lines_of_in(ex: &impl SqlExecutor, quotation_id: Uuid) -> DbResult<Vec<QuotationLineRow>> {
     let sql = format!("SELECT {LINE_COLUMNS} FROM {LINE_TABLE} WHERE quotation_id = ? {LINE_ORDER}");
-    let rows = db().find_with_params(&sql, vec![Value::from(quotation_id)]).await?;
+    let rows = ex.query_sql(sql, vec![Value::from(quotation_id)]).await?;
     rows.iter().map(QuotationLineRow::from_row).collect()
 }
 
@@ -746,6 +772,43 @@ pub async fn apply_status(
             operator_text,
             Value::from(&id),
             Value::Text(from.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 转单回填（M3-03）：把「转成了哪张销售订单」写回报价单。
+///
+/// **CAS 双条件**：`status = <调用方读到的状态>` 且 `converted_so_id IS NULL`。
+/// 返回 `affected`（0 = 期间被别人转过 / 状态变了，调用方按 409 处理并整笔回滚）。
+///
+/// 为什么必须与「建销售订单」在**同一个事务**里：
+/// ⑪ 约定（事务提交后失败必须有补偿）—— 如果先提交订单再回填，回填失败就留下一张
+/// 没有来源的订单（重复点一次会再建一张），界面上没有任何按钮能修正它，只能改库。
+/// 这里两件事同一事务：要么一起成功，要么订单根本没建出来。
+pub async fn mark_converted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from_status: &str,
+    so_id: Uuid,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} \
+                SET converted_so_id = ?, converted_at = ?, updated_at = ?, \
+                    update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ? AND status = ? AND converted_so_id IS NULL AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::from(&so_id),
+            Value::from(now),
+            Value::from(now),
+            operator_text,
+            Value::from(&id),
+            Value::Text(from_status.to_string()),
         ],
     )
     .await
