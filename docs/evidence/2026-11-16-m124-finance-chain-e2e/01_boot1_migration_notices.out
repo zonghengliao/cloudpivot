@@ -1,0 +1,14 @@
+[2m2026-11-16T08:24:22.422245Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0405 自检通过：无空分类、字典全覆盖、ERP 分类 = 4 类
+[2m2026-11-16T08:24:22.441260Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0406 自检通过：三列（varchar(8) / 18,8）+ 默认 CNY/1 + 3 条 CHECK + 2 条索引 + 存量回填无空值 + 行为探针 6 条
+[2m2026-11-16T08:24:22.458279Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0408 自检通过：is_foreign_currency（smallint 0/1，默认 0）+ 2 条 CHECK（取值 / 仅末级）+ 部分索引 + 权限码 business:erp:account:update + 行为探针 6 组
+[2m2026-11-16T08:24:22.465974Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0409 自检通过：分录原币两列（numeric(20,4)，可空，NULL=本位币分录）+ 1 条 CHECK（成对/同边/非负）+ 部分索引 + 行为探针 5 组
+[2m2026-11-16T08:24:22.469401Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0410 自检通过：权限码 business:erp:period:fx-reval + 菜单按钮行（父=会计期间，sort=6）+ 授权 2/2 角色
+[2m2026-11-16T08:24:22.472280Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0411 自检通过：参数 erp.fx.gain_loss_account=5603 + 权限码 business:erp:fx-settings:update（父=汇率管理，sort=60）+ 授权 2/2 角色
+[2m2026-11-16T08:24:22.475073Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0412 自检通过：权限码 business:erp:report:fx-balance + 菜单页面行（父=财务管理，sort=50）+ 授权 2/2 角色
+[2m2026-11-16T08:24:22.477621Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0413 自检通过：权限码 business:erp:report:fx-ledger + 菜单页面行（父=财务管理，sort=51）+ 授权 2/2 角色
+[2m2026-11-16T08:24:22.486534Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0414 自检通过：biz_cashflow_worksheet 建表 + 7 条 CHECK + 4 条索引 + 7 组行为探针（明细行非负/唯一 upsert/每期一份期初/期间格式）
+[2m2026-11-16T08:24:22.490200Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0415 自检通过：现金流底稿 2 个权限码（底稿查看 / 底稿录入）挂「现金流量表」页面，授权 2 个角色 × 2 码 = 4 行
+[2m2026-11-16T08:24:22.495457Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0416 自检通过：间接法调整项 12 行模板 + 2 个权限码（调整项查看 / 调整项配置）挂「现金流量表」页面，授权 2 个角色 × 2 码 = 4 行
+[2m2026-11-16T08:24:22.498506Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0417 自检通过：现金流量表出表 2 个权限码（出表查看 / 出表导出）挂「现金流量表」页面，授权 2 个角色 × 2 码 = 4 行
+[2m2026-11-16T08:24:22.502556Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0418 自检通过：页面码 business:erp:report:receivable-aging（父=财务管理，sort=52）+ 页面授权 4/4 角色 + 父目录与取数码已补齐
+[2m2026-11-16T08:24:22.504966Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 14 个迁移

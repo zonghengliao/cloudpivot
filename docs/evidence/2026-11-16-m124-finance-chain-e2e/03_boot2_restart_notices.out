@@ -1,0 +1,6 @@
+[2m2026-11-16T08:24:25.945144Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-16T08:24:25.947000Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m SSE 鉴权自检通过：EventSource 可用 ?token= 订阅实时通知 [3mendpoint[0m[2m=[0m/api/business/notice/stream [3mwhitelist[0m[2m=[0m["/api/business/notice/stream"]
+[2m2026-11-16T08:24:26.100563Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 孤儿任务依赖自检通过：0 条
+[2m2026-11-16T08:24:26.101808Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE
+[2m2026-11-16T08:24:26.102743Z[0m [32m INFO[0m [2mcloudpivot_kernel::shared::startup_guard[0m[2m:[0m AI 用户不变式自检通过：ROBOT 账号与 sys_ai_agent 一一对应
+[2m2026-11-16T08:24:26.103119Z[0m [32m INFO[0m [2mcloudpivot_kernel::business::shared::guard[0m[2m:[0m 数据权限自检通过：17 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
