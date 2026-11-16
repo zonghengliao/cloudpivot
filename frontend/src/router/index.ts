@@ -1016,6 +1016,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '应付账龄分析', permission: 'business:erp:report:payable-aging' },
       },
       {
+        // ==================== ERP 应收账龄分析（M1-23 · 迁移 V0418） ====================
+        // `sys_menu` 种子（V0418 …1830）path = `/business/erp/report/receivable-aging`，
+        // component `business/erp/report/receivable-aging/index`（与迁移里的 component 逐字一致）。
+        // **页面码 ≠ 取数码**：页面显形码 `business:erp:report:receivable-aging`（V0418 页面行），
+        // 取数接口仍是 `business:erp:receivable:aging`（V0288 按钮行）。
+        // **路由手工注册**，漏了 = 点菜单 404（`n08_menu_paths_all_resolve_in_frontend_router` 会判红）。
+        path: 'business/erp/report/receivable-aging',
+        name: 'BusinessErpReceivableAging',
+        component: () => import('@/views/business/erp/report/receivable-aging/index.vue'),
+        meta: { title: '应收账龄分析', permission: 'business:erp:report:receivable-aging' },
+      },
+      {
         // ==================== ERP 外币余额表（M1-07 · 迁移 V0412） ====================
         // `sys_menu` 种子（V0412 …1750）path = `/business/erp/report/fx-balance`，
         // component `business/erp/report/fx-balance/index`（与迁移里的 component 逐字一致）。
