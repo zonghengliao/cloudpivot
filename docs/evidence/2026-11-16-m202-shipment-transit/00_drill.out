@@ -1,0 +1,22 @@
+== M2-02 发货过账 → 在途 + 出库待确认 · 演练（PG 172.18.10.145:5432 / 库 cp_m202_transit_drill_2769201）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m202_transit_drill_2769201
+== 1) 补齐业务迁移 V0405…V0420（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 16 条业务迁移全部应用成功（V0420 自检通过 = 在途账表就位）
+  [32mPASS[0m 在途账表存在（=biz_inventory_in_transit）
+  [32mPASS[0m biz_voucher.source_no 已是 VARCHAR(64)（V0419）（=64）
+== 2) 真库用例（串行；ERP_DB_URL 指向演练库）
+  [32mPASS[0m 本卡主证据：business::erp::shipment::shipment_posting 全绿（11 条）（=11）
+  [32mPASS[0m 在途账写入口：business::erp::shipment::shipment_transit 全绿（4 条）（=4）
+  [32mPASS[0m 发货数据层（在途占用可用量）：business::erp::shipment::shipment_model 全绿（14 条）（=14）
+  [32mPASS[0m 下游：销售出库确认才挂应收：business::erp::receivable::receivable_bridge 全绿（13 条）（=13）
+== 3) 落库形态复核（SQL 直查）
+  [32mPASS[0m 在途量 = 发货量 − 累计签收（生成列恒等，异常行 0）（=0）
+  [32mPASS[0m 在途行没有孤儿（shipment_id 硬外键 CASCADE）（=0）
+  [32mPASS[0m 在途行状态×数量咬合（IN_TRANSIT 有余量 / RECEIVED 已签满）（=0）
+  [32mPASS[0m 出库待确认单不许有 posted_at（PENDING_POST = 账没动）（=0）
+  [32mPASS[0m 出库待确认单不许有成本结转凭证（库存不扣 / 凭证后移）（=0）
+
+== 汇总：PASS=14 FAIL=0 ==
+ALL PASS

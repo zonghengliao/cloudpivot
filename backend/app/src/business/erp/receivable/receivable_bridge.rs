@@ -745,6 +745,13 @@ mod tests {
         let orders = format!("(SELECT id FROM biz_sales_order WHERE customer_id IN {customers})");
         let shipments = format!("(SELECT id FROM biz_shipment WHERE so_id IN {orders})");
         let stock_outs = format!("(SELECT id FROM biz_stock_out WHERE source_id IN {shipments})");
+        // ⚠ M2-02 起在途量会**占用可用量**（`stock_shortfalls` 扣在途），
+        //    别的用例（或上一轮失败）留在同物料上的在途行会让本模块的「库存够不够」
+        //    从够变成不够。夹具物料是本模块独占的（MATS），所以一并清干净。
+        sql(&format!(
+            "DELETE FROM biz_inventory_in_transit WHERE material_id IN ({MATS})"
+        ))
+        .await;
         // ⚠ 顺序：状态日志要在删应收 / 出库单**之前**清（entity_id 子查询依赖它们还在）
         sql(&format!(
             "DELETE FROM biz_status_log WHERE \
@@ -911,9 +918,14 @@ mod tests {
         id
     }
 
-    /// 过账（走 handler 公开入口：状态机 + 事务 + 库存 + 凭证 + 挂账一条龙）。
+    /// 过账 + 确认出库（走 handler 公开入口：状态机 + 事务 + 在途 / 出库待确认一条龙）。
+    ///
+    /// ⚠ M2-02 起「发货过账」只写在途账 + 建一张 `PENDING_POST` 的销售出库单，
+    /// **不扣库存、不挂应收** —— 三本账与应收挂账后移到签收确认（M2-03）。
+    /// 本模块验的是「销售出库过账 → 挂应收」，所以这里必须把出库单也过账
+    /// （= 签收确认那一半的动作），否则一条应收都不会有。
     async fn post_shipment(ship_id: Uuid) -> std::result::Result<shipment_handler::ShipmentRes, ApiError> {
-        shipment_handler::change_shipment_status(
+        let res = shipment_handler::change_shipment_status(
             None,
             &ship_id.to_string(),
             ShipmentStatusReq {
@@ -921,7 +933,13 @@ mod tests {
                 reason: None,
             },
         )
-        .await
+        .await?;
+        let Some(out_raw) = res.stock_out_id.clone() else {
+            panic!("发货过账必须回填销售出库单 id（M2-02 的出库待确认单）");
+        };
+        let out_id = Uuid::parse_str(&out_raw).expect("出库单 id 必须是 UUID");
+        crate::business::erp::stockout::stockout_handler::post_stock_out(out_id, None, None).await?;
+        Ok(res)
     }
 
     async fn text_of(query: &str, params: Vec<Value>) -> Option<String> {
@@ -1046,11 +1064,13 @@ mod tests {
         assert_eq!(row.amount, dec("50"), "5 × 10，税率 0");
     }
 
-    /// **事务回滚一致**：应收挂不上（客户不存在）→ 库存 / 出库单 / 应收一分不动。
+    /// **出库确认失败的一致性**：应收挂不上（客户不存在）→ 三本账 / 应收一分不动，
+    /// 出库单留在「待确认」、发货单留在 POSTED（可在补齐客户后重试确认）。
     ///
-    /// 这条用例是卡面「必须与库存扣减、成本结转凭证在同一事务」的**反向证明**：
-    /// 挂账发生在三本账已经减完之后（见 `post_out_tx` 的 ③→④ 顺序），
-    /// 如果口径不在同一事务，这里会留下「库存减了、应收没挂」的半截账。
+    /// M2-02 起发货过账不再扣库存/挂应收，所以这条反向证明的落点从「发货过账事务」
+    /// 移到了「出库确认事务」：`post_out_tx` 里挂账发生在三本账已经减完之后
+    /// （③→⑤b 的顺序），如果不在同一事务，这里会留下「库存减了、应收没挂」的半截账。
+    /// 同时单据**不许**停在无路可走的状态（AGENTS.md 约定 11：提交后失败必须有重试路径）。
     #[tokio::test]
     async fn missing_customer_rolls_back_stock_and_receivable() {
         let Some(_guard) = setup().await else { return };
@@ -1062,12 +1082,13 @@ mod tests {
 
         let error = post_shipment(ship_id)
             .await
-            .expect_err("客户不存在，过账必须失败（不能挂一张没有客户的应收）");
+            .expect_err("客户不存在，出库确认必须失败（不能挂一张没有客户的应收）");
         assert_eq!(error.code, error_code::RESOURCE_CONFLICT, "应是 409 冲突");
         assert!(error.msg.contains("客户"), "错误文案要点名客户，实际 {}", error.msg);
 
         assert_eq!(cost_qty(MAT_A).await, dec("20"), "库存必须原封不动");
         assert_eq!(receivable_count(ship_id).await, 0, "不许留下半截应收");
+        // 发货过账那一半已经落库（在途 + 出库待确认），失败的只是出库确认
         assert_eq!(
             text_of(
                 "SELECT status FROM biz_shipment WHERE id = ?::uuid",
@@ -1075,14 +1096,23 @@ mod tests {
             )
             .await
             .as_deref(),
+            Some("POSTED"),
+            "发货单停在 POSTED（货已发），失败不许把它打回中间态"
+        );
+        let out_id = stock_out_of(ship_id)
+            .await
+            .expect("出库待确认单必须还在（补齐客户后可以重试确认）");
+        assert_eq!(
+            text_of(
+                "SELECT status FROM biz_stock_out WHERE id = ?::uuid",
+                vec![Value::from(&out_id)]
+            )
+            .await
+            .as_deref(),
             Some("PENDING_POST"),
-            "发货单状态不许被推进"
+            "出库单必须仍是待确认（没被半截过账）"
         );
-        assert!(
-            stock_out_of(ship_id).await.is_none(),
-            "出库单必须随事务一起回滚（不留孤儿）"
-        );
-        println!("[SO-14] 回滚一致：过账失败后 库存 20 / 应收 0 / 发货单仍 PENDING_POST");
+        println!("[SO-14] 出库确认失败：库存 20 / 应收 0 / 出库单仍待确认（可重试）");
     }
 
     /// **重复过账幂等**：第二次过账 409，且应收只有一张。
@@ -1152,7 +1182,12 @@ mod tests {
                 .expect("建手工出库单");
         crate::business::erp::stockout::stockout_handler::post_stock_out(out_id, operator, None)
             .await
-            .unwrap_or_else(|error| panic!("手工出库过账应成功：{} {}", error.code, error.msg));
+            .unwrap_or_else(|error| {
+                panic!(
+                    "手工出库过账应成功：{} {} / detail={:?}",
+                    error.code, error.msg, error.internal_detail
+                )
+            });
 
         assert!(
             receivable_of(db(), out_id).await.expect("查应收").is_none(),

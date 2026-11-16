@@ -627,13 +627,17 @@ pub fn total_qty_of(items: &[NewShipmentItem]) -> Decimal {
 /// 库存缺口（过账前置检查的结果行）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StockShortfall {
-    /// 订单行（报错文案里点名）。
+    /// 订单行（报错文案里点名；同物料多行时取第一行）。
     pub so_item_id: Uuid,
     /// 物料。
     pub material_id: Uuid,
-    /// 本行要发多少。
+    /// 本单该物料要发多少（同物料多行已合并）。
     pub needed: Decimal,
-    /// 该仓该物料可用合计。
+    /// 该仓该物料账面可用合计（`fifo_plan.available`）。
+    pub on_hand: Decimal,
+    /// 该仓该物料未签收的在途量（M2-02 起从可用量里扣掉）。
+    pub in_transit: Decimal,
+    /// 扣掉在途后的可用量（`max(on_hand - in_transit, 0)`）。
     pub available: Decimal,
 }
 
@@ -862,25 +866,59 @@ pub async fn warehouse_label(ex: &impl SqlExecutor, warehouse_id: Uuid) -> DbRes
 
 /// **过账前的库存充足校验**（只读，不写三本账）。
 ///
-/// 逐行调 `stockout_model::fifo_plan`（销售出库过账用的是同一个函数），
-/// 所以「这里说够 / 过账时说不够」不会出现两套口径。
-/// 返回空 vec = 全部够量；否则每行一条缺口（handler 拼文案回 409）。
+/// 按**物料**判定「账面 − 在途未签收 ≥ 本单要发」，逐物料调
+/// `stockout_model::fifo_plan`（签收确认后出库过账用的是同一个函数），
+/// 所以「这里说够 / 确认时说不够」不会出现两套口径。
+/// 返回空 vec = 全部够量；否则每个物料一条缺口（handler 拼文案回 409）。
+///
+/// # 为什么按物料合并，而不是逐行判
+///
+/// M2-02 起发货过账不再扣库存（数量进在途账），所以「够不够」这道闸必须自己把本单
+/// 同一个物料的**所有行**加起来判一次。逐行各判一次会出现：同一物料两行各 6、账面 10
+/// → 两行都过、在途记 12，实际只可能发 10。
+///
+/// # 为什么要扣在途
+///
+/// 不扣在途 = 账面一直是满的（发货不再扣减），同一批货能被反复发出去。
+/// 可用量口径：`可用 = 账面 − 该仓该物料未签收的在途量`（`status = 'IN_TRANSIT'`）。
 pub async fn stock_shortfalls(
     ex: &impl SqlExecutor,
     warehouse_id: Uuid,
     items: &[ShipmentItemRow],
 ) -> DbResult<Vec<StockShortfall>> {
-    let mut out = Vec::new();
+    // 按物料合并（顺序 = 首次出现，报错文案稳定）
+    let mut order: Vec<Uuid> = Vec::with_capacity(items.len());
+    let mut merged: std::collections::HashMap<Uuid, (Uuid, Decimal)> =
+        std::collections::HashMap::with_capacity(items.len());
     for item in items {
+        match merged.get_mut(&item.material_id) {
+            Some((_, qty)) => *qty += item.qty,
+            None => {
+                order.push(item.material_id);
+                merged.insert(item.material_id, (item.so_item_id, item.qty));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for material_id in order {
+        let (so_item_id, needed) = merged
+            .get(&material_id)
+            .map(|(so_item_id, qty)| (*so_item_id, qty.round_dp(4)))
+            .unwrap_or((Uuid::nil(), Decimal::ZERO));
         let plan =
-            crate::business::erp::stockout::stockout_model::fifo_plan(ex, item.material_id, warehouse_id, item.qty)
-                .await?;
-        if plan.shortfall > Decimal::ZERO {
+            crate::business::erp::stockout::stockout_model::fifo_plan(ex, material_id, warehouse_id, needed).await?;
+        let in_transit =
+            crate::business::erp::shipment::shipment_transit::open_qty(ex, material_id, warehouse_id).await?;
+        let available = (plan.available - in_transit).max(Decimal::ZERO).round_dp(4);
+        if needed > available {
             out.push(StockShortfall {
-                so_item_id: item.so_item_id,
-                material_id: item.material_id,
-                needed: item.qty,
-                available: plan.available,
+                so_item_id,
+                material_id,
+                needed,
+                on_hand: plan.available,
+                in_transit,
+                available,
             });
         }
     }

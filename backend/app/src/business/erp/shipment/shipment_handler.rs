@@ -39,13 +39,16 @@
 //!
 //! ```text
 //! 生成销售出库单（biz_stock_out, source_type=SALES, out_type=OTHER）
-//!   → stockout_handler::post_out_in_tx（负库存闸 / 三本账负向 / 成本结转凭证 / 联动）
+//!   → 出库单推进到 PENDING_POST（= 出库待确认，账一分不动）
+//!   → 写在途库存账 biz_inventory_in_transit（shipped_qty 按物料汇总）
 //!   → 回填 biz_shipment.stock_out_id
 //!   → biz_sales_order_item.delivered_qty += qty（超发闸在 SQL 里）
 //!   → 销售订单 PARTIAL_OUT / OUTBOUND
 //! ```
 //!
-//! 本文件仍然**一行库存写 SQL 都没有**：三本账的扣减全部由 `inventory_writer`（经出库过账内核）完成。
+//! ⚠ **M2-02 起发货过账不扣库存**（卡面口径「发货时数量进在途，库存不扣」）：
+//! 三本账负向 / 成本结转凭证 / 应收挂账全部后移到**签收确认**（M2-03，出库单过账时）。
+//! 本文件仍然**一行库存写 SQL 都没有**。
 //!
 //! # 数据权限
 //!
@@ -68,7 +71,6 @@ use crate::business::erp::shipment::shipment_model::{
     self as model, NewShipment, NewShipmentItem, ShipmentItemRow, ShipmentRow,
 };
 use crate::business::erp::shipment::shipment_posting;
-use crate::business::erp::stockout::stockout_handler;
 use cloudpivot_kernel::business::shared::state_machine;
 use cloudpivot_kernel::shared::error_code;
 use cloudpivot_kernel::utils;
@@ -818,11 +820,13 @@ async fn transition_to_posted(row: &ShipmentRow, items: &[ShipmentItemRow]) -> s
         .iter()
         .map(|item| {
             format!(
-                "订单行 {}（物料 {}）要发 {} / 该仓可用 {}，缺 {}",
+                "订单行 {}（物料 {}）要发 {} / 该仓可用 {}（账面 {}，在途未签收 {}），缺 {}",
                 item.so_item_id,
                 item.material_id,
                 item.needed.round_dp(4),
                 item.available.round_dp(4),
+                item.on_hand.round_dp(4),
+                item.in_transit.round_dp(4),
                 item.shortfall().round_dp(4)
             )
         })
@@ -830,7 +834,9 @@ async fn transition_to_posted(row: &ShipmentRow, items: &[ShipmentItemRow]) -> s
         .join("；");
     Err(conflict(format!(
         "库存不足，过账已拒绝：发货单 {} 的仓库（{}）不够量 —— {detail}。\
-         处理办法：① 先补货 / 收货后再过账；② 改小本单数量；③ 换成有货的仓库重新建单",
+         可用量 = 账面 − 在途未签收（已发未签收的货仍然占着仓库的量）。\
+         处理办法：① 先补货 / 收货后再过账；② 等已发的货签收确认后重试；\
+         ③ 改小本单数量；④ 换成有货的仓库重新建单",
         row.ship_no, row.warehouse_id
     )))
 }
@@ -966,17 +972,19 @@ pub async fn change_shipment_status(
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
             if let Some(note) = posted {
+                // M2-02 起，发货过账**不再**跑出库过账的延迟联动（通知 / 待办）：
+                // 三本账、成本结转凭证、应收挂账全部后移到签收确认（M2-03），
+                // 联动触发点也跟着走 —— 在发货过账里发「已出库」通知就是假消息。
                 tracing::info!(
                     shipment_id = %id,
                     ship_no = %row.ship_no,
                     stock_out_id = %note.stock_out_id,
                     stock_out_no = %note.stock_out_no,
                     lines = note.lines,
+                    transit_lines = note.transit.len(),
                     order_status = note.so_status.as_deref().unwrap_or_default(),
-                    "发货单已过账：销售出库单 / 三本账 / delivered_qty / 订单状态已同事务落库"
+                    "发货单已过账：在途账已记 + 出库单待确认（库存未扣）+ delivered_qty / 订单状态已同事务落库"
                 );
-                // 提交**之后**才跑延迟联动（发通知 / 建任务，独立事务，失败只记日志）
-                stockout_handler::run_deferred_linkage_after_commit(note.stock_out_id, &op, note.linkage).await;
             }
             detail_of(id).await
         }

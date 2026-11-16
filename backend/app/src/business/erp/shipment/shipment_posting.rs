@@ -1,38 +1,53 @@
 // ============================================================================
-// shipment_posting.rs —— 发货过账的库存效果（SO-10：发货 POSTED → 销售出库 → 扣库存）
+// shipment_posting.rs —— 发货过账的库存效果（M2-02：发货 → 在途 + 出库待确认）
 //
-// # 一个事务里做完四件事（顺序不能换）
+// # 一个事务里做完五件事（顺序不能换）
 //
 // ```text
-// ① 防御性幂等：biz_shipment.stock_out_id 已回填 → 409（本函数永不重复扣）
+// ① 防御性幂等：biz_shipment.stock_out_id 已回填 → 409（本函数永不重复写）
 // ② 锁来源订单行（SELECT … FOR UPDATE）：同一订单的多张发货单并发过账在这里串行化，
 //    否则两张单各自读到 APPROVED，订单状态会被后写的那张覆盖回退
-// ③ 建销售出库单（biz_stock_out, source_type='SALES', out_type='OTHER'）
-//    → 调 `stockout_handler::post_out_in_tx` 过账：负库存闸 → 三本账负向 → 成本结转凭证 → 联动
-// ④ 回填 biz_shipment.stock_out_id → 订单行 delivered_qty += qty → 订单转 PARTIAL_OUT / OUTBOUND
+// ③ 建销售出库单（biz_stock_out, source_type='SALES', out_type='OTHER'）并推进到
+//    **PENDING_POST = 出库待确认**：账一分没动，等签收确认（M2-03）再真过账
+// ④ 写**在途库存账**（`biz_inventory_in_transit`，见 `shipment_transit`）：
+//    一行 = 物料 × 发货仓 × 发货单，`shipped_qty` 按物料汇总，**库存不扣**
+// ⑤ 回填 biz_shipment.stock_out_id → 订单行 delivered_qty += qty → 订单转
+//    PARTIAL_OUT / OUTBOUND
 // ```
 //
-// **库存三本账一行 SQL 都不在本文件**：扣减 / 库位账 / 流水全部由
-// `stockout_handler::post_out_in_tx` → `stockout_model` → `inventory_writer` 完成，
-// 本文件只建单、只回写业务列。这是「唯一写入口」铁律的落地方式（scripts/check.sh 也会查）。
+// # M2-02 起「发货过账」不再动三本账（这是卡面口径，不是退化）
 //
-// # 为什么复用出库过账内核，而不是自己 deduct
+// 卡面原话：「发货时数量进在途，库存不扣」。旧口径（SO-10）是把发货过账等同于
+// 销售出库过账 —— 一个事务里扣成本账 / 库位账 / 流水、生成成本结转凭证、挂应收。
+// 现在把它切成两段：
 //
-// 出库过账已经付费解决了四件难事：① 负库存闸必须锁住成本账行再判（并发下先读后写会双过账）；
-// ② 库位策略「指定就按指定扣，没指定 FIFO」；③ 按物料合并的成本结转凭证；④ 跨单据联动。
-// 另写一份等于把四件事重新错一遍。
+// ```text
+// 本文件（发货过账）  在途账 + 出库单待确认 + delivered_qty + 订单状态
+// M2-03（签收确认）   出库单过账（三本账负向 + 成本结转凭证 + 挂应收）+ 在途转已出库
+// ```
 //
-// # 原子性怎么保证
+// 这么切的原因：货出了仓库、客户还没签收。这段量既不是「仓里的库存」
+// （所以不能扣 biz_inventory，否则账上凭空少货），也不是「已出库」
+// （所以不能出成本结转凭证 / 挂应收，否则收入成本早确认一个环节）。
+//
+// # 三本账一行 SQL 都不在本文件
+//
+// 库存三本账（成本账 / 库位账 / 流水）的唯一写入口是 `erp/inventory_writer.rs`
+// （P2-5A 门禁）。本文件不碰它们：在途账不属于三本账，独立成表、独立口径
+// （见迁移 V0420 的注释与 `shipment_transit` 的模块文档）。
+//
+// # 原子性
 //
 // 全部动作跑在**调用方（`shipment_handler::change_shipment_status`）的同一个事务**里：
-// 任何一步 Err 都由调用方 `rollback()`，库存 / 库位账 / 流水 / 出库单 / delivered_qty /
+// 任何一步 Err 都由调用方 `rollback()`，出库单 / 在途行 / 回填列 / delivered_qty /
 // 订单状态一起消失。本文件自己没有 `commit()`，也不该有。
 //
 // # 幂等
 //
 // 三道闸：① 发货单 CAS（`apply_status` 只在 `status=PENDING_POST` 时改，第二次 0 行）；
 // ② `biz_shipment.stock_out_id` 回填 CAS（第二次 0 行）；③ 库层部分唯一索引
-// `uk_biz_so_source(source_type, source_id)`（并发下最后一道，撞了就是 409）。
+// `uk_biz_so_source(source_type, source_id)`（并发下最后一道，撞了就是 409）；
+// 在途账另有 `uk_biz_inv_transit_key` 兜住 upsert（不会多算一笔在途）。
 // ============================================================================
 
 use std::collections::HashMap;
@@ -42,15 +57,15 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::linkage;
 use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::shipment::shipment_model::{
     self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow,
 };
+use crate::business::erp::shipment::shipment_transit::{self, TransitLine};
 use crate::business::erp::stockout::stockout_base::{
-    NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES, Totals,
+    LEGAL_EDGES as STOCK_OUT_EDGES, NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES,
+    STATUS_DRAFT as STOCK_OUT_DRAFT, STATUS_PENDING_POST as STOCK_OUT_PENDING_POST, Totals,
 };
-use crate::business::erp::stockout::stockout_handler;
 use crate::business::erp::stockout::stockout_model::{self as stock_out, MaterialInfo};
 use cloudpivot_kernel::business::shared::state_machine;
 use cloudpivot_kernel::shared::error_code;
@@ -59,21 +74,26 @@ use cloudpivot_kernel::utils;
 /// 过账成功后的业务结果（供 handler 打日志 / 回显）。
 #[derive(Debug)]
 pub struct PostOutcome {
-    /// 新生成的销售出库单 id（已过账）。
+    /// 新生成的销售出库单 id（`PENDING_POST`，等签收确认）。
     pub stock_out_id: Uuid,
     /// 出库单号（`OUT-yyyyMMdd-000001`）。
     pub stock_out_no: String,
     /// 过账后的销售订单状态（`PARTIAL_OUT` / `OUTBOUND`；订单状态没变时为 None）。
     pub so_status: Option<String>,
-    /// 写进销售出库单的明细行数。
+    /// 写进销售出库单的明细行数（同物料同库位已合并）。
     pub lines: usize,
-    /// 出库过账的联动结果：`deferred` 里的动作必须在**提交之后**跑。
-    pub linkage: linkage::LinkageRun,
+    /// 写进在途账的行（物料 × 发货仓 × 发货单，同物料已合并）。
+    pub transit: Vec<TransitLine>,
 }
 
 /// 出库单摘要（出库列表 / 详情一眼能看出这是销售发货）。
 pub fn stock_out_reason(ship_no: &str) -> String {
     format!("销售发货 {ship_no}")
+}
+
+/// 出库单落 `PENDING_POST` 时写进状态日志的原因（谁能看出这张单是怎么来的）。
+pub fn pending_confirm_reason(ship_no: &str) -> String {
+    format!("发货单 {ship_no} 过账生成，待客户签收确认后过账出库")
 }
 
 /// 订单在本次发货后应该处于哪个状态（纯函数，单测钉死）。
@@ -108,7 +128,7 @@ fn write_error(error: DbError, ctx: &str) -> ApiError {
         return ApiError::new(
             409,
             error_code::RESOURCE_CONFLICT,
-            format!("{ctx}：该发货单已经生成过销售出库单（幂等闸），不会重复扣库存"),
+            format!("{ctx}：该发货单已经生成过销售出库单（幂等闸），不会重复写"),
         );
     }
     utils::db_error(error, ctx)
@@ -141,8 +161,11 @@ async fn lock_order(ex: &impl SqlExecutor, so_id: Uuid) -> std::result::Result<S
 /// （`biz_inventory_location.id`，出库明细扣减时用的）。
 ///
 /// 发货明细的 `location_id` 是库位字典（V0283），出库明细的 `location_id` 是账行 ——
-/// 两套 id 不能混用（混了就是扣错桶）。该库位没有这个物料的账行 → 409：
+/// 两套 id 不能混用（混了就是签收确认时扣错桶）。该库位没有这个物料的账行 → 409：
 /// 指定了库位就必须从那个库位出，不能静默改走 FIFO。
+///
+/// 本卡（M2-02）在**建出库单**这一步就校验：错在建单时暴露，而不是等到客户签收后
+/// 才在出库确认里 409（那时货已经发了，单只能挂着等人修）。
 async fn location_ledger_row(
     ex: &impl SqlExecutor,
     material_id: Uuid,
@@ -217,8 +240,8 @@ async fn to_stock_out_lines(
             None => None,
         };
         // 同一物料 + 同一库位出现多行：合并成一行出库明细（行号仍可追）。
-        // 不合并也能过账，但「发货 2 行 → 出库 2 行」会让 FIFO 对同一桶做两次够量判定，
-        // 部分库位实现下会对同一桶重复分配（stockout_fifo_tests 踩过）。
+        // 不合并也能过账，但「发货 2 行 → 出库 2 行」会让签收确认后的 FIFO 对同一桶做两次
+        // 够量判定，部分库位实现下会对同一桶重复分配（stockout_fifo_tests 踩过）。
         let key = (item.material_id, location_row);
         if let Some(total) = seen.get_mut(&key) {
             *total += item.qty;
@@ -243,10 +266,57 @@ async fn to_stock_out_lines(
     Ok(lines)
 }
 
+/// 把出库单从 `DRAFT` 推进到 `PENDING_POST`（= **出库待确认**）。
+///
+/// 两条写必须都在：`state_machine::transition` 写状态日志（谁、什么时候、为什么），
+/// `stock_out::apply_status` 做 CAS（`WHERE status='DRAFT'`，并发下只有一个人能推进）。
+/// 账一分不动 —— 三本账只在 M2-03 的签收确认里动。
+async fn mark_pending_confirm(
+    ex: &impl SqlExecutor,
+    stock_out_id: Uuid,
+    out_no: &str,
+    operator: &state_machine::Operator,
+    reason: &str,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    state_machine::transition(
+        ex,
+        state_machine::ENTITY_STOCK_OUT,
+        stock_out_id,
+        out_no,
+        &STOCK_OUT_EDGES,
+        STOCK_OUT_DRAFT,
+        STOCK_OUT_PENDING_POST,
+        operator.clone(),
+        Some(reason),
+        None,
+    )
+    .await?;
+    let affected = stock_out::apply_status(
+        ex,
+        stock_out_id,
+        STOCK_OUT_DRAFT,
+        STOCK_OUT_PENDING_POST,
+        None,
+        operator.id,
+        now,
+    )
+    .await
+    .map_err(|error| write_error(error, "出库单落待确认状态"))?;
+    if affected == 0 {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!("出库单 {out_no} 的状态在本次过账期间被改动（期望 {STOCK_OUT_DRAFT}），请刷新后重试"),
+        ));
+    }
+    Ok(())
+}
+
 /// 回写订单行 `delivered_qty`（**超发闸在 SQL 里**：`delivered_qty + qty <= qty`）。
 ///
 /// 返回 0 行 = 该行已发满 / 并发被别人发掉 → 409，由调用方整单回滚
-/// （这时库存已经扣了，回滚把它还回去 —— 这正是「原子」的意思）。
+/// （这时出库单与在途行已经写了，回滚把它们一起还回去 —— 这正是「原子」的意思）。
 async fn bump_delivered(
     ex: &impl SqlExecutor,
     items: &[ShipmentItemRow],
@@ -275,7 +345,7 @@ async fn bump_delivered(
                 error_code::RESOURCE_CONFLICT,
                 format!(
                     "订单行 {} 已发满（本次要发 {}）：并发发货把它发掉了 —— \
-                     本单的库存与出库单已整笔回滚，请刷新订单后重试",
+                     本单的出库单与在途账已整笔回滚，请刷新订单后重试",
                     item.so_item_id, item.qty
                 ),
             ));
@@ -308,8 +378,9 @@ async fn order_totals(ex: &impl SqlExecutor, so_id: Uuid) -> std::result::Result
 
 /// **发货过账的库存效果**：调用方必须已在自己的事务里把发货单推进到 `POSTED`（CAS 成功）。
 ///
-/// 返回 [`PostOutcome`]；`Ok` 后调用方 `commit()`，再跑
-/// `stockout_handler::run_deferred_linkage_after_commit`。
+/// 做的事：生成销售出库单（`PENDING_POST` = 出库待确认）→ 写在途账 →
+/// 回填 `stock_out_id` → 订单行 `delivered_qty` → 订单状态。
+/// **不扣库存、不出成本结转凭证、不挂应收** —— 那些在 M2-03 的签收确认里做。
 pub async fn post_effects(
     ex: &impl SqlExecutor,
     shipment_row: &ShipmentRow,
@@ -317,14 +388,14 @@ pub async fn post_effects(
     operator: &state_machine::Operator,
     now: DateTime<Utc>,
 ) -> std::result::Result<PostOutcome, ApiError> {
-    // ① 防御性幂等：已回填过出库单 = 已经动过账，绝不再扣第二遍
+    // ① 防御性幂等：已回填过出库单 = 已经写过账，绝不再写第二遍
     if let Some(existing) = shipment_row.stock_out_id {
         return Err(ApiError::new(
             409,
             error_code::RESOURCE_CONFLICT,
             format!(
                 "发货单 {} 已经生成过销售出库单 {existing}（过账幂等闸）：\
-                 库存只扣一次，重复过账请查单据而不是重发",
+                 在途只记一次，重复过账请查单据而不是重发",
                 shipment_row.ship_no
             ),
         ));
@@ -389,10 +460,21 @@ pub async fn post_effects(
             )
         })?;
 
-    // ④ 过账：负库存闸 → 三本账负向 → 成本结转凭证 → 联动（同一事务）
-    let run = stockout_handler::post_out_in_tx(ex, stock_out_id, operator, Some(&reason), now).await?;
+    // ④ 出库单 → PENDING_POST（出库待确认）：账不动，等客户签收确认（M2-03）
+    mark_pending_confirm(
+        ex,
+        stock_out_id,
+        &stock_out_no,
+        operator,
+        &pending_confirm_reason(&shipment_row.ship_no),
+        now,
+    )
+    .await?;
 
-    // ⑤ 回填发货单 → 出库单的引用（CAS：只有未回填才写）
+    // ⑤ 在途账（`biz_inventory_in_transit`）：发货数量进在途，**库存不扣**
+    let transit = shipment_transit::record_shipped(ex, shipment_row, items, operator, now).await?;
+
+    // ⑥ 回填发货单 → 出库单的引用（CAS：只有未回填才写）
     let affected = ex
         .exec_sql(
             "UPDATE biz_shipment \
@@ -419,10 +501,10 @@ pub async fn post_effects(
         ));
     }
 
-    // ⑥ 订单行已发数量（超发闸在 SQL 里）
+    // ⑦ 订单行已发数量（超发闸在 SQL 里）
     bump_delivered(ex, items, now).await?;
 
-    // ⑦ 订单状态：PARTIAL_OUT / OUTBOUND（`from == to` 时不写状态日志）
+    // ⑧ 订单状态：PARTIAL_OUT / OUTBOUND（`from == to` 时不写状态日志）
     let (ordered, delivered) = order_totals(ex, shipment_row.so_id).await?;
     let target = order_status_after(ordered, delivered);
     let outcome = state_machine::transition_if_changed(
@@ -457,15 +539,16 @@ pub async fn post_effects(
         stock_out_id = %stock_out_id,
         stock_out_no = %stock_out_no,
         lines = lines.len(),
+        transit_lines = transit.len(),
         order_status = target,
-        "发货过账完成：销售出库单 + 三本账负向 + delivered_qty 回写已同事务落库"
+        "发货过账完成：在途账已记 + 出库单待确认（库存未扣）+ delivered_qty 回写已同事务落库"
     );
     Ok(PostOutcome {
         stock_out_id,
         stock_out_no,
         so_status: Some(target.to_string()),
         lines: lines.len(),
-        linkage: run,
+        transit,
     })
 }
 
@@ -506,11 +589,17 @@ mod tests {
         );
     }
 
-    /// 出库事由 / 明细备注要能反查到发货单与订单行（对账时靠它）。
+    /// 出库事由 / 明细备注 / 待确认原因要能反查到发货单与订单行（对账时靠它）。
     #[test]
     fn reason_and_line_remark_are_traceable() {
         assert_eq!(stock_out_reason("SH-20261106-000001"), "销售发货 SH-20261106-000001");
         assert_eq!(line_remark(3), "销售发货订单行 3");
+        let reason = pending_confirm_reason("SH-20261106-000001");
+        assert!(
+            reason.contains("SH-20261106-000001"),
+            "待确认原因必须带发货单号：{reason}"
+        );
+        assert!(reason.contains("签收"), "待确认原因必须说明在等签收确认：{reason}");
     }
 
     /// 销售出库的 out_type 必须是 OTHER + 来源 SALES（两个维度，不许互相替代）。
@@ -524,13 +613,28 @@ mod tests {
         );
     }
 
+    /// 出库单落的状态必须是 `PENDING_POST`（出库待确认），不是 DRAFT、更不是 POSTED。
+    #[test]
+    fn stock_out_lands_in_pending_confirm_state() {
+        assert_eq!(STOCK_OUT_PENDING_POST, "PENDING_POST");
+        assert_eq!(STOCK_OUT_DRAFT, "DRAFT");
+        assert!(
+            STOCK_OUT_EDGES.contains(&(STOCK_OUT_DRAFT, STOCK_OUT_PENDING_POST)),
+            "DRAFT → PENDING_POST 必须是登记过的合法边（STOCK_OUT_EDGES）"
+        );
+    }
+
     // ---------- 真库用例（`ERP_DB_URL` 开关） ----------
     //
     // ⚠ 不设 `ERP_DB_URL` 时这些用例打印 SKIP 并 return —— libtest 记 passed，属「假绿」。
     //   交付前必须显式带库跑一遍（卡内汇报记了实测命令）。
     //
-    // 覆盖卡面四项验收：正常发货（全发→OUTBOUND）/ 部分发货（→PARTIAL_OUT→再次发货→OUTBOUND）/
-    // 库存不足（409，账一分不动）/ 重复过账（幂等，只扣一次）；另加一条「后置失败整笔回滚」。
+    // 覆盖卡面四项验收：
+    //   ① 发货过账 → 在途记账 + 出库单待确认（三本账一分不动）；
+    //   ② 部分发货 → 分批发货各自的在途行、库存仍不动；
+    //   ③ 库存不足（409，在途/出库单都不许留）；
+    //   ④ 重复过账（幂等，在途只记一次）；
+    // 另加两条：在途占用的可用量（不扣库存也能挡住超发）、后置失败整笔回滚。
 
     use crate::business::erp::shipment::shipment_handler::{self, ShipmentStatusReq};
     use crate::business::erp::stockin::stockin_model;
@@ -602,6 +706,9 @@ mod tests {
     }
 
     /// 清场：只清本模块夹具（`SO10T-` 客户 / 两张夹具物料），不碰别的用例。
+    ///
+    /// 在途行随 `biz_shipment` 的 `ON DELETE CASCADE` 一起消失（V0420 的硬外键），
+    /// 所以不需要单独 DELETE 它 —— 但显式删一遍更稳（防止别的用例留下孤儿夹具）。
     async fn cleanup() {
         let orders = format!(
             "(SELECT id FROM biz_sales_order WHERE customer_id IN \
@@ -618,6 +725,11 @@ mod tests {
                 (entity_type = 'STOCK_OUT' AND entity_id IN {stock_outs}) \
              OR (entity_type = 'SHIPMENT' AND entity_id IN {shipments}) \
              OR (entity_type = 'SALE_ORDER' AND entity_id IN {orders})"
+        ))
+        .await;
+        sql(&format!(
+            "DELETE FROM biz_inventory_in_transit WHERE shipment_id IN {shipments} \
+                OR material_id IN ({MATS})"
         ))
         .await;
         sql(&format!("DELETE FROM biz_stock_out WHERE source_id IN {shipments}")).await;
@@ -649,7 +761,7 @@ mod tests {
     }
 
     /// 造库存（成本账 + 库位账，走**入库侧同一批写入口**；不建凭证 / 不建流水 ——
-    /// 本卡只验出库侧，凭证与流水在出库过账时才产生）。
+    /// 本卡只验发货侧的在途记账，凭证与流水在签收确认时才产生）。
     async fn seed_stock(material: &str, qty: &str) {
         let now = Utc::now();
         let material_id = uuid(material);
@@ -710,6 +822,42 @@ mod tests {
             .expect("读流水");
         text.and_then(|value| value.parse::<Decimal>().ok())
             .unwrap_or(Decimal::ZERO)
+    }
+
+    /// 在途账当前在途量（`status = 'IN_TRANSIT'`，与 `shipment_transit::open_qty` 同口径）。
+    async fn transit_qty(material: &str) -> Decimal {
+        let text: Option<String> = db()
+            .scalar_with_params(
+                "SELECT COALESCE(SUM(qty_in_transit), 0)::text FROM biz_inventory_in_transit \
+                  WHERE material_id = ?::uuid AND status = 'IN_TRANSIT'",
+                vec![Value::from(&uuid(material))],
+            )
+            .await
+            .expect("读在途账");
+        text.and_then(|value| value.parse::<Decimal>().ok())
+            .unwrap_or(Decimal::ZERO)
+    }
+
+    /// 该发货单在途行数。
+    async fn transit_rows(ship_id: Uuid) -> i64 {
+        db().scalar_with_params::<i64>(
+            "SELECT count(*) FROM biz_inventory_in_transit WHERE shipment_id = ?::uuid",
+            vec![Value::from(&ship_id)],
+        )
+        .await
+        .expect("数在途行")
+    }
+
+    /// 出库单的凭证数（本卡口径：发货过账**不**生成凭证，签收确认才生成）。
+    async fn voucher_count(ship_id: Uuid) -> i64 {
+        db().scalar_with_params::<i64>(
+            "SELECT count(*) FROM biz_voucher v \
+               JOIN biz_stock_out o ON o.id = v.source_id \
+              WHERE v.source_type = 'STOCK_OUT' AND o.source_id = ?::uuid",
+            vec![Value::from(&ship_id)],
+        )
+        .await
+        .expect("数凭证")
     }
 
     async fn fixture_customer() -> Uuid {
@@ -797,7 +945,7 @@ mod tests {
         id
     }
 
-    /// 过账（走 handler 的公开入口：状态机 + 事务 + 库存效果一条龙）。
+    /// 过账（走 handler 的公开入口：状态机 + 事务 + 在途/出库待确认一条龙）。
     async fn post_shipment(ship_id: Uuid) -> std::result::Result<shipment_handler::ShipmentRes, ApiError> {
         shipment_handler::change_shipment_status(
             None,
@@ -818,11 +966,11 @@ mod tests {
         }
     }
 
-    /// 出库单来源 / 状态 / 金额（断言用）。
-    async fn stock_out_row(ship_id: Uuid) -> Option<(String, String, String, Option<String>, String)> {
+    /// 出库单来源 / 状态 / 数量（断言用）。
+    async fn stock_out_row(ship_id: Uuid) -> Option<(String, String, String, String)> {
         let rows = db()
             .query_sql(
-                "SELECT status, out_type, source_type, voucher_id::text AS voucher, total_qty::text AS qty \
+                "SELECT status, out_type, source_type, total_qty::text AS qty \
                    FROM biz_stock_out WHERE source_id = ?::uuid AND deleted_at IS NULL"
                     .to_string(),
                 vec![Value::from(ship_id)],
@@ -834,27 +982,17 @@ mod tests {
                 row.get_typed::<String>("status").expect("status"),
                 row.get_typed::<String>("out_type").expect("out_type"),
                 row.get_typed::<String>("source_type").expect("source_type"),
-                row.get_typed::<Option<String>>("voucher").expect("voucher"),
                 row.get_typed::<String>("qty").expect("qty"),
             )
         })
     }
 
-    /// 出库流水的业务类型（FIX-7：销售出库必须是 `SALE_OUT`，不许是 `OTHER_OUT`）。
-    async fn stock_out_txn_biz_type(ship_id: Uuid) -> Option<String> {
-        text_of(
-            "SELECT t.biz_type FROM biz_inventory_txn t \
-               JOIN biz_stock_out s ON s.id = t.doc_id \
-              WHERE s.source_id = ?::uuid AND t.doc_type = 'STOCK_OUT' AND t.txn_type = 'OUT' \
-              LIMIT 1",
-            vec![Value::from(ship_id)],
-        )
-        .await
-    }
-
-    /// **正常发货**：全量发货 → 三本账负向 + 成本结转凭证 + delivered_qty + 订单 OUTBOUND。
+    /// **正常发货**：在途记账 + 出库单待确认，三本账一分不动，订单已发完（OUTBOUND）。
+    ///
+    /// 这是 M2-02 的口径证据：**库存不扣**（20 还是 20），在途 +10，
+    /// 出库单停在 PENDING_POST 且没有成本结转凭证。
     #[tokio::test]
-    async fn normal_post_deducts_three_books_and_closes_order() {
+    async fn normal_post_records_transit_without_touching_stock() {
         let Some(_guard) = setup().await else { return };
         let customer = fixture_customer().await;
         seed_stock(MAT_A, "20").await;
@@ -872,45 +1010,64 @@ mod tests {
             res.stock_out_no
         );
 
-        let (status, out_type, source_type, voucher, qty) = stock_out_row(ship_id).await.expect("必须生成销售出库单");
-        assert_eq!(status, "POSTED", "销售出库单必须在一个事务里过账");
+        // 出库单：来源 SALES、状态 PENDING_POST（出库待确认）、数量 = 发货数量
+        let (status, out_type, source_type, qty) = stock_out_row(ship_id).await.expect("必须生成销售出库单");
+        assert_eq!(status, "PENDING_POST", "出库单必须停在「出库待确认」，账一分不动");
         assert_eq!(out_type, "OTHER", "out_type 是领用性质，销售出库用 OTHER（借 6401）");
         assert_eq!(source_type, "SALES", "来源类型必须是 SALES（V0285）");
         assert_eq!(qty, "10.0000", "出库单总数量应等于发货数量");
-        let voucher = voucher.expect("有成本（10×10=100）时必须生成成本结转凭证");
-        assert!(!voucher.is_empty());
-
-        // 三本账：成本账 / 库位账各减 10，流水一笔 OUT −10（净额 = −10）
-        assert_eq!(cost_qty(MAT_A).await, dec("10"), "成本账应 20 − 10 = 10");
-        assert_eq!(location_qty(MAT_A).await, dec("10"), "库位账应 20 − 10 = 10");
-        assert_eq!(txn_net(MAT_A).await, dec("-10"), "流水净额应为 −10");
-        // FIX-7：销售出库流水的 biz_type 必须是 SALE_OUT（记成 OTHER_OUT 的话
-        // 「按 biz_type 统计销售出库」一条都数不到，与手工其他出库混在一起）
         assert_eq!(
-            stock_out_txn_biz_type(ship_id).await.as_deref(),
-            Some("SALE_OUT"),
-            "销售出库流水必须记 SALE_OUT（source_type='SALES' ⇒ 不看 out_type 的 OTHER）"
+            voucher_count(ship_id).await,
+            0,
+            "发货过账不生成成本结转凭证（签收确认才生成）"
         );
+
+        // 三本账：一分不动（这是本卡最核心的一条）
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "发货过账不许扣成本账");
+        assert_eq!(location_qty(MAT_A).await, dec("20"), "发货过账不许扣库位账");
+        assert_eq!(txn_net(MAT_A).await, Decimal::ZERO, "发货过账不许写库存流水");
+
+        // 在途账：一行，发货 10 / 在途 10 / IN_TRANSIT，日期快照 = 发货单日期
+        assert_eq!(transit_rows(ship_id).await, 1, "一张发货单一条物料只该有一行在途");
+        assert_eq!(transit_qty(MAT_A).await, dec("10"), "在途量应等于发货数量");
+        let transit = text_of(
+            "SELECT shipped_qty::text || '/' || received_qty::text || '/' || qty_in_transit::text || '/' || status \
+               FROM biz_inventory_in_transit WHERE shipment_id = ?::uuid",
+            vec![Value::from(&ship_id)],
+        )
+        .await
+        .expect("在途行必须存在");
+        assert_eq!(
+            transit, "10.0000/0.0000/10.0000/IN_TRANSIT",
+            "在途行口径不符：{transit}"
+        );
+        let same_date = text_of(
+            "SELECT (t.ship_date = s.ship_date)::text FROM biz_inventory_in_transit t \
+               JOIN biz_shipment s ON s.id = t.shipment_id WHERE t.shipment_id = ?::uuid",
+            vec![Value::from(&ship_id)],
+        )
+        .await;
+        assert_eq!(same_date.as_deref(), Some("true"), "在途行必须带发货日期快照");
 
         // 订单行已发 + 订单状态
         let delivered = text_of(
             "SELECT delivered_qty::text FROM biz_sales_order_item WHERE id = ?::uuid",
-            vec![Value::from(item_id)],
+            vec![Value::from(&item_id)],
         )
         .await;
         assert_eq!(delivered.as_deref(), Some("10.0000"), "delivered_qty 必须回写");
         let so_status = text_of(
             "SELECT status FROM biz_sales_order WHERE id = ?::uuid",
-            vec![Value::from(so_id)],
+            vec![Value::from(&so_id)],
         )
         .await;
         assert_eq!(so_status.as_deref(), Some("OUTBOUND"), "全发完 → OUTBOUND");
-        println!("[SO-10] 正常过账：单据 {ship_id} → 出库单 {voucher}，三账各 −10，订单 OUTBOUND");
+        println!("[M2-02] 正常过账：出库单待确认 + 在途 10，库存仍 20，订单 OUTBOUND");
     }
 
-    /// **部分发货**：3/10 → PARTIAL_OUT；再发 7 → OUTBOUND（两次累计 = 10）。
+    /// **部分发货**：3/10 → PARTIAL_OUT；再发 7 → OUTBOUND；两批各自一行在途，库存始终 20。
     #[tokio::test]
-    async fn partial_post_moves_to_partial_out_then_outbound() {
+    async fn partial_post_keeps_two_transit_rows_and_stock_untouched() {
         let Some(_guard) = setup().await else { return };
         let customer = fixture_customer().await;
         seed_stock(MAT_A, "20").await;
@@ -922,11 +1079,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("第一次部分发货应成功：{} {}", error.code, error.msg));
         let so_status = text_of(
             "SELECT status FROM biz_sales_order WHERE id = ?::uuid",
-            vec![Value::from(so_id)],
+            vec![Value::from(&so_id)],
         )
         .await;
         assert_eq!(so_status.as_deref(), Some("PARTIAL_OUT"), "发了一部分 → PARTIAL_OUT");
-        assert_eq!(cost_qty(MAT_A).await, dec("17"), "库存应 20 − 3 = 17");
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "库存不随发货扣减");
+        assert_eq!(transit_qty(MAT_A).await, dec("3"), "第一批在途 3");
 
         let second = fixture_shipment(customer, so_id, item_id, MAT_A, "7").await;
         post_shipment(second)
@@ -934,22 +1092,26 @@ mod tests {
             .unwrap_or_else(|error| panic!("第二次发货应成功：{} {}", error.code, error.msg));
         let so_status = text_of(
             "SELECT status FROM biz_sales_order WHERE id = ?::uuid",
-            vec![Value::from(so_id)],
+            vec![Value::from(&so_id)],
         )
         .await;
         assert_eq!(so_status.as_deref(), Some("OUTBOUND"), "发完 → OUTBOUND");
-        assert_eq!(cost_qty(MAT_A).await, dec("10"), "库存应 17 − 7 = 10");
-        assert_eq!(location_qty(MAT_A).await, dec("10"));
-        assert_eq!(txn_net(MAT_A).await, dec("-10"), "两笔出库流水合计 −10");
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "两批发完库存仍是 20（签收确认才扣）");
+        assert_eq!(location_qty(MAT_A).await, dec("20"));
+        assert_eq!(txn_net(MAT_A).await, Decimal::ZERO, "没有库存流水");
+        // 两张发货单 = 两行在途（唯一键含 shipment_id），合计在途 10
+        assert_eq!(transit_rows(first).await, 1, "第一张发货单一行在途");
+        assert_eq!(transit_rows(second).await, 1, "第二张发货单一行在途");
+        assert_eq!(transit_qty(MAT_A).await, dec("10"), "在途合计 3 + 7 = 10");
         let delivered = text_of(
             "SELECT delivered_qty::text FROM biz_sales_order_item WHERE id = ?::uuid",
-            vec![Value::from(item_id)],
+            vec![Value::from(&item_id)],
         )
         .await;
         assert_eq!(delivered.as_deref(), Some("10.0000"), "累计已发 3 + 7 = 10");
     }
 
-    /// **库存不足整单回滚**：账只有 2，要发 5 → 409，且三账 / 出库单 / delivered_qty 一分不动。
+    /// **库存不足整单回滚**：账只有 2，要发 5 → 409，且在途 / 出库单 / delivered 都不许留。
     #[tokio::test]
     async fn insufficient_stock_leaves_everything_untouched() {
         let Some(_guard) = setup().await else { return };
@@ -969,11 +1131,12 @@ mod tests {
         assert_eq!(cost_qty(MAT_A).await, dec("2"), "成本账不能被扣");
         assert_eq!(location_qty(MAT_A).await, dec("2"), "库位账不能被扣");
         assert_eq!(txn_net(MAT_A).await, Decimal::ZERO, "不能留流水");
+        assert_eq!(transit_rows(ship_id).await, 0, "被拒的发货单不能留下在途行");
         assert!(stock_out_row(ship_id).await.is_none(), "拒绝过账不能留下半张销售出库单");
         assert_eq!(
             text_of(
                 "SELECT status FROM biz_shipment WHERE id = ?::uuid",
-                vec![Value::from(ship_id)]
+                vec![Value::from(&ship_id)]
             )
             .await
             .as_deref(),
@@ -983,7 +1146,7 @@ mod tests {
         assert_eq!(
             text_of(
                 "SELECT delivered_qty::text FROM biz_sales_order_item WHERE id = ?::uuid",
-                vec![Value::from(item_id)]
+                vec![Value::from(&item_id)]
             )
             .await
             .as_deref(),
@@ -992,7 +1155,47 @@ mod tests {
         );
     }
 
-    /// **重复过账幂等**：第二次 POSTED → 409，库存只扣一次，销售出库单只有一张。
+    /// **在途占住可用量**：库存不扣，但已发的货必须从可用量里扣掉 ——
+    /// 否则账面一直是满的，同一批货能被反复发出去（M2-02 的核心副作用）。
+    #[tokio::test]
+    async fn in_transit_reserves_available_quantity() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer().await;
+        seed_stock(MAT_A, "20").await;
+        let (so_id, item_id) = fixture_order(customer, "30", "0", "APPROVED").await;
+
+        // 先发 15：可用 20 → 通过（在途 15，账面仍 20）
+        let first = fixture_shipment(customer, so_id, item_id, MAT_A, "15").await;
+        post_shipment(first)
+            .await
+            .unwrap_or_else(|error| panic!("第一批发 15 应成功：{} {}", error.code, error.msg));
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "账面仍是 20");
+        assert_eq!(transit_qty(MAT_A).await, dec("15"), "在途 15");
+
+        // 再发 10：账面 20 够，但扣掉在途 15 只剩 5 → 409
+        let second = fixture_shipment(customer, so_id, item_id, MAT_A, "10").await;
+        let error = post_shipment(second)
+            .await
+            .expect_err("在途已经占了 15，可用只剩 5，再发 10 必须被拒");
+        assert_eq!(error.status, 409, "应是在途占用导致的库存不足，实际 {}", error.status);
+        assert!(
+            error.msg.contains("库存不足") && error.msg.contains("在途"),
+            "文案要点明「在途占用后的可用量」，实际：{}",
+            error.msg
+        );
+        assert_eq!(transit_rows(second).await, 0, "被拒的发货单不许留在途行");
+        assert_eq!(transit_qty(MAT_A).await, dec("15"), "在途仍是 15");
+
+        // 再发 5：可用 5 = 5 → 通过（边界）
+        let third = fixture_shipment(customer, so_id, item_id, MAT_A, "5").await;
+        post_shipment(third)
+            .await
+            .unwrap_or_else(|error| panic!("在可用量边界发 5 应成功：{} {}", error.code, error.msg));
+        assert_eq!(transit_qty(MAT_A).await, dec("20"), "在途 15 + 5 = 20");
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "签收确认前账面一直是 20");
+    }
+
+    /// **重复过账幂等**：第二次 POSTED → 409，在途只记一次，销售出库单只有一张。
     #[tokio::test]
     async fn repeated_post_is_idempotent() {
         let Some(_guard) = setup().await else { return };
@@ -1002,7 +1205,7 @@ mod tests {
         let ship_id = fixture_shipment(customer, so_id, item_id, MAT_A, "4").await;
 
         post_shipment(ship_id).await.expect("第一次过账应成功");
-        assert_eq!(cost_qty(MAT_A).await, dec("16"), "第一次扣 4");
+        assert_eq!(transit_qty(MAT_A).await, dec("4"), "第一次在途 4");
 
         let error = post_shipment(ship_id).await.expect_err("已 POSTED 再次过账必须被拒");
         assert_eq!(error.status, 409, "重复过账应 409，实际 {}", error.status);
@@ -1012,19 +1215,19 @@ mod tests {
             error.msg
         );
 
-        assert_eq!(cost_qty(MAT_A).await, dec("16"), "第二次过账不能再扣库存");
-        assert_eq!(location_qty(MAT_A).await, dec("16"));
-        assert_eq!(txn_net(MAT_A).await, dec("-4"), "流水只有一笔 −4");
+        assert_eq!(transit_qty(MAT_A).await, dec("4"), "在途不能被记两遍");
+        assert_eq!(transit_rows(ship_id).await, 1, "在途行只有一行");
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "库存始终没动");
         let count = text_of(
             "SELECT count(*)::text FROM biz_stock_out WHERE source_id = ?::uuid AND deleted_at IS NULL",
-            vec![Value::from(ship_id)],
+            vec![Value::from(&ship_id)],
         )
         .await;
         assert_eq!(count.as_deref(), Some("1"), "同一发货单只能有一张销售出库单");
         assert_eq!(
             text_of(
                 "SELECT delivered_qty::text FROM biz_sales_order_item WHERE id = ?::uuid",
-                vec![Value::from(item_id)]
+                vec![Value::from(&item_id)]
             )
             .await
             .as_deref(),
@@ -1033,9 +1236,10 @@ mod tests {
         );
     }
 
-    /// **后置失败整笔回滚**：库存已经扣了，但订单行超发守卫拦下 → 库存 / 出库单 / 状态全部回滚。
+    /// **后置失败整笔回滚**：出库单与在途行已经写了，但订单行超发守卫拦下 →
+    /// 出库单 / 在途行 / 发货单状态全部回滚。
     ///
-    /// 这是「原子性」的真正证据：失败点在**扣完库存之后**，回滚必须把它还回去。
+    /// 这是「原子性」的真正证据：失败点在**写完在途之后**，回滚必须把它们一起消失。
     #[tokio::test]
     async fn late_failure_rolls_back_the_whole_posting() {
         let Some(_guard) = setup().await else { return };
@@ -1055,14 +1259,14 @@ mod tests {
             error.msg
         );
 
-        assert_eq!(cost_qty(MAT_A).await, dec("20"), "扣掉的库存必须回滚");
-        assert_eq!(location_qty(MAT_A).await, dec("20"), "库位账必须回滚");
-        assert_eq!(txn_net(MAT_A).await, Decimal::ZERO, "流水必须回滚");
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "库存没动过（本来就不扣）");
+        assert_eq!(transit_rows(ship_id).await, 0, "写进去的在途行必须回滚");
+        assert_eq!(transit_qty(MAT_A).await, Decimal::ZERO, "在途一分不许留");
         assert!(stock_out_row(ship_id).await.is_none(), "半张销售出库单必须回滚");
         assert_eq!(
             text_of(
                 "SELECT status FROM biz_shipment WHERE id = ?::uuid",
-                vec![Value::from(ship_id)]
+                vec![Value::from(&ship_id)]
             )
             .await
             .as_deref(),
@@ -1072,7 +1276,7 @@ mod tests {
         assert_eq!(
             text_of(
                 "SELECT delivered_qty::text FROM biz_sales_order_item WHERE id = ?::uuid",
-                vec![Value::from(item_id)]
+                vec![Value::from(&item_id)]
             )
             .await
             .as_deref(),
@@ -1082,7 +1286,7 @@ mod tests {
         assert_eq!(
             text_of(
                 "SELECT status FROM biz_sales_order WHERE id = ?::uuid",
-                vec![Value::from(so_id)]
+                vec![Value::from(&so_id)]
             )
             .await
             .as_deref(),
