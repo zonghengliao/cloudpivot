@@ -48,19 +48,13 @@ const WAREHOUSE_A_CODE: &str = "M214-WHA";
 const MAT_A_CODE: &str = "M214-M1";
 const MAT_B_CODE: &str = "M214-M2";
 
-/// 仓管主管角色编码（与 `reminder_stock::WAREHOUSE_ROLES` 同值；所有者由它解析）。
+/// 仓管主管角色编码（与 `reminder_stock::WAREHOUSE_ROLES` 同值；负责人由它解析）。
 const ROLE_CODE: &str = "WAREHOUSE_MANAGER";
 
-/// 夹具账号用**极小**的固定 UUID：`resolve_owner` 取角色成员里 uuid 升序第一位，
-/// 用极小值保证用例里选中它（种子库若已有仓管主管成员，也不会抢走）。
-fn manager_uuid() -> Uuid {
-    Uuid::from_u128(0x2140)
-}
-
-/// 一个「谁都不许被当成操作人」的对照账号（手动触发的兜底人）。
-fn operator_uuid() -> Uuid {
-    Uuid::from_u128(0x2141)
-}
+/// 夹具账号的用户名（`test_seed::ensure_user` 按它派生确定性 id）。
+const MANAGER_USERNAME: &str = "m214.warehouse.manager";
+/// 对照组账号的用户名（不绑任何角色）。
+const OPERATOR_USERNAME: &str = "m214.operator";
 
 fn dec(text: &str) -> Decimal {
     text.parse().expect("定点字面量")
@@ -78,18 +72,8 @@ async fn mat_b() -> Uuid {
     test_seed::ensure_material(MAT_B_CODE, "水位检查物料乙").await
 }
 
-/// 仓管主管角色（已存在则复用：种子库里有；空库首启时也可能还没有）。
+/// 仓管主管角色 id（角色由**种子迁移**创建；缺失即环境不对，直接点名报错而不是自己造角色）。
 async fn role_manager() -> Uuid {
-    exec(
-        "INSERT INTO sys_role (id, role_code, role_name, status, sort_order) \
-         VALUES (?::uuid, ?, '仓管主管（M2-14 夹具）', 1, 50) \
-         ON CONFLICT (role_code) WHERE deleted_at IS NULL DO NOTHING",
-        vec![
-            Value::from(&Uuid::from_u128(0x2142)),
-            Value::Text(ROLE_CODE.to_string()),
-        ],
-    )
-    .await;
     let rows = db()
         .find_with_params(
             "SELECT id FROM sys_role WHERE role_code = ? AND deleted_at IS NULL",
@@ -98,35 +82,51 @@ async fn role_manager() -> Uuid {
         .await
         .expect("查角色");
     rows.first()
-        .expect("仓管主管角色必须存在")
+        .unwrap_or_else(|| panic!("角色 {ROLE_CODE} 不存在（应由 migrations/seed 的 S__role_data.sql 创建）"))
         .get_typed("id")
         .expect("角色 id")
 }
 
-/// 夹具账号（仓管主管成员）+ 对照组账号（不属于任何角色）。
+/// 夹具账号：仓管主管成员 + 对照组（不属任何角色，手动触发的兜底人）。
+///
+/// 一律走 `crate::test_seed`（P2-62 数据准备脚本化，门禁 `test_seed_gate.sh` 的 ③ 预算挡着）：
+/// * `ensure_user` 幂等、id 由 `user:<username>` 派生（跨进程同一个 id）；
+/// * `bind_role` 按 `role_code` 绑定已存在的角色（角色不存在会 panic，而不是静默造一个）。
 async fn ensure_users() {
-    for (id, name) in [
-        (manager_uuid(), "m214-warehouse-manager"),
-        (operator_uuid(), "m214-operator"),
-    ] {
-        exec(
-            "INSERT INTO sys_user (id, username, password, real_name, status, must_change_password) \
-             VALUES (?::uuid, ?, 'x', ?, 1, false) \
-             ON CONFLICT (id) DO UPDATE SET real_name = EXCLUDED.real_name, status = 1, deleted_at = NULL",
-            vec![
-                Value::from(&id),
-                Value::Text(name.to_string()),
-                Value::Text(name.to_string()),
-            ],
+    let manager = test_seed::ensure_user(MANAGER_USERNAME, "M214 仓管主管夹具", None).await;
+    test_seed::bind_role(manager, ROLE_CODE).await;
+    test_seed::ensure_user(OPERATOR_USERNAME, "M214 触发人夹具", None).await;
+    role_manager().await;
+}
+
+/// 夹具仓管主管账号 id（`resolve_owner` 取角色成员里 uuid 升序第一位，**不保证**就是它）。
+async fn manager_uuid() -> Uuid {
+    test_seed::ensure_user(MANAGER_USERNAME, "M214 仓管主管夹具", None).await
+}
+
+/// 对照组账号 id（只用来当「手动触发人」，不是仓管主管）。
+async fn operator_uuid() -> Uuid {
+    test_seed::ensure_user(OPERATOR_USERNAME, "M214 触发人夹具", None).await
+}
+
+/// 角色下的在职成员（`resolve_owner` 的候选集，排序规则与代码一致：uuid 升序）。
+async fn role_members() -> Vec<Uuid> {
+    let mut ids: Vec<Uuid> = db()
+        .find_with_params(
+            "SELECT DISTINCT u.id AS id FROM sys_user u \
+               JOIN sys_user_role ur ON ur.user_id = u.id \
+               JOIN sys_role r ON r.id = ur.role_id \
+              WHERE u.deleted_at IS NULL AND u.status = 1 \
+                AND r.deleted_at IS NULL AND r.status = 1 AND r.role_code = ?",
+            vec![Value::Text(ROLE_CODE.to_string())],
         )
-        .await;
-    }
-    exec(
-        "INSERT INTO sys_user_role (id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid) \
-         ON CONFLICT (user_id, role_id) DO NOTHING",
-        vec![Value::from(&manager_uuid()), Value::from(&role_manager().await)],
-    )
-    .await;
+        .await
+        .expect("查角色成员")
+        .iter()
+        .map(|row| row.get_typed::<Uuid>("id").expect("user id"))
+        .collect();
+    ids.sort_unstable();
+    ids
 }
 
 /// 结存（`biz_inventory`，物料 × 仓库 唯一行）。
@@ -309,8 +309,17 @@ async fn check_raises_one_todo_for_a_low_cell() {
     assert_eq!(item.gap_qty, "38");
     assert_eq!(item.action, "RAISED");
     assert!(item.task_no.is_some(), "新建的待办要回显编号");
-    assert_eq!(report.owner.as_deref(), Some(manager_uuid().to_string().as_str()));
     assert_eq!(report.owner_source, "ROLE", "负责人来自仓管主管角色");
+    let members = role_members().await;
+    let owner_text = report.owner.clone().expect("有负责人");
+    let owner: Uuid = owner_text.parse().expect("owner 是 uuid");
+    assert_eq!(
+        Some(&owner),
+        members.first(),
+        "多成员时取 uuid 升序第一位（确定性，不每轮换人）"
+    );
+    assert!(members.contains(&owner), "负责人必须是仓管主管成员");
+    assert!(members.contains(&manager_uuid().await), "夹具账号本身也在角色里");
 
     let todos = todos_of(inv).await;
     assert_eq!(todos.len(), 1, "一格一条");
@@ -332,10 +341,10 @@ async fn check_raises_one_todo_for_a_low_cell() {
     let row = rows.first().expect("待办必须存在");
     assert_eq!(row.get_typed::<String>("doc_type").expect("doc_type"), "INVENTORY");
     assert_eq!(row.get_typed::<Uuid>("doc_id").expect("doc_id"), inv);
-    assert_eq!(row.get_typed::<Uuid>("owner_id").expect("owner"), manager_uuid());
+    assert_eq!(row.get_typed::<Uuid>("owner_id").expect("owner"), owner);
     assert_eq!(
         row.get_typed::<Uuid>("creator_id").expect("creator"),
-        manager_uuid(),
+        owner,
         "系统生成的待办：creator = owner（不是分派）"
     );
     assert_eq!(row.get_typed::<String>("source").expect("source"), "SELF");
@@ -390,15 +399,12 @@ async fn open_todo_unique_index_blocks_a_second_row() {
     water_check::run_check(Some(material), Some(wh), false, None)
         .await
         .expect("先建一条");
+    let manager = manager_uuid().await;
     let error = db()
         .execute_with_params(
             "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id, doc_type, doc_id) \
              VALUES (gen_random_uuid(), 'TSK-214001-999999', '重复水位待办', ?::uuid, ?::uuid, 'INVENTORY', ?::uuid)",
-            vec![
-                Value::from(&manager_uuid()),
-                Value::from(&manager_uuid()),
-                Value::from(&inv),
-            ],
+            vec![Value::from(&manager), Value::from(&manager), Value::from(&inv)],
         )
         .await
         .expect_err("同格第二条未完成待办必须被 uk_biz_task_open_inventory 拒");
@@ -423,11 +429,7 @@ async fn open_todo_unique_index_blocks_a_second_row() {
     db().execute_with_params(
         "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id, doc_type, doc_id) \
              VALUES (gen_random_uuid(), 'TSK-214001-999998', '关闭后可再建', ?::uuid, ?::uuid, 'INVENTORY', ?::uuid)",
-        vec![
-            Value::from(&manager_uuid()),
-            Value::from(&manager_uuid()),
-            Value::from(&inv),
-        ],
+        vec![Value::from(&manager), Value::from(&manager), Value::from(&inv)],
     )
     .await
     .expect("关闭后同格可以再建（历史行保留）");
@@ -625,20 +627,15 @@ async fn owner_source_falls_back_to_operator_then_none() {
 
     // 临时把仓管主管成员全部摘掉（模拟「角色还没配人」），摘之前先记下原有成员，用完还原
     let role = role_manager().await;
-    let prior: Vec<(Uuid, Uuid)> = db()
+    let prior: Vec<Uuid> = db()
         .find_with_params(
-            "SELECT user_id, role_id FROM sys_user_role WHERE role_id = ?::uuid",
+            "SELECT user_id FROM sys_user_role WHERE role_id = ?::uuid",
             vec![Value::from(&role)],
         )
         .await
         .expect("记下原有成员")
         .iter()
-        .map(|row| {
-            (
-                row.get_typed::<Uuid>("user_id").expect("user_id"),
-                row.get_typed::<Uuid>("role_id").expect("role_id"),
-            )
-        })
+        .map(|row| row.get_typed::<Uuid>("user_id").expect("user_id"))
         .collect();
     assert!(!prior.is_empty(), "夹具成员应在角色里");
     exec(
@@ -656,7 +653,8 @@ async fn owner_source_falls_back_to_operator_then_none() {
     assert_eq!(background.items[0].action, "NO_OWNER");
     assert_eq!(todos_of(inv).await.len(), 0);
 
-    let manual = water_check::run_check(Some(material), Some(wh), false, Some(operator_uuid()))
+    let operator = operator_uuid().await;
+    let manual = water_check::run_check(Some(material), Some(wh), false, Some(operator))
         .await
         .expect("手动触发");
     assert_eq!(manual.owner_source, "OPERATOR", "手动触发兜底成触发人");
@@ -670,23 +668,18 @@ async fn owner_source_falls_back_to_operator_then_none() {
         .await
         .expect("回读");
     let row = rows.first().expect("待办");
-    assert_eq!(row.get_typed::<Uuid>("owner_id").expect("owner"), operator_uuid());
+    assert_eq!(row.get_typed::<Uuid>("owner_id").expect("owner"), operator);
     assert_eq!(
         row.get_typed::<Option<Uuid>>("create_by")
             .expect("create_by")
             .expect("非空"),
-        operator_uuid(),
+        operator,
         "create_by 记真实触发人"
     );
 
-    // 还原角色成员（原样恢复，避免影响后续用例 / 其它模块的真库用例）
-    for (user_id, role_id) in prior {
-        exec(
-            "INSERT INTO sys_user_role (id, user_id, role_id) VALUES (gen_random_uuid(), ?::uuid, ?::uuid) \
-             ON CONFLICT (user_id, role_id) DO NOTHING",
-            vec![Value::from(&user_id), Value::from(&role_id)],
-        )
-        .await;
+    // 还原角色成员（一律走 `test_seed::bind_role`，不在用例里手写 sys_user_role 的 INSERT）
+    for user_id in prior {
+        test_seed::bind_role(user_id, ROLE_CODE).await;
     }
     ensure_users().await;
     println!("[M2-14] 无人可派：后台 NONE 跳过 / 手动 OPERATOR 兜底（create_by 记触发人）✓");
@@ -793,8 +786,9 @@ async fn handler_entry_shares_the_same_check_body() {
     let inv = set_qty(material, wh, "10").await;
 
     // 非法 UUID → 400 + 10001，不静默当没传
+    let operator = operator_uuid().await;
     let error = handler::check_water_of(
-        Some(operator_uuid()),
+        Some(operator),
         crate::business::erp::stock_policy::dto::WaterCheckReq {
             material_id: Some("not-a-uuid".to_string()),
             warehouse_id: None,
@@ -808,7 +802,7 @@ async fn handler_entry_shares_the_same_check_body() {
 
     // 正常路径（手动触发：负责人口径 = 角色优先）
     let res = handler::check_water_of(
-        Some(operator_uuid()),
+        Some(operator),
         crate::business::erp::stock_policy::dto::WaterCheckReq {
             material_id: Some(material.to_string()),
             warehouse_id: Some(wh.to_string()),
