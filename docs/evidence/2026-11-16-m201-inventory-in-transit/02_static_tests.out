@@ -1,0 +1,19 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/m2_01_inventory_in_transit_migration.rs (target/debug/deps/m2_01_inventory_in_transit_migration-ab0e37e054c9ebd2)
+
+running 12 tests
+test v0420_down_is_idempotent_and_guarded ... ok
+test v0420_creates_exactly_one_table_idempotently ... ok
+test v0420_fk_is_cascade_and_master_data_is_weak_reference ... ok
+test v0420_has_no_soft_delete_and_no_location_dimension ... ok
+test v0420_probe_fixtures_are_cleaned_up ... ok
+test v0420_indexes_are_idempotent_and_unique_key_is_plain ... ok
+test v0420_qty_in_transit_is_generated_column ... ok
+test v0420_keeps_four_check_constraints ... ok
+test v0420_up_and_down_exist ... ok
+test v0420_self_check_raises_exceptions ... ok
+test v0420_splits_cleanly_with_engine_splitter ... ok
+test v0420_columns_have_designed_shape ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

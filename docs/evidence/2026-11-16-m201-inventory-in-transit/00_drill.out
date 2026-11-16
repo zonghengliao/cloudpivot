@@ -1,0 +1,71 @@
+== M2-01 / V0420 真库往返演练（在途库存账 biz_inventory_in_transit）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 演练库=cp_m201_transit_drill_2758510
+
+  ---- 演练库已从 cloudpivot_test 克隆
+  [32mPASS[0m 克隆库升级前表不存在（=0）
+  [32mPASS[0m 前置表 biz_shipment 在位（V0283 已应用）（=1）
+
+== 1) up 第一次 ==
+  [32mPASS[0m up 第一次执行成功（建表 + 自检块通过）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0420__inventory_in_transit.up.sql:103: NOTICE:  V0420: 前置表齐备，开始建在途库存表
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0420__inventory_in_transit.up.sql:417: NOTICE:  V0420 自检通过：biz_inventory_in_transit 建表 + 15 列 + 4 条 CHECK + 1 条外键 + 4 条索引 + 11 组行为探针（生成列/唯一键/状态一致/级联）
+
+== 2) up 第二次（幂等）==
+  [32mPASS[0m up 重复执行成功（幂等，探针零残留）
+
+== 3) 结构断言 ==
+  [32mPASS[0m 列数 = 15（=15）
+  [32mPASS[0m 7 个关键列的类型/精度/可空性（=7）
+  [32mPASS[0m status 默认 IN_TRANSIT（=IN_TRANSIT）
+  [32mPASS[0m qty_in_transit 是 GENERATED ALWAYS 且表达式含 shipped_qty/received_qty（=ALWAYS|1）
+  [32mPASS[0m 4 条 CHECK 在位（=4）
+  [32mPASS[0m 发货单外键 = REFERENCES biz_shipment(id) ON DELETE CASCADE（=fk_biz_inv_transit_shipment|FOREIGN KEY (shipment_id) REFERENCES biz_shipment(id) ON DELETE CASCADE）
+  [32mPASS[0m 4 条索引在位（=4）
+  [32mPASS[0m 唯一键是完整三列、不带谓词（本表无软删）（=1）
+  [32mPASS[0m 索引总数 5 = 1 唯一 + 3 普通 + 1 主键（=5）
+  [32mPASS[0m 表注释在位（=1）
+  [32mPASS[0m 升级后表内 0 行（自检探针已自清场）（=0）
+
+== 4) 行为断言（脏数据一律拦下）==
+  [32mPASS[0m 探针发货单就位（=2）
+  [32mPASS[0m 正常在途行可写（发货 100 / 已签 30）（=1）
+  [32mPASS[0m 在途量由 PG 算出来 = 100 − 30 = 70（=70.0000|IN_TRANSIT）
+  [32mPASS[0m 同 (物料, 发货仓, 发货单) 重号被唯一键拦下（同一批在途不能算两遍）（=1）
+  [32mPASS[0m 直接给生成列 qty_in_transit 赋值被拒（口径不可绕过）（=1）
+  [32mPASS[0m shipped_qty = 0 被 ck_biz_inv_transit_qty 拦下（=1）
+  [32mPASS[0m received_qty > shipped_qty 被拦下（否则在途变负数）（=1）
+  [32mPASS[0m 签满仍是 IN_TRANSIT 被 ck_biz_inv_transit_state 拦下（=1）
+  [32mPASS[0m 非法状态 SHIPPED 被拦下（状态域 CHECK）（=1）
+  [32mPASS[0m 悬空 shipment_id 被外键拦下（=1）
+
+== 5) 写入契约（M2-02 upsert / M2-03 单语句推进）==
+  [32mPASS[0m M2-02 upsert：发货量累加到 120、仍只有 1 行、在途 90（=120.0000|30.0000|90.0000|1）
+  [32mPASS[0m M2-03 反证：只推 received_qty 不动 status 被拒（不许出现「签满仍 IN_TRANSIT」的中间态）（=1）
+  [32mPASS[0m M2-03 单语句签满：在途归 0、状态 RECEIVED、签收时间有值（=0.0000|RECEIVED|1）
+  [32mPASS[0m 部分签收（50 发 / 20 签）仍算在途 30（=30.0000|IN_TRANSIT）
+  [32mPASS[0m 作废行可写（CANCELLED 不受数量一致性约束）（=1）
+
+== 6) 对账恒等：在途 + 已签收 = 发货量（M2-05）==
+  [32mPASS[0m 非作废行：发货量 = 已签收 + 在途（生成列保证的恒等式）（=0.0000）
+  [32mPASS[0m 按物料+仓库汇总：在途 30 / 已签收 140（=30.0000|140.0000）
+  [32mPASS[0m 在途汇总 = 独立 SQL（shipped − received）聚合，两处逐位相同（=30.0000）
+  [32mPASS[0m 作废行不参与在途汇总（80 件作废量没被算进 30）（=30.0000）
+
+== 7) 级联：物理删发货单 → 在途行一起消失 ==
+  [32mPASS[0m 删发货单 d0420aaa-0000-4000-8000-000000000003 后其在途行已级联删除（=0）
+
+== 8) down 护栏反证（还有在途/已签收行必须拒绝回滚）==
+  [32mPASS[0m 此刻表里还有 1 行已签收（SH1）（=1）
+  [32mPASS[0m down 被护栏拒绝并给出去向说明
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0420__inventory_in_transit.down.sql:33: ERROR:  V0420 down 拒绝执行：biz_inventory_in_transit 还有 1 行在途/已签收记录（先走业务签收或作废，作废行可随表删除）
+  [32mPASS[0m 拒绝回滚后结构未被破坏（15 列仍在）（=15）
+
+== 9) 清探针 → down ×2 → 重放 up ==
+  [32mPASS[0m 探针行三表全部清空（=0|0|0）
+  [32mPASS[0m down 第一次执行成功（空表放行）
+  [32mPASS[0m 回滚后表已移除（=0）
+  [32mPASS[0m down 重复执行成功（幂等）
+  [32mPASS[0m 回滚后重放 up 成功
+  [32mPASS[0m 重放后 15 列回来了（=15）
+
+== 汇总：PASS=44 FAIL=0 ==

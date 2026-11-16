@@ -1,0 +1,28 @@
+== M2-01 / V0420 真引擎实测（在途库存账 biz_inventory_in_transit）==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 升级库=cp_m201_upgrade 端口=18091
+
+== A) 克隆库升级（真引擎：模板库 → cp_m201_upgrade）==
+  升级前：versioned 最大 version=404
+  PASS  克隆库升级前不存在 biz_inventory_in_transit
+  PASS  克隆库真启动成功（/health 200）
+  数据库迁移完成: 应用 16 个迁移
+  PASS  引擎应用了 16 个迁移（含 V0420）
+  PASS  V0420 自检块在真引擎里通过（NOTICE 已打印 ⇒ 方言拆分器把 DO 块切对了）
+  schema_migrations：420/true/app/migrations/business/V0420__inventory_in_transit.up.sql
+  PASS  schema_migrations 登记 420/true/源文件（指纹已登记）
+
+== B) 结构落地 ==
+  PASS  15 列齐
+  PASS  qty_in_transit = GENERATED ALWAYS (shipped_qty - received_qty) STORED
+  PASS  shipped_qty = NUMERIC(18,4) NOT NULL
+  PASS  4 条 CHECK 在位
+  PASS  发货单外键 = ON DELETE CASCADE
+  PASS  唯一键 uk_biz_inv_transit_key 在位
+  PASS  索引总数 5 = 1 唯一 + 3 普通 + 1 主键
+  PASS  升级后表内 0 行（自检探针已自清场）
+
+== C) 重启幂等 ==
+  PASS  重启：应用 0 个迁移（引擎级幂等，指纹一致）
+  PASS  重启后结构不变（15 列）
+
+== 汇总：PASS=15 FAIL=0 ==
