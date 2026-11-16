@@ -358,17 +358,121 @@ SELECT doc_no, out_amt, in_amt FROM (
 
 ---
 
-## 8. 相关文件
+## 8. 在途库存对账（M2-05 · 在途 + 已出 = 发货总量）
+
+> 适用范围：`biz_inventory_in_transit`（V0420）这本**在途账**对不对得上发货单。
+> 接口 `GET /business/erp/inventory-transit/reconcile`（权限 `business:erp:inventory-transit:audit`），
+> 实现 `backend/app/src/business/erp/inventory_transit/reconcile.rs`。
+
+### 8.1 对账式（唯一口径，三侧比对）
+
+```text
+发货总量 item_qty       = Σ biz_shipment_item.qty                    -- 发货单明细（SSOT）
+已出     received_qty   = Σ biz_inventory_in_transit.received_qty    -- status <> 'CANCELLED'
+在途     qty_in_transit = Σ biz_inventory_in_transit.qty_in_transit  -- status <> 'CANCELLED'
+
+① 行恒等（库层保证）：shipped_qty = received_qty + qty_in_transit    -- V0420 生成列
+② 对账式（本文）   ：item_qty    = received_qty + qty_in_transit
+   ⇒ 等价于 item_qty = shipped_qty（在途账记的发货量 = 发货单发的量）
+```
+
+**粒度必须是 `(发货单 × 物料)`**：
+
+* `biz_inventory_in_transit` 的唯一键是 `(material_id, warehouse_id, shipment_id)`，
+  一行就是「这张发货单的这个物料」；
+* 「发货总量」取**明细**（`biz_shipment_item`），不取单头 `total_qty` —— 单头是明细的汇总
+  字段（自己也可能被写坏），而且单头粒度回答不了「哪一行物料错了」。
+
+### 8.2 差异码（六个，四个方向都要查）
+
+| issue 码 | 含义 | 硬问题？ |
+|---|---|:--:|
+| `QTY_MISMATCH` | 两侧都有行，但发货量不等（过账漏写 / 明细被改 / 在途量被手工改） | ✅ |
+| `MISSING_TRANSIT` | 有明细、**没有**在途行（在途写入被绕过；或 M2-02 之前过账的历史单） | ✅ |
+| `ORPHAN_TRANSIT` | 有在途行、明细里没有这个物料（明细被删 / 物料挂错） | ✅ |
+| `IDENTITY_BROKEN` | 行级 `shipped ≠ received + in_transit`（绕过生成列的写入，手工改库 / 刷数） | ✅ |
+| `MULTI_WAREHOUSE` | 同一 `(发货单, 物料)` 在多仓都有在途行（同一批货记了两份） | ✅ |
+| `CANCELLED_ONLY` | 只有在途作废行、没有有效行（整批作废：**不是错**） | ❌ |
+
+`CANCELLED_ONLY` 只标注、不计入 `mismatched`、也不进对账式的量（V0420 口径：
+作废行既不算在途也不算已出）。
+
+### 8.3 范围的三个边界（写清楚，免得被当成 bug 提单）
+
+1. **只对「已过账」的发货单对账**：明细侧 SQL 恒带 `s.status = 'POSTED'`。
+   `DRAFT` / `PENDING_POST` 的单有明细但**本来就不该有在途行**（发货过账才进在途），
+   不排除它们会让每张草稿单都报 `MISSING_TRANSIT`，满屏假红。
+2. **`MISSING_TRANSIT` 会报历史单，这是诚实**：M2-02 之前发货过账 = 立即出库，
+   没有在途账这一层（V0420 才建表）。那些历史单在本报告里必然表现为「有明细、无在途行」——
+   不要「修」它（补一行假在途账等于伪造历史），**按 `ship_date_from/ship_date_to` 收到
+   在途账上线之后的区间再对账**即可。
+3. **未纳入在途账的组不进 `diff`**：它们单列成 `untracked` 组数与 `untracked_item_qty`
+   发货量。把它们并进差额，真差异就会永远埋在一个非零数里。
+
+### 8.4 只读 / 截断 / 汇总
+
+* **只读**：`reconcile.rs` 一行写 SQL 都没有。对账的「修」是业务动作（重新过账 / 补签收 /
+  改单据），三侧都「有理」，谁是真相只有业务知道 —— 这与 `inventory_audit`（一物一码巡检，
+  有唯一参照物「序列号件数」、可 `dry_run=false`）刻意不同，**不要**给它加自动修复。
+* **截断**：一次最多比对 2000 个 `(发货单 × 物料)` 组（多取一行判 `truncated`）。
+  `truncated=true` 时 `balanced` **恒为 false**（没扫到的组里可能就有差异），
+  调用方必须按发货日期区间收窄再对，绝不能把半份结论当全量。
+* **`balanced` 的判据**：`零硬问题 && 对账差额 = 0 && 未截断`。
+
+### 8.5 手工核对 SQL（没有接口时可直接抄）
+
+```sql
+-- 差异行；期望 0 行（口径与接口一致：明细 POSTED、在途非作废、FULL OUTER JOIN 两个方向）
+WITH items AS (
+    SELECT si.shipment_id, si.material_id, SUM(si.qty) AS item_qty
+      FROM biz_shipment_item si
+      JOIN biz_shipment s ON s.id = si.shipment_id
+     WHERE s.status = 'POSTED'
+     GROUP BY 1, 2
+), transit AS (
+    SELECT t.shipment_id, t.material_id,
+           SUM(t.shipped_qty)     FILTER (WHERE t.status <> 'CANCELLED') AS shipped_qty,
+           SUM(t.received_qty)    FILTER (WHERE t.status <> 'CANCELLED') AS received_qty,
+           SUM(t.qty_in_transit)  FILTER (WHERE t.status <> 'CANCELLED') AS qty_in_transit,
+           count(*)               FILTER (WHERE t.status <> 'CANCELLED') AS active_lines
+      FROM biz_inventory_in_transit t
+     GROUP BY 1, 2
+)
+SELECT s.ship_no, m.material_code,
+       COALESCE(items.item_qty, 0)       AS 发货总量,
+       COALESCE(transit.received_qty, 0) AS 已出,
+       COALESCE(transit.qty_in_transit, 0) AS 在途,
+       COALESCE(items.item_qty, 0)
+         - COALESCE(transit.received_qty, 0)
+         - COALESCE(transit.qty_in_transit, 0) AS 差额
+  FROM items FULL JOIN transit USING (shipment_id, material_id)
+  JOIN biz_shipment s ON s.id = COALESCE(items.shipment_id, transit.shipment_id)
+  LEFT JOIN biz_material m ON m.id = COALESCE(items.material_id, transit.material_id)
+ WHERE COALESCE(transit.active_lines, 0) > 0        -- 整批作废的组不算
+   AND COALESCE(items.item_qty, 0)
+       <> COALESCE(transit.received_qty, 0) + COALESCE(transit.qty_in_transit, 0);
+```
+
+演练：`bash scripts/verify/m205_transit_reconcile_drill.sh`（克隆库 + 迁移幂等/回滚 +
+对账真库用例 10 条 + 三道权限/菜单闸与基线 diff）。
+
+---
+
+## 9. 相关文件
 
 | 文件 | 作用 |
 |---|---|
 | `backend/app/src/business/erp/inventory_audit.rs` | 库存巡检（不变式③）：`book_qty = SUM(所有桶)`、桶数诊断、修复分流 |
 | `backend/app/src/business/erp/inventory_writer.rs` | 三本账唯一写入口（含巡检修正语句 `align_cost_qty_*`） |
+| `backend/app/src/business/erp/inventory_transit/reconcile.rs` | **在途对账（§8）**：三侧比对 + 六个差异码 + 截断/汇总口径（只读） |
+| `backend/app/src/business/erp/shipment/shipment_transit.rs` | 在途账**唯一写入口**（M2-02 `record_shipped` / M2-03 `receive_open`） |
 | `scripts/verify/erp_invariants.py` | 巡检（B1 / B1b / B4 已按本文口径固化） |
+| `scripts/verify/m205_transit_reconcile_drill.sh` | 在途对账演练（迁移幂等 / 回滚 / 真库用例 / 权限菜单闸） |
 | `scripts/verify/biz_type_domain.py` | `biz_type` 值域巡检（词表＝`doc_kind.rs`） |
 | `backend/crates/cloudpivot-doc/src/lib.rs` | 业务类型词表唯一真相（零依赖 crate；`business/shared/doc_kind.rs` 已改为转发垫片） |
 | `docs/evidence/20261107-p003-inventory-chain/09_reconcile.sql` / `13_final_reconcile.sql` | P0-03 演练对账 SQL（**已是正确口径**，与本文一致） |
 | `backend/app/migrations/business/V0330__inventory_biz_type_and_sourceless_in_type.up.sql` | 本卡迁移（销售出库 `SALE_OUT` 回填 + `SOURCELESS` 语义） |
+| `backend/app/migrations/business/V0420__inventory_in_transit.up.sql` | 在途账表（在途量 = 生成列，M2-01） |
 | `backend/app/src/business/erp/stockin/stockin_handler_post.rs` | 收货过账 ⑦：PURCHASE / SOURCELESS 生成应付 + 凭证（§5.1 口径；注释里有指针） |
 | `backend/app/src/business/erp/sales/sales_return_posting.rs` | 销售退货回库的**另一条**过账事务（借 1405 / 贷 6401，不挂应付） |
 | `backend/app/src/business/erp/transfer/transfer_settle.rs` | 调拨过账：两条成对流水 + 三本账，**不生成凭证**（§7） |

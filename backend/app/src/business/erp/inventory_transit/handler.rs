@@ -6,6 +6,7 @@
 //! |------|------|--------|------|
 //! | GET | `/business/erp/inventory-transit/page` | `business:erp:inventory-transit:list` | 在途明细分页（物料 / 仓库 / 客户 / 发货单 / 状态 / 发货日期区间） |
 //! | GET | `/business/erp/inventory-transit/summary` | `business:erp:inventory-transit:list` | 按 物料 × 发货仓 汇总未签收在途（含合计） |
+//! | GET | `/business/erp/inventory-transit/reconcile` | `business:erp:inventory-transit:audit` | **对账（M2-05）**：在途 + 已出 = 发货总量，逐「发货单 × 物料」给结论 |
 //!
 //! # 只读，零写路径
 //!
@@ -45,23 +46,30 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::inventory_transit::dto::{
-    self, TransitFilter, TransitRes, TransitSummaryFilter, TransitSummaryRes, TransitSummaryRow,
+    self, TransitFilter, TransitReconcileFilter, TransitReconcileRes, TransitReconcileRow, TransitReconcileTotals,
+    TransitRes, TransitSummaryFilter, TransitSummaryRes, TransitSummaryRow,
 };
 use crate::business::erp::inventory_transit::model::{self, DetailQuery, SummaryQuery};
+use crate::business::erp::inventory_transit::reconcile::{self, RECONCILE_SCAN_LIMIT, ReconcileQuery};
 use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::shipment::shipment_model;
 use crate::business::erp::shipment::shipment_transit;
 use cloudpivot_kernel::shared::error_code;
 use cloudpivot_kernel::utils;
 
-// ==================== 权限码（与 V0421 的 sys_menu.auth_code 逐字一致） ====================
+// ==================== 权限码（与 V0421 / V0422 的 sys_menu.auth_code 逐字一致） ====================
 
 /// 在途明细 / 汇总共用同一个读码（与 `business:erp:inventory:list` 同形：
 /// 台账类只读接口一个 `:list` 码管全部读路径）。
 pub const PERM_LIST: &str = "business:erp:inventory-transit:list";
 
+/// 对账（M2-05）单独一个码：对账是**结论类**接口（告诉人「账对不对」），
+/// 与「看一眼在途明细」是两种授权面 —— 与 `business:erp:inventory:audit`
+/// 从 `inventory:list` 里单开同款（V0143 先例）。
+pub const PERM_AUDIT: &str = "business:erp:inventory-transit:audit";
+
 /// 本模块全部权限码（`perm_menu_gate.py` 要求每个都在 `sys_menu` 有承载行）。
-pub const INVENTORY_TRANSIT_PERMISSIONS: [&str; 1] = [PERM_LIST];
+pub const INVENTORY_TRANSIT_PERMISSIONS: [&str; 2] = [PERM_LIST, PERM_AUDIT];
 
 // ==================== 校验原语 ====================
 
@@ -87,6 +95,23 @@ fn parse_opt_date(raw: Option<&str>, field: &str) -> std::result::Result<Option<
         Some(text) => NaiveDate::parse_from_str(text, "%Y-%m-%d")
             .map(Some)
             .map_err(|_| bad_filter(format!("{field} 必须是 yyyy-MM-dd 格式（当前 `{text}`）"))),
+    }
+}
+
+/// 布尔开关（缺省 `default`；`true/false`、`1/0`、`yes/no`、`on/off`，大小写不敏感）。
+///
+/// 其它值一律 400：`?include_matched=treu` 静默当 `false` 会让调用方以为「已经连着
+/// 对平的组一起返回了」，实际只拿到差异行 —— 又一种假数据。
+fn parse_bool(raw: Option<&str>, field: &str, default: bool) -> std::result::Result<bool, ApiError> {
+    match raw.map(str::trim) {
+        None | Some("") => Ok(default),
+        Some(text) => match text.to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => Ok(true),
+            "false" | "0" | "no" | "off" => Ok(false),
+            _ => Err(bad_filter(format!(
+                "{field} 只接受 true/false（或 1/0、yes/no、on/off）：{text}"
+            ))),
+        },
     }
 }
 
@@ -278,6 +303,133 @@ pub async fn summary_of(filter: TransitSummaryFilter) -> std::result::Result<Tra
     })
 }
 
+// ==================== 对账（M2-05） ====================
+
+/// 在途对账：逐 `(发货单 × 物料)` 校验「在途 + 已出 = 发货总量」。
+///
+/// # 三侧口径
+///
+/// ```text
+/// 发货总量  biz_shipment_item.qty 合计        （SSOT，排除 DRAFT / PENDING_POST 单）
+/// 已出      biz_inventory_in_transit.received_qty
+/// 在途      biz_inventory_in_transit.qty_in_transit（V0420 生成列）
+/// ```
+///
+/// 差异码见 [`reconcile::issue_label`]；`balanced` 只有「零硬问题 + 差额 0 + 未截断」才为真。
+///
+/// # 名字批量补齐（防 N+1）
+///
+/// 一页固定 2 条 `IN (…)` 往返（物料 / 仓库），与 `/page` 同款；发货单号与发货日期
+/// 在主查询里经 `biz_shipment` 带出，不再多打。
+pub async fn reconcile_of(filter: TransitReconcileFilter) -> std::result::Result<TransitReconcileRes, ApiError> {
+    let shipment_id = parse_opt_uuid(filter.shipment_id.as_deref(), "shipment_id")?;
+    let material_id = parse_opt_uuid(filter.material_id.as_deref(), "material_id")?;
+    let warehouse_id = parse_opt_uuid(filter.warehouse_id.as_deref(), "warehouse_id")?;
+    let ship_date_from = parse_opt_date(filter.ship_date_from.as_deref(), "ship_date_from")?;
+    let ship_date_to = parse_opt_date(filter.ship_date_to.as_deref(), "ship_date_to")?;
+    dto::ensure_date_range(ship_date_from, ship_date_to).map_err(bad_filter)?;
+    let include_matched = parse_bool(filter.include_matched.as_deref(), "include_matched", false)?;
+
+    let query = ReconcileQuery {
+        shipment_id,
+        material_id,
+        warehouse_id,
+        ship_date_from,
+        ship_date_to,
+    };
+    let (combos, truncated) = reconcile::scan(&query)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在途对账数据"))?;
+    let totals = reconcile::summarize(&combos);
+
+    // 明细：缺省只给有差异的组（对平的行在「全量库」上可能上万行，塞进 JSON 没有信息量）
+    let picked: Vec<&reconcile::ComboRow> = combos
+        .iter()
+        .filter(|combo| include_matched || !combo.is_clean())
+        .collect();
+
+    // 主数据名字：两条批量查询（不是每行各查一次）
+    let material_ids: Vec<Uuid> = picked.iter().map(|combo| combo.material_id).collect();
+    let materials: std::collections::HashMap<Uuid, model::MaterialBrief> = model::material_labels(&material_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询对账物料"))?
+        .into_iter()
+        .map(|brief| (brief.id, brief))
+        .collect();
+    let warehouse_ids: Vec<Uuid> = picked.iter().filter_map(|combo| combo.warehouse_id).collect();
+    let warehouses: std::collections::HashMap<Uuid, (String, String)> =
+        shipment_model::warehouse_labels(db(), &warehouse_ids)
+            .await
+            .map_err(|error| utils::db_error(error, "批量查询对账仓库"))?
+            .into_iter()
+            .map(|(id, code, name)| (id, (code, name)))
+            .collect();
+
+    let rows: Vec<TransitReconcileRow> = picked
+        .iter()
+        .map(|combo| {
+            let brief = materials.get(&combo.material_id);
+            let warehouse = combo.warehouse_id.and_then(|id| warehouses.get(&id));
+            let issues: Vec<String> = combo.issues().iter().map(|issue| (*issue).to_string()).collect();
+            let labels: Vec<String> = issues
+                .iter()
+                .map(|issue| reconcile::issue_label(issue).to_string())
+                .collect();
+            TransitReconcileRow {
+                shipment_id: combo.shipment_id.to_string(),
+                ship_no: combo.ship_no.clone(),
+                shipment_status: combo.shipment_status.clone(),
+                shipment_deleted: combo.shipment_deleted,
+                ship_date: combo.ship_date.map(|date| date.to_string()),
+                material_id: combo.material_id.to_string(),
+                material_code: brief.map(|brief| brief.code.clone()),
+                material_name: brief.map(|brief| brief.name.clone()),
+                spec: brief.and_then(|brief| brief.spec.clone()),
+                unit_name: brief.and_then(|brief| brief.unit_name.clone()),
+                warehouse_id: combo.warehouse_id.map(|id| id.to_string()),
+                warehouse_code: warehouse.map(|(code, _)| code.clone()),
+                warehouse_name: warehouse.map(|(_, name)| name.clone()),
+                item_qty: combo.item_qty,
+                shipped_qty: combo.shipped_qty,
+                received_qty: combo.received_qty,
+                qty_in_transit: combo.qty_in_transit,
+                cancelled_qty: combo.cancelled_qty,
+                diff: combo.diff(),
+                issues,
+                issue_labels: labels,
+                matched: combo.is_clean(),
+            }
+        })
+        .collect();
+
+    let totals_res = TransitReconcileTotals {
+        checked: totals.checked,
+        matched: totals.matched,
+        mismatched: totals.mismatched,
+        cancelled: totals.cancelled,
+        untracked: totals.untracked,
+        item_qty: totals.item_qty,
+        shipped_qty: totals.shipped_qty,
+        received_qty: totals.received_qty,
+        in_transit_qty: totals.in_transit_qty,
+        cancelled_qty: totals.cancelled_qty,
+        untracked_item_qty: totals.untracked_item_qty,
+        diff: totals.diff(),
+    };
+
+    Ok(TransitReconcileRes {
+        checked: totals.checked,
+        matched: totals.matched,
+        mismatched: totals.mismatched,
+        // 截断时不能声称「对平」：没扫到的组里可能就有差异
+        balanced: !truncated && totals.mismatched == 0 && totals.diff() == nik::prelude::rust_decimal::Decimal::ZERO,
+        truncated,
+        scan_limit: u64::try_from(RECONCILE_SCAN_LIMIT).unwrap_or(0),
+        rows,
+        totals: totals_res,
+    })
+}
+
 // ==================== HTTP 入口 ====================
 
 /// 在途明细分页（物料 / 仓库 / 客户 / 发货单 / 状态 / 发货日期区间）。
@@ -300,6 +452,22 @@ pub async fn inventory_transit_page(Query(filter): Query<TransitFilter>) -> ResR
 #[nik::get("/business/erp/inventory-transit/summary")]
 pub async fn inventory_transit_summary(Query(filter): Query<TransitSummaryFilter>) -> ResResult<TransitSummaryRes> {
     Ok(Res::ok(summary_of(filter).await?))
+}
+
+/// 在途对账：`在途 + 已出 = 发货总量`（逐「发货单 × 物料」给结论，只读）。
+///
+/// 不同码（`business:erp:inventory-transit:audit`）：对账是结论类接口，
+/// 与「看在途明细」分开授权（与 `inventory/audit` 从 `inventory:list` 里单开同款）。
+#[nik::permission(
+    path = "/business/erp/inventory-transit/reconcile",
+    method = "GET",
+    permission = "business:erp:inventory-transit:audit"
+)]
+#[nik::get("/business/erp/inventory-transit/reconcile")]
+pub async fn inventory_transit_reconcile(
+    Query(filter): Query<TransitReconcileFilter>,
+) -> ResResult<TransitReconcileRes> {
+    Ok(Res::ok(reconcile_of(filter).await?))
 }
 
 #[cfg(test)]
@@ -356,9 +524,10 @@ mod tests {
             assert_eq!(shipment_transit::status_label(status), label);
             assert!(shipment_transit::is_valid_status(status));
         }
-        assert_eq!(INVENTORY_TRANSIT_PERMISSIONS, [PERM_LIST]);
+        assert_eq!(INVENTORY_TRANSIT_PERMISSIONS, [PERM_LIST, PERM_AUDIT]);
         assert_eq!(PERM_LIST, "business:erp:inventory-transit:list");
-        println!("[M2-04] 三态中文名 + 权限码常量 ✓");
+        assert_eq!(PERM_AUDIT, "business:erp:inventory-transit:audit");
+        println!("[M2-04] 三态中文名 + 两个权限码常量（list / audit）✓");
     }
 
     /// 非法筛选必须 400 + 66006（不能静默当作没传）。
@@ -377,5 +546,53 @@ mod tests {
         assert_eq!(parse_opt_uuid(Some("  "), "material_id").expect("空白可接受"), None);
         assert_eq!(parse_opt_date(Some(""), "ship_date_from").expect("空白可接受"), None);
         println!("[M2-04] 非法 UUID / 日期 → 400 + 66006；空白 → None ✓");
+    }
+
+    /// 对账的 `include_matched` 开关：常见写法都认，拼错必须 400（不静默当默认值）。
+    #[test]
+    fn include_matched_flag_is_parsed_strictly() {
+        for (raw, expected) in [
+            (None, false),
+            (Some(""), false),
+            (Some("true"), true),
+            (Some("1"), true),
+            (Some("YES"), true),
+            (Some("On"), true),
+            (Some("false"), false),
+            (Some("0"), false),
+            (Some("no"), false),
+        ] {
+            assert_eq!(
+                parse_bool(raw, "include_matched", false).expect("合法写法"),
+                expected,
+                "raw={raw:?}"
+            );
+        }
+        let error = parse_bool(Some("treu"), "include_matched", false).expect_err("拼错必须报错");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::ERP_FILTER_INVALID);
+        assert!(error.msg.contains("include_matched"), "文案要点名字段：{}", error.msg);
+        println!("[M2-05] include_matched 认 true/1/yes/on 与 false/0/no/off；拼错 400 + 66006 ✓");
+    }
+
+    /// 对账筛选的非法参数同样 400 + 66006（区间反了 / UUID 乱写都不能静默 0 行）。
+    #[test]
+    fn reconcile_rejects_invalid_filters() {
+        let error = parse_opt_uuid(Some("ship-1"), "shipment_id").expect_err("非法 UUID 必须报错");
+        assert_eq!(error.code, error_code::ERP_FILTER_INVALID);
+        assert!(error.msg.contains("shipment_id"));
+
+        let error = ensure_date_range_bad();
+        assert_eq!(error.code, error_code::ERP_FILTER_INVALID);
+        println!("[M2-05] 对账的 shipment_id / 日期区间非法 → 400 + 66006 ✓");
+    }
+
+    /// `ensure_date_range` 的报错在 handler 里被包成 400 + 66006（这里复现包装路径）。
+    fn ensure_date_range_bad() -> ApiError {
+        let from = NaiveDate::parse_from_str("2026-11-30", "%Y-%m-%d").expect("日期");
+        let to = NaiveDate::parse_from_str("2026-11-01", "%Y-%m-%d").expect("日期");
+        dto::ensure_date_range(Some(from), Some(to))
+            .map_err(bad_filter)
+            .expect_err("区间反了")
     }
 }

@@ -182,6 +182,136 @@ pub struct TransitSummaryRes {
     pub total_lines: i64,
 }
 
+// ==================== 对账（M2-05：在途 + 已出 = 发货总量） ====================
+
+/// 对账筛选（`GET /business/erp/inventory-transit/reconcile`）。
+///
+/// 全部留空 = 对全部「已过账发货单」对账。**没有 `status`**：对账要的是「全量是否恒等」，
+/// 不是「某个状态的行长什么样」；作废行由报告里的 `CANCELLED_ONLY` / `cancelled_qty` 表达。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct TransitReconcileFilter {
+    /// 发货单 id（精确 UUID）—— 从发货单详情「对不对得上」跳过来时用。
+    pub shipment_id: Option<String>,
+    /// 物料 id（精确 UUID）。
+    pub material_id: Option<String>,
+    /// 发货仓库 id（精确 UUID）。
+    pub warehouse_id: Option<String>,
+    /// 发货日期下界（`yyyy-MM-dd`，含当天）。
+    ///
+    /// ⚠ 在「M2-02 之前过账的历史单」尚未清理的库上，请用它收到在途账上线之后的区间，
+    /// 否则历史单会以 `MISSING_TRANSIT` 出现（见 `docs/ERP-库存对账口径.md` §8）。
+    pub ship_date_from: Option<String>,
+    /// 发货日期上界（`yyyy-MM-dd`，含当天）。
+    pub ship_date_to: Option<String>,
+    /// 是否连**对平**的组一起返回（`true/1/yes/on`；缺省 `false` = 只返回有差异的组）。
+    ///
+    /// 用 `String` 接收（与 `inventory/audit` 的 `dry_run` 同款）：`?include_matched=1`
+    /// 这类写法由 [`crate::business::erp::inventory_transit::handler`] 统一解析，
+    /// 框架的 `bool` 反序列化只认 `true/false`，`1` 会直接 422。
+    pub include_matched: Option<String>,
+}
+
+/// 一行对账明细（`发货单 × 物料` 粒度，三侧数量 + 差异码）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TransitReconcileRow {
+    /// 发货单 id。
+    pub shipment_id: String,
+    /// 发货单号。
+    pub ship_no: Option<String>,
+    /// 发货单状态（`POSTED`；历史行可能为空，见 `model::ComboRow` 注释）。
+    pub shipment_status: Option<String>,
+    /// 发货单是否已软删（明细与在途行都还在 ⇒ 对账照样看得见）。
+    pub shipment_deleted: bool,
+    /// 发货日期（`yyyy-MM-dd`）。
+    pub ship_date: Option<String>,
+    /// 物料 id。
+    pub material_id: String,
+    /// 物料编码（物料软删后为 `null`）。
+    pub material_code: Option<String>,
+    /// 物料名称。
+    pub material_name: Option<String>,
+    /// 规格型号。
+    pub spec: Option<String>,
+    /// 计量单位名。
+    pub unit_name: Option<String>,
+    /// 发货仓库 id（`null` = 这组没有在途行）。
+    pub warehouse_id: Option<String>,
+    /// 仓库编码（仓库软删后为 `null`）。
+    pub warehouse_code: Option<String>,
+    /// 仓库名称。
+    pub warehouse_name: Option<String>,
+    /// 发货总量（发货单明细 `Σ qty`，SSOT）。
+    pub item_qty: Decimal,
+    /// 在途账记的发货量（非作废行）。
+    pub shipped_qty: Decimal,
+    /// 已出（已签收数量）。
+    pub received_qty: Decimal,
+    /// 在途量（未签收）。
+    pub qty_in_transit: Decimal,
+    /// 作废行的发货量（不参与对账式，只做诊断）。
+    pub cancelled_qty: Decimal,
+    /// 差额 = 发货总量 −（已出 + 在途）；`0` = 这组对平。
+    pub diff: Decimal,
+    /// 差异码（见 `reconcile::HARD_ISSUES` 与 `ISSUE_CANCELLED_ONLY`；空数组 = 对平）。
+    pub issues: Vec<String>,
+    /// 差异码的中文说明（与 `issues` 一一对应，按同一下标取）。
+    pub issue_labels: Vec<String>,
+    /// 是否对平（`issues` 为空）。
+    pub matched: bool,
+}
+
+/// 对账汇总（**对账式只在「已纳入在途账」的组上算**；未纳入的组单列）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TransitReconcileTotals {
+    /// 比对的组数（受扫描上限影响；`truncated=true` 时只是前 N 组）。
+    pub checked: u64,
+    /// 对平的组数。
+    pub matched: u64,
+    /// 有硬问题的组数（`QTY_MISMATCH` / `MISSING_TRANSIT` / `ORPHAN_TRANSIT` /
+    /// `IDENTITY_BROKEN` / `MULTI_WAREHOUSE` 任一）。
+    pub mismatched: u64,
+    /// 整批作废的组数（`CANCELLED_ONLY`，不算不平）。
+    pub cancelled: u64,
+    /// 未纳入在途账的组数（有明细、没有在途行）。
+    pub untracked: u64,
+    /// 已纳入在途账的发货量合计。
+    pub item_qty: Decimal,
+    /// 在途账记的发货量合计。
+    pub shipped_qty: Decimal,
+    /// 已出合计。
+    pub received_qty: Decimal,
+    /// 在途合计。
+    pub in_transit_qty: Decimal,
+    /// 作废行发货量合计。
+    pub cancelled_qty: Decimal,
+    /// 未纳入在途账的发货量合计。
+    pub untracked_item_qty: Decimal,
+    /// 对账差额 = 已纳入发货量 −（已出 + 在途）；`0` = 整体恒等成立。
+    pub diff: Decimal,
+}
+
+/// 对账报告（`GET /business/erp/inventory-transit/reconcile`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TransitReconcileRes {
+    /// 比对的组数。
+    pub checked: u64,
+    /// 对平的组数。
+    pub matched: u64,
+    /// 有硬问题的组数。
+    pub mismatched: u64,
+    /// 整体是否对平：**没有硬问题、对账差额为 0、且扫描没被截断**。
+    pub balanced: bool,
+    /// 是否被扫描上限截断（`true` ⇒ 结论只覆盖前 N 组，必须按日期区间收窄再对）。
+    pub truncated: bool,
+    /// 扫描上限（回显给调用方，便于写进提示文案）。
+    pub scan_limit: u64,
+    /// 明细（缺省只含有差异的组；`include_matched=true` 时连对平的组一起给）。
+    pub rows: Vec<TransitReconcileRow>,
+    /// 汇总。
+    pub totals: TransitReconcileTotals,
+}
+
 // ==================== 纯逻辑校验（单测直接调，不碰库） ====================
 
 /// `status` 归一化：留空 → [`DEFAULT_STATUS`]；非域内值 → `Err(可读文案)`。
