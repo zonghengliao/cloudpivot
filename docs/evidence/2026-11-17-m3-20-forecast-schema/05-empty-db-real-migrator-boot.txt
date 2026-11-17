@@ -1,0 +1,9 @@
+==> 空库已建 cp_m320_boot
+==> 实例已起 pid=3330820 :18195
+==> 迁移完成标记：数据库迁移完成: 应用 376 个迁移
+==> 仓库迁移文件：versioned=364 seed=12
+==> schema_migrations：364 versioned / 12 seed / 失败 0 / 最大版本 V444
+==> V0444 记录：444:versioned:true
+==> 结构：列=forecast_qty,revised_from_id 视图=v_biz_sales_forecast_current
+==> 表数=187 菜单数=540
+==> 实例已停止

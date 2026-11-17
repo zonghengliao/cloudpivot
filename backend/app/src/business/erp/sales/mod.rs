@@ -53,3 +53,7 @@ mod rebate_invoice_db_tests;
 /// 返利三种规则 × 边界的纯逻辑单测矩阵（M3-18：不连库，`cargo test --lib` 直接可跑）。
 #[cfg(test)]
 mod rebate_rule_matrix_tests;
+
+/// 销售预测表结构（M3-20：预测数量 / 版本链 / 当前版本视图）的真库用例。
+#[cfg(test)]
+mod sales_forecast_db_tests;

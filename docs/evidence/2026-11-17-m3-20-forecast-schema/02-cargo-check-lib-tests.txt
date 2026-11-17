@@ -1,0 +1,5 @@
+bash: cannot set terminal process group (-1): Inappropriate ioctl for device
+bash: no job control in this shell
+    Checking cloudpivot-kernel v0.1.0 (/opt/cloudpivot/backend/crates/cloudpivot-kernel)
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 56s

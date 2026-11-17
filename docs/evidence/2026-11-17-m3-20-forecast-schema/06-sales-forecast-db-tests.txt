@@ -1,0 +1,14 @@
+test business::erp::sales::sales_forecast_db_tests::bad_qty_is_400_and_writes_nothing ... [M3-20] 负数量 / 超精度 → 400 且零落库 ✓
+test business::erp::sales::sales_forecast_db_tests::create_reads_back_qty_and_dimension_names ... [M3-20] 建行：SFC-20261117-000020 / qty 5000.1250 / v1 ✓
+test business::erp::sales::sales_forecast_db_tests::current_view_stays_out_of_list_ordering ... [M3-20] 列表 3 条历史版本 vs 当前版本视图 1 条 ✓
+test business::erp::sales::sales_forecast_db_tests::duplicate_dimension_period_version_is_409 ... [M3-20] 同维度同版本 → 409；换版本号可建 ✓
+test business::erp::sales::sales_forecast_db_tests::material_dimension_filter_is_exact ... [M3-20] 物料维度筛选精确 + 全局口径可取 ✓
+test business::erp::sales::sales_forecast_db_tests::qty_zero_when_only_amount_is_given ... [M3-20] 缺省数量 = 0 ✓（金额口径预测）
+test business::erp::sales::sales_forecast_db_tests::soft_deleted_latest_falls_back_to_previous ... [M3-20] 软删 v2 → 当前版本回落 v1 ✓（物理两行都还在）
+test business::erp::sales::sales_forecast_db_tests::update_qty_and_break_chain ... [M3-20] 改数量 / 断链 ✓
+test business::erp::sales::sales_forecast_db_tests::version_chain_links_previous_version ... [M3-20] 版本链 v1 → v2 ✓，当前版本视图给 v2 ✓
+test business::erp::sales::sales_forecast_db_tests::version_chain_rejects_bad_links ... [M3-20] 自指 / 幽灵 / 跨维度 / 跳号 四种坏链 → 400，零落库 ✓
+test business::erp::sales::sales_forecast_db_tests::zz_teardown_purges_fixtures ... [M3-20] 清场完成：0 行残留 ✓
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 6120 filtered out; finished in 0.14s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s

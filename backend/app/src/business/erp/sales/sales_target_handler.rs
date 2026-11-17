@@ -165,8 +165,10 @@ pub fn to_forecast_res(row: &ForecastListRow) -> ForecastRes {
         material_name: material_name.clone(),
         period_code: forecast.period_code.clone(),
         forecast_amount: forecast.forecast_amount,
+        forecast_qty: forecast.forecast_qty,
         confidence: forecast.confidence.clone(),
         version_no: forecast.version_no,
+        revised_from_id: forecast.revised_from_id.map(|id| id.to_string()),
         remark: forecast.remark.clone(),
         created_at: forecast.created_at,
         updated_at: forecast.updated_at,
@@ -356,6 +358,52 @@ async fn read_back_target(id: Uuid) -> std::result::Result<TargetRes, ApiError> 
 
 // ==================== 预测：业务逻辑 ====================
 
+/// 版本链校验（V0444 的 `revised_from_id` 是**多行**约束，库层 CHECK 表达不了，收在写入口）。
+///
+/// 给了 `revised_from_id` 时逐条校验：
+/// 1. 不许指向自己（库侧 `ck_biz_sf_revised_from` 兜同一件事，这里给 400 而不是 500）；
+/// 2. 指向的预测必须存在、且未被软删；
+/// 3. 必须**同客户 / 同物料 / 同期间** —— 跨维度的"修订"是把别处的预测搬过来，不是滚动预测，
+///    允许它会让「这一版取代哪一版」失去意义；
+/// 4. `version_no` 必须等于上一版 + 1 —— 跳号会让"当前版本 = 最大版号"（视图
+///    `v_biz_sales_forecast_current`）漏掉中间痕迹，也会和唯一索引（维度+期间+版本）
+///    撞出用户看不懂的 409。
+async fn validate_version_chain(
+    current_id: Option<Uuid>,
+    revised_from_id: Option<Uuid>,
+    customer_id: Option<Uuid>,
+    material_id: Option<Uuid>,
+    period_code: &str,
+    version_no: i32,
+) -> std::result::Result<(), ApiError> {
+    let Some(prev_id) = revised_from_id else {
+        return Ok(());
+    };
+    if Some(prev_id) == current_id {
+        return Err(bad_request("revised_from_id 不能指向自己（版本链会成环）"));
+    }
+    let prev = model::find_forecast(prev_id)
+        .await
+        .map_err(|error| utils::db_error(error, "校验销售预测的版本链"))?
+        .ok_or_else(|| bad_request(format!("revised_from_id 指向的销售预测不存在或已删除（{prev_id}）")))?;
+    let (prev, _, _) = prev;
+    if prev.customer_id != customer_id || prev.material_id != material_id || prev.period_code != period_code {
+        return Err(bad_request(format!(
+            "revised_from_id 指向的预测不在同一维度：上一版是 客户 {:?} / 物料 {:?} / 期间 {}，\
+             本次是 客户 {:?} / 物料 {:?} / 期间 {period_code}（客户、物料、期间三者必须一致）",
+            prev.customer_id, prev.material_id, prev.period_code, customer_id, material_id
+        )));
+    }
+    let expected = prev.version_no + 1;
+    if version_no != expected {
+        return Err(bad_request(format!(
+            "新版本号必须等于上一版 + 1：上一版 version_no = {}，本次应为 {expected}（收到 {version_no}）",
+            prev.version_no
+        )));
+    }
+    Ok(())
+}
+
 /// 新建预测。
 pub async fn create_forecast(
     operator: Option<Uuid>,
@@ -363,10 +411,22 @@ pub async fn create_forecast(
 ) -> std::result::Result<ForecastRes, ApiError> {
     let period = Period::from_code(&req.period_code)?;
     check_amount(req.forecast_amount, "forecast_amount")?;
+    let forecast_qty = req.forecast_qty.unwrap_or_default();
+    check_qty(forecast_qty, "forecast_qty")?;
     let confidence = normalize_confidence(req.confidence.as_deref())?;
     let customer_id = parse_optional_uuid(req.customer_id.as_deref(), "customer_id")?;
     let material_id = parse_optional_uuid(req.material_id.as_deref(), "material_id")?;
     let version_no = check_version_no(req.version_no.unwrap_or(1))?;
+    let revised_from_id = parse_optional_uuid(req.revised_from_id.as_deref(), "revised_from_id")?;
+    validate_version_chain(
+        None,
+        revised_from_id,
+        customer_id,
+        material_id,
+        &period.code,
+        version_no,
+    )
+    .await?;
 
     let id = Uuid::now_v7();
     let forecast_no = model::next_forecast_no(now_utc_time())
@@ -379,8 +439,10 @@ pub async fn create_forecast(
         material_id,
         period_code: period.code,
         forecast_amount: money2(req.forecast_amount),
+        forecast_qty,
         confidence,
         version_no,
+        revised_from_id,
         remark: clean_remark(req.remark.as_deref()),
         created_at: now_utc_time(),
         updated_at: now_utc_time(),
@@ -423,11 +485,31 @@ pub async fn update_forecast(
         }
         None => current.forecast_amount,
     };
+    let forecast_qty = match req.forecast_qty {
+        Some(value) => {
+            check_qty(value, "forecast_qty")?;
+            value
+        }
+        None => current.forecast_qty,
+    };
     let confidence = match req.confidence.as_deref() {
         Some(raw) => normalize_confidence(Some(raw))?,
         None => current.confidence.clone(),
     };
     let version_no = check_version_no(req.version_no.unwrap_or(current.version_no))?;
+    let revised_from_id = match req.revised_from_id {
+        Some(value) => parse_optional_uuid(value.as_deref(), "revised_from_id")?,
+        None => current.revised_from_id,
+    };
+    validate_version_chain(
+        Some(id),
+        revised_from_id,
+        customer_id,
+        material_id,
+        &period.code,
+        version_no,
+    )
+    .await?;
     let remark = match req.remark {
         Some(value) => clean_remark(value.as_deref()),
         None => current.remark.clone(),
@@ -440,8 +522,10 @@ pub async fn update_forecast(
         material_id,
         period_code: period.code,
         forecast_amount,
+        forecast_qty,
         confidence,
         version_no,
+        revised_from_id,
         remark,
         created_at: current.created_at,
         updated_at: now_utc_time(),

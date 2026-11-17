@@ -523,10 +523,14 @@ pub struct ForecastRes {
     pub period_code: String,
     /// 预测金额。
     pub forecast_amount: Decimal,
+    /// 预测数量（0 = 只预测金额不预测数量）。
+    pub forecast_qty: Decimal,
     /// 信心度 `HIGH` / `MEDIUM` / `LOW`。
     pub confidence: String,
     /// 版本号。
     pub version_no: i32,
+    /// 版本链：本行取代的上一条预测 id（`null` = 该维度首版）。
+    pub revised_from_id: Option<String>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -548,12 +552,18 @@ pub struct ForecastCreateReq {
     pub period_code: String,
     /// 预测金额（必填，>= 0）。
     pub forecast_amount: Decimal,
+    /// 预测数量（可选，>= 0，4 位小数；缺省 0 = 只预测金额）。
+    #[serde(default)]
+    pub forecast_qty: Option<Decimal>,
     /// 信心度（缺省 `MEDIUM`）。
     #[serde(default)]
     pub confidence: Option<String>,
     /// 版本号（缺省 1）。
     #[serde(default)]
     pub version_no: Option<i32>,
+    /// 版本链：本行取代的上一条预测 id（可选；给了就必须同客户同物料同期间，且 `version_no = 上一版 + 1`）。
+    #[serde(default)]
+    pub revised_from_id: Option<String>,
     /// 备注。
     #[serde(default)]
     pub remark: Option<String>,
@@ -574,12 +584,18 @@ pub struct ForecastUpdateReq {
     /// 预测金额。
     #[serde(default)]
     pub forecast_amount: Option<Decimal>,
+    /// 预测数量（缺失 = 不改）。
+    #[serde(default)]
+    pub forecast_qty: Option<Decimal>,
     /// 信心度。
     #[serde(default)]
     pub confidence: Option<String>,
     /// 版本号（新版本请新建行，这里只允许更正录错的版本号）。
     #[serde(default)]
     pub version_no: Option<i32>,
+    /// 版本链：缺失 = 不改；`null` = 清空（断链）。
+    #[serde(default, deserialize_with = "double_option")]
+    pub revised_from_id: Option<Option<String>>,
     /// 备注：缺失 = 不改；`null` = 清空。
     #[serde(default, deserialize_with = "double_option")]
     pub remark: Option<Option<String>>,

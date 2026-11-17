@@ -1,0 +1,6 @@
+==> 空库已建：cp_m320_replay
+== 结果：PASS —— 364/364 条版本化迁移在空库上按版本号升序全部通过
+tables=186
+views=1
+forecast_qty
+revised_from_id

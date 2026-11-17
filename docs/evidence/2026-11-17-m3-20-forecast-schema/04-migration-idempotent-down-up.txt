@@ -1,0 +1,36 @@
+
+===== 0) 起点：V0444 结构应已在（空库重放已应用） =====
+2 列 / 4 index / view=v_biz_sales_forecast_current
+
+===== 1) 幂等：再跑一次 up（应为零结构/数据变更，无报错） =====
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.up.sql:68: NOTICE:  column "forecast_qty" of relation "biz_sales_forecast" already exists, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.up.sql:74: NOTICE:  column "revised_from_id" of relation "biz_sales_forecast" already exists, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.up.sql:105: NOTICE:  relation "idx_biz_sales_forecast_material" already exists, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.up.sql:108: NOTICE:  relation "idx_biz_sales_forecast_revised_from" already exists, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.up.sql:301: NOTICE:  M3-20 自检通过：forecast_qty(NUMERIC(18,4) 非负) + 版本链 revised_from_id(禁自指) + 物料维度索引 + 当前版本视图（7 组行为探针）
+重放后列数：16（应为 16）
+探针残留：0（应为 0）
+
+===== 2) 数据护栏：写一行真实预测数量后再 down 必须被拒 =====
+    拒绝理由：psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:47: ERROR:  V0444 down 拒绝执行：biz_sales_forecast 已有 1 行写了预测数量，回滚会把数量信息一起丢掉（要回滚请先导出这些行，或把 forecast_qty 归零后再执行）
+列是否还在（应为 2）：2
+
+===== 3) 清掉该行业务数据后 down 应正常拆除 =====
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:113: NOTICE:  V0444 down 完成：forecast_qty / revised_from_id 两列、2 条 CHECK、2 条索引、1 个视图均已移除；V0318 结构完好
+down 后：列=0 约束=0 索引=0 视图=NULL
+V0318 结构仍在：dim=uk_biz_sales_forecast_dim period_chk=1 列数=14（应 14）
+
+===== 4) down 再跑一次（幂等） =====
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:52: NOTICE:  view "v_biz_sales_forecast_current" does not exist, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:57: NOTICE:  index "idx_biz_sales_forecast_material" does not exist, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:58: NOTICE:  index "idx_biz_sales_forecast_revised_from" does not exist, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:60: NOTICE:  constraint "ck_biz_sf_qty" of relation "biz_sales_forecast" does not exist, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:61: NOTICE:  constraint "ck_biz_sf_revised_from" of relation "biz_sales_forecast" does not exist, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:66: NOTICE:  column "forecast_qty" of relation "biz_sales_forecast" does not exist, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:67: NOTICE:  column "revised_from_id" of relation "biz_sales_forecast" does not exist, skipping
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.down.sql:113: NOTICE:  V0444 down 完成：forecast_qty / revised_from_id 两列、2 条 CHECK、2 条索引、1 个视图均已移除；V0318 结构完好
+幂等 down 后列数：14（仍应 14）
+
+===== 5) 再 up 复原（回到 V0444 终态） =====
+    psql:/opt/cloudpivot/backend/app/migrations/business/V0444__sales_forecast_qty_version.up.sql:301: NOTICE:  M3-20 自检通过：forecast_qty(NUMERIC(18,4) 非负) + 版本链 revised_from_id(禁自指) + 物料维度索引 + 当前版本视图（7 组行为探针）
+复原后：列数=16 视图=v_biz_sales_forecast_current

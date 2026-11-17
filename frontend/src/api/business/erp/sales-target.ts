@@ -216,8 +216,12 @@ export interface ForecastRow {
   material_name: string | null;
   period_code: string;
   forecast_amount: DecimalText;
+  /** 预测数量（0 = 只预测金额不预测数量；4 位小数上限，M3-20/V0444） */
+  forecast_qty: DecimalText;
   confidence: Confidence;
   version_no: number;
+  /** 版本链：本行取代的上一条预测 id（null = 该维度首版） */
+  revised_from_id: string | null;
   remark: string | null;
   created_at: string;
   updated_at: string;
@@ -241,8 +245,12 @@ export interface ForecastCreatePayload {
   material_id?: string | null;
   period_code: string;
   forecast_amount: string;
+  /** 预测数量（可选，缺省 0；最多 4 位小数） */
+  forecast_qty?: string;
   confidence?: Confidence;
   version_no?: number;
+  /** 版本链：本行取代的上一条预测 id（同客户同物料同期间，且 version_no = 上一版 + 1） */
+  revised_from_id?: string | null;
   remark?: string | null;
 }
 
@@ -252,8 +260,12 @@ export interface ForecastUpdatePayload {
   material_id?: string | null;
   period_code?: string;
   forecast_amount?: string;
+  /** 预测数量（缺失 = 不改） */
+  forecast_qty?: string;
   confidence?: Confidence;
   version_no?: number;
+  /** 版本链（缺失 = 不改；null = 断链） */
+  revised_from_id?: string | null;
   remark?: string | null;
 }
 

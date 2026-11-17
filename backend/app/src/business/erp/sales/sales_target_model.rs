@@ -1,6 +1,8 @@
 //! 销售目标 / 预测数据层（SO-44 / ARCH-7 §15.8）。
 //!
-//! 表结构唯一依据：`migrations/business/V0318__sales_target_forecast.up.sql`。
+//! 表结构唯一依据：`migrations/business/V0318__sales_target_forecast.up.sql`（建表）与
+//! `migrations/business/V0444__sales_forecast_qty_version.up.sql`（预测数量 / 版本链 /
+//! 物料维度索引 / 当前版本视图）。
 //!
 //! | 表 | 行数级 | 关键不变量 |
 //! |----|--------|------------|
@@ -56,9 +58,12 @@ pub const FORECAST_TABLE: &str = "biz_sales_forecast";
 pub const TARGET_COLUMNS: &str = "id, target_no, scope_type, scope_id, period_code, \
      target_amount, target_qty, status, remark, created_at, updated_at";
 
-/// 预测列清单。
+/// 预测列清单（与 V0318 + V0444 逐列对应，顺序无关）。
 pub const FORECAST_COLUMNS: &str = "id, forecast_no, customer_id, material_id, period_code, \
-     forecast_amount, confidence, version_no, remark, created_at, updated_at";
+     forecast_amount, forecast_qty, confidence, version_no, revised_from_id, remark, created_at, updated_at";
+
+/// 「当前版本」视图（V0444）：同（客户, 物料, 期间）取存活行里 `version_no` 最大的一条。
+pub const FORECAST_CURRENT_VIEW: &str = "v_biz_sales_forecast_current";
 
 // ==================== 行结构 ====================
 
@@ -126,10 +131,14 @@ pub struct ForecastRow {
     pub period_code: String,
     /// 预测金额。
     pub forecast_amount: Decimal,
+    /// 预测数量（V0444；0 = 只预测金额不预测数量）。
+    pub forecast_qty: Decimal,
     /// 信心度。
     pub confidence: String,
     /// 版本号。
     pub version_no: i32,
+    /// 版本链：本行取代的上一条预测（V0444，可空 = 该维度首版）。
+    pub revised_from_id: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -148,8 +157,10 @@ impl ForecastRow {
             material_id: row.get_typed("material_id")?,
             period_code: row.get_typed("period_code")?,
             forecast_amount: row.get_typed("forecast_amount")?,
+            forecast_qty: row.get_typed("forecast_qty")?,
             confidence: row.get_typed("confidence")?,
             version_no: row.get_typed("version_no")?,
+            revised_from_id: row.get_typed("revised_from_id")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
@@ -458,17 +469,54 @@ pub async fn page_forecasts(filter: &ForecastFilter) -> DbResult<(Vec<ForecastLi
     Ok((list, total))
 }
 
-// ==================== 预测：写 ====================
+// ==================== 预测：当前版本（V0444 视图） ====================
 
+/// 取某维度某期间的**当前版本**（同维度同期间取存活行里 `version_no` 最大的一条）。
+///
+/// 读的是 V0444 建的视图 [`FORECAST_CURRENT_VIEW`] —— M3-21「预测 vs 实际」与 M3-23
+/// 「当前预测」必须走同一份口径。别在调用侧自己写 `ORDER BY version_no DESC LIMIT 1`：
+/// 表里同维度会有多个版本（滚动预测的本意），各写各的排序迟早给出不同答案。
+///
+/// `customer_id` / `material_id` 传 `None` = 全局口径（两个都空的行）。
+pub async fn find_current_forecast(
+    customer_id: Option<Uuid>,
+    material_id: Option<Uuid>,
+    period_code: &str,
+) -> DbResult<Option<ForecastRow>> {
+    let columns: Vec<String> = FORECAST_COLUMNS
+        .split(',')
+        .map(|column| format!("v.{}", column.trim()))
+        .collect();
+    let sql = format!(
+        "SELECT {} FROM {FORECAST_CURRENT_VIEW} v \
+          WHERE v.customer_id IS NOT DISTINCT FROM NULLIF(?::text, '')::uuid \
+            AND v.material_id IS NOT DISTINCT FROM NULLIF(?::text, '')::uuid \
+            AND v.period_code = ?",
+        columns.join(", ")
+    );
+    let rows = db()
+        .find_with_params(
+            &sql,
+            vec![
+                uuid_text(customer_id),
+                uuid_text(material_id),
+                Value::Text(period_code.to_string()),
+            ],
+        )
+        .await?;
+    rows.first().map(ForecastRow::from_row).transpose()
+}
+
+// ==================== 预测：写 ====================
 /// 新建预测的 SQL（抽成函数，理由同 [`insert_target_sql`]）。
 fn insert_forecast_sql() -> String {
     format!(
         "INSERT INTO {FORECAST_TABLE} \
-            (id, forecast_no, customer_id, material_id, period_code, forecast_amount, \
-             confidence, version_no, remark, create_by, update_by) \
+            (id, forecast_no, customer_id, material_id, period_code, forecast_amount, forecast_qty, \
+             confidence, version_no, revised_from_id, remark, create_by, update_by) \
          VALUES (?, ?, NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid, ?, \
-                 ?::text::numeric, ?, ?::int, NULLIF(?::text, ''), \
-                 NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid)"
+                 ?::text::numeric, ?::text::numeric, ?, ?::int, NULLIF(?::text, '')::uuid, \
+                 NULLIF(?::text, ''), NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid)"
     )
 }
 
@@ -483,8 +531,10 @@ pub async fn insert_forecast(id: Uuid, forecast_no: &str, row: &ForecastRow, ope
             uuid_text(row.material_id),
             Value::Text(row.period_code.clone()),
             Value::Text(row.forecast_amount.to_string()),
+            Value::Text(row.forecast_qty.to_string()),
             Value::Text(row.confidence.clone()),
             Value::I32(row.version_no),
+            uuid_text(row.revised_from_id),
             optional_text(row.remark.as_deref()),
             uuid_text(operator),
             uuid_text(operator),
@@ -499,8 +549,9 @@ pub async fn update_forecast(id: Uuid, row: &ForecastRow, operator: Option<Uuid>
         &format!(
             "UPDATE {FORECAST_TABLE} \
                 SET customer_id = NULLIF(?::text, '')::uuid, material_id = NULLIF(?::text, '')::uuid, \
-                    period_code = ?, forecast_amount = ?::text::numeric, confidence = ?, \
-                    version_no = ?::int, \
+                    period_code = ?, forecast_amount = ?::text::numeric, \
+                    forecast_qty = ?::text::numeric, confidence = ?, \
+                    version_no = ?::int, revised_from_id = NULLIF(?::text, '')::uuid, \
                     remark = NULLIF(?::text, ''), updated_at = now(), \
                     update_by = NULLIF(?::text, '')::uuid \
               WHERE id = ?::uuid AND deleted_at IS NULL"
@@ -510,8 +561,10 @@ pub async fn update_forecast(id: Uuid, row: &ForecastRow, operator: Option<Uuid>
             uuid_text(row.material_id),
             Value::Text(row.period_code.clone()),
             Value::Text(row.forecast_amount.to_string()),
+            Value::Text(row.forecast_qty.to_string()),
             Value::Text(row.confidence.clone()),
             Value::I32(row.version_no),
+            uuid_text(row.revised_from_id),
             optional_text(row.remark.as_deref()),
             uuid_text(operator),
             Value::from(&id),
@@ -983,12 +1036,19 @@ mod tests {
     fn insert_forecast_sql_binds_uuid_columns_with_cast() {
         let sql = insert_forecast_sql();
         assert!(sql.contains(FORECAST_TABLE));
-        assert_eq!(sql.matches('?').count(), 11, "{sql}");
-        // uuid 列 4 处：customer_id / material_id / create_by / update_by
-        assert_eq!(sql.matches("::uuid").count(), 4, "{sql}");
-        assert_eq!(sql.matches("?::text::numeric").count(), 1, "{sql}");
+        // 13 个参数位（V0444 起多了 forecast_qty 与 revised_from_id 两个）
+        assert_eq!(sql.matches('?').count(), 13, "{sql}");
+        // uuid 列 5 处：customer_id / material_id / revised_from_id（V0444 版本链）/ create_by / update_by
+        assert_eq!(sql.matches("::uuid").count(), 5, "{sql}");
+        // 金额 + 数量 两处走文本再转 numeric（V0444 的 forecast_qty 与 forecast_amount 同口径）
+        assert_eq!(sql.matches("?::text::numeric").count(), 2, "{sql}");
         // version_no 是 INT，必须显式 ?::int（Text 绑 INT 同样会 serializing 失败）
         assert!(sql.contains("?::int"), "{sql}");
+        // 版本链列与 remark 相邻：必须带 NULLIF(...)::uuid 转换，不能是裸 `?`
+        assert!(
+            sql.contains("?::int, NULLIF(?::text, '')::uuid, NULLIF(?::text, '')"),
+            "{sql}"
+        );
         assert!(
             sql.contains("NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid)"),
             "{sql}"
