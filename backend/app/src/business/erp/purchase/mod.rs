@@ -65,6 +65,10 @@ mod framework_agreement_ref_db_tests;
 #[cfg(test)]
 mod framework_agreement_execution_db_tests;
 
+/// 框架协议「超限反例」单测（M4-10；同一个串行锁）。
+#[cfg(test)]
+mod framework_agreement_over_limit_tests;
+
 /// 采购计划执行率跟踪的真库用例（M4-04；同一个串行锁）。
 #[cfg(test)]
 mod purchase_plan_execution_db_tests;

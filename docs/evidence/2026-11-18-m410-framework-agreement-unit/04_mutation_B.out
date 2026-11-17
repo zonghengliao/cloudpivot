@@ -1,0 +1,63 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 12 tests
+test business::erp::purchase::framework_agreement_over_limit_tests::currency_mismatch_is_rejected ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_amount_cap_allows_exact_boundary ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_qty_cap_allows_exact_boundary ... FAILED
+test business::erp::purchase::framework_agreement_over_limit_tests::inflated_booked_column_does_not_false_reject ... FAILED
+test business::erp::purchase::framework_agreement_over_limit_tests::per_material_cap_rejects_fractional_overrun ... FAILED
+test business::erp::purchase::framework_agreement_over_limit_tests::soft_deleted_agreement_is_rejected ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::split_lines_on_same_material_cannot_bypass_cap ... FAILED
+test business::erp::purchase::framework_agreement_over_limit_tests::stale_booked_column_does_not_open_the_gate ... FAILED
+test business::erp::purchase::framework_agreement_over_limit_tests::tax_inclusive_total_amount_cap_counts_with_tax ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::unlimited_material_is_not_capped ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::update_does_not_double_count_own_usage ... FAILED
+test business::erp::purchase::framework_agreement_over_limit_tests::zz_teardown_purges_fixtures ... ok
+
+failures:
+
+---- business::erp::purchase::framework_agreement_over_limit_tests::head_total_qty_cap_allows_exact_boundary stdout ----
+
+thread 'business::erp::purchase::framework_agreement_over_limit_tests::head_total_qty_cap_allows_exact_boundary' (3600043) panicked at app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs:717:10:
+总量恰等于 50 必须放行: ApiError { code: 66098, msg: "本单超出框架协议 FWA-19990101-941005 的**总量**上限：协议总量 50.0000，其它采购单已用 0，本单 50，下单后累计 50 将超上限", status: 409, internal_detail: None, data: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::purchase::framework_agreement_over_limit_tests::inflated_booked_column_does_not_false_reject stdout ----
+
+thread 'business::erp::purchase::framework_agreement_over_limit_tests::inflated_booked_column_does_not_false_reject' (3600044) panicked at app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs:582:10:
+回写列虚高不许误拒（现算 60 + 40 = 100 恰好到顶）: ApiError { code: 66098, msg: "第 1 行（M410-MATA M410 物料甲（上限 100））超出框架协议 FWA-19990101-941001 的数量上限：协议期内上限 100.0000，其它采购单已用 60.0000，本单该物料合计 40，下单后累计 100.0000 将超上限（剩余 40.0000）", status: 409, internal_detail: None, data: None }
+
+---- business::erp::purchase::framework_agreement_over_limit_tests::per_material_cap_rejects_fractional_overrun stdout ----
+
+thread 'business::erp::purchase::framework_agreement_over_limit_tests::per_material_cap_rejects_fractional_overrun' (3600045) panicked at app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs:501:50:
+先占满 100: ApiError { code: 66098, msg: "第 1 行（M410-MATA M410 物料甲（上限 100））超出框架协议 FWA-19990101-941001 的数量上限：协议期内上限 100.0000，其它采购单已用 0，本单该物料合计 100，下单后累计 100 将超上限（剩余 100.0000）", status: 409, internal_detail: None, data: None }
+
+---- business::erp::purchase::framework_agreement_over_limit_tests::split_lines_on_same_material_cannot_bypass_cap stdout ----
+
+thread 'business::erp::purchase::framework_agreement_over_limit_tests::split_lines_on_same_material_cannot_bypass_cap' (3600047) panicked at app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs:485:10:
+合计恰等于上限 100 必须放行: ApiError { code: 66098, msg: "第 1 行（M410-MATA M410 物料甲（上限 100））超出框架协议 FWA-19990101-941001 的数量上限：协议期内上限 100.0000，其它采购单已用 0，本单该物料合计 100，下单后累计 100 将超上限（剩余 100.0000）", status: 409, internal_detail: None, data: None }
+
+---- business::erp::purchase::framework_agreement_over_limit_tests::stale_booked_column_does_not_open_the_gate stdout ----
+
+thread 'business::erp::purchase::framework_agreement_over_limit_tests::stale_booked_column_does_not_open_the_gate' (3600048) panicked at app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs:549:50:
+先占满 100: ApiError { code: 66098, msg: "第 1 行（M410-MATA M410 物料甲（上限 100））超出框架协议 FWA-19990101-941001 的数量上限：协议期内上限 100.0000，其它采购单已用 0，本单该物料合计 100，下单后累计 100 将超上限（剩余 100.0000）", status: 409, internal_detail: None, data: None }
+
+---- business::erp::purchase::framework_agreement_over_limit_tests::update_does_not_double_count_own_usage stdout ----
+
+thread 'business::erp::purchase::framework_agreement_over_limit_tests::update_does_not_double_count_own_usage' (3600051) panicked at app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs:680:59:
+先占满 100: ApiError { code: 66098, msg: "第 1 行（M410-MATA M410 物料甲（上限 100））超出框架协议 FWA-19990101-941001 的数量上限：协议期内上限 100.0000，其它采购单已用 0，本单该物料合计 100，下单后累计 100 将超上限（剩余 100.0000）", status: 409, internal_detail: None, data: None }
+
+
+failures:
+    business::erp::purchase::framework_agreement_over_limit_tests::head_total_qty_cap_allows_exact_boundary
+    business::erp::purchase::framework_agreement_over_limit_tests::inflated_booked_column_does_not_false_reject
+    business::erp::purchase::framework_agreement_over_limit_tests::per_material_cap_rejects_fractional_overrun
+    business::erp::purchase::framework_agreement_over_limit_tests::split_lines_on_same_material_cannot_bypass_cap
+    business::erp::purchase::framework_agreement_over_limit_tests::stale_booked_column_does_not_open_the_gate
+    business::erp::purchase::framework_agreement_over_limit_tests::update_does_not_double_count_own_usage
+
+test result: FAILED. 6 passed; 6 failed; 0 ignored; 0 measured; 6348 filtered out; finished in 0.49s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

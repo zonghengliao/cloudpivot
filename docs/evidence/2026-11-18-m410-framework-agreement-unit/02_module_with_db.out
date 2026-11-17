@@ -1,0 +1,144 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 75 tests
+test business::erp::purchase::framework_agreement_db_tests::agreement_no_format_is_enforced ... [M4-07] 协议号：只认 FWA-yyyyMMdd-000001（6 位流水），其它形状全被库层拒 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::delete_agreement_cascades_items ... [M4-07] 级联：删协议连带删物料范围，孤儿行 0 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::executed_may_exceed_cap_and_totals_recalc_rolls_up ... [M4-07] 执行量：超上限写得进去（库层不拦）；recalc_totals 滚到单头；负值被拒 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::material_scope_is_unique_per_agreement ... [M4-07] 物料范围：同协议同物料一行 / 换协议可同物料 / 行号单内唯一；find_item_by_material 可命中 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::next_agreement_no_uses_fwa_seq ... [M4-07] 取号：biz_seq(FWA) 递增且形状过 ck_biz_fwa_no_fmt（FWA-20261118-000001 → FWA-20261118-000002）✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::price_terms_defaults_and_floating_needs_rule ... [M4-07] 价格条款：FIXED/CNY/不含税/容差 0 默认；FLOATING 必须有调价规则；币种 ISO、容差 0–1 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::quantity_caps_null_means_unlimited_and_zero_rejected ... [M4-07] 数量上限：NULL = 不限（单头两级 + 明细一级）；写 0 被库层拒（0 不是不限）✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::schema_shape_matches_migration ... [M4-07] 表形状：2 表 / 29+13 列 / FK CASCADE / 7 索引 / 部分唯一 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::status_domain_is_three_values_and_submitted_needs_instance ... [M4-07] 状态域：只有 DRAFT/SUBMITTED/APPROVED；EXPIRED/TERMINATED/CLOSED 插不进；SUBMITTED 必带实例 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::supplier_snapshot_and_live_name_coexist ... [M4-07] 供应商：同供应商可多份协议（库层不做 supplier 唯一）；快照 + 实时现名并存 ✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::validity_window_ordered_and_effectiveness_is_time_based ... [M4-07] 有效期：起 <= 止被库层钉住；生效判据 = APPROVED 且落在起止日之间（含边界）✓
+ok
+test business::erp::purchase::framework_agreement_db_tests::zz_teardown_purges_fixtures ... [M4-07] 清场：M407- 夹具 0 残留 ✓
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::amount_basis_follows_price_includes_tax ... [M4-09] 金额口径
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::cancelled_order_drops_out_of_usage ... [M4-09] 作废
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::deleted_order_drops_out_of_usage ... [M4-09] 软删
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::fresh_agreement_reports_full_remaining ... [M4-09] 新协议
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::head_cap_overrides_item_caps ... [M4-09] 单头封顶
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::head_totals_match_item_summary ... [M4-09] 合计对拍
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::orders_accumulate_usage_and_rate ... [M4-09] 累加
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::over_limit_shows_negative_remaining ... [M4-09] 超限
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::overview_filters_and_hides_soft_deleted ... [M4-09] 总览筛选
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::unlimited_item_reports_null_remaining ... [M4-09] 不限量
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::validity_states_follow_status_and_dates ... [M4-09] 有效期
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::zz_teardown_purges_fixtures ... [M4-09] 清场
+ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::exec_state_matrix ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::filter_rejects_bad_input ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::pct_is_two_decimals ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::rate_needs_a_positive_denominator ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::remaining_keeps_null_and_negative ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::source_verdict_covers_all_three_failures ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::summary_falls_back_to_item_caps_only_when_all_limited ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::validity_state_prefers_status_over_dates ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::view_names_match_migration ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::head_columns_cover_reader ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::head_target_is_unscoped ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::item_columns_cover_reader ... ok
+test business::erp::purchase::framework_agreement_model::tests::agreement_no_is_zero_padded_to_six_digits ... ok
+test business::erp::purchase::framework_agreement_model::tests::effective_window_is_inclusive_and_gated_by_approved ... ok
+test business::erp::purchase::framework_agreement_model::tests::max_allowed_price_applies_tolerance_with_six_decimals ... ok
+test business::erp::purchase::framework_agreement_model::tests::period_key_rolls_over_at_cst_midnight ... ok
+test business::erp::purchase::framework_agreement_model::tests::remaining_qty_is_none_when_no_cap ... ok
+test business::erp::purchase::framework_agreement_model::tests::status_and_price_mode_sets_match_migration_check ... ok
+test business::erp::purchase::framework_agreement_model::tests::today_cst_and_year_follow_beijing_time ... ok
+test business::erp::purchase::framework_agreement_model::tests::uuid_text_and_date_text_shapes ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::currency_mismatch_is_rejected ... [M4-10] 币种 USD ↔ CNY 400/66096 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_amount_cap_allows_exact_boundary ... [M4-10] 边界 单头总额恰好 100 放行 / 再下 20 拒绝 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_qty_cap_allows_exact_boundary ... [M4-10] 边界 单头总量恰好 50 放行 / +1 拒绝 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::inflated_booked_column_does_not_false_reject ... [M4-10] 判据来源 回写列虚高不误拒 + 重算自愈 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::per_material_cap_rejects_fractional_overrun ... [M4-10] 边界 超 0.0001 拒绝 + 报文剩余 0 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::soft_deleted_agreement_is_rejected ... [M4-10] 可用性 软删/不存在协议 400/66096 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::split_lines_on_same_material_cannot_bypass_cap ... [M4-10] 绕限 同一物料拆两行合计超限 409/66098，合计恰好 100 放行 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::stale_booked_column_does_not_open_the_gate ... [M4-10] 判据来源 回写列漏刷清零仍拦住（现算 100）✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::tax_inclusive_total_amount_cap_counts_with_tax ... [M4-10] 金额 含税协议总额走价税合计口径 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::unlimited_material_is_not_capped ... [M4-10] 不限量 123456 照下且回写如实 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::update_does_not_double_count_own_usage ... [M4-10] 改单 排除自身旧明细 + 超限整单回滚 ✓
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::zz_teardown_purges_fixtures ... [M4-10] 清场 夹具 0 残留 ✓
+ok
+test business::erp::purchase::framework_agreement_ref::tests::amount_cap_uses_the_agreement_price_basis ... ok
+test business::erp::purchase::framework_agreement_ref::tests::exclusive_price_is_the_baseline ... ok
+test business::erp::purchase::framework_agreement_ref::tests::price_normalisation_rounds_half_up_at_six_decimals ... ok
+test business::erp::purchase::framework_agreement_ref::tests::tax_inclusive_price_is_normalised_before_comparison ... ok
+test business::erp::purchase::framework_agreement_ref::tests::zero_tolerance_still_allows_exact_agreed_price ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::agreement_total_amount_cap ... [M4-08] 金额 单头总额封顶 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::agreement_total_qty_cap ... [M4-08] 数量 单头总量封顶 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::cancelled_order_releases_quota ... [M4-08] 作废 释放额度 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::deleted_order_releases_quota ... [M4-08] 软删 释放额度 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::detail_exposes_agreement_reference ... [M4-08] 详情 协议引用出参 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::draft_update_recomputes_executed ... [M4-08] 改单 已执行量重算而不是累加 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::non_effective_agreement_is_rejected ... [M4-08] 可用性 草稿/过期协议 400/66096 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::order_without_agreement_is_allowed ... [M4-08] 可选引用 不挂协议可下单，额度不占 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::per_material_cap_blocks_over_placement ... [M4-08] 数量 明细上限 409/66098 + 恰等于上限放行 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::price_above_cap_is_rejected ... [M4-08] 价格 超容差 409/66097，零落库 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::price_at_cap_is_accepted ... [M4-08] 价格 等额放行 + 执行量回写 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::supplier_and_material_scope_are_enforced ... [M4-08] 范围 供应商 / 物料范围校验 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::tax_inclusive_agreement_compares_ex_tax ... [M4-08] 价格 含税协议按税率折算后比价 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::zz_teardown_purges_fixtures ... [M4-08] 清场 夹具 0 残留 ✓
+ok
+
+test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 6285 filtered out; finished in 1.99s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

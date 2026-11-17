@@ -1,0 +1,96 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 53.18s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 75 tests
+test business::erp::purchase::framework_agreement_db_tests::agreement_no_format_is_enforced ... SKIP: 未设置 ERP_DB_URL（不连真实数据库）
+ok
+test business::erp::purchase::framework_agreement_db_tests::delete_agreement_cascades_items ... ok
+test business::erp::purchase::framework_agreement_db_tests::executed_may_exceed_cap_and_totals_recalc_rolls_up ... ok
+test business::erp::purchase::framework_agreement_db_tests::material_scope_is_unique_per_agreement ... ok
+test business::erp::purchase::framework_agreement_db_tests::next_agreement_no_uses_fwa_seq ... ok
+test business::erp::purchase::framework_agreement_db_tests::price_terms_defaults_and_floating_needs_rule ... ok
+test business::erp::purchase::framework_agreement_db_tests::quantity_caps_null_means_unlimited_and_zero_rejected ... ok
+test business::erp::purchase::framework_agreement_db_tests::schema_shape_matches_migration ... ok
+test business::erp::purchase::framework_agreement_db_tests::status_domain_is_three_values_and_submitted_needs_instance ... ok
+test business::erp::purchase::framework_agreement_db_tests::supplier_snapshot_and_live_name_coexist ... ok
+test business::erp::purchase::framework_agreement_db_tests::validity_window_ordered_and_effectiveness_is_time_based ... ok
+test business::erp::purchase::framework_agreement_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::amount_basis_follows_price_includes_tax ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::cancelled_order_drops_out_of_usage ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::deleted_order_drops_out_of_usage ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::fresh_agreement_reports_full_remaining ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::head_cap_overrides_item_caps ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::head_totals_match_item_summary ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::orders_accumulate_usage_and_rate ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::over_limit_shows_negative_remaining ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::overview_filters_and_hides_soft_deleted ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::unlimited_item_reports_null_remaining ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::validity_states_follow_status_and_dates ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::exec_state_matrix ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::filter_rejects_bad_input ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::pct_is_two_decimals ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::rate_needs_a_positive_denominator ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::remaining_keeps_null_and_negative ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::source_verdict_covers_all_three_failures ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::summary_falls_back_to_item_caps_only_when_all_limited ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::validity_state_prefers_status_over_dates ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::view_names_match_migration ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::head_columns_cover_reader ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::head_target_is_unscoped ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::item_columns_cover_reader ... ok
+test business::erp::purchase::framework_agreement_model::tests::agreement_no_is_zero_padded_to_six_digits ... ok
+test business::erp::purchase::framework_agreement_model::tests::effective_window_is_inclusive_and_gated_by_approved ... ok
+test business::erp::purchase::framework_agreement_model::tests::max_allowed_price_applies_tolerance_with_six_decimals ... ok
+test business::erp::purchase::framework_agreement_model::tests::period_key_rolls_over_at_cst_midnight ... ok
+test business::erp::purchase::framework_agreement_model::tests::remaining_qty_is_none_when_no_cap ... ok
+test business::erp::purchase::framework_agreement_model::tests::status_and_price_mode_sets_match_migration_check ... ok
+test business::erp::purchase::framework_agreement_model::tests::today_cst_and_year_follow_beijing_time ... ok
+test business::erp::purchase::framework_agreement_model::tests::uuid_text_and_date_text_shapes ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::currency_mismatch_is_rejected ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_amount_cap_allows_exact_boundary ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_qty_cap_allows_exact_boundary ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::inflated_booked_column_does_not_false_reject ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::per_material_cap_rejects_fractional_overrun ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::soft_deleted_agreement_is_rejected ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::split_lines_on_same_material_cannot_bypass_cap ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::stale_booked_column_does_not_open_the_gate ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::tax_inclusive_total_amount_cap_counts_with_tax ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::unlimited_material_is_not_capped ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::update_does_not_double_count_own_usage ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::framework_agreement_ref::tests::amount_cap_uses_the_agreement_price_basis ... ok
+test business::erp::purchase::framework_agreement_ref::tests::exclusive_price_is_the_baseline ... ok
+test business::erp::purchase::framework_agreement_ref::tests::price_normalisation_rounds_half_up_at_six_decimals ... ok
+test business::erp::purchase::framework_agreement_ref::tests::tax_inclusive_price_is_normalised_before_comparison ... ok
+test business::erp::purchase::framework_agreement_ref::tests::zero_tolerance_still_allows_exact_agreed_price ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::agreement_total_amount_cap ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::agreement_total_qty_cap ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::cancelled_order_releases_quota ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::deleted_order_releases_quota ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::detail_exposes_agreement_reference ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::draft_update_recomputes_executed ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::non_effective_agreement_is_rejected ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::order_without_agreement_is_allowed ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::per_material_cap_blocks_over_placement ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::price_above_cap_is_rejected ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::price_at_cap_is_accepted ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::supplier_and_material_scope_are_enforced ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::tax_inclusive_agreement_compares_ex_tax ... ok
+test business::erp::purchase::framework_agreement_ref_db_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 6285 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

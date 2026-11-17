@@ -1,0 +1,33 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 24s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 12 tests
+test business::erp::purchase::framework_agreement_over_limit_tests::currency_mismatch_is_rejected ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_amount_cap_allows_exact_boundary ... FAILED
+test business::erp::purchase::framework_agreement_over_limit_tests::head_total_qty_cap_allows_exact_boundary ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::inflated_booked_column_does_not_false_reject ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::per_material_cap_rejects_fractional_overrun ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::soft_deleted_agreement_is_rejected ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::split_lines_on_same_material_cannot_bypass_cap ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::stale_booked_column_does_not_open_the_gate ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::tax_inclusive_total_amount_cap_counts_with_tax ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::unlimited_material_is_not_capped ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::update_does_not_double_count_own_usage ... ok
+test business::erp::purchase::framework_agreement_over_limit_tests::zz_teardown_purges_fixtures ... ok
+
+failures:
+
+---- business::erp::purchase::framework_agreement_over_limit_tests::head_total_amount_cap_allows_exact_boundary stdout ----
+
+thread 'business::erp::purchase::framework_agreement_over_limit_tests::head_total_amount_cap_allows_exact_boundary' (3601527) panicked at app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs:738:10:
+金额恰等于 100 必须放行: ApiError { code: 66098, msg: "本单超出框架协议 FWA-19990101-941006 的**总额**上限：协议总额 100.0000（不含税口径），其它采购单已用 0，本单 100，下单后累计 100 将超上限", status: 409, internal_detail: None, data: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::purchase::framework_agreement_over_limit_tests::head_total_amount_cap_allows_exact_boundary
+
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 6348 filtered out; finished in 0.56s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
