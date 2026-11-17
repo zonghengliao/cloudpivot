@@ -1,0 +1,10 @@
+壳样式变体报告 —— 基线 src/style/shell.less（48 类）
+扫描 210 个 .vue + 1 个页面级 .less，命中 6 块 / 2 文件 / 约 31 行
+
+| 批 | 块 | 文件 | 估算行 | 主要类 |
+|---|---|---|---|---|
+| B0 组件自持（allowlist，不动） | 4 | 1 | 24 | panel-head×1、panel-head__main×1、panel-head__title×1、panel-head__meta×1 |
+| B5-ALLOW 白名单（登记保留的页面声明，不算债） | 2 | 1 | 7 | panel-empty×1、panel-empty__title×1 |
+门禁档：快照 6 条 / 当前 6 条（scripts/shell-variant-allowlist.json）
+✓ 无新增页面壳类声明（存量 6 条待按批削减，已删 0 条可同步削 allowlist）
+EXIT=0

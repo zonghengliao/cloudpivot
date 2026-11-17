@@ -163,10 +163,13 @@
       </template>
 
       <template #empty>
-        <div class="panel-empty" data-testid="rebate-policy-empty">
-          <t-icon name="file" class="panel-empty__icon" />
-          <p class="panel-empty__title">{{ policyEmpty }}</p>
-        </div>
+        <StateView
+          state="empty"
+          compact
+          :title="policyEmpty"
+          :description="isPolicyFiltered(policyFilter) ? '换个客户 / 类型 / 粒度再查，或点「重置」看全部' : '先点右上角「新建政策」建一条返利政策'"
+          testid="rebate-policy-empty"
+        />
       </template>
     </ListPage>
 
@@ -322,10 +325,13 @@
       </template>
 
       <template #empty>
-        <div class="panel-empty" data-testid="rebate-settle-empty">
-          <t-icon name="file" class="panel-empty__icon" />
-          <p class="panel-empty__title">{{ settleEmpty }}</p>
-        </div>
+        <StateView
+          state="empty"
+          compact
+          :title="settleEmpty"
+          :description="isSettlementFiltered(settleFilter) ? '换个期间 / 状态再查，或点「重置」看全部' : '点右上角「整期跑批」按期间批量算，或「试算 / 计算」针对单个客户'"
+          testid="rebate-settle-empty"
+        />
       </template>
     </ListPage>
 
@@ -926,6 +932,7 @@ import {
   type RebateSettlePeriod,
 } from '@/api/business/erp/rebate';
 import ListPage from '@/components/ListPage/index.vue';
+import StateView from '@/components/StateView/index.vue';
 import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { todayString } from '@/views/business/erp/shared/money';
 import {
@@ -977,6 +984,7 @@ import {
   invoiceText,
   isEditable,
   isNegativeBase,
+  isSettlementFiltered,
   moneyText,
   normalizePeriodCode,
   pageTotals,
@@ -1901,24 +1909,5 @@ function ruleTypeTheme(value: string | null | undefined): 'primary' | 'success' 
   margin: 8px 0 0;
   font-size: 14px;
   font-weight: 600;
-}
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 32px 0;
-}
-
-.panel-empty__icon {
-  font-size: 32px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 13px;
-  color: var(--td-text-color-secondary);
 }
 </style>

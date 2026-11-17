@@ -53,6 +53,7 @@ API 层 11 个接口、两个纯逻辑模块、22 条单测；菜单收尾用**�
 | `09_n08_mutation_proof.txt` | 把本卡 path 改成 `…-policyMUTATION` → n08 判红并点名；还原后复绿 | 反证成立（证明 n08 真读本卡那一行） |
 | `10_permission_audit_tests.txt` | `system::menu::permission_audit_tests`（真库） | **8/8 pass**（N14/N15/N16/N18/N19/N20/N21 + N17 变异自检） |
 | `11_perm_menu_gate.txt` | `perm_menu_gate.py`（闸⑥ 死权限码） | **PASS** |
+| `12_shell_variant_gate.txt` | `shell-variant-report.cjs --baseline`（页面零壳类声明） | **无新增**（快照 6 条 = 当前 6 条；空态改用 `<StateView>`，不再本地声明 `.panel-empty*`） |
 
 后端改动只有一条 SQL 迁移（无 Rust 代码改动）：`cargo fmt --check` 0 diff、
 `cargo clippy --lib -- -D warnings` EXIT=0。

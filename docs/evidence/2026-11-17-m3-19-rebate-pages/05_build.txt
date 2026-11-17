@@ -1,7 +1,7 @@
-### pnpm build（含 typecheck）
+### pnpm build（含 typecheck）——最终版（空态改用 <StateView> 之后）
 vite v6.3.7 building for production...
-✓ built in 1m 4s
+✓ built in 54.16s
 EXIT=0
 
-### dist 里本页 chunk（含「返利试算」= 页面独有文案 / 「rebate-settlement/preview」= 接口）
-index-Cfdnqmq4.js
+### dist 里本页 chunk（含页面独有文案「返利试算」）
+index-CJfOroCq.js
