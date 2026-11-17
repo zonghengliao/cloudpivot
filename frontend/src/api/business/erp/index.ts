@@ -4694,6 +4694,20 @@ export async function exportPayableAging(query: { period?: string; as_of?: strin
 export type CustomerStatus = 'ACTIVE' | 'FROZEN';
 
 /**
+ * 客户超限策略（逐字抄后端 `erp::credit::POLICIES` / `V0437` 的
+ * `ck_biz_customer_credit_policy`）。
+ *
+ * | 值 | 语义 |
+ * |----|------|
+ * | `BLOCK` | 超限拦截：提交销售订单 409（**默认**，= M3-09 之前的硬编行为） |
+ * | `WARN` | 超限警告：放行提交，同时写一条 `OVER_LIMIT_WARN` 台账 + 响应带 `credit_warning` |
+ * | `PASS` | 超限放行：静默放行，不留痕 |
+ *
+ * 只对 `credit_limit > 0` 的客户生效（`0` = 不控额度，任何策略都不看）。
+ */
+export type CreditPolicy = 'BLOCK' | 'WARN' | 'PASS';
+
+/**
  * 客户档案（逐字抄 `customer_handler::CustomerRes`，= `biz_customer` 的存活列）。
  *
  * 字段名**没有** `customer_` 前缀：本表列就叫 `code` / `name`（与供应商的
@@ -4724,6 +4738,8 @@ export interface Customer {
    * `> 0` 时应收到期日 = 过账日 + 该天数。与 `biz_supplier.credit_days` 同口径。
    */
   credit_days: number;
+  /** 超限策略（`BLOCK` 拦截 / `WARN` 警告 / `PASS` 放行；`V0437`） */
+  credit_policy: CreditPolicy;
   /** 状态：`ACTIVE` / `FROZEN` */
   status: CustomerStatus;
   /** 备注 */
@@ -4759,6 +4775,8 @@ export interface CreateCustomerReq {
   credit_limit?: string | number | null;
   /** 账期天数（`>= 0` 整数，`0` = 现结；不传 = 后端默认 `0`） */
   credit_days?: number | null;
+  /** 超限策略（不传 = `BLOCK`；只认 `BLOCK` / `WARN` / `PASS`，其它值后端 400） */
+  credit_policy?: CreditPolicy | null;
   /** 状态（不传 = `ACTIVE`） */
   status?: CustomerStatus;
   /** 备注（≤2000） */
@@ -4788,6 +4806,8 @@ export interface UpdateCustomerReq {
   credit_limit?: string | number | null;
   /** 账期天数（不传 = 不改；`0` = 现结，`>= 0` 整数） */
   credit_days?: number | null;
+  /** 超限策略（不传 = 不改；只认 `BLOCK` / `WARN` / `PASS`） */
+  credit_policy?: CreditPolicy;
   /** 状态（不传 = 不改） */
   status?: CustomerStatus;
   /** 备注（`''` = 清空） */
@@ -4962,6 +4982,13 @@ export interface SalesOrder {
   updated_at: string;
   /** 明细（列表恒为空） */
   items: SalesOrderItem[];
+  /**
+   * 超限警告文案（M3-09 / V0437）：**只有提交接口会填**。
+   *
+   * 客户 `credit_policy = WARN` 且本单超限时，单据照样提交成功，但响应带这段人话
+   * （其余接口恒 `null`）。前端必须提示，否则「警告」策略等于静默放行。
+   */
+  credit_warning?: string | null;
   /** 审批实例 id（**只有详情填**；草稿 / 驳回打回为 `null`） */
   approval_instance_id: string | null;
 }

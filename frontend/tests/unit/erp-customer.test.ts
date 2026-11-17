@@ -18,6 +18,7 @@ import {
   CUSTOMER_COLUMNS,
   CUSTOMER_CREDIT_DAYS_MAX,
   CUSTOMER_CREDIT_LIMIT_MAX,
+  CUSTOMER_CREDIT_POLICY_OPTIONS,
   CUSTOMER_PAGE_SIZE,
   CUSTOMER_STATUS_OPTIONS,
   buildCustomerCreatePayload,
@@ -28,6 +29,8 @@ import {
   creditDaysError,
   creditDaysValue,
   creditLimitText,
+  creditPolicyHint,
+  creditPolicyLabel,
   customerFormFromRow,
   customerStatusLabel,
   customerStatusTheme,
@@ -38,6 +41,7 @@ import {
   formatCreditLimit,
   hasCustomerFieldError,
   isCashOnDelivery,
+  isCreditPolicyRelaxed,
   isCustomerFiltered,
   isCustomerListEmpty,
   isCustomerUpdateEmpty,
@@ -58,6 +62,7 @@ function row(overrides: Partial<Customer> = {}): Customer {
     address: '北京市海淀区中关村大街 1 号',
     credit_limit: '200000.5000',
     credit_days: 30,
+    credit_policy: 'BLOCK',
     status: 'ACTIVE',
     remark: '种子客户',
     created_at: '2026-11-06T00:00:00Z',
@@ -68,7 +73,16 @@ function row(overrides: Partial<Customer> = {}): Customer {
 
 test('CUSTOMER_COLUMNS 的 colKey 与后端 CustomerRes 逐字一致（不含 supplier_ 前缀）', () => {
   const keys = CUSTOMER_COLUMNS.map((col) => col.colKey);
-  assert.deepEqual(keys, ['code', 'name', 'contact_name', 'credit_days', 'credit_limit', 'status', 'op']);
+  assert.deepEqual(keys, [
+    'code',
+    'name',
+    'contact_name',
+    'credit_days',
+    'credit_limit',
+    'credit_policy',
+    'status',
+    'op',
+  ]);
   for (const key of keys) {
     // 供应商页的坑：照抄 supplier_code / supplier_name 会让整列空白且编译期不报错
     assert.ok(!String(key).includes('supplier_'), `列 ${String(key)} 抄成了供应商前缀`);
@@ -216,6 +230,7 @@ test('buildCustomerCreatePayload：trim + 空串折 null + 额度转字符串定
     address: null,
     credit_limit: '15000.25',
     credit_days: 45,
+    credit_policy: 'BLOCK',
     status: 'ACTIVE',
     remark: null,
   });
@@ -225,6 +240,43 @@ test('buildCustomerCreatePayload：新建默认 credit_days = 0（= 现结，不
   assert.equal(emptyCustomerForm().credit_days, 0);
   const payload = buildCustomerCreatePayload({ ...emptyCustomerForm(), code: 'C1', name: 'n' });
   assert.equal(payload.credit_days, 0);
+});
+
+test('超限策略（M3-09 / V0437）：选项域 = BLOCK/WARN/PASS，默认 BLOCK', () => {
+  assert.deepEqual(
+    CUSTOMER_CREDIT_POLICY_OPTIONS.map((item) => item.value),
+    ['BLOCK', 'WARN', 'PASS'],
+  );
+  assert.equal(emptyCustomerForm().credit_policy, 'BLOCK', '新建默认 = 后端列默认 = 拦截');
+  // 新建一律显式带上（别指望后端默认变了还悄悄跟着变）
+  const payload = buildCustomerCreatePayload({ ...emptyCustomerForm(), code: 'C1', name: 'n' });
+  assert.equal(payload.credit_policy, 'BLOCK');
+});
+
+test('超限策略文案 / 是否放宽：BLOCK 是常规口径，WARN / PASS 标警示', () => {
+  assert.equal(creditPolicyLabel('BLOCK'), '拦截');
+  assert.equal(creditPolicyLabel('WARN'), '警告');
+  assert.equal(creditPolicyLabel('PASS'), '放行');
+  assert.equal(creditPolicyLabel('LEGACY' as unknown as 'BLOCK'), 'LEGACY', '未知值回显原值，不静默当拦截');
+  assert.match(creditPolicyHint('WARN'), /放行/);
+  assert.equal(isCreditPolicyRelaxed('BLOCK'), false);
+  assert.equal(isCreditPolicyRelaxed('WARN'), true);
+  assert.equal(isCreditPolicyRelaxed('PASS'), true);
+});
+
+test('buildCustomerUpdatePayload：策略按值比较（改才发，没改不发）', () => {
+  const original = row();
+  const form = customerFormFromRow(original);
+  assert.equal(form.credit_policy, 'BLOCK');
+  assert.deepEqual(buildCustomerUpdatePayload(form, original), {});
+
+  form.credit_policy = 'WARN';
+  assert.deepEqual(buildCustomerUpdatePayload(form, original), { credit_policy: 'WARN' });
+});
+
+test('customerFormFromRow：策略回填，脏值兜底 BLOCK（界面不能出现空下拉）', () => {
+  assert.equal(customerFormFromRow(row({ credit_policy: 'PASS' })).credit_policy, 'PASS');
+  assert.equal(customerFormFromRow(row({ credit_policy: 'BLOCK' })).credit_policy, 'BLOCK');
 });
 
 test('formatCreditDays / isCashOnDelivery：0 说「现结」，> 0 显天数', () => {

@@ -47,6 +47,8 @@
 //!    没有外键能兜这件事，必须自己查 —— SO-04 交接的第 ③ 条）；
 //! 3. **信用额度未超**（`= 客户 limit 0` 表示不控额度；否则
 //!    「已占 `credit_used` + 在审（已提交待审批）合计 + 本单价税合计 ≤ limit」）。
+//!    超限处置按客户 `credit_policy`（M3-09 / V0437）：`BLOCK` 409（默认）/ `WARN` 放行并在
+//!    响应里带 `credit_warning` + 记一条 `OVER_LIMIT_WARN` 台账 / `PASS` 静默放行。
 //!    SO-38 起的口径：`credit_used` = 有效订单含税 − 已核销应收 − 已过账退货（下限 0），
 //!    占用唯一时机是 APPROVED，释放三个出口见 [`crate::business::erp::credit`]；
 //!    待审单不进计数器、但在本守卫里算管道占用（否则连开多张草稿一起提交能绕过额度）。
@@ -419,6 +421,12 @@ pub struct SalesOrderRes {
     pub updated_at: DateTime<Utc>,
     /// 明细（分页列表里恒为空）。
     pub items: Vec<SalesOrderItemRes>,
+    /// 超限警告文案（M3-09 / V0437，**只有提交接口会填**）。
+    ///
+    /// 客户 `credit_policy = WARN` 且本单超限时：单据**照样提交**（策略允许放行），
+    /// 但响应带上这段人话让前端提示。列表 / 详情 / 其它接口一律 `None` ——
+    /// 它不是单据的持久属性（持久留痕在 `biz_credit_log` 的 `OVER_LIMIT_WARN` 行）。
+    pub credit_warning: Option<String>,
     /// 当前挂着的审批实例 id（`biz_sales_order.approval_instance_id`）。
     ///
     /// **只有详情填**（列表恒 `null`）：审批进度区块（前端 `FlowProgress.vue`）
@@ -458,6 +466,8 @@ impl SalesOrderRes {
             created_at: row.created_at,
             updated_at: row.updated_at,
             items,
+            // 只有提交接口会填（WARN 策略超限放行时的提示文案）
+            credit_warning: None,
             // 只由 `detail_of` 补（列表不发这条查询）；`of()` 保持纯函数
             approval_instance_id: None,
         }
@@ -1108,8 +1118,49 @@ pub async fn page_sales_order(filter: SalesOrderFilter) -> std::result::Result<P
     })
 }
 
-/// 提交前的三道守卫（卡面要求）：明细 / 客户未冻结 / 信用额度未超。
-async fn ensure_submittable(row: &SalesOrderRow, lines: &[SalesOrderItemRow]) -> std::result::Result<(), ApiError> {
+/// 提交前超限警告的载荷（M3-09 / V0437：`WARN` 策略放行时要提示 + 留痕）。
+///
+/// 只在**守卫内部**产生，由 [`submit_approval`] 决定怎么用（写台账 / 塞响应）。
+struct CreditWarning {
+    /// 客户编码（报文用）。
+    customer_code: String,
+    /// 客户名称（报文用）。
+    customer_name: String,
+    /// 判定时的额度快照（写台账用）。
+    snapshot: credit::OverCredit,
+}
+
+impl CreditWarning {
+    /// 提交响应里给前端看的文案。
+    fn message(&self, so_no: &str) -> String {
+        let snapshot = &self.snapshot;
+        format!(
+            "客户 `{}`（{}）信用超限但已按策略放行（超限策略 WARN）：额度 {}，已占 {}，在审 {}，\
+             本单 {so_no} 价税合计 {}，合计 {} 超出 {}；\
+             本单已提交，请跟进收款，或由管理员把额度调高（超限记录已写信用台账）",
+            self.customer_code,
+            self.customer_name,
+            snapshot.limit,
+            snapshot.used.round_dp(2),
+            snapshot.pending.round_dp(2),
+            snapshot.amount.round_dp(2),
+            snapshot.total(),
+            snapshot.over()
+        )
+    }
+}
+
+/// 提交前的三道守卫（卡面要求）：明细 / 客户未冻结 / 信用额度。
+///
+/// 返回值里的 `Some` = **超限但策略允许**（`WARN`）：调用方负责提示与留痕；
+/// `None` = 未超限 / 不控额度 / `PASS` 静默放行；超限且 `BLOCK` 直接 409。
+///
+/// 判定本身在 [`credit::decide`]（纯函数、可穷举单测），这里只负责取数与落文案 ——
+/// 别在 handler 里再写一份「超没超」的比较，两份口径迟早会分叉。
+async fn ensure_submittable(
+    row: &SalesOrderRow,
+    lines: &[SalesOrderItemRow],
+) -> std::result::Result<Option<CreditWarning>, ApiError> {
     if lines.is_empty() {
         return Err(bad_request(format!(
             "销售订单 {} 没有明细，不能提交：至少要有 1 行明细",
@@ -1119,8 +1170,8 @@ async fn ensure_submittable(row: &SalesOrderRow, lines: &[SalesOrderItemRow]) ->
     let customer = require_active_customer(row.customer_id).await?;
     let limit = customer.credit_limit;
     if limit <= Decimal::ZERO {
-        // 0 = 不控额度（与供应商 / 客户档案的口径一致）
-        return Ok(());
+        // 0 = 不控额度（与供应商 / 客户档案的口径一致）：任何策略都不生效，也省两条聚合查询
+        return Ok(None);
     }
     let used = credit::stored(db(), row.customer_id)
         .await
@@ -1132,20 +1183,50 @@ async fn ensure_submittable(row: &SalesOrderRow, lines: &[SalesOrderItemRow]) ->
     let pending = credit::pending_credit(db(), row.customer_id, Some(row.id))
         .await
         .map_err(|error| utils::db_error(error, "统计客户在审订单信用占用"))?;
-    let after = used + pending + row.total_with_tax;
-    if after > limit {
-        return Err(conflict(format!(
-            "客户 `{}`（{}）信用额度不足：额度 {limit}，已占 {used}，在审 {pending}，\
-             本单 {so_no} 价税合计 {amount}，合计 {after} 超出 {over}；\
-             请先收款 / 关闭旧单，或由管理员调高额度",
+    let verdict = credit::decide(&customer.credit_policy, limit, used, pending, row.total_with_tax);
+    match verdict {
+        // 不控额度 / 未超限
+        credit::CreditVerdict::Uncontrolled | credit::CreditVerdict::Within => Ok(None),
+        // 放行但不提示：显式例外，日志留一条 INFO 便于事后追问「谁批的」
+        credit::CreditVerdict::Pass(snapshot) => {
+            tracing::info!(
+                order_no = %row.so_no,
+                customer_code = %customer.code,
+                total = %snapshot.total(),
+                limit = %snapshot.limit,
+                "客户超信用额度，按策略 PASS 放行（不留痕、不提示）"
+            );
+            Ok(None)
+        }
+        // 放行 + 提示 + 台账
+        credit::CreditVerdict::Warn(snapshot) => {
+            tracing::warn!(
+                order_no = %row.so_no,
+                customer_code = %customer.code,
+                total = %snapshot.total(),
+                limit = %snapshot.limit,
+                over = %snapshot.over(),
+                "客户超信用额度，按策略 WARN 放行（台账 + 响应提示）"
+            );
+            Ok(Some(CreditWarning {
+                customer_code: customer.code.clone(),
+                customer_name: customer.name.clone(),
+                snapshot,
+            }))
+        }
+        // 拦截（默认策略 = M3-09 之前的硬编行为）
+        credit::CreditVerdict::Block(snapshot) => Err(conflict(format!(
+            "客户 `{}`（{}）信用额度不足（超限策略 BLOCK）：额度 {limit}，已占 {used}，在审 {pending}，\
+             本单 {so_no} 价税合计 {amount}，合计 {total} 超出 {over}；\
+             请先收款 / 关闭旧单，或由管理员调高额度（也可把该客户的超限策略改为 WARN / PASS）",
             customer.code,
             customer.name,
             so_no = row.so_no,
-            amount = row.total_with_tax,
-            over = after - limit
-        )));
+            amount = snapshot.amount,
+            total = snapshot.total(),
+            over = snapshot.over()
+        ))),
     }
-    Ok(())
 }
 
 /// 状态流转：边表校验（`LEGAL_EDGES`）→ 提交守卫 → 状态机留痕 → CAS 落库（同一事务）。
@@ -1213,12 +1294,13 @@ pub async fn change_sales_order_status(
         )));
     }
 
-    // ③ 提交守卫（0 行明细 / 客户冻结 / 信用额度超）
+    // ③ 提交守卫（0 行明细 / 客户冻结 / 信用额度）—— 超限且策略 WARN 时把提示带回去
+    let mut credit_warning: Option<CreditWarning> = None;
     if target == model::STATUS_SUBMITTED {
         let lines = model::items_of(id)
             .await
             .map_err(|error| utils::db_error(error, "查询销售订单明细"))?;
-        ensure_submittable(&row, &lines).await?;
+        credit_warning = ensure_submittable(&row, &lines).await?;
     }
 
     // ④ 状态机留痕 + CAS 落库（同一事务）
@@ -1267,7 +1349,20 @@ pub async fn change_sales_order_status(
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
-            detail_of(id).await
+            let mut res = detail_of(id).await?;
+            // WARN 策略：单据已落库成功 → 补一条警示台账（`note_over_limit` 幂等，
+            // `submit_approval` 的「没配流程」分支会再调一次，不会双写）
+            if let Some(warning) = &credit_warning
+                && let Err(error) = credit::note_over_limit(db(), row.customer_id, &row.so_no, &warning.snapshot).await
+            {
+                tracing::warn!(
+                    order_no = %row.so_no,
+                    error = %error,
+                    "超限警告台账写入失败（单据已流转成功，不影响状态）"
+                );
+            }
+            res.credit_warning = credit_warning.map(|warning| warning.message(&row.so_no));
+            Ok(res)
         }
         Err(error) => {
             let _ = tx.rollback().await;
@@ -1321,7 +1416,7 @@ pub async fn submit_approval(
     let lines = model::items_of(id)
         .await
         .map_err(|error| utils::db_error(error, "查询销售订单明细"))?;
-    ensure_submittable(&row, &lines).await?;
+    let credit_warning = ensure_submittable(&row, &lines).await?;
     // ④ 幂等：同一单已有在跑的审批 → 409
     if flow_model::biz_instance_running(sales_approval_bridge::BIZ_TYPE, id)
         .await
@@ -1333,7 +1428,7 @@ pub async fn submit_approval(
             row.so_no
         )));
     }
-    match sales_approval_bridge::published_so_flow()
+    let outcome = match sales_approval_bridge::published_so_flow()
         .await
         .map_err(|error| utils::db_error(error, "查询销售订单审批流程"))?
     {
@@ -1361,7 +1456,22 @@ pub async fn submit_approval(
             };
             change_sales_order_status(operator, id_raw, skip_req).await
         }
+    };
+    let mut res = outcome?;
+    // WARN 策略：单据已提交成功，再补两件「提示 + 留痕」的事。
+    // 台账是**尽力而为**：它只是事后对账的凭据，写失败不能把已提交的单打回
+    // （否则用户会看到「提交失败」但单据其实已是 SUBMITTED —— 比少一条台账糟得多）。
+    if let Some(warning) = credit_warning {
+        if let Err(error) = credit::note_over_limit(db(), row.customer_id, &row.so_no, &warning.snapshot).await {
+            tracing::warn!(
+                order_no = %row.so_no,
+                error = %error,
+                "超限警告台账写入失败（单据已提交，不影响状态；可重跑重算任务补齐）"
+            );
+        }
+        res.credit_warning = Some(warning.message(&row.so_no));
     }
+    Ok(res)
 }
 
 /// [`submit_approval`] 的「有流程」分支：`DRAFT → SUBMITTED` + 发起实例（同一事务）。
@@ -2005,9 +2115,14 @@ mod tests {
         Some(guard)
     }
 
-    /// 清场：状态日志 → 单头（明细 CASCADE）→ 三个夹具客户。
+    /// 清场：状态日志 → 信用台账（M3-09 的 WARN 警示行）→ 单头（明细 CASCADE）→ 夹具客户。
     async fn cleanup() {
-        let statements: [(&str, Vec<Value>); 3] = [
+        let statements: [(&str, Vec<Value>); 4] = [
+            (
+                "DELETE FROM biz_credit_log \
+                  WHERE customer_id IN (SELECT id FROM biz_customer WHERE code LIKE 'SO5HT-%')",
+                vec![],
+            ),
             (
                 "DELETE FROM biz_status_log \
                   WHERE entity_type = 'SALE_ORDER' \
@@ -2047,7 +2162,8 @@ mod tests {
         .expect("插夹具客户应成功");
         // 上一轮留在库里的同名行可能是旧额度：这里强制改成期望值（幂等）
         db().execute_with_params(
-            "UPDATE biz_customer SET credit_limit = ?::text::numeric, status = ?, deleted_at = NULL \
+            "UPDATE biz_customer SET credit_limit = ?::text::numeric, status = ?, deleted_at = NULL, \
+                    credit_policy = 'BLOCK' \
               WHERE code = ?",
             vec![Value::from(credit_limit), Value::from(status), Value::from(code)],
         )
@@ -2368,6 +2484,133 @@ mod tests {
         .await
         .expect("额度 0（不控额度）应可通过");
         assert_eq!(submitted.status, model::STATUS_SUBMITTED);
+        cleanup().await;
+    }
+
+    /// 超限策略（M3-09 / V0437）：同一张超限单，BLOCK 拦截 / WARN 放行带提示 + 台账 / PASS 静默放行。
+    ///
+    /// 额度 50，单 100 + 13% 税 = 113（超 63）；三张单分别挂在三个策略不同的客户上。
+    #[tokio::test]
+    async fn credit_policy_controls_over_limit_submission() {
+        let Some(_guard) = setup().await else { return };
+        let tight = fixture_customer(CUSTOMER_CODE_TIGHT, "50", "ACTIVE").await;
+        let items = || vec![item_req("1", "100", "13")];
+
+        // ① 默认 BLOCK：409，报文点名策略与四个数
+        let blocked = create_sales_order(None, order_req(&tight.to_string(), items()))
+            .await
+            .expect("建单应成功（建单不占额度）");
+        let err = change_sales_order_status(
+            None,
+            &blocked.id,
+            SalesOrderStatusReq {
+                target_status: model::STATUS_SUBMITTED.to_string(),
+                reason: None,
+            },
+        )
+        .await
+        .expect_err("默认 BLOCK 必须拦截超限单");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("BLOCK") && err.msg.contains("113") && err.msg.contains("63"),
+            "报文要点名策略与「本单 113 / 超出 63」：{}",
+            err.msg
+        );
+        // 单据仍是草稿（没被「半个提交」）
+        assert_eq!(
+            model::find_order(Uuid::parse_str(&blocked.id).expect("id"))
+                .await
+                .expect("查单")
+                .expect("单存在")
+                .status,
+            model::STATUS_DRAFT
+        );
+
+        // ② WARN：放行 + 响应带 credit_warning + 台账一条（delta = 0）
+        db().execute_with_params(
+            "UPDATE biz_customer SET credit_policy = 'WARN' WHERE id = ?",
+            vec![Value::from(tight)],
+        )
+        .await
+        .expect("改策略为 WARN");
+        let warned = change_sales_order_status(
+            None,
+            &blocked.id,
+            SalesOrderStatusReq {
+                target_status: model::STATUS_SUBMITTED.to_string(),
+                reason: None,
+            },
+        )
+        .await
+        .expect("WARN 策略必须放行");
+        assert_eq!(warned.status, model::STATUS_SUBMITTED);
+        let warning = warned.credit_warning.as_deref().expect("WARN 必须回传 credit_warning");
+        assert!(
+            warning.contains("WARN") && warning.contains("超出"),
+            "提示文案要说清是策略放行与超出多少：{warning}"
+        );
+
+        // 台账：一条 OVER_LIMIT_WARN，ref_no = 单号，delta = 0，额度完全没动
+        let rows = db()
+            .query_sql(
+                "SELECT ref_no, before_used::text AS before, after_used::text AS after, \
+                        delta::text AS delta, trigger_source \
+                   FROM biz_credit_log WHERE customer_id = ? AND cause = 'OVER_LIMIT_WARN'"
+                    .to_string(),
+                vec![Value::from(tight)],
+            )
+            .await
+            .expect("查警示台账");
+        assert_eq!(rows.len(), 1, "WARN 放行必须留一条警示台账");
+        let ref_no: String = rows[0].get_typed("ref_no").expect("读单号");
+        let delta: String = rows[0].get_typed("delta").expect("读差额");
+        let before: String = rows[0].get_typed("before").expect("读前值");
+        let trigger: String = rows[0].get_typed("trigger_source").expect("读来源");
+        assert_eq!(ref_no, warned.so_no);
+        assert_eq!(dec(&delta), dec("0"), "警示不改额度");
+        assert_eq!(dec(&before), dec("0"), "此时还没有任何 APPROVED 占用");
+        assert_eq!(trigger, "API");
+        let credit_used: String = db()
+            .scalar_with_params(
+                "SELECT credit_used::text FROM biz_customer WHERE id = ?",
+                vec![Value::from(tight)],
+            )
+            .await
+            .expect("读 credit_used");
+        assert_eq!(dec(&credit_used), dec("0"), "提交（SUBMITTED）不进 credit_used");
+
+        // ③ PASS：静默放行（无提示、无台账）
+        let vip = fixture_customer(CUSTOMER_CODE_FROZEN, "50", "ACTIVE").await;
+        db().execute_with_params(
+            "UPDATE biz_customer SET credit_policy = 'PASS' WHERE id = ?",
+            vec![Value::from(vip)],
+        )
+        .await
+        .expect("改策略为 PASS");
+        let passed = create_sales_order(None, order_req(&vip.to_string(), items()))
+            .await
+            .expect("建单应成功");
+        let res = change_sales_order_status(
+            None,
+            &passed.id,
+            SalesOrderStatusReq {
+                target_status: model::STATUS_SUBMITTED.to_string(),
+                reason: None,
+            },
+        )
+        .await
+        .expect("PASS 策略必须放行");
+        assert_eq!(res.status, model::STATUS_SUBMITTED);
+        assert!(res.credit_warning.is_none(), "PASS 是静默放行，不该带提示");
+        let pass_logs: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_credit_log WHERE customer_id = ?",
+                vec![Value::from(vip)],
+            )
+            .await
+            .expect("数台账");
+        assert_eq!(pass_logs, 0, "PASS 不留痕");
+
         cleanup().await;
     }
 

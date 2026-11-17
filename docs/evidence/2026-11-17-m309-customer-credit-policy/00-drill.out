@@ -1,0 +1,39 @@
+== M3-09 客户信用额度 + 超限策略 · 演练（PG 172.18.10.145:5432 / 库 cp_m309_credit_drill_3121992）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m309_credit_drill_3121992
+== 1) 补齐业务迁移 V0405…V0437（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 33 条业务迁移全部应用成功
+== 2) V0437 迁移幂等：重复 up / down / 再 up
+  [32mPASS[0m V0437 重复 up 成功（0 行影响、不报重复约束）
+  [32mPASS[0m 列仍在（重复 up 没把表搞坏）（=credit_policy）
+  [32mPASS[0m V0437 down 成功
+  [32mPASS[0m down 后 credit_policy 列已移除（=0）
+  [32mPASS[0m down 没顺手删掉额度口径三列（=3）
+  [32mPASS[0m V0437 down 之后再 up 成功（两个方向都幂等）
+== 3) 结构断言（列 / 类型 / NOT NULL / 默认值 / CHECK 域）
+  [32mPASS[0m credit_policy = varchar(10) NOT NULL（=character varying|10|NO）
+  [32mPASS[0m CHECK 约束 ck_biz_customer_credit_policy 在位（=1）
+  [32mPASS[0m CHECK 域值含 BLOCK / WARN / PASS（=1）
+  [32mPASS[0m 存量行全部在域内（=0）
+  [32mPASS[0m 省略 credit_policy 的 INSERT 落默认 BLOCK（=BLOCK）
+  [32mPASS[0m 探针行 0 残留（=0）
+  [32mPASS[0m 越界策略被 CHECK 拒绝（不是靠应用层兜）
+== 4) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡信用域（策略判定 + 策略读写 + 警示台账）：business::erp::credit 全绿（20 条）（=20）
+  [32mPASS[0m 本卡信用域（策略判定 + 策略读写 + 警示台账）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 客户档案域（CRUD + 策略默认/归一/400 不被打破）：business::erp::customer 全绿（20 条）（=20）
+  [32mPASS[0m 客户档案域（CRUD + 策略默认/归一/400 不被打破）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 销售域整组（订单提交守卫三态 + 报价单 / 退货 / 审批桥）：business::erp::sales 全绿（206 条）（=206）
+  [32mPASS[0m 销售域整组（订单提交守卫三态 + 报价单 / 退货 / 审批桥）：本组 SKIP=0（真库用例没被打成假绿）
+== 5) 夹具清场（不允许把本卡夹具带出演练库）
+  [32mPASS[0m biz_customer 无 CR38- 夹具客户（credit 域）（=0）
+  [32mPASS[0m biz_customer 无 SO5HT- 夹具客户（订单守卫）（=0）
+  [32mPASS[0m biz_customer 无 SO2T- 夹具客户（客户档案）（=0）
+  [32mPASS[0m 迁移 / 演练探针 0 残留（=0）
+  [32mPASS[0m 无 SO38- 孤儿订单（=0）
+  [32mPASS[0m 警示台账无夹具客户残留行（=0）
+  [32mPASS[0m 无 SO38- 警示台账残留（=0）
+
+== 汇总：PASS=29 FAIL=0 ==
+ALL PASS

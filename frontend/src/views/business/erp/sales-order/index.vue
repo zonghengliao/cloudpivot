@@ -1229,7 +1229,14 @@ async function submitForm(): Promise<void> {
 async function submitOrder(row: SalesOrder): Promise<void> {
   try {
     const updated = await submitSalesOrderApproval(row.id);
-    MessagePlugin.success(`${updated.so_no} 已提交审批`);
+    // M3-09 / V0437：客户超限策略 = WARN 时单据照样提交成功，但后端会带回
+    // `credit_warning`（额度 / 已占 / 超出多少）。必须提示 —— 否则「警告」等于静默放行。
+    if (updated.credit_warning) {
+      MessagePlugin.warning({ content: updated.credit_warning, duration: 8000, closeBtn: true });
+      MessagePlugin.success(`${updated.so_no} 已提交审批（信用超限已按策略放行）`);
+    } else {
+      MessagePlugin.success(`${updated.so_no} 已提交审批`);
+    }
     await refreshAfterMutation(updated.id);
   } catch (error) {
     MessagePlugin.error(`提交失败：${messageOf(error)}`);

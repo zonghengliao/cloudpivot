@@ -59,6 +59,19 @@
           </span>
         </template>
 
+        <!-- 超限策略（M3-09 / V0437）：BLOCK 是常规口径，WARN / PASS 用警告色提醒「这家会放行」 -->
+        <template #credit_policy="{ row }">
+          <t-tag
+            v-if="isCreditPolicyRelaxed(row.credit_policy)"
+            size="small"
+            theme="warning"
+            variant="light"
+          >
+            {{ creditPolicyLabel(row.credit_policy) }}
+          </t-tag>
+          <span v-else>{{ creditPolicyLabel(row.credit_policy) }}</span>
+        </template>
+
         <template #status="{ row }">
           <t-tag
             size="small"
@@ -239,6 +252,24 @@
         </t-form-item>
 
         <t-form-item
+          label="超限策略"
+          name="credit_policy"
+          :tips="`仅对信用额度 > 0 的客户生效：${creditPolicyHint(form.credit_policy)}`"
+        >
+          <div class="dlg-inline">
+            <t-select
+              v-model="form.credit_policy"
+              :options="CUSTOMER_CREDIT_POLICY_OPTIONS"
+              style="width: 140px"
+              data-testid="cus-credit-policy"
+            />
+            <span class="dlg-help">
+              {{ creditPolicyHint(form.credit_policy) }}；额度 0（不控额度）时本项不生效
+            </span>
+          </div>
+        </t-form-item>
+
+        <t-form-item
           label="账期(天)"
           name="credit_days"
           :status="formErrors.credit_days ? 'error' : undefined"
@@ -348,6 +379,7 @@ import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/List
 import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../shared/code-policy';
 import {
   CUSTOMER_COLUMNS,
+  CUSTOMER_CREDIT_POLICY_OPTIONS,
   CUSTOMER_LIMITS,
   CUSTOMER_PAGE_SIZE,
   CUSTOMER_STATUS_OPTIONS,
@@ -356,6 +388,8 @@ import {
   buildCustomerStatusPayload,
   buildCustomerUpdatePayload,
   contactLabel,
+  creditPolicyHint,
+  creditPolicyLabel,
   customerFormFromRow,
   customerStatusLabel,
   customerStatusTheme,
@@ -366,6 +400,7 @@ import {
   formatCreditLimit,
   hasCustomerFieldError,
   isCashOnDelivery,
+  isCreditPolicyRelaxed,
   isCustomerFiltered,
   isCustomerUpdateEmpty,
   nextCustomerStatus,

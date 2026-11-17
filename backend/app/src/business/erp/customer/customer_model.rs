@@ -8,6 +8,7 @@
 //! |----|------|
 //! | `code` | 业务唯一键，**部分唯一索引** `uk_biz_customer_code (code) WHERE deleted_at IS NULL` ⇒ 软删后可复用 |
 //! | `credit_limit` | `NUMERIC(18,4)`，`CHECK >= 0`；`0` = 不控额度（与供应商 `credit_limit` 同语义） |
+//! | `credit_policy` | `VARCHAR(10)`（`V0437`）：`BLOCK` 超限拦截（默认）/ `WARN` 超限警告 / `PASS` 超限放行；`credit_limit = 0` 时不生效 |
 //! | `status` | `VARCHAR(20)` 域值 `ACTIVE`（正常，可开新单）/ `FROZEN`（冻结，禁开新单）—— **不是** 1/0 |
 //! | `deleted_at` | 软删标记；**物理删除会被 `biz_customer_contact.customer_id` 的 `ON DELETE RESTRICT` 挡住** |
 //!
@@ -41,10 +42,10 @@ pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, nor
 
 // ==================== 常量 ====================
 
-/// `biz_customer` 列清单（与 V0260 + V0289 + V0313 逐列对应，顺序无关）。
+/// `biz_customer` 列清单（与 V0260 + V0289 + V0313 + V0437 逐列对应，顺序无关）。
 pub const CUSTOMER_COLUMNS: &str = "id, code, name, tax_no, contact_name, contact_phone, address, \
-     credit_days, credit_limit, credit_used, status, remark, created_at, updated_at, create_by, \
-     update_by, deleted_at";
+     credit_days, credit_limit, credit_used, credit_policy, status, remark, created_at, updated_at, \
+     create_by, update_by, deleted_at";
 
 /// 状态域值：正常（可开新单）。
 pub const STATUS_ACTIVE: &str = "ACTIVE";
@@ -109,6 +110,8 @@ pub struct CustomerRow {
     pub credit_limit: Decimal,
     /// 已用额度（SO-38 / V0313：有效订单含税 − 已核销应收 − 已过账退货，下限 0）。
     pub credit_used: Decimal,
+    /// 超限策略（M3-09 / V0437）：`BLOCK`（拦截，默认）/ `WARN`（警告）/ `PASS`（放行）。
+    pub credit_policy: String,
     /// 状态：`ACTIVE` / `FROZEN`。
     pub status: String,
     /// 备注。
@@ -139,6 +142,7 @@ impl CustomerRow {
             credit_days: row.get_typed("credit_days")?,
             credit_limit: row.get_typed("credit_limit")?,
             credit_used: row.get_typed("credit_used")?,
+            credit_policy: row.get_typed("credit_policy")?,
             status: row.get_typed("status")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
@@ -242,6 +246,8 @@ pub struct CustomerWrite {
     pub credit_days: i32,
     /// 信用额度（`>= 0`）。
     pub credit_limit: Decimal,
+    /// 超限策略（`BLOCK` / `WARN` / `PASS`；handler 已归一并校验过）。
+    pub credit_policy: String,
     /// 状态（`ACTIVE` / `FROZEN`）。
     pub status: String,
     /// 备注（空串 → NULL）。
@@ -269,8 +275,9 @@ pub async fn customer_insert_ex(
     ex.exec_sql(
         "INSERT INTO biz_customer \
              (id, code, name, tax_no, contact_name, contact_phone, address, \
-              credit_days, credit_limit, status, remark, created_at, updated_at, create_by, update_by) \
-             VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, now(), now(), \
+              credit_days, credit_limit, credit_policy, status, remark, created_at, updated_at, \
+              create_by, update_by) \
+             VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, ?, now(), now(), \
                      NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
             .to_string(),
         vec![
@@ -283,6 +290,7 @@ pub async fn customer_insert_ex(
             Value::from(write.address.clone()),
             Value::from(write.credit_days),
             Value::Text(write.credit_limit.to_string()),
+            Value::from(write.credit_policy.clone()),
             Value::from(write.status.clone()),
             Value::from(write.remark.clone()),
             uuid_text(operator),
@@ -303,7 +311,7 @@ pub async fn customer_update(id: Uuid, write: &CustomerWrite, operator: Option<U
     db().execute_with_params(
         "UPDATE biz_customer SET code = ?, name = ?, tax_no = ?, contact_name = ?, \
              contact_phone = ?, address = ?, credit_days = ?, credit_limit = ?::text::numeric, \
-             status = ?, remark = ?, \
+             credit_policy = ?, status = ?, remark = ?, \
              updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
              WHERE id = ?::uuid AND deleted_at IS NULL",
         vec![
@@ -315,6 +323,7 @@ pub async fn customer_update(id: Uuid, write: &CustomerWrite, operator: Option<U
             Value::from(write.address.clone()),
             Value::from(write.credit_days),
             Value::Text(write.credit_limit.to_string()),
+            Value::from(write.credit_policy.clone()),
             Value::from(write.status.clone()),
             Value::from(write.remark.clone()),
             uuid_text(operator),
@@ -405,6 +414,7 @@ mod tests {
             "address",
             "credit_days",
             "credit_limit",
+            "credit_policy",
             "status",
             "remark",
             "created_at",

@@ -23,6 +23,22 @@
 //! 为什么 `OUTBOUND` 仍在集合里：货发了但钱没到，信用敞口一分没少（应收未收）。
 //! 出集只有三条路：作废/关闭（订单不再有效）、收款核销、退货过账。
 //!
+//! # 超限策略（M3-09 · V0437 · 唯一真相 = [`decide`]）
+//!
+//! 额度口径与本文件的占用 / 释放无关，策略只决定「超限时怎么办」：
+//!
+//! | 策略 | 超限时行为 | 留痕 |
+//! |------|------------|------|
+//! | [`POLICY_BLOCK`]（**默认**） | 提交 409，单据留在 DRAFT | 无（错误报文本身就是证据） |
+//! | [`POLICY_WARN`] | 放行提交，响应带 `credit_warning` 文案 | `biz_credit_log` cause = `OVER_LIMIT_WARN`（delta = 0）+ WARN 日志 |
+//! | [`POLICY_PASS`] | 静默放行 | 无 |
+//!
+//! * **`credit_limit = 0`（不控额度）时策略不生效**（[`CreditVerdict::Uncontrolled`]）；
+//! * **边界 `已占 + 在审 + 本单 = 额度` 算通过**（与 M3-09 之前的 `after > limit` 一致）；
+//! * **未知策略值 fail-closed 到 `BLOCK`**（[`normalize_policy`]）—— 手改库 / 回滚迁移
+//!   都不能把内控静默关掉；
+//! * 默认值之所以是 `BLOCK`：M3-09 之前代码就是硬编拦截，升级后行为必须不变。
+//!
 //! # 三个释放出口（对齐卡面 ①②③）
 //!
 //! | 出口 | 触发点 | 本文件入口 |
@@ -105,6 +121,14 @@ pub const CAUSE_AR_SETTLED: &str = "AR_SETTLED";
 pub const CAUSE_AR_REVERSED: &str = "AR_REVERSED";
 /// 变动原因：退货过账（释放出口 ③）。
 pub const CAUSE_RETURN_POSTED: &str = "RETURN_POSTED";
+/// 变动原因：超限警告（**delta = 0**，不改变额度，只留痕）。
+///
+/// 为什么 delta = 0 也要记一笔：`WARN` 策略下超限单被放行了，事后必须能回答
+/// 「哪张单超了多少、当时谁放的」——只打日志会在日志轮转后丢失。台账的
+/// `ck_biz_credit_log_delta`（`delta = after_used - before_used`）允许 0，
+/// 所以这类行不破坏任何不变量，S9（`credit_used` 对公式）也完全不受影响。
+pub const CAUSE_OVER_LIMIT_WARN: &str = "OVER_LIMIT_WARN";
+
 /// 变动原因：每日兜底重算修正。
 pub const CAUSE_RECOMPUTE: &str = "RECOMPUTE";
 
@@ -157,6 +181,205 @@ pub fn cause_of_transition(from: &str, to: &str) -> &'static str {
         (true, false) => CAUSE_ORDER_RELEASE,
         _ => CAUSE_ORDER_STATUS,
     }
+}
+
+// ==================== 超限策略（M3-09 · V0437） ====================
+
+/// 超限策略：**拦截**（默认值 = M3-09 之前的硬编行为，老库升级后行为不变）。
+pub const POLICY_BLOCK: &str = "BLOCK";
+/// 超限策略：**警告**（放行提交，但同时留痕：警示台账 + WARN 日志 + 响应带文案）。
+pub const POLICY_WARN: &str = "WARN";
+/// 超限策略：**放行**（显式例外：允许提交、不留痕、不提示）。
+pub const POLICY_PASS: &str = "PASS";
+
+/// 策略白名单（与 `ck_biz_customer_credit_policy` 逐字一致；单测钉住）。
+pub const POLICIES: [&str; 3] = [POLICY_BLOCK, POLICY_WARN, POLICY_PASS];
+
+/// 把外部输入解析成策略常量：**去空白 + 忽略大小写**，认不出返回 `None`。
+///
+/// 认不出必须返回 `None` 而不是悄悄当成某个策略：入口要靠它把拼错的
+/// `"WARNING"` / `"Warn "` 拒成 400，而不是静默按 `BLOCK` 处理（用户会以为改成功了）。
+pub fn parse_policy(raw: &str) -> Option<&'static str> {
+    let text = raw.trim();
+    POLICIES.into_iter().find(|policy| text.eq_ignore_ascii_case(policy))
+}
+
+/// 库里的值 → 策略常量，**未知值 fail-closed 到 `BLOCK`**。
+///
+/// 用在「写库之后才对账」的路径上（例如手改库、down 迁移后代码还在）：
+/// 认不出就按拦截处理 —— 宁可拦错一单让人来找，也不能静默放行把内控关掉。
+pub fn normalize_policy(raw: &str) -> &'static str {
+    parse_policy(raw).unwrap_or(POLICY_BLOCK)
+}
+
+/// 超限判定的输入快照（`used` 取缓存列 `credit_used`，`pending` 取在审单合计）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverCredit {
+    /// 客户信用额度（`0` = 不控额度，此时不会构造快照）。
+    pub limit: Decimal,
+    /// 已占额度（`biz_customer.credit_used`）。
+    pub used: Decimal,
+    /// 在审占用（`SUBMITTED` 订单价税合计，不含本单）。
+    pub pending: Decimal,
+    /// 本单价税合计。
+    pub amount: Decimal,
+}
+
+impl OverCredit {
+    /// 合计 = 已占 + 在审 + 本单。
+    pub fn total(&self) -> Decimal {
+        (self.used + self.pending + self.amount).round_dp(2)
+    }
+
+    /// 超出额度的部分（`<= limit` 时为 0，不出负数）。
+    pub fn over(&self) -> Decimal {
+        let over = self.total() - self.limit;
+        if over < Decimal::ZERO {
+            Decimal::ZERO
+        } else {
+            over.round_dp(2)
+        }
+    }
+}
+
+/// 信用校验裁决（[`decide`] 的返回）。
+///
+/// 与「抛不抛错」解耦：本枚举只表达**判定**，怎么把 `Block` 变成 409 /
+/// `Warn` 变成响应文案由 handler 决定 —— 这样判定本身能被单测穷举。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreditVerdict {
+    /// 不控额度（`credit_limit = 0`）：任何策略都不生效。
+    Uncontrolled,
+    /// 未超限（`合计 <= 额度`）。
+    Within,
+    /// 超限 + `WARN`：放行，但要提示与留痕。
+    Warn(OverCredit),
+    /// 超限 + `PASS`：放行，不提示。
+    Pass(OverCredit),
+    /// 超限 + `BLOCK`（含未知策略，fail-closed）：拦截。
+    Block(OverCredit),
+}
+
+impl CreditVerdict {
+    /// 是否允许提交（`Block` 唯一不放行）。
+    pub fn is_allowed(&self) -> bool {
+        !matches!(self, Self::Block(_))
+    }
+
+    /// 超限快照（只有三种超限裁决有）。
+    pub fn over(&self) -> Option<&OverCredit> {
+        match self {
+            Self::Warn(snapshot) | Self::Pass(snapshot) | Self::Block(snapshot) => Some(snapshot),
+            Self::Uncontrolled | Self::Within => None,
+        }
+    }
+
+    /// 该裁决生效的策略（不控额度 / 未超限时 `None`）。
+    pub fn policy(&self) -> Option<&'static str> {
+        match self {
+            Self::Warn(_) => Some(POLICY_WARN),
+            Self::Pass(_) => Some(POLICY_PASS),
+            Self::Block(_) => Some(POLICY_BLOCK),
+            Self::Uncontrolled | Self::Within => None,
+        }
+    }
+}
+
+/// 唯一的信用判定函数（提交守 / 后续「可用额度」接口共用）。
+///
+/// 口径（与 `ARCH-7 §15.5.2` + `V0313` 一致，**边界 `合计 = 额度` 算通过**）：
+///
+/// ```text
+/// limit <= 0                                   → Uncontrolled（不控额度）
+/// used + pending + amount <= limit             → Within
+/// 超限：policy = WARN / PASS / BLOCK(含未知)    → Warn / Pass / Block
+/// ```
+///
+/// `pending` 必须由调用方先排除「本单自己」（见 [`pending_credit`] 的 `exclude`）。
+pub fn decide(policy: &str, limit: Decimal, used: Decimal, pending: Decimal, amount: Decimal) -> CreditVerdict {
+    if limit <= Decimal::ZERO {
+        return CreditVerdict::Uncontrolled;
+    }
+    let snapshot = OverCredit {
+        limit,
+        used,
+        pending,
+        amount,
+    };
+    if snapshot.total() <= limit {
+        return CreditVerdict::Within;
+    }
+    match normalize_policy(policy) {
+        POLICY_WARN => CreditVerdict::Warn(snapshot),
+        POLICY_PASS => CreditVerdict::Pass(snapshot),
+        // BLOCK + 一切未知值：fail-closed（见 normalize_policy）
+        _ => CreditVerdict::Block(snapshot),
+    }
+}
+
+/// 读客户当前策略（客户不存在 / 已软删 → `None`）。
+///
+/// 只读一列，不整行查 —— 调用方若已经有 `CustomerRow`（销售订单提交守卫就是）
+/// 直接用 `row.credit_policy`，别为一个字段多打一次库。
+pub async fn policy_of(ex: &impl SqlExecutor, customer_id: Uuid) -> DbResult<Option<String>> {
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT credit_policy FROM {CUSTOMER_TABLE} \
+                  WHERE id = ?::uuid AND deleted_at IS NULL"
+            ),
+            vec![Value::from(&customer_id)],
+        )
+        .await?;
+    Ok(rows
+        .first()
+        .and_then(|row| row.get_typed::<String>("credit_policy").ok()))
+}
+
+/// 写一条**超限警示**台账（`WARN` 策略放行时调用；`delta = 0`，不改任何额度）。
+///
+/// 与业务不同事务：它只是留痕，写失败不该把已经提交成功的单据打回
+/// （调用方按「尽力而为 + 失败 WARN 日志」处理）。
+///
+/// **幂等**：`(customer_id, cause, ref_no)` 已在台账里就什么都不写。
+/// 两个调用点（`change_sales_order_status` 与 `submit_approval`）在同一请求里都会调它
+/// （后者走「没配流程」分支时会进前者），靠这条谓词把第二次变成 0 行 ——
+/// 顺带也保证「提交 → 撤回 → 再提交」不会给同一张单堆一串重复警示。
+pub async fn note_over_limit(
+    ex: &impl SqlExecutor,
+    customer_id: Uuid,
+    ref_no: &str,
+    snapshot: &OverCredit,
+) -> DbResult<u64> {
+    let ref_no: String = ref_no.chars().take(40).collect();
+    ex.exec_sql(
+        format!(
+            "INSERT INTO {LOG_TABLE} \
+                (id, customer_id, before_used, after_used, delta, cause, ref_no, trigger_source, created_at) \
+             SELECT ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                    NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), ?, ? \
+              WHERE NOT EXISTS ( \
+                    SELECT 1 FROM {LOG_TABLE} \
+                     WHERE customer_id = ?::uuid AND cause = ? AND ref_no = ?)"
+        ),
+        vec![
+            Value::from(Uuid::now_v7()),
+            Value::from(&customer_id),
+            Value::Text(snapshot.used.round_dp(2).to_string()),
+            // after = before：超限放行**不改变**已用额度（那是 APPROVED 时刻的事）
+            Value::Text(snapshot.used.round_dp(2).to_string()),
+            Value::Text("0".to_string()),
+            Value::Text(CAUSE_OVER_LIMIT_WARN.to_string()),
+            Value::Text(ref_no.clone()),
+            Value::Text("API".to_string()),
+            Value::from(Utc::now()),
+            // WHERE NOT EXISTS 的参数：同客户 + 同 cause + 同单号
+            Value::from(&customer_id),
+            Value::Text(CAUSE_OVER_LIMIT_WARN.to_string()),
+            Value::Text(ref_no),
+        ],
+    )
+    .await
 }
 
 // ==================== 口径计算（读） ====================
@@ -650,6 +873,136 @@ mod tests {
         assert_eq!(TASK_CRON, "0 10 2 * * *");
     }
 
+    // ---------- 超限策略（M3-09 · V0437） ----------
+
+    /// 策略白名单与 `ck_biz_customer_credit_policy` 逐字一致（改这里 = 改迁移）。
+    #[test]
+    fn policies_match_check_constraint() {
+        assert_eq!(POLICIES, ["BLOCK", "WARN", "PASS"]);
+        assert_eq!(POLICY_BLOCK, "BLOCK");
+        assert_eq!(POLICY_WARN, "WARN");
+        assert_eq!(POLICY_PASS, "PASS");
+        assert_eq!(CAUSE_OVER_LIMIT_WARN, "OVER_LIMIT_WARN");
+    }
+
+    /// 入参解析：去空白 + 忽略大小写；拼错（WARNING / 空串）返回 None 交给入口拒 400。
+    #[test]
+    fn parse_policy_trims_and_ignores_case() {
+        assert_eq!(parse_policy("WARN"), Some(POLICY_WARN));
+        assert_eq!(parse_policy("  warn  "), Some(POLICY_WARN));
+        assert_eq!(parse_policy("Pass"), Some(POLICY_PASS));
+        assert_eq!(parse_policy("block"), Some(POLICY_BLOCK));
+        for bad in ["WARNING", "", "   ", "ALLOW", "1", "0", "拦截"] {
+            assert_eq!(parse_policy(bad), None, "`{bad}` 不该被当成合法策略");
+        }
+    }
+
+    /// 库里的未知值 fail-closed 到 BLOCK —— 内控不能被脏数据静默关掉。
+    #[test]
+    fn normalize_policy_fails_closed_to_block() {
+        assert_eq!(normalize_policy("WARN"), POLICY_WARN);
+        assert_eq!(normalize_policy("pass"), POLICY_PASS);
+        for bad in ["", "BOGUS", "ALLOW", "WARNING"] {
+            assert_eq!(normalize_policy(bad), POLICY_BLOCK, "`{bad}` 必须按拦截处理");
+        }
+    }
+
+    /// 不控额度（limit = 0）：任何策略都不生效，超多少都放行且**不提示**。
+    #[test]
+    fn limit_zero_is_uncontrolled_for_every_policy() {
+        for policy in POLICIES {
+            let verdict = decide(policy, Decimal::ZERO, dec("999999"), dec("0"), dec("888888"));
+            assert_eq!(
+                verdict,
+                CreditVerdict::Uncontrolled,
+                "limit = 0 时 `{policy}` 也必须是「不控额度」"
+            );
+            assert!(verdict.is_allowed());
+            assert!(verdict.over().is_none(), "不控额度不产生超限快照");
+            assert!(verdict.policy().is_none());
+        }
+    }
+
+    /// 边界：合计**正好等于**额度算通过（与 M3-09 之前的 `after > limit` 一致）。
+    #[test]
+    fn total_equal_to_limit_is_within() {
+        let verdict = decide(POLICY_BLOCK, dec("1000"), dec("400"), dec("100"), dec("500"));
+        assert_eq!(verdict, CreditVerdict::Within);
+        assert!(verdict.is_allowed());
+        // 差一分就超
+        let edge = decide(POLICY_BLOCK, dec("1000"), dec("400"), dec("100"), dec("500.01"));
+        assert!(matches!(edge, CreditVerdict::Block(_)));
+    }
+
+    /// 三种策略的超限裁决：BLOCK 拦、WARN 放行带快照、PASS 放行。
+    #[test]
+    fn over_limit_verdict_follows_policy() {
+        let (limit, used, pending, amount) = (dec("1000"), dec("400"), dec("100"), dec("600"));
+
+        let block = decide(POLICY_BLOCK, limit, used, pending, amount);
+        assert!(matches!(block, CreditVerdict::Block(_)));
+        assert!(!block.is_allowed(), "BLOCK 是唯一不放行的策略");
+        assert_eq!(block.policy(), Some(POLICY_BLOCK));
+
+        let warn = decide(POLICY_WARN, limit, used, pending, amount);
+        assert!(matches!(warn, CreditVerdict::Warn(_)));
+        assert!(warn.is_allowed());
+        assert_eq!(warn.policy(), Some(POLICY_WARN));
+
+        let pass = decide(POLICY_PASS, limit, used, pending, amount);
+        assert!(matches!(pass, CreditVerdict::Pass(_)));
+        assert!(pass.is_allowed());
+        assert_eq!(pass.policy(), Some(POLICY_PASS));
+
+        // 三种裁决的合计 / 超额完全一致（差别只在处置方式）
+        for verdict in [block, warn, pass] {
+            let snapshot = verdict.over().expect("超限必须有快照");
+            assert_eq!(snapshot.total(), dec("1100"));
+            assert_eq!(snapshot.over(), dec("100"));
+        }
+    }
+
+    /// 超限快照的算数：total = 已占 + 在审 + 本单；over 不出负数、比到分。
+    ///
+    /// ⚠ 标度收敛走 `Decimal::round_dp` 的默认模式（midpoint → **偶数**）：
+    /// `1000.005` 会进到 `1000.00`（不是 `1000.01`）。用例故意避开正中间的值，
+    /// 只钉「4 位标度收敛到分」这件事，不把舍入模式写死进业务口径。
+    #[test]
+    fn over_credit_snapshot_math() {
+        let snapshot = OverCredit {
+            limit: dec("1000"),
+            used: dec("400.006"),
+            pending: dec("100"),
+            amount: dec("500"),
+        };
+        assert_eq!(snapshot.total(), dec("1000.01"), "四位标度收敛到分");
+        assert_eq!(snapshot.over(), dec("0.01"));
+
+        let under = OverCredit {
+            limit: dec("1000"),
+            used: dec("0"),
+            pending: dec("0"),
+            amount: dec("0"),
+        };
+        assert_eq!(under.over(), Decimal::ZERO, "未超限不出负数");
+    }
+
+    /// `decide` 必须吃「库里读出来的原值」：大小写 / 空白不影响（写库前 handler 会归一）。
+    #[test]
+    fn decide_accepts_raw_stored_values() {
+        assert!(matches!(
+            decide(" warn ", dec("10"), dec("9"), dec("0"), dec("2")),
+            CreditVerdict::Warn(_)
+        ));
+        assert!(
+            matches!(
+                decide("Warned", dec("10"), dec("9"), dec("0"), dec("2")),
+                CreditVerdict::Block(_)
+            ),
+            "未知值 fail-closed"
+        );
+    }
+
     // ---------- 真库用例（缺 ERP_DB_URL 时 SKIP，绝不假绿） ----------
 
     /// 真库用例串行（共用全局 `db()`；重算会扫全库客户，必须避免两组用例互相修漂移）。
@@ -1062,6 +1415,94 @@ mod tests {
             !again.lines.iter().any(|line| line.starts_with("CR38-DRIFT")),
             "一致后不该再报这条客户"
         );
+        teardown(customer).await;
+    }
+
+    /// 场景六：**超限策略读写 + 警示台账**（M3-09 / V0437）。
+    ///
+    /// 钉住三件事：
+    /// 1. 不带 `credit_policy` 的老式 INSERT 必须落默认 `BLOCK`（升级后行为不变）；
+    /// 2. 库层 CHECK 拒绝越界策略（入口 400 之外的兜底）；
+    /// 3. `note_over_limit` 写的是 **delta = 0** 的警示行，且**不动** `credit_used`。
+    #[tokio::test]
+    async fn scenario_credit_policy_and_warn_ledger() {
+        if !ensure_db().await {
+            return;
+        }
+        let _guard = DB_LOCK.lock().await;
+        let customer = fixture_customer("CR38-POLICY").await;
+
+        assert_eq!(
+            policy_of(db(), customer).await.expect("读策略").as_deref(),
+            Some(POLICY_BLOCK),
+            "老式 INSERT（不带 credit_policy）必须落默认 BLOCK"
+        );
+
+        // 改策略 → 读得回来
+        exec(
+            "UPDATE biz_customer SET credit_policy = ? WHERE id = ?::uuid",
+            vec![Value::Text(POLICY_WARN.to_string()), Value::from(&customer)],
+        )
+        .await
+        .expect("改策略");
+        assert_eq!(
+            policy_of(db(), customer).await.expect("再读策略").as_deref(),
+            Some(POLICY_WARN)
+        );
+
+        // 越界策略被 ck_biz_customer_credit_policy 拒（入口 400 之外的兜底）
+        let bad = exec(
+            "UPDATE biz_customer SET credit_policy = 'BOGUS' WHERE id = ?::uuid",
+            vec![Value::from(&customer)],
+        )
+        .await;
+        assert!(bad.is_err(), "库层 CHECK 必须拒绝越界策略");
+
+        // 警示台账：delta = 0，额度一分不动
+        let snapshot = OverCredit {
+            limit: dec("100000"),
+            used: dec("5000"),
+            pending: dec("1000"),
+            amount: dec("2000"),
+        };
+        let written = note_over_limit(db(), customer, "SO38-W1", &snapshot)
+            .await
+            .expect("写警示台账");
+        assert_eq!(written, 1, "首次写入 1 行");
+        let again = note_over_limit(db(), customer, "SO38-W1", &snapshot)
+            .await
+            .expect("重复写警示台账");
+        assert_eq!(again, 0, "同客户 + 同单号 + 同 cause 必须幂等（写入 0 行）");
+        let rows = db()
+            .query_sql(
+                format!(
+                    "SELECT cause, ref_no, trigger_source, before_used::text AS before, \
+                            after_used::text AS after, delta::text AS delta \
+                       FROM {LOG_TABLE} WHERE customer_id = ?::uuid AND cause = ?"
+                ),
+                vec![Value::from(&customer), Value::Text(CAUSE_OVER_LIMIT_WARN.to_string())],
+            )
+            .await
+            .expect("查警示台账");
+        assert_eq!(rows.len(), 1, "一条警示台账");
+        let cause: String = rows[0].get_typed("cause").expect("读原因");
+        let ref_no: String = rows[0].get_typed("ref_no").expect("读单号");
+        let trigger: String = rows[0].get_typed("trigger_source").expect("读来源");
+        let before: String = rows[0].get_typed("before").expect("读前值");
+        let after: String = rows[0].get_typed("after").expect("读后值");
+        let delta: String = rows[0].get_typed("delta").expect("读差额");
+        assert_eq!(cause, CAUSE_OVER_LIMIT_WARN);
+        assert_eq!(ref_no, "SO38-W1");
+        assert_eq!(trigger, "API");
+        assert_eq!(dec(&before), dec("5000"), "警示行只记录当时的已占额度");
+        assert_eq!(dec(&after), dec("5000"));
+        assert_eq!(dec(&delta), Decimal::ZERO, "警示不改变额度 ⇒ delta = 0");
+        assert_eq!(
+            stored(db(), customer).await.expect("读缓存列"),
+            Some(Decimal::ZERO),
+            "放行超限单不会写 credit_used（占用是 APPROVED 时刻的事）"
+        );
+
         teardown(customer).await;
     }
 }

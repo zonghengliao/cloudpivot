@@ -4,7 +4,7 @@
 //!
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
-//! | POST | `/business/erp/customer` | `business:erp:customer:create` | 新建（编码未删内唯一，信用额度 `>= 0`；**编码留空自动取号**） |
+//! | POST | `/business/erp/customer` | `business:erp:customer:create` | 新建（编码未删内唯一，信用额度 `>= 0`，超限策略 `BLOCK/WARN/PASS`；**编码留空自动取号**） |
 //! | PUT | `/business/erp/customer/{id}` | `business:erp:customer:update` | 编辑（部分更新：只改传了的字段） |
 //! | DELETE | `/business/erp/customer/{id}` | `business:erp:customer:delete` | **软删**（`deleted_at`，编码随之释放可复用） |
 //! | GET | `/business/erp/customer/{id}` | `business:erp:customer:list` | 详情（软删行 404） |
@@ -28,6 +28,10 @@
 //! ③ **状态域 `ACTIVE` / `FROZEN`**：字符串域值，不是 1/0。`status` 是「正常 / 冻结」，
 //!    冻结只影响开新单，历史单据与引用不受影响（`contract_model.rs:31` 的 `status = 1`
 //!    是旧占位注释之误，客户分支写 `status = 'ACTIVE'`）。
+//! ⑤ **超限策略域 `BLOCK` / `WARN` / `PASS`**（M3-09 / `V0437`）：入口归一去空白 + 忽略大小写，
+//!    认不出的一律 `400 + 10001`（**不许静默按 `BLOCK` 存下来** —— 用户会以为改成「警告」了）。
+//!    留空 = 不改（新建留空 = `BLOCK`，即 M3-09 之前的硬编拦截行为）。语义见
+//!    `erp::credit::decide`：`credit_limit = 0`（不控额度）时策略不生效。
 //! ④ **编码建后不可改**：编辑时传了非空且与现值不同的编码 → `400 + 10001`
 //!    「客户编码不可修改」（口径与资产分类 `asset_handler::asset_category_update` 一致）。
 //!    前端编辑态本就是只读，这条是接口侧兜底 —— 否则绕过界面直接 PUT 就能改，
@@ -57,6 +61,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::business::erp::code_policy;
+use crate::business::erp::credit;
 use crate::business::erp::customer::customer_model::{
     self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status, normalize_code,
 };
@@ -139,6 +144,19 @@ fn require_credit_days(value: i32) -> std::result::Result<(), ApiError> {
     Err(bad_request(format!(
         "credit_days 不能为负数（当前 {value}）；0 表示现结（到期日 = 过账日）"
     )))
+}
+
+/// 超限策略域：`BLOCK` / `WARN` / `PASS`（去空白 + 忽略大小写，认不出 400）。
+///
+/// 返回归一后的**常量**（写库用），而不是原样回写：库里只存大写字面量，
+/// `ck_biz_customer_credit_policy` 才不会因为 `"warn"` 触发兜底异常。
+fn require_credit_policy(value: &str) -> std::result::Result<&'static str, ApiError> {
+    credit::parse_policy(value).ok_or_else(|| {
+        bad_request(format!(
+            "credit_policy 必须是 {} 之一（当前 `{value}`）：BLOCK=超限拦截 / WARN=超限警告 / PASS=超限放行",
+            credit::POLICIES.join(" / ")
+        ))
+    })
 }
 
 /// 路径里的 UUID：非法 → `400 + 66006`（绝不静默当作「没传」）。
@@ -284,6 +302,9 @@ pub struct CreateCustomerReq {
     /// 信用额度（`>= 0`，**`0` / 留空 = 不控额度**）。
     #[serde(default)]
     pub credit_limit: Option<Decimal>,
+    /// 超限策略（`BLOCK` / `WARN` / `PASS`，**留空 = `BLOCK`** = 老行为超限拦截）。
+    #[serde(default)]
+    pub credit_policy: Option<String>,
     /// 状态（`ACTIVE` / `FROZEN`，留空 = `ACTIVE`）。
     #[serde(default)]
     pub status: Option<String>,
@@ -309,6 +330,14 @@ impl CreateCustomerReq {
         }
         if let Some(credit_limit) = self.credit_limit {
             require_credit_limit(credit_limit)?;
+        }
+        if let Some(policy) = self
+            .credit_policy
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            require_credit_policy(policy)?;
         }
         if let Some(status) = self.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             require_status(status)?;
@@ -344,6 +373,9 @@ pub struct UpdateCustomerReq {
     /// 信用额度（不传 = 不改）。
     #[serde(default)]
     pub credit_limit: Option<Decimal>,
+    /// 超限策略（不传 = 不改；只认 `BLOCK` / `WARN` / `PASS`）。
+    #[serde(default)]
+    pub credit_policy: Option<String>,
     /// 状态（不传 = 不改）。
     #[serde(default)]
     pub status: Option<String>,
@@ -370,6 +402,14 @@ impl UpdateCustomerReq {
         }
         if let Some(credit_limit) = self.credit_limit {
             require_credit_limit(credit_limit)?;
+        }
+        if let Some(policy) = self
+            .credit_policy
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            require_credit_policy(policy)?;
         }
         if let Some(status) = self.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             require_status(status)?;
@@ -403,6 +443,8 @@ pub struct CustomerRes {
     pub credit_used: Decimal,
     /// 可用额度（`None` = 不控额度；否则 `credit_limit − credit_used`，不出负数）。
     pub credit_available: Option<Decimal>,
+    /// 超限策略（`BLOCK` 拦截 / `WARN` 警告 / `PASS` 放行）。
+    pub credit_policy: String,
     /// 状态：`ACTIVE` / `FROZEN`。
     pub status: String,
     /// 备注。
@@ -433,6 +475,7 @@ impl From<&CustomerRow> for CustomerRes {
                 let rest = row.credit_limit - row.credit_used;
                 Some(if rest < Decimal::ZERO { Decimal::ZERO } else { rest })
             },
+            credit_policy: row.credit_policy.clone(),
             status: row.status.clone(),
             remark: row.remark.clone(),
             created_at: row.created_at,
@@ -486,6 +529,13 @@ pub async fn create_customer(
         address: clean_optional(req.address),
         credit_days: req.credit_days.unwrap_or(0),
         credit_limit: req.credit_limit.unwrap_or(Decimal::ZERO),
+        // 留空 = BLOCK（M3-09 之前的硬编拦截）；非法值已在 validate 里 400，这里不会静默降级
+        credit_policy: req
+            .credit_policy
+            .as_deref()
+            .and_then(credit::parse_policy)
+            .unwrap_or(credit::POLICY_BLOCK)
+            .to_string(),
         status: req
             .status
             .as_deref()
@@ -639,6 +689,14 @@ fn merge_write(current: &CustomerRow, req: UpdateCustomerReq) -> CustomerWrite {
         address: merge_optional(req.address, current.address.clone()),
         credit_days: req.credit_days.unwrap_or(current.credit_days),
         credit_limit: req.credit_limit.unwrap_or(current.credit_limit),
+        credit_policy: req
+            .credit_policy
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .and_then(credit::parse_policy)
+            .unwrap_or(current.credit_policy.as_str())
+            .to_string(),
         status,
         remark: merge_optional(req.remark, current.remark.clone()),
     }
@@ -917,6 +975,76 @@ mod tests {
         weird.status = Some("FROZEN_X".to_string());
         let err = weird.validate().expect_err("非法状态必须被拒");
         assert_eq!(err.code, error_code::PARAM_INVALID);
+    }
+
+    /// 超限策略（M3-09 / V0437）：默认 BLOCK / 大小写归一 / 拼错 400 且不改库。
+    #[tokio::test]
+    async fn credit_policy_defaults_normalizes_and_rejects_bogus() {
+        // ---------- 纯校验（不需要库） ----------
+        let mut bad = req(&format!("{CODE_PREFIX}POL-0000"), "拼错策略");
+        bad.credit_policy = Some("WARNING".to_string());
+        let err = bad.validate().expect_err("拼错的策略必须被拒");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(
+            err.msg.contains("BLOCK") && err.msg.contains("WARN"),
+            "报文要点名合法域：{}",
+            err.msg
+        );
+
+        // 空白 / 大小写：合法值归一后通过校验（空串 = 不改）
+        let mut ok = req(&format!("{CODE_PREFIX}POL-0001"), "归一策略");
+        ok.credit_policy = Some("  warn ".to_string());
+        ok.validate().expect("`  warn ` 应通过校验");
+        ok.credit_policy = Some("   ".to_string());
+        ok.validate().expect("空白 = 不改，应通过校验");
+
+        // ---------- 真库 ----------
+        let Some(_guard) = setup().await else { return };
+        let code = format!("{CODE_PREFIX}POL-0001");
+        let created = create_customer(None, req(&code, "默认策略客户"))
+            .await
+            .expect("创建应成功");
+        assert_eq!(
+            created.credit_policy, "BLOCK",
+            "不传 credit_policy = BLOCK（M3-09 之前的硬编拦截行为）"
+        );
+
+        // 小写 warn → 库里存大写 WARN，详情回读一致
+        let update = UpdateCustomerReq {
+            credit_policy: Some("warn".to_string()),
+            ..Default::default()
+        };
+        let updated = update_customer(None, &created.id, update).await.expect("改策略应成功");
+        assert_eq!(updated.credit_policy, "WARN", "库里只存大写字面量");
+        let detail = get_customer(&created.id).await.expect("详情应可读");
+        assert_eq!(detail.credit_policy, "WARN");
+
+        // 非法 PUT：400 且不落库（错误不能只靠前端拦）
+        let bad_update = UpdateCustomerReq {
+            credit_policy: Some("PASS_ALL".to_string()),
+            ..Default::default()
+        };
+        let err = update_customer(None, &created.id, bad_update)
+            .await
+            .expect_err("非法策略必须 400");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert_eq!(
+            get_customer(&created.id).await.expect("再读").credit_policy,
+            "WARN",
+            "被拒的更新不能改库"
+        );
+
+        // 不传策略的编辑不动它（部分更新语义）
+        let touch = UpdateCustomerReq {
+            remark: Some("只改备注".to_string()),
+            ..Default::default()
+        };
+        let touched = update_customer(None, &created.id, touch).await.expect("只改备注应成功");
+        assert_eq!(touched.credit_policy, "WARN", "没传策略就不该改");
+
+        cleanup().await;
     }
 
     /// 分页：code / name 模糊 + status 精确；非法 status → 400（不静默忽略）。

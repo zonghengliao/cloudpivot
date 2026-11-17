@@ -36,6 +36,7 @@
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import type {
   CreateCustomerReq,
+  CreditPolicy,
   Customer,
   CustomerStatus,
   UpdateCustomerReq,
@@ -49,6 +50,35 @@ export const CUSTOMER_STATUS_OPTIONS: { label: string; value: CustomerStatus }[]
   { label: '正常', value: 'ACTIVE' },
   { label: '冻结', value: 'FROZEN' },
 ];
+
+/**
+ * 超限策略选项（顺序 = 严格度递减；`BLOCK` 在首位 = 新建默认）。
+ *
+ * 文案口径抄后端 `credit.rs` 的策略表；`hint` 给表单下方的说明行。
+ */
+export const CUSTOMER_CREDIT_POLICY_OPTIONS: { label: string; value: CreditPolicy; hint: string }[] =
+  [
+    { label: '拦截', value: 'BLOCK', hint: '超额提交直接被拒（默认）' },
+    { label: '警告', value: 'WARN', hint: '放行但提示，并写一条信用台账' },
+    { label: '放行', value: 'PASS', hint: '静默放行，不留痕（VIP 客户例外）' },
+  ];
+
+/** 策略中文名（列表 / 详情用；未知值回显原值，不静默当成「拦截」） */
+export function creditPolicyLabel(value: CreditPolicy | null | undefined): string {
+  const option = CUSTOMER_CREDIT_POLICY_OPTIONS.find((item) => item.value === value);
+  return option ? option.label : String(value ?? '');
+}
+
+/** 策略说明（tooltip / 表单帮助行） */
+export function creditPolicyHint(value: CreditPolicy | null | undefined): string {
+  const option = CUSTOMER_CREDIT_POLICY_OPTIONS.find((item) => item.value === value);
+  return option ? option.hint : '';
+}
+
+/** 是否「超限不拦」（列表里 WARN / PASS 用不同颜色提示，BLOCK 保持常规） */
+export function isCreditPolicyRelaxed(value: CreditPolicy | null | undefined): boolean {
+  return value === 'WARN' || value === 'PASS';
+}
 
 /** 字段长度上限（逐字抄 `customer_handler.rs` 的 `check_optional_text` / `VARCHAR(n)`） */
 export const CUSTOMER_LIMITS = {
@@ -247,6 +277,7 @@ export const CUSTOMER_COLUMNS: PrimaryTableCol[] = [
   { colKey: 'contact_name', title: '联系人 / 电话', width: 200, ellipsis: true },
   { colKey: 'credit_days', title: '账期(天)', width: 110, align: 'right' },
   { colKey: 'credit_limit', title: '信用额度', width: 140, align: 'right' },
+  { colKey: 'credit_policy', title: '超限策略', width: 110 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'op', title: '操作', width: 220, fixed: 'right' },
 ];
@@ -276,6 +307,8 @@ export interface CustomerFormState {
   credit_limit: number;
   /** 账期天数（`0` = 现结；`> 0` = 出库过账后 N 天到期） */
   credit_days: number;
+  /** 超限策略（`credit_limit = 0` 时不生效） */
+  credit_policy: CreditPolicy;
   /** 状态 */
   status: CustomerStatus;
   /** 备注 */
@@ -294,6 +327,8 @@ export function emptyCustomerForm(): CustomerFormState {
     credit_limit: 0,
     // 账期默认 0（= 现结）：后端 `credit_days.unwrap_or(0)`，硬编 30 会让新客户凭空多一个月账期
     credit_days: 0,
+    // 超限策略默认 BLOCK：与后端 V0437 的列默认值一致（老行为 = 超额拦截）
+    credit_policy: 'BLOCK',
     status: 'ACTIVE',
     remark: '',
   };
@@ -310,6 +345,7 @@ export function customerFormFromRow(row: Customer): CustomerFormState {
     address: row.address ?? '',
     credit_limit: Number(row.credit_limit ?? 0),
     credit_days: Number(row.credit_days ?? 0) || 0,
+    credit_policy: row.credit_policy ?? 'BLOCK',
     status: row.status === 'FROZEN' ? 'FROZEN' : 'ACTIVE',
     remark: row.remark ?? '',
   };
@@ -457,6 +493,7 @@ export function buildCustomerCreatePayload(form: CustomerFormState): CreateCusto
     credit_limit: creditLimitText(Number(form.credit_limit)),
     // 新建一律带上：后端 `credit_days.unwrap_or(0)`，显式发 0 免得以后默认值变了偷偷改语义
     credit_days: creditDaysValue(form.credit_days),
+    credit_policy: form.credit_policy,
     status: form.status === 'FROZEN' ? 'FROZEN' : 'ACTIVE',
     remark: nullable(form.remark),
   };
@@ -510,6 +547,10 @@ export function buildCustomerUpdatePayload(
   const creditDays = creditDaysValue(form.credit_days);
   if (creditDays !== Number(original.credit_days ?? 0)) {
     payload.credit_days = creditDays;
+  }
+
+  if (form.credit_policy !== (original.credit_policy ?? 'BLOCK')) {
+    payload.credit_policy = form.credit_policy;
   }
 
   if (form.status !== original.status) {
