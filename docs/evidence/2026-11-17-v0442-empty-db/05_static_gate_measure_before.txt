@@ -1,0 +1,39 @@
+版本化迁移以 id 列 INSERT 的 uuid：903；seed：49；seed 独占：49
+  biz_account            versioned=   6 seed=   0
+  biz_accounting_period  versioned=   1 seed=   0
+  biz_customer           versioned=   3 seed=   0
+  biz_customer_contact   versioned=   3 seed=   0
+  biz_flow_def           versioned=  24 seed=   0
+  biz_flow_def_version   versioned=  24 seed=   0
+  biz_flow_edge          versioned= 118 seed=   0
+  biz_flow_linkage_rule  versioned=   0 seed=   0
+  biz_flow_node          versioned= 122 seed=   0
+  biz_location           versioned=   4 seed=   0
+  biz_material           versioned=   5 seed=   0
+  biz_salary_item        versioned=   0 seed=   0
+  biz_seq                versioned=  21 seed=   0
+  biz_supplier           versioned=   1 seed=   0
+  biz_unit               versioned=   3 seed=   0
+  biz_warehouse          versioned=   3 seed=   0
+  sys_config             versioned=  23 seed=   0
+  sys_dept               versioned=   1 seed=   0
+  sys_dict_item          versioned=   0 seed=   0
+  sys_dict_type          versioned=   5 seed=   0
+  sys_field_mask         versioned=   5 seed=   0
+  sys_help_category      versioned=   5 seed=   0
+  sys_help_doc           versioned=   5 seed=   0
+  sys_menu               versioned= 491 seed=  48
+  sys_notice_template    versioned=  11 seed=   0
+  sys_role               versioned=  10 seed=   1
+  sys_role_menu          versioned=  70 seed=   0
+  sys_storage_config     versioned=   1 seed=   0
+  sys_storage_policy     versioned=   8 seed=   0
+
+== 护栏断言（RAISE EXCEPTION 块里 id = '<uuid>'）引用「版本化迁移从不产出」的 id ==
+文件数：2
+
+  business/V0137__erp_master_data_and_warehouse.up.sql
+    - 00000000-0000-0000-0000-00000000d137  ←  谁都不产出（幽灵 id / 运行时生成）
+
+  business/V0442__perm_gate_orphans_and_n20.up.sql
+    - 10000000-0000-0000-0000-000000000001  ←  seed 行（空库首启必炸）

@@ -1,0 +1,11 @@
+# 修前：旧二进制 + 旧版 V0442，空库首启（cloudpivot_test_v0442a）
+# 命令：ERP_DB=cloudpivot_test_v0442a bash scripts/verify/make_full_suite_db.sh
+# 原始日志：<scratch>/logs/repro_before.log（72385 行，含全量迁移 SQL 回显）
+
+  2026-11-17T09:09:21.912886Z ERROR nik_web::app: 数据库迁移失败: query failed: : db error
+  FATAL: 服务启动失败: 配置错误: 数据库迁移失败: query failed: : db error
+
+# 那一刻库的状态（见 01_manual_apply_v0442_real_error.txt）：
+#   schema_migrations: versioned=361 / seed=0（max_versioned=441）
+#   sys_menu 有 1000…0001（系统管理）= 0 行；有 2000…2701（销售管理）= 1 行
+#   sys_role 活跃 10 个 —— 也就是说「角色」都在，缺的只有种子那批菜单行

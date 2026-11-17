@@ -1,0 +1,70 @@
+=========== cloudpivot_dev
+-- 角色清单
+DEPT_LEADER,DEV_MONITOR_VIEWER,DRILL_CLERK,EMPLOYEE,FINANCE_DIRECTOR,FINANCE_MANAGER,FLOW_CONFIG_APPROVER,GENERAL_MANAGER,HR_MANAGER,PURCHASE_MANAGER,SALES_CLERK,SALES_SUPERVISOR,SUPER_ADMIN,TEST_UADMIN,WAREHOUSE_MANAGER
+-- V0442 授权行（确定性 id 前缀）
+    role_code     |                code                 |                                            title                                             |  seg   
+------------------+-------------------------------------+----------------------------------------------------------------------------------------------+--------
+ FINANCE_DIRECTOR |                                     | 销售管理                                                                                     | v0442c
+ FINANCE_DIRECTOR | business:erp:receivable:list        | 应收台账                                                                                     | v0442
+ FINANCE_MANAGER  | business:erp:quotation:list         | 报价单                                                                                       | v0442
+ FINANCE_MANAGER  | business:erp:rebate-policy:list     | 返利政策                                                                                     | v0442
+ FINANCE_MANAGER  | business:erp:rebate-settlement:list | 查看返利结算（列表 + 详情：期间净销售额/净销量、命中档、应返金额、政策快照）                 | v0442
+ GENERAL_MANAGER  | business:erp:quotation:list         | 报价单                                                                                       | v0442
+ SALES_CLERK      | business:erp:quotation:create       | 新建报价单（取号 QT-yyyyMMdd-000001；客户须 ACTIVE、至少 1 行明细、有效期不早于报价日）      | v0442
+ SALES_CLERK      | business:erp:quotation:list         | 报价单                                                                                       | v0442
+ SALES_CLERK      | business:erp:quotation:status       | 状态流转（只走 QUOTATION_EDGES 的 6 条边；客户拒绝与已发出后作废必须给原因）                 | v0442
+ SALES_CLERK      | business:erp:rebate-policy:list     | 返利政策                                                                                     | v0442
+ SALES_SUPERVISOR | business:erp:quotation:create       | 新建报价单（取号 QT-yyyyMMdd-000001；客户须 ACTIVE、至少 1 行明细、有效期不早于报价日）      | v0442
+ SALES_SUPERVISOR | business:erp:quotation:list         | 报价单                                                                                       | v0442
+ SALES_SUPERVISOR | business:erp:quotation:status       | 状态流转（只走 QUOTATION_EDGES 的 6 条边；客户拒绝与已发出后作废必须给原因）                 | v0442
+ SALES_SUPERVISOR | business:erp:rebate-policy:create   | 新建返利政策（取号 BR-yyyyMMdd-000001；客户须 ACTIVE；按量/按额 1 档、阶梯 2~20 档首尾相接） | v0442
+ SALES_SUPERVISOR | business:erp:rebate-policy:list     | 返利政策                                                                                     | v0442
+ SALES_SUPERVISOR | business:erp:rebate-settlement:list | 查看返利结算（列表 + 详情：期间净销售额/净销量、命中档、应返金额、政策快照）                 | v0442
+ SUPER_ADMIN      |                                     | 系统管理                                                                                     | v0442c
+ SUPER_ADMIN      |                                     | 销售管理                                                                                     | v0442c
+ SUPER_ADMIN      | business:erp:receivable:list        | 应收台账                                                                                     | v0442
+ TEST_UADMIN      |                                     | 系统管理                                                                                     | v0442c
+ TEST_UADMIN      | system:role-mutex:list              | 角色互斥                                                                                     | v0442
+(21 rows)
+
+-- 计数
+v0442_rows=21
+-- 持有 aging / conflict 按钮码的角色
+           auth_code           |                                     roles                                     
+-------------------------------+-------------------------------------------------------------------------------
+ business:erp:receivable:aging | FINANCE_DIRECTOR,FINANCE_MANAGER,GENERAL_MANAGER,SALES_SUPERVISOR,SUPER_ADMIN
+ system:role-mutex:conflict    | SUPER_ADMIN,TEST_UADMIN
+(2 rows)
+
+-- N20 六码持有者
+              auth_code              |                            roles                             
+-------------------------------------+--------------------------------------------------------------
+ business:erp:quotation:create       | SALES_CLERK,SALES_SUPERVISOR
+ business:erp:quotation:list         | FINANCE_MANAGER,GENERAL_MANAGER,SALES_CLERK,SALES_SUPERVISOR
+ business:erp:quotation:status       | SALES_CLERK,SALES_SUPERVISOR
+ business:erp:rebate-policy:create   | SALES_SUPERVISOR
+ business:erp:rebate-policy:list     | FINANCE_MANAGER,SALES_CLERK,SALES_SUPERVISOR
+ business:erp:rebate-settlement:list | FINANCE_MANAGER,SALES_SUPERVISOR
+(6 rows)
+
+=========== cloudpivot_test_v0442a
+-- 角色清单
+DEPT_LEADER,FINANCE_DIRECTOR,FINANCE_MANAGER,FLOW_CONFIG_APPROVER,GENERAL_MANAGER,HR_MANAGER,PURCHASE_MANAGER,SALES_CLERK,SALES_SUPERVISOR,WAREHOUSE_MANAGER
+-- V0442 授权行（确定性 id 前缀）
+ role_code | code | title | seg 
+-----------+------+-------+-----
+(0 rows)
+
+-- 计数
+v0442_rows=0
+-- 持有 aging / conflict 按钮码的角色
+           auth_code           |                               roles                               
+-------------------------------+-------------------------------------------------------------------
+ business:erp:receivable:aging | FINANCE_DIRECTOR,FINANCE_MANAGER,GENERAL_MANAGER,SALES_SUPERVISOR
+(1 row)
+
+-- N20 六码持有者
+ auth_code | roles 
+-----------+-------
+(0 rows)
+

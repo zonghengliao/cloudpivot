@@ -1,0 +1,33 @@
+===== ① 指纹口径校准
+旧版 V0442 实算 : 2e6fbee6a98c6ca081ada172f91623b922bad2ea459f431db50cce98b11cdafe
+dev 记录        : 2e6fbee6a98c6ca081ada172f91623b922bad2ea459f431db50cce98b11cdafe
+新版 V0442 实算 : e724407aed1f89e453c1f3fadd6caff1d7a362a70d4bd07488119cd5e8bc1641
+新库 442 记录   : e724407aed1f89e453c1f3fadd6caff1d7a362a70d4bd07488119cd5e8bc1641
+
+===== 造「应用过旧版 442」的库 cloudpivot_test_v0442e
+    createdb -T cloudpivot_test_v0442b OK
+UPDATE 1
+    现值 = 2e6fbee6a98c6ca081ada172f91623b922bad2ea459f431db50cce98b11cdafe
+
+===== ② 反证：不修指纹就启动
+    [修前] 退出码 1（1=启动失败退出；124=跑满 90s 被我停掉=起服务成功）
+      [2m2026-11-17T09:23:17.712806Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: migration version 442 (`perm_gate_orphans_and_n20`) was modified after it was applied: recorded checksum `2e6fbee6a98c6ca081ada172f91623b922bad2ea459f431db50cce98b11cdafe` != current `e724407aed1f89e453c1f3fadd6caff1d7a362a70d4bd07488119cd5e8bc1641`; the applied migration has been tampered with — restore the file or fix `schema_migrations`
+      FATAL: 服务启动失败: 配置错误: 数据库迁移失败: migration version 442 (`perm_gate_orphans_and_n20`) was modified after it was applied: recorded checksum `2e6fbee6a98c6ca081ada172f91623b922bad2ea459f431db50cce98b11cdafe` != current `e724407aed1f89e453c1f3fadd6caff1d7a362a70d4bd07488119cd5e8bc1641`; the applied migration has been tampered with — restore the file or fix `schema_migrations`
+
+===== ③ 修指纹（apply.sh --apply）
+    ==> 库        cloudpivot_test_v0442e
+    ==> 迁移文件  backend/app/migrations/business/V0442__perm_gate_orphans_and_n20.up.sql
+    ==> 旧指纹    2e6fbee6a98c6ca081ada172f91623b922bad2ea459f431db50cce98b11cdafe
+    ==> 新指纹    e724407aed1f89e453c1f3fadd6caff1d7a362a70d4bd07488119cd5e8bc1641
+    ==> 库内现值  2e6fbee6a98c6ca081ada172f91623b922bad2ea459f431db50cce98b11cdafe
+    
+    ==> 执行修复
+        UPDATE 1
+    ==> 已修复：库内现值 = 新指纹（回读确认）
+        下一步：重启实例，日志里不应再出现 migration 442 was modified / MigrationChecksum。
+    [修后] 退出码 124（1=启动失败退出；124=跑满 90s 被我停掉=起服务成功）
+      [2m2026-11-17T09:23:18.367143Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+
+===== ④ 幂等：再跑一次 apply.sh
+    ==> 库内现值  e724407aed1f89e453c1f3fadd6caff1d7a362a70d4bd07488119cd5e8bc1641
+    ==> 已经是新指纹（修过了）→ no-op，退出 0

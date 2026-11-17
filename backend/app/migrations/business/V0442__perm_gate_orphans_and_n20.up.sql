@@ -75,6 +75,29 @@
 --   装配库活跃菜单 540 行，正顶在 `menu_invariants.sh` 第 ⑤ 条的上界（400–540）——
 --   新增一行就判红。本迁移只做 UPDATE（① 改 parent_id）+ INSERT sys_role_menu（②③④）。
 --
+-- 【2026-11-17 修订（t_08e1816a，P0）：空库首启不得依赖种子行】
+--   现象：`ERP_DB=<新库> make_full_suite_db.sh` 在 V0442 处启动失败
+--   （内核只报 `query failed: : db error`；手工 psql 应用本文件才看到
+--    `V0442: 祖先目录「系统管理」(1000…0001) 不存在`）。实测失败那一刻
+--   `schema_migrations` 里 `kind='versioned'` 361 条、`kind='seed'` 0 条。
+--   真因：内核执行次序是 **versioned 先、seed 后**（kind.rs::execution_rank），
+--   而 …0001 只由种子 S__menu_data.sql 种下 ⇒ 任何空库首启必炸，
+--   连带 make_full_suite_db.sh（全量套件标准库）/L3 干净检出闸/新客户部署全被挡。
+--   改法（只改本文件，不加 V0443 —— 442 先炸，443 永远轮不到）：
+--     · ③ 的「系统管理」护栏从「硬 RAISE」改为「缺席则 NOTICE + 跳过该层闭包」，
+--       并把 ④ 祖先闭包**本来就是动态 JOIN** 这一点写进注释（本迁移不写死 0001）；
+--     · 「销售管理」(…2701) 不变：它由 V0267（版本化）建出，空库首启确实存在。
+--   为什么不在这条迁移里 INSERT 出 …0001：base 菜单行的唯一真相源是种子
+--   （`ON CONFLICT (id) DO UPDATE` 自愈），在版本化侧再写一份等于制造第二个真相源；
+--   而实测空库首启路径上没有任何角色会因该目录缺席而拿到「缺祖先的授权」
+--   （见 evidence：missing_ancestor_pairs=0），所以「跳过」不等于「留下隐患」。
+--   ⚠️ 代价：本文件（已应用迁移）被改写 ⇒ 内容指纹随之变化（新值不写死在本文件里，
+--   由 `scripts/datafix/v0442-checksum/apply.sh` 现算，避免「改文件→指纹变→再改文件」的自指）。
+--   已应用过旧版的库（当时只有 cloudpivot_dev）必须先跑
+--   `scripts/datafix/v0442-checksum/apply.sh`，否则启动即 `MigrationChecksum` 失败。
+--   规矩：**版本化迁移不得把「seed 行」当作前置条件**，静态闸
+--   `scripts/lint/seed_dependency_gate.py`（L0）会抓这一类。
+--
 -- 【幂等】① `WHERE parent_id IS DISTINCT FROM …` ⇒ 重放 0 行；
 --   ②③④ 的每一行都有**确定性 id**（`v0442.<role_id>:<menu_id>`）且插入前
 --   `NOT EXISTS` 按「角色 + 码」判重（V0258 §4 口径：同一码可挂多节点，按码判重才不会重复授）。
@@ -143,14 +166,32 @@ BEGIN
         RAISE EXCEPTION 'V0442: 「角色互斥」页 (2000…0620) 不存在或不是 system:role-mutex:list 的页面行，先应用系统菜单迁移';
     END IF;
 
-    -- ③ 的两个祖先目录（无码目录，menu_type=1）
+    -- ③ 祖先目录（无码目录，menu_type=1）：销售管理来自 V0267（版本化）⇒ 必须存在；
+    --    系统管理只由**种子** S__menu_data.sql 种下 ⇒ 空库首启时必然缺席，见下方说明。
     SELECT count(*) INTO n
       FROM sys_menu
      WHERE id = '10000000-0000-0000-0000-000000000001'::uuid
        AND menu_type = 1
        AND deleted_at IS NULL;
-    IF n <> 1 THEN
-        RAISE EXCEPTION 'V0442: 祖先目录「系统管理」(1000…0001) 不存在，先应用系统菜单迁移';
+    IF n = 0 THEN
+        -- ⚠️ 空库首启的正常路径，不是异常：
+        --   内核执行次序 fixed 为 baseline(0) → versioned(1) → repeatable(2) → seed(3)
+        --   （vendor/nik-db/src/migrate/kind.rs::execution_rank），而「系统管理」(…0001)
+        --   这一行**只**由种子迁移 migrations/seed/S__menu_data.sql 种下
+        --   （`grep -rln 10000000-0000-0000-0000-000000000001 migrations/` 的版本化侧
+        --   只有 V0319 的 UPDATE parent_id 与 V0322 的 parent_id 引用，都不建行）。
+        --   ⇒ 任何空库首启 / 新环境 / 演练库跑到本迁移时，这一行一定还不存在。
+        --
+        --   原版这里硬 RAISE EXCEPTION，代价是【新库根本起不来】（P0，t_08e1816a 实测：
+        --   make_full_suite_db.sh 造库失败、bootstrap 跑不完、库里没有 admin+SUPER_ADMIN，
+        --   而内核只打 `query failed: : db error` 把真因吞掉）。
+        --
+        --   本迁移对该行**没有写死依赖**：④ 的祖先闭包是 `JOIN sys_menu dir ON dir.id = p.parent_id`
+        --   的动态形态（不写死 0001），⑤c 的 touched 集合也由确定性 id 反查得到 —— 目录缺席时
+        --   这两段自然授不到任何行（0 行 = 空操作），不会产生半成品。
+        --   种子随后建出该行；本迁移的目标角色（持有「角色互斥」页 …0620 的角色）在
+        --   **已有种子的库**（装配库 / 生产）上仍然照常补授这层目录。
+        RAISE NOTICE 'V0442：祖先目录「系统管理」(1000…0001) 尚不存在（空库首启：种子迁移排在版本化迁移之后）→ 跳过该层祖先闭包，不失败';
     END IF;
 
     SELECT count(*) INTO n
@@ -178,7 +219,7 @@ BEGIN
         RAISE EXCEPTION 'V0442: % 个 N20 码的承载行不是恰好 1 行（先应用 V0433 / V0438 / V0439）', n;
     END IF;
 
-    RAISE NOTICE 'V0442: 前置接点齐备（消息中心 / 应收台账 / 角色互斥页 + 两个祖先目录 + 六个 N20 码）';
+    RAISE NOTICE 'V0442: 前置接点齐备（消息中心 / 应收台账 / 角色互斥页 + 销售管理目录 + 六个 N20 码；系统管理目录按空库首启情况可能缺席）';
 END $$;
 
 -- ---------------------------------------------------------------------------

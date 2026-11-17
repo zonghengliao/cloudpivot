@@ -1,0 +1,12 @@
+# 同一份**旧版** V0442（HEAD 版本）、同一个 441 状态的库（cloudpivot_test_v0442a），
+# 只换二进制：修前 = 目标目录里的旧二进制；修后 = 同一棵树重编（含 nik-db-core 修复）。
+
+## 修前（旧二进制）
+2026-11-17T09:09:21.912886Z ERROR nik_web::app: 数据库迁移失败: query failed: : db error
+
+## 修后（新二进制）
+2026-11-17T09:21:32.151705Z ERROR nik_web::app: 数据库迁移失败: query failed: : V0442: 祖先目录「系统管理」(1000…0001) 不存在，先应用系统菜单迁移 [P0001]
+
+# 单测（vendor/nik-db-core，cargo test --lib error::）：
+  test error::tests::query_display_keeps_driver_message_when_source_present ... ok
+  test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out

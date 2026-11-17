@@ -1,0 +1,30 @@
+=========== cloudpivot_test_v0442a
+   category   | cfg_rows | in_dict |                                                                                                                                                        keys                                                                                                                                                         
+--------------+----------+---------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ announcement |        3 | t       | announcement.default_expire_days, announcement.fanout_enabled, announcement.scope_refresh_on_dept_change
+ changelog    |        2 | t       | changelog.big_field_bytes, changelog.retention_months
+ erp_basic    |        9 | t       | erp.fx.gain_loss_account, erp.inventory.slow-moving-days, erp.master_data.allow_manual_code, erp.reminder.low_stock.realert_days, erp.reminder.po_overdue.realert_days, erp.stock_water.realert_days, erp.transfer.in_transit_overdue_days, erp.transfer.in_transit_realert_hours, inventory_opening_equity_account
+ erp_budget   |        3 | t       | erp.budget.control_mode, erp.budget.enforce_on_po, erp.expense.pay_remind_days
+ erp_control  |        8 | t       | erp.separation_of_duties.approve, erp.separation_of_duties.approve_execute, erp.separation_of_duties.enabled, erp.separation_of_duties.pay, erp.separation_of_duties.post, erp.separation_of_duties.purchase_accept, erp.separation_of_duties.self_approval_max_amount, erp.separation_of_duties.stocktake
+ erp_cost     |        1 | t       | erp.cost.enabled
+ hr           |        3 | t       | hr.attendance.require_leave_match, hr.salary.iit_mode, hr.salary.si_mode
+(7 rows)
+
+-- 字典 config_category 现有项
+erp_basic=ERP 基础 | erp_budget=ERP 预算 | erp_control=ERP 内控 | erp_cost=ERP 成本 | announcement=公告 | hr=人力资源 | changelog=变更日志
+=========== cloudpivot_dev
+   category   | cfg_rows | in_dict |                                                                                                                                                        keys                                                                                                                                                         
+--------------+----------+---------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ announcement |        3 | t       | announcement.default_expire_days, announcement.fanout_enabled, announcement.scope_refresh_on_dept_change
+ auth         |        3 | t       | auth.idle_timeout_minutes, auth.lock_minutes, auth.max_login_fail_count
+ changelog    |        2 | t       | changelog.big_field_bytes, changelog.retention_months
+ erp_basic    |        9 | t       | erp.fx.gain_loss_account, erp.inventory.slow-moving-days, erp.master_data.allow_manual_code, erp.reminder.low_stock.realert_days, erp.reminder.po_overdue.realert_days, erp.stock_water.realert_days, erp.transfer.in_transit_overdue_days, erp.transfer.in_transit_realert_hours, inventory_opening_equity_account
+ erp_budget   |        3 | t       | erp.budget.control_mode, erp.budget.enforce_on_po, erp.expense.pay_remind_days
+ erp_control  |        8 | t       | erp.separation_of_duties.approve, erp.separation_of_duties.approve_execute, erp.separation_of_duties.enabled, erp.separation_of_duties.pay, erp.separation_of_duties.post, erp.separation_of_duties.purchase_accept, erp.separation_of_duties.self_approval_max_amount, erp.separation_of_duties.stocktake
+ erp_cost     |        1 | t       | erp.cost.enabled
+ hr           |        3 | t       | hr.attendance.require_leave_match, hr.salary.iit_mode, hr.salary.si_mode
+ log          |        1 | t       | log.ip_location_enabled
+(9 rows)
+
+-- 字典 config_category 现有项
+auth=认证配置 | log=日志配置 | erp_basic=ERP 基础 | erp_budget=ERP 预算 | erp_control=ERP 内控 | erp_cost=ERP 成本 | announcement=公告 | hr=人力资源 | changelog=变更日志

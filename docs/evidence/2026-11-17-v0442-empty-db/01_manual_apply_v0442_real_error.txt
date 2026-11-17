@@ -1,0 +1,13 @@
+== schema_migrations 分布
+versioned:361
+max_versioned=441
+v442_record=0
+== 关键行存在性
+sys_menu_1000_0001=0
+sys_menu_2000_2701=1
+sys_role=10
+sys_menu=492
+== 手工应用 V0442（期望：报出真因）
+ERROR:  V0442: 祖先目录「系统管理」(1000…0001) 不存在，先应用系统菜单迁移
+CONTEXT:  PL/pgSQL function inline_code_block line 62 at RAISE
+== 退出码 3

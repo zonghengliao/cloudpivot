@@ -1,0 +1,47 @@
+===== cloudpivot_test_v0442b
+-- V0442 授权行（确定性 id）
+    role_code     |                code                 |  seg   
+------------------+-------------------------------------+--------
+ FINANCE_DIRECTOR |                                     | v0442c
+ FINANCE_DIRECTOR | business:erp:receivable:list        | v0442
+ FINANCE_MANAGER  | business:erp:quotation:list         | v0442
+ FINANCE_MANAGER  | business:erp:rebate-policy:list     | v0442
+ FINANCE_MANAGER  | business:erp:rebate-settlement:list | v0442
+ GENERAL_MANAGER  | business:erp:quotation:list         | v0442
+ SALES_CLERK      | business:erp:quotation:create       | v0442
+ SALES_CLERK      | business:erp:quotation:list         | v0442
+ SALES_CLERK      | business:erp:quotation:status       | v0442
+ SALES_CLERK      | business:erp:rebate-policy:list     | v0442
+ SALES_SUPERVISOR | business:erp:quotation:create       | v0442
+ SALES_SUPERVISOR | business:erp:quotation:list         | v0442
+ SALES_SUPERVISOR | business:erp:quotation:status       | v0442
+ SALES_SUPERVISOR | business:erp:rebate-policy:create   | v0442
+ SALES_SUPERVISOR | business:erp:rebate-policy:list     | v0442
+ SALES_SUPERVISOR | business:erp:rebate-settlement:list | v0442
+(16 rows)
+
+-- N20 六码持有者
+              auth_code              |                            roles                             
+-------------------------------------+--------------------------------------------------------------
+ business:erp:quotation:create       | SALES_CLERK,SALES_SUPERVISOR
+ business:erp:quotation:list         | FINANCE_MANAGER,GENERAL_MANAGER,SALES_CLERK,SALES_SUPERVISOR
+ business:erp:quotation:status       | SALES_CLERK,SALES_SUPERVISOR
+ business:erp:rebate-policy:create   | SALES_SUPERVISOR
+ business:erp:rebate-policy:list     | FINANCE_MANAGER,SALES_CLERK,SALES_SUPERVISOR
+ business:erp:rebate-settlement:list | FINANCE_MANAGER,SALES_SUPERVISOR
+(6 rows)
+
+-- 缺祖先的授权对（必须 0）
+missing_ancestor_pairs=0
+-- business:notice:mine 承载行（应 2：1 页 + 1 按钮）+ 按钮父节点
+                  id                  | menu_type |   parent   |              parent_id               
+--------------------------------------+-----------+------------+--------------------------------------
+ 23000000-0000-0000-0000-000000000010 |         2 | 公告与消息 | 20000000-0000-0000-0000-000000000880
+ 20000000-0000-0000-0000-000000000414 |         3 | 消息中心   | 23000000-0000-0000-0000-000000000010
+(2 rows)
+
+-- 菜单总数 / 系统管理是否由种子建出
+menus=540
+system_dir=1
+v442_checksum=e724407aed1f89e453c1f3fadd6caff1d7a362a70d4bd07488119cd5e8bc1641
+seed_rows=12

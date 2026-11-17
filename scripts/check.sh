@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
-#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽 / 统一测试夹具（P2-62）/ CI 报告 JUnit XML（P2-63）
+#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 版本化迁移不得依赖 seed 行 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽 / 统一测试夹具（P2-62）/ CI 报告 JUnit XML（P2-63）
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #                                       + 页面零壳类声明（t_79f92c08：allowlist 快照档，SHELL_VARIANT_GATE 默认 warn）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
@@ -104,6 +104,7 @@ plan_all() {
         plan L0 "C7 变更日志回滚零残留 G1–G6" "grep/awk 静态检查（scripts/check.sh · batchc_gates）"
         plan L0 "偏好字典 ui.palette ↔ 前端色板一致" "python3 scripts/lint/palette_def_sync.py --root ."
         plan L0 "迁移版本号跨目录全局唯一（自检 + 扫描）" "python3 scripts/lint/migration_version_unique.py --selftest && python3 scripts/lint/migration_version_unique.py --root ."
+        plan L0 "版本化迁移不得依赖 seed 行（自检 + 扫描）" "python3 scripts/lint/seed_dependency_gate.py --selftest && python3 scripts/lint/seed_dependency_gate.py --root ."
         plan L0 "库存三本账唯一写入口（判据自检 + 扫描）" "python3 scripts/verify/inventory_write_gate.py [--self-test]"
         plan L0 "脚本/钩子/CI 写死的源码路径必须存在" "python3 scripts/lint/path_refs_gate.py [--self-test] [--root .]"
         plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
@@ -614,6 +615,36 @@ if ! python3 "$ROOT/scripts/lint/migration_version_unique.py" --root "$ROOT"; th
     echo "    且 up/down 成对、已应用的迁移不许改号（指纹校验会红）。" >&2
     exit 1
 fi
+
+# ======================================================================
+# 种子行依赖门禁（t_08e1816a，P0）：版本化迁移不许把「种子行」当作前置条件
+#
+# 为什么是硬门禁：内核执行次序固定 baseline(0) → versioned(1) → repeatable(2) → seed(3)
+# （vendor/nik-db/src/migrate/kind.rs::execution_rank），而**种子行只由 seed 建出**
+# ⇒ 版本化迁移里凡是「断言某行必须存在、否则 RAISE EXCEPTION」而该行只由 seed 建，
+# 空库首启就必然失败。2026-11-17 实测代价：V0442 因此炸掉所有新库，
+# `make_full_suite_db.sh`（全量 lib 套件标准库）造不出来、L3 干净检出闸与新客户部署全被挡；
+# 而且加新迁移救不了 —— 442 先炸，443 永远轮不到执行。
+#
+# 判据本身由 `--selftest` 的红/绿语料守住（4 条：硬断言红 / NOTICE 分支绿 /
+# 自己 INSERT 的 id 绿 / 动态 JOIN 父节点绿）；豁免清单必须带理由。
+# ======================================================================
+
+if want L0; then
+echo "==> 种子行依赖门禁 · 判据自检（--selftest）"
+if ! python3 "$ROOT/scripts/lint/seed_dependency_gate.py" --selftest; then
+    echo "==> 门禁自身失效：判据自检未全绿（判据被改坏了？）" >&2
+    exit 1
+fi
+
+echo "==> 版本化迁移不得依赖 seed 行（scripts/lint/seed_dependency_gate.py）"
+if ! python3 "$ROOT/scripts/lint/seed_dependency_gate.py" --root "$ROOT"; then
+    echo "==> 门禁未通过：版本化迁移比种子先执行，凡是「硬断言某行存在」的行必须是" >&2
+    echo "    版本化迁移自己建出来的（或把护栏降级成 NOTICE 分支）。见 scripts/lint/seed_dependency_allow.txt。" >&2
+    exit 1
+fi
+fi
+
 
 # kanban assignee 必须是真实 profile
 #

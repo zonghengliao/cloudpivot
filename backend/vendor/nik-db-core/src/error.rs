@@ -187,6 +187,53 @@ pub enum DbError {
     },
 }
 
+/// 未映射错误码的载体：把驱动的**结构化消息**带进 `Display`。
+///
+/// ## 为什么需要它
+///
+/// 驱动（`nik-db-driver-postgres`）在 `map_pg_error` 里已经把 `tokio_postgres::Error`
+/// 拆成 `(SQLSTATE, message)` 交给 [`DbError::from_raw_driver_error`]，但**同时**把原始
+/// 错误对象作为 `source` 传了进来。而 `tokio_postgres::Error` 的 `Display` 对服务端错误
+/// 只有一句 `db error`（真消息在 `.as_db_error().message()` 里）。未命中映射表的错误码
+/// （PL/pgSQL `RAISE EXCEPTION` 就是 `P0001`）因此只剩这一句 —— 实测迁移失败时的日志是
+///
+/// ```text
+/// FATAL: 服务启动失败: 配置错误: 数据库迁移失败: query failed: : db error
+/// ```
+///
+/// 修一次 `RAISE EXCEPTION 'V0442: 祖先目录…不存在'` 就得手工 psql 重放整份迁移才能看到真因。
+///
+/// ## 做法
+///
+/// `Display` 用驱动消息（带 SQLSTATE），原始错误对象仍作为 `source()` 的下一环保留，
+/// 约束类变体（唯一 / 外键 / CHECK）不受影响 —— 它们的 `Display` 本来就用解析出的
+/// 标识符，且同样经 `source()` 保留驱动原文。
+#[derive(Debug)]
+struct DriverMessage {
+    /// 数据库返回的错误码（未映射，通常非空）。
+    code: String,
+    /// 驱动给出的原始消息。
+    message: String,
+    /// 驱动原始错误对象（可能为 `None`）。
+    source: Option<BoxError>,
+}
+
+impl std::fmt::Display for DriverMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.code.is_empty() {
+            f.write_str(&self.message)
+        } else {
+            write!(f, "{} [{}]", self.message, self.code)
+        }
+    }
+}
+
+impl StdError for DriverMessage {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        self.source.as_ref().map(|e| &**e as &(dyn StdError + 'static))
+    }
+}
+
 impl DbError {
     /// 由驱动的原始错误构造统一错误——跨方言错误码映射的**唯一入口**。
     ///
@@ -208,44 +255,56 @@ impl DbError {
     ///
     /// 未命中任何分支时落 [`DbError::Query`]（SQL 上下文由驱动调用方补全）。
     pub fn from_raw_driver_error(raw: RawDbError) -> Self {
-        let RawDbError {
-            code,
-            message,
-            source,
-        } = raw;
+        let RawDbError { code, message, source } = raw;
         let code = code.as_deref().unwrap_or_default();
         let (column, constraint) = extract_identifiers(code, &message);
-        // 原始错误对象优先；驱动未提供时用消息兜底，保证 `source()` 链非空
-        let source = || source.unwrap_or_else(|| Box::new(std::io::Error::other(message.clone())));
+        // 原始错误对象优先；驱动未提供时用消息兜底，保证 `source()` 链非空。
+        // 写成「显式传参」而不是按值捕获的闭包：未命中分支还要把 `message` / `source`
+        // 原样放进 [`DriverMessage`]，闭包一旦捕获这两个变量那边就用不了了。
+        let with_source = |src: Option<BoxError>, msg: &str| -> BoxError {
+            src.unwrap_or_else(|| Box::new(std::io::Error::other(msg.to_string())))
+        };
 
         match code {
             // ---- 唯一约束 ----
             "23505" | "1062" | "2067" | "1555" => DbError::UniqueViolation {
                 column,
                 constraint,
-                source: Some(source()),
+                source: Some(with_source(source, &message)),
             },
             // ---- 外键约束 ----
             "23503" | "1452" | "1451" | "787" => DbError::ForeignKeyViolation {
                 constraint,
-                source: Some(source()),
+                source: Some(with_source(source, &message)),
             },
             // ---- CHECK 约束 ----
             "23514" | "3819" | "275" => DbError::CheckViolation {
                 constraint,
-                source: Some(source()),
+                source: Some(with_source(source, &message)),
             },
             // ---- 并发冲突（均可安全重试）----
-            "40P01" | "1213" => DbError::Deadlock { source: source() },
-            "40001" => DbError::SerializationFailure { source: source() },
+            "40P01" | "1213" => DbError::Deadlock {
+                source: with_source(source, &message),
+            },
+            "40001" => DbError::SerializationFailure {
+                source: with_source(source, &message),
+            },
             // SQLite `SQLITE_BUSY` 家族：库被其他连接占用 / 无法取得锁
-            "55P03" | "1205" | "5" | "261" | "517" | "773" => {
-                DbError::LockTimeout { source: source() }
-            }
+            "55P03" | "1205" | "5" | "261" | "517" | "773" => DbError::LockTimeout {
+                source: with_source(source, &message),
+            },
             // ---- 未命中：保留 SQL 上下文由调用方补全 ----
+            //
+            // 消息必须带出去：驱动的 `Display` 往往只有 `db error`（见 [`DriverMessage`]），
+            // 而这里是 PL/pgSQL `RAISE EXCEPTION`（P0001）等**业务自定义错误**的唯一出口 ——
+            // 吞掉它等于让「迁移前置护栏 / 自检块」的文案在日志里彻底消失。
             _ => DbError::Query {
                 sql: String::new(),
-                source: source(),
+                source: Box::new(DriverMessage {
+                    code: code.to_string(),
+                    message,
+                    source,
+                }),
             },
         }
     }
@@ -294,10 +353,7 @@ fn extract_identifiers(code: &str, message: &str) -> (Option<String>, Option<Str
         "23505" => (None, quoted_after(message, "unique constraint ")),
         // SQLite：`CHECK constraint failed: <table-or-constraint>`；未命名 CHECK 时
         // 该位置是**表达式**（如 `amount >= 0`）→ 只接受标识符形状，否则 None
-        "275" => (
-            None,
-            identifier_like(text_after(message, "check constraint failed:")),
-        ),
+        "275" => (None, identifier_like(text_after(message, "check constraint failed:"))),
         // PostgreSQL：`... violates check constraint "ck_x"`
         // MySQL：`Check constraint 'ck_x' is violated.`
         "23514" | "3819" => (None, quoted_after_ci(message, "check constraint ")),
@@ -316,10 +372,7 @@ fn extract_identifiers(code: &str, message: &str) -> (Option<String>, Option<Str
 /// 放进消息里的**表达式**（如 `amount >= 0`）——后者不是标识符，应保持 `None`。
 fn identifier_like(text: Option<String>) -> Option<String> {
     let raw = text?;
-    let trimmed = raw
-        .trim()
-        .trim_matches(|c| c == '"' || c == '`' || c == '\'')
-        .trim();
+    let trimmed = raw.trim().trim_matches(|c| c == '"' || c == '`' || c == '\'').trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -401,9 +454,7 @@ fn quoted_after_at(message: &str, rest_start: usize) -> Option<String> {
 
 /// 大小写不敏感的子串查找，返回字节下标。
 fn find_ci(haystack: &str, needle: &str) -> Option<usize> {
-    haystack
-        .to_ascii_lowercase()
-        .find(&needle.to_ascii_lowercase())
+    haystack.to_ascii_lowercase().find(&needle.to_ascii_lowercase())
 }
 
 #[cfg(test)]
@@ -447,9 +498,7 @@ mod tests {
     #[test]
     fn constraint_identifiers_are_parsed_not_raw_messages() {
         match DbError::from_raw_driver_error(raw("2067", "UNIQUE constraint failed: users.email")) {
-            DbError::UniqueViolation {
-                column, constraint, ..
-            } => {
+            DbError::UniqueViolation { column, constraint, .. } => {
                 assert_eq!(column.as_deref(), Some("email"));
                 assert_eq!(constraint, None);
             }
@@ -460,19 +509,14 @@ mod tests {
             "23505",
             "duplicate key value violates unique constraint \"uq_users_email\"",
         )) {
-            DbError::UniqueViolation {
-                column, constraint, ..
-            } => {
+            DbError::UniqueViolation { column, constraint, .. } => {
                 assert_eq!(column, None);
                 assert_eq!(constraint.as_deref(), Some("uq_users_email"));
             }
             other => panic!("{other:?}"),
         }
 
-        match DbError::from_raw_driver_error(raw(
-            "1062",
-            "Duplicate entry 'a@b.c' for key 'users.uq_users_email'",
-        )) {
+        match DbError::from_raw_driver_error(raw("1062", "Duplicate entry 'a@b.c' for key 'users.uq_users_email'")) {
             DbError::UniqueViolation { constraint, .. } => {
                 assert_eq!(constraint.as_deref(), Some("uq_users_email"));
             }
@@ -498,10 +542,7 @@ mod tests {
             other => panic!("{other:?}"),
         }
 
-        match DbError::from_raw_driver_error(raw(
-            "3819",
-            "Check constraint 'ck_err_probe_amount' is violated.",
-        )) {
+        match DbError::from_raw_driver_error(raw("3819", "Check constraint 'ck_err_probe_amount' is violated.")) {
             DbError::CheckViolation { constraint, .. } => {
                 assert_eq!(constraint.as_deref(), Some("ck_err_probe_amount"));
             }
@@ -526,9 +567,27 @@ mod tests {
         }
         let text = err.to_string();
         assert!(text.contains("query failed"), "{text}");
-        assert!(
-            text.contains("does not exist"),
-            "Display 丢了驱动原因：{text}"
+        assert!(text.contains("does not exist"), "Display 丢了驱动原因：{text}");
+    }
+
+    /// D019 补强：驱动**同时带了原始错误对象**时（生产路径：`map_pg_error` 会把
+    /// `tokio_postgres::Error` 当 `source` 传进来），`Display` 仍必须带驱动消息。
+    ///
+    /// 之前未映射分支只把原始错误当 `source`，而 `tokio_postgres::Error` 对服务端错误
+    /// 的 `Display` 只有一句 `db error` ⇒ 迁移里 `RAISE EXCEPTION 'V0442: …'` 的真因
+    /// 在日志里彻底消失（实测 `query failed: : db error`，t_08e1816a）。
+    #[test]
+    fn query_display_keeps_driver_message_when_source_present() {
+        let err = DbError::from_raw_driver_error(RawDbError {
+            code: Some("P0001".into()),
+            message: "V0442: 祖先目录「系统管理」不存在".into(),
+            source: Some(Box::new(std::io::Error::other("db error"))),
+        });
+        let text = err.to_string();
+        assert_eq!(
+            text, "query failed: : V0442: 祖先目录「系统管理」不存在 [P0001]",
+            "未映射错误码的 Display 必须带驱动消息与 SQLSTATE"
         );
+        assert!(StdError::source(&err).is_some(), "原始错误对象仍要留在 source() 链上");
     }
 }

@@ -1,0 +1,4 @@
+# ERP_DB_URL=<新库> python3 scripts/lint/config_category_gate.py
+  sys_config 用到 9 个分类，字典覆盖 9 个
+  ✓ 全部 category 都在字典里
+# 退出码 0

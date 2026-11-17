@@ -1,0 +1,26 @@
+=========== cloudpivot_test_v0442a
+-- A) 被授权节点的祖先目录缺失（build_tree 会静默丢弃 → 侧栏不可见）
+ role_code | title | auth_code | missing_ancestor_depth | missing_ancestor_id 
+-----------+-------+-----------+------------------------+---------------------
+(0 rows)
+
+-- A2) 汇总：缺祖先的 (角色,节点) 数
+missing_ancestor_pairs=0
+-- B) sys_config 分类 vs config_category 字典
+ERROR:  column dt.dict_type does not exist
+LINE 4:                  where dt.dict_type='config_category' and di...
+                               ^
+HINT:  Perhaps you meant to reference the column "dt.dict_code" or the column "dt.dict_name".
+=========== cloudpivot_dev
+-- A) 被授权节点的祖先目录缺失（build_tree 会静默丢弃 → 侧栏不可见）
+ role_code | title | auth_code | missing_ancestor_depth | missing_ancestor_id 
+-----------+-------+-----------+------------------------+---------------------
+(0 rows)
+
+-- A2) 汇总：缺祖先的 (角色,节点) 数
+missing_ancestor_pairs=0
+-- B) sys_config 分类 vs config_category 字典
+ERROR:  column dt.dict_type does not exist
+LINE 4:                  where dt.dict_type='config_category' and di...
+                               ^
+HINT:  Perhaps you meant to reference the column "dt.dict_code" or the column "dt.dict_name".
