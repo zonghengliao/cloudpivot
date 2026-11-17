@@ -1,0 +1,31 @@
+===== 1) 本卡新增文件清单 =====
+backend/app/migrations/business/V0450__framework_agreement.up.sql / .down.sql
+backend/app/src/business/erp/purchase/framework_agreement_model.rs
+backend/app/src/business/erp/purchase/framework_agreement_db_tests.rs
+backend/app/src/business/erp/purchase/mod.rs（+10 行注册）
+scripts/verify/m407_framework_agreement_schema_drill.sh
+docs/evidence/2026-11-18-m407-framework-agreement-schema/
+
+===== 2) 路由：本卡 0 条（表结构卡不接线）=====
+grep -c '#[nik::'            framework_agreement_model.rs → 0
+grep -c 'ROUTE_CONTRACT'    framework_agreement_model.rs → 0
+grep -c 'handler' 相关文件（本卡未建 handler/dto）→ 0
+
+===== 3) 权限码：源码里 0 个 framework-agreement 码 =====
+grep -rn 'framework-agreement:'   backend/app/src → 0 行
+grep -rn 'framework_agreement:page|:list' backend/app/src → 0 行
+
+===== 4) 菜单：V0450 不写 sys_menu（唯一命中是头注释第 14 行的说明文字）=====
+    14:--   本迁移**不写一行 sys_menu**（不会顶破 menu_invariants 的 400–540 上限），
+grep -c 'INSERT INTO sys_menu'  V0450 → 0
+grep -c 'sys_role_menu'         V0450 → 0
+演练实测：上 V0450 前后 sys_menu 总数不变（见 01_drill_full.out 第 1b 节）
+
+===== 5) 采购订单表未加列（引用字段属 M4-08）=====
+V0450 里 'ALTER TABLE biz_purchase_order*' → 0
+演练实测：biz_purchase_order(_item) 的 *framework_agreement* 列 = 0（见 01_drill_full.out 第 4 节）
+
+===== 6) 前端 0 处改动（本卡不含页面）=====
+grep -rn 'framework-agreement|frameworkAgreement' frontend/src → 0 行
+注：git status 里 frontend/ 的 6 个改动是**别人**的存量（cost-object-kinds / contract-logic / detail-line-limit /
+    flow-error-codes / state-edge-logic / e2e/global-setup），与本卡无关，本卡提交按路径 add。

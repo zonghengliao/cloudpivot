@@ -1,0 +1,11 @@
+===== 卡面要求 1：cd backend && cargo fmt && cargo clippy --lib -- -D warnings =====
+cargo fmt --check rc=0
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.82s
+cargo clippy --lib rc=0
+
+===== 加做：clippy 也覆盖 test target（本卡新增 12 条真库用例 + 8 条纯逻辑）=====
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+
+===== 卡面要求 2：前端（本卡无前端改动，无需 pnpm）=====
+本卡 git status 里 frontend/ 只有别人的存量改动；本卡新增/修改文件 0 个前端文件

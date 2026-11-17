@@ -1,0 +1,223 @@
+===== biz_framework_agreement (\d+) =====
+                                                                                                                  Table "public.biz_framework_agreement"
+        Column         |           Type           | Collation | Nullable |          Default           | Storage  | Compression | Stats target |                                                        Description                                                        
+-----------------------+--------------------------+-----------+----------+----------------------------+----------+-------------+--------------+---------------------------------------------------------------------------------------------------------------------------
+ id                    | uuid                     |           | not null | gen_random_uuid()          | plain    |             |              | 
+ agreement_no          | character varying(32)    |           | not null |                            | extended |             |              | 协议编号：FWA-yyyyMMdd-000001（biz_seq.seq_type=FWA，按北京时间天滚动）
+ agreement_name        | character varying(128)   |           | not null |                            | extended |             |              | 
+ supplier_id           | uuid                     |           | not null |                            | plain    |             |              | 供应商（弱引用 biz_supplier.id）—— 一份协议对一家供应商；同供应商可有多份协议（不同类目 / 不同期间），库层不做唯一
+ supplier_name         | character varying(200)   |           |          |                            | extended |             |              | 供应商名快照（签约主体是历史事实）；展示「现名」时 join biz_supplier，两列并存不是冗余（约定 13）
+ dept_id               | uuid                     |           |          |                            | plain    |             |              | 经办部门快照（弱引用 sys_dept.id）；**不是数据范围列**（本表 SCOPE-EXEMPT，见头注释 8）
+ dept_name             | character varying(128)   |           |          |                            | extended |             |              | 
+ owner_id              | uuid                     |           |          |                            | plain    |             |              | 经办人（弱引用 sys_user.id）；姓名走 owner_name 快照（审计/历史类，约定 13）
+ owner_name            | character varying(64)    |           |          |                            | extended |             |              | 
+ start_date            | date                     |           | not null |                            | plain    |             |              | 有效期起（含）；与 end_date 一起构成有效期，**不落 EXPIRED 状态**（到期是时间的函数，见头注释 1）
+ end_date              | date                     |           | not null |                            | plain    |             |              | 有效期止（含）；ck_biz_fwa_period 保证 start_date <= end_date
+ sign_date             | date                     |           |          |                            | plain    |             |              | 签订日期（可与生效起始日不同：先签后生效 / 补签）；只作审计，不参与有效期判据
+ price_mode            | character varying(16)    |           | not null | 'FIXED'::character varying | extended |             |              | 定价方式：FIXED 固定价 / FLOATING 随行就市（FLOATING 必须有 price_adjust_rule）
+ price_includes_tax    | boolean                  |           | not null | false                      | plain    |             |              | 协议价是否含税：决定明细 agreed_price 的口径（false = 不含税，与采购订单 price 列同口径）
+ price_currency        | character varying(8)     |           | not null | 'CNY'::character varying   | extended |             |              | 协议价币种（ISO 4217 三位大写，ck_biz_fwa_currency 钉住形状）
+ price_tolerance       | numeric(7,4)             |           | not null | 0                          | main     |             |              | 下单价允许高于协议价的比例上限（0–1；0 = 必须 ≤ 协议价）。M4-08 判据：order_price <= agreed_price * (1 + price_tolerance)
+ price_adjust_rule     | text                     |           |          |                            | extended |             |              | 调价 / 浮动规则原文（FLOATING 必填）：如「随钢材指数月度均价上浮不超过 3%」
+ total_max_qty         | numeric(18,4)            |           |          |                            | main     |             |              | 协议总量上限（NULL = 不限；写了必须 > 0）。库层**不拦**已执行量超上限，超限拒绝属 M4-08
+ total_max_amount      | numeric(18,4)            |           |          |                            | main     |             |              | 协议总额上限（NULL = 不限；写了必须 > 0）
+ total_executed_qty    | numeric(18,4)            |           | not null | 0                          | main     |             |              | 已执行量合计 = Σ明细 executed_qty（服务端在写明细的同一事务里重算，客户端不许传）
+ total_executed_amount | numeric(18,4)            |           | not null | 0                          | main     |             |              | 已执行金额合计 = Σ明细 executed_amount（同上：派生列，客户端不许传）
+ status                | character varying(16)    |           | not null | 'DRAFT'::character varying | extended |             |              | DRAFT 拟稿 / SUBMITTED 审批中（必有审批实例）/ APPROVED 生效（是否在效期另看 start_date..end_date）
+ approval_instance_id  | uuid                     |           |          |                            | plain    |             |              | 
+ remark                | text                     |           |          |                            | extended |             |              | 
+ created_at            | timestamp with time zone |           | not null | CURRENT_TIMESTAMP          | plain    |             |              | 
+ updated_at            | timestamp with time zone |           | not null | CURRENT_TIMESTAMP          | plain    |             |              | 
+ create_by             | uuid                     |           |          |                            | plain    |             |              | 
+ update_by             | uuid                     |           |          |                            | plain    |             |              | 
+ deleted_at            | timestamp with time zone |           |          |                            | plain    |             |              | 
+Indexes:
+    "biz_framework_agreement_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_fwa_period" btree (start_date, end_date) WHERE deleted_at IS NULL
+    "idx_biz_fwa_status" btree (status, end_date DESC) WHERE deleted_at IS NULL
+    "idx_biz_fwa_supplier" btree (supplier_id, status) WHERE deleted_at IS NULL
+    "uk_biz_framework_agreement_no" UNIQUE, btree (agreement_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_fwa_adjust" CHECK (price_mode::text <> 'FLOATING'::text OR price_adjust_rule IS NOT NULL AND btrim(price_adjust_rule) <> ''::text)
+    "ck_biz_fwa_caps" CHECK ((total_max_qty IS NULL OR total_max_qty > 0::numeric) AND (total_max_amount IS NULL OR total_max_amount > 0::numeric))
+    "ck_biz_fwa_currency" CHECK (price_currency::text ~ '^[A-Z]{3}$'::text)
+    "ck_biz_fwa_executed" CHECK (total_executed_qty >= 0::numeric AND total_executed_amount >= 0::numeric)
+    "ck_biz_fwa_instance" CHECK (status::text <> 'SUBMITTED'::text OR approval_instance_id IS NOT NULL)
+    "ck_biz_fwa_name" CHECK (btrim(agreement_name::text) <> ''::text)
+    "ck_biz_fwa_no_fmt" CHECK (agreement_no::text ~ '^FWA-[0-9]{8}-[0-9]{6}$'::text)
+    "ck_biz_fwa_period" CHECK (start_date <= end_date)
+    "ck_biz_fwa_price_mode" CHECK (price_mode::text = ANY (ARRAY['FIXED'::character varying, 'FLOATING'::character varying]::text[]))
+    "ck_biz_fwa_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying, 'APPROVED'::character varying]::text[]))
+    "ck_biz_fwa_tolerance" CHECK (price_tolerance >= 0::numeric AND price_tolerance <= 1::numeric)
+Referenced by:
+    TABLE "biz_framework_agreement_item" CONSTRAINT "fk_biz_fwai_agreement" FOREIGN KEY (agreement_id) REFERENCES biz_framework_agreement(id) ON DELETE CASCADE
+Not-null constraints:
+    "biz_framework_agreement_id_not_null" NOT NULL "id"
+    "biz_framework_agreement_agreement_no_not_null" NOT NULL "agreement_no"
+    "biz_framework_agreement_agreement_name_not_null" NOT NULL "agreement_name"
+    "biz_framework_agreement_supplier_id_not_null" NOT NULL "supplier_id"
+    "biz_framework_agreement_start_date_not_null" NOT NULL "start_date"
+    "biz_framework_agreement_end_date_not_null" NOT NULL "end_date"
+    "biz_framework_agreement_price_mode_not_null" NOT NULL "price_mode"
+    "biz_framework_agreement_price_includes_tax_not_null" NOT NULL "price_includes_tax"
+    "biz_framework_agreement_price_currency_not_null" NOT NULL "price_currency"
+    "biz_framework_agreement_price_tolerance_not_null" NOT NULL "price_tolerance"
+    "biz_framework_agreement_total_executed_qty_not_null" NOT NULL "total_executed_qty"
+    "biz_framework_agreement_total_executed_amount_not_null" NOT NULL "total_executed_amount"
+    "biz_framework_agreement_status_not_null" NOT NULL "status"
+    "biz_framework_agreement_created_at_not_null" NOT NULL "created_at"
+    "biz_framework_agreement_updated_at_not_null" NOT NULL "updated_at"
+Access method: heap
+
+
+===== biz_framework_agreement_item (\d+) =====
+                                                                                               Table "public.biz_framework_agreement_item"
+     Column      |           Type           | Collation | Nullable |      Default      | Storage  | Compression | Stats target |                                               Description                                                
+-----------------+--------------------------+-----------+----------+-------------------+----------+-------------+--------------+----------------------------------------------------------------------------------------------------------
+ id              | uuid                     |           | not null | gen_random_uuid() | plain    |             |              | 
+ agreement_id    | uuid                     |           | not null |                   | plain    |             |              | 
+ line_no         | integer                  |           | not null |                   | plain    |             |              | 
+ material_id     | uuid                     |           | not null |                   | plain    |             |              | 物料（弱引用 biz_material.id）：同一协议同物料只能一行（uk_biz_fwai_material）
+ unit_id         | uuid                     |           | not null |                   | plain    |             |              | 
+ agreed_price    | numeric(18,6)            |           | not null |                   | main     |             |              | 协议单价（>= 0；0 = 赠品/试用料）。是否含税看单头 price_includes_tax
+ tax_rate        | numeric(7,4)             |           | not null | 0                 | main     |             |              | 
+ max_qty         | numeric(18,4)            |           |          |                   | main     |             |              | 该物料协议期内累计采购量上限（NULL = 不限；写了必须 > 0）。库层不拦超上限，超限拒绝属 M4-08
+ executed_qty    | numeric(18,4)            |           | not null | 0                 | main     |             |              | 已执行量（>= 0）：M4-08 下单时 += ；与 max_qty 之间**刻意不加** CHECK（超限由 M4-08 判、M4-09 报表露头）
+ executed_amount | numeric(18,4)            |           | not null | 0                 | main     |             |              | 
+ remark          | text                     |           |          |                   | extended |             |              | 
+ created_at      | timestamp with time zone |           | not null | CURRENT_TIMESTAMP | plain    |             |              | 
+ updated_at      | timestamp with time zone |           | not null | CURRENT_TIMESTAMP | plain    |             |              | 
+Indexes:
+    "biz_framework_agreement_item_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_fwai_material" btree (material_id)
+    "uk_biz_fwai_line" UNIQUE, btree (agreement_id, line_no)
+    "uk_biz_fwai_material" UNIQUE, btree (agreement_id, material_id)
+Check constraints:
+    "ck_biz_fwai_cap" CHECK (max_qty IS NULL OR max_qty > 0::numeric)
+    "ck_biz_fwai_exec" CHECK (executed_qty >= 0::numeric AND executed_amount >= 0::numeric)
+    "ck_biz_fwai_line" CHECK (line_no > 0)
+    "ck_biz_fwai_price" CHECK (agreed_price >= 0::numeric)
+    "ck_biz_fwai_tax" CHECK (tax_rate >= 0::numeric AND tax_rate <= 1::numeric)
+Foreign-key constraints:
+    "fk_biz_fwai_agreement" FOREIGN KEY (agreement_id) REFERENCES biz_framework_agreement(id) ON DELETE CASCADE
+Not-null constraints:
+    "biz_framework_agreement_item_id_not_null" NOT NULL "id"
+    "biz_framework_agreement_item_agreement_id_not_null" NOT NULL "agreement_id"
+    "biz_framework_agreement_item_line_no_not_null" NOT NULL "line_no"
+    "biz_framework_agreement_item_material_id_not_null" NOT NULL "material_id"
+    "biz_framework_agreement_item_unit_id_not_null" NOT NULL "unit_id"
+    "biz_framework_agreement_item_agreed_price_not_null" NOT NULL "agreed_price"
+    "biz_framework_agreement_item_tax_rate_not_null" NOT NULL "tax_rate"
+    "biz_framework_agreement_item_executed_qty_not_null" NOT NULL "executed_qty"
+    "biz_framework_agreement_item_executed_amount_not_null" NOT NULL "executed_amount"
+    "biz_framework_agreement_item_created_at_not_null" NOT NULL "created_at"
+    "biz_framework_agreement_item_updated_at_not_null" NOT NULL "updated_at"
+Access method: heap
+
+
+===== 单头列（列名|类型|可空|默认|注释）=====
+id|uuid|NO|gen_random_uuid()|-
+agreement_no|character varying|NO|-|协议编号：FWA-yyyyMMdd-000001（biz_seq.seq_type=FWA，按北京时间天滚动）
+agreement_name|character varying|NO|-|-
+supplier_id|uuid|NO|-|供应商（弱引用 biz_supplier.id）—— 一份协议对一家供应商；同供应商可有多份协议（不同类目 / 不同期间），库层不做唯一
+supplier_name|character varying|YES|-|供应商名快照（签约主体是历史事实）；展示「现名」时 join biz_supplier，两列并存不是冗余（约定 13）
+dept_id|uuid|YES|-|经办部门快照（弱引用 sys_dept.id）；**不是数据范围列**（本表 SCOPE-EXEMPT，见头注释 8）
+dept_name|character varying|YES|-|-
+owner_id|uuid|YES|-|经办人（弱引用 sys_user.id）；姓名走 owner_name 快照（审计/历史类，约定 13）
+owner_name|character varying|YES|-|-
+start_date|date|NO|-|有效期起（含）；与 end_date 一起构成有效期，**不落 EXPIRED 状态**（到期是时间的函数，见头注释 1）
+end_date|date|NO|-|有效期止（含）；ck_biz_fwa_period 保证 start_date <= end_date
+sign_date|date|YES|-|签订日期（可与生效起始日不同：先签后生效 / 补签）；只作审计，不参与有效期判据
+price_mode|character varying|NO|'FIXED'::character varying|定价方式：FIXED 固定价 / FLOATING 随行就市（FLOATING 必须有 price_adjust_rule）
+price_includes_tax|boolean|NO|false|协议价是否含税：决定明细 agreed_price 的口径（false = 不含税，与采购订单 price 列同口径）
+price_currency|character varying|NO|'CNY'::character varying|协议价币种（ISO 4217 三位大写，ck_biz_fwa_currency 钉住形状）
+price_tolerance|numeric|NO|0|下单价允许高于协议价的比例上限（0–1；0 = 必须 ≤ 协议价）。M4-08 判据：order_price <= agreed_price * (1 + price_tolerance)
+price_adjust_rule|text|YES|-|调价 / 浮动规则原文（FLOATING 必填）：如「随钢材指数月度均价上浮不超过 3%」
+total_max_qty|numeric|YES|-|协议总量上限（NULL = 不限；写了必须 > 0）。库层**不拦**已执行量超上限，超限拒绝属 M4-08
+total_max_amount|numeric|YES|-|协议总额上限（NULL = 不限；写了必须 > 0）
+total_executed_qty|numeric|NO|0|已执行量合计 = Σ明细 executed_qty（服务端在写明细的同一事务里重算，客户端不许传）
+total_executed_amount|numeric|NO|0|已执行金额合计 = Σ明细 executed_amount（同上：派生列，客户端不许传）
+status|character varying|NO|'DRAFT'::character varying|DRAFT 拟稿 / SUBMITTED 审批中（必有审批实例）/ APPROVED 生效（是否在效期另看 start_date..end_date）
+approval_instance_id|uuid|YES|-|-
+remark|text|YES|-|-
+created_at|timestamp with time zone|NO|CURRENT_TIMESTAMP|-
+updated_at|timestamp with time zone|NO|CURRENT_TIMESTAMP|-
+create_by|uuid|YES|-|-
+update_by|uuid|YES|-|-
+deleted_at|timestamp with time zone|YES|-|-
+
+===== 明细列（列名|类型|可空|默认|注释）=====
+id|uuid|NO|gen_random_uuid()|-
+agreement_id|uuid|NO|-|-
+line_no|integer|NO|-|-
+material_id|uuid|NO|-|物料（弱引用 biz_material.id）：同一协议同物料只能一行（uk_biz_fwai_material）
+unit_id|uuid|NO|-|-
+agreed_price|numeric|NO|-|协议单价（>= 0；0 = 赠品/试用料）。是否含税看单头 price_includes_tax
+tax_rate|numeric|NO|0|-
+max_qty|numeric|YES|-|该物料协议期内累计采购量上限（NULL = 不限；写了必须 > 0）。库层不拦超上限，超限拒绝属 M4-08
+executed_qty|numeric|NO|0|已执行量（>= 0）：M4-08 下单时 += ；与 max_qty 之间**刻意不加** CHECK（超限由 M4-08 判、M4-09 报表露头）
+executed_amount|numeric|NO|0|-
+remark|text|YES|-|-
+created_at|timestamp with time zone|NO|CURRENT_TIMESTAMP|-
+updated_at|timestamp with time zone|NO|CURRENT_TIMESTAMP|-
+
+===== 索引 =====
+biz_framework_agreement_item_pkey | CREATE UNIQUE INDEX biz_framework_agreement_item_pkey ON public.biz_framework_agreement_item USING btree (id)
+biz_framework_agreement_pkey | CREATE UNIQUE INDEX biz_framework_agreement_pkey ON public.biz_framework_agreement USING btree (id)
+idx_biz_fwa_period | CREATE INDEX idx_biz_fwa_period ON public.biz_framework_agreement USING btree (start_date, end_date) WHERE (deleted_at IS NULL)
+idx_biz_fwa_status | CREATE INDEX idx_biz_fwa_status ON public.biz_framework_agreement USING btree (status, end_date DESC) WHERE (deleted_at IS NULL)
+idx_biz_fwa_supplier | CREATE INDEX idx_biz_fwa_supplier ON public.biz_framework_agreement USING btree (supplier_id, status) WHERE (deleted_at IS NULL)
+idx_biz_fwai_material | CREATE INDEX idx_biz_fwai_material ON public.biz_framework_agreement_item USING btree (material_id)
+uk_biz_framework_agreement_no | CREATE UNIQUE INDEX uk_biz_framework_agreement_no ON public.biz_framework_agreement USING btree (agreement_no) WHERE (deleted_at IS NULL)
+uk_biz_fwai_line | CREATE UNIQUE INDEX uk_biz_fwai_line ON public.biz_framework_agreement_item USING btree (agreement_id, line_no)
+uk_biz_fwai_material | CREATE UNIQUE INDEX uk_biz_fwai_material ON public.biz_framework_agreement_item USING btree (agreement_id, material_id)
+
+===== 约束 =====
+biz_framework_agreement_agreement_name_not_null | NOT NULL agreement_name
+biz_framework_agreement_agreement_no_not_null | NOT NULL agreement_no
+biz_framework_agreement_created_at_not_null | NOT NULL created_at
+biz_framework_agreement_end_date_not_null | NOT NULL end_date
+biz_framework_agreement_id_not_null | NOT NULL id
+biz_framework_agreement_item_agreed_price_not_null | NOT NULL agreed_price
+biz_framework_agreement_item_agreement_id_not_null | NOT NULL agreement_id
+biz_framework_agreement_item_created_at_not_null | NOT NULL created_at
+biz_framework_agreement_item_executed_amount_not_null | NOT NULL executed_amount
+biz_framework_agreement_item_executed_qty_not_null | NOT NULL executed_qty
+biz_framework_agreement_item_id_not_null | NOT NULL id
+biz_framework_agreement_item_line_no_not_null | NOT NULL line_no
+biz_framework_agreement_item_material_id_not_null | NOT NULL material_id
+biz_framework_agreement_item_pkey | PRIMARY KEY (id)
+biz_framework_agreement_item_tax_rate_not_null | NOT NULL tax_rate
+biz_framework_agreement_item_unit_id_not_null | NOT NULL unit_id
+biz_framework_agreement_item_updated_at_not_null | NOT NULL updated_at
+biz_framework_agreement_pkey | PRIMARY KEY (id)
+biz_framework_agreement_price_currency_not_null | NOT NULL price_currency
+biz_framework_agreement_price_includes_tax_not_null | NOT NULL price_includes_tax
+biz_framework_agreement_price_mode_not_null | NOT NULL price_mode
+biz_framework_agreement_price_tolerance_not_null | NOT NULL price_tolerance
+biz_framework_agreement_start_date_not_null | NOT NULL start_date
+biz_framework_agreement_status_not_null | NOT NULL status
+biz_framework_agreement_supplier_id_not_null | NOT NULL supplier_id
+biz_framework_agreement_total_executed_amount_not_null | NOT NULL total_executed_amount
+biz_framework_agreement_total_executed_qty_not_null | NOT NULL total_executed_qty
+biz_framework_agreement_updated_at_not_null | NOT NULL updated_at
+ck_biz_fwa_adjust | CHECK ((((price_mode)::text <> 'FLOATING'::text) OR ((price_adjust_rule IS NOT NULL) AND (btrim(price_adjust_rule) <> ''::text))))
+ck_biz_fwa_caps | CHECK ((((total_max_qty IS NULL) OR (total_max_qty > (0)::numeric)) AND ((total_max_amount IS NULL) OR (total_max_amount > (0)::numeric))))
+ck_biz_fwa_currency | CHECK (((price_currency)::text ~ '^[A-Z]{3}$'::text))
+ck_biz_fwa_executed | CHECK (((total_executed_qty >= (0)::numeric) AND (total_executed_amount >= (0)::numeric)))
+ck_biz_fwa_instance | CHECK ((((status)::text <> 'SUBMITTED'::text) OR (approval_instance_id IS NOT NULL)))
+ck_biz_fwa_name | CHECK ((btrim((agreement_name)::text) <> ''::text))
+ck_biz_fwa_no_fmt | CHECK (((agreement_no)::text ~ '^FWA-[0-9]{8}-[0-9]{6}$'::text))
+ck_biz_fwa_period | CHECK ((start_date <= end_date))
+ck_biz_fwa_price_mode | CHECK (((price_mode)::text = ANY ((ARRAY['FIXED'::character varying, 'FLOATING'::character varying])::text[])))
+ck_biz_fwa_status | CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying, 'APPROVED'::character varying])::text[])))
+ck_biz_fwa_tolerance | CHECK (((price_tolerance >= (0)::numeric) AND (price_tolerance <= (1)::numeric)))
+ck_biz_fwai_cap | CHECK (((max_qty IS NULL) OR (max_qty > (0)::numeric)))
+ck_biz_fwai_exec | CHECK (((executed_qty >= (0)::numeric) AND (executed_amount >= (0)::numeric)))
+ck_biz_fwai_line | CHECK ((line_no > 0))
+ck_biz_fwai_price | CHECK ((agreed_price >= (0)::numeric))
+ck_biz_fwai_tax | CHECK (((tax_rate >= (0)::numeric) AND (tax_rate <= (1)::numeric)))
+fk_biz_fwai_agreement | FOREIGN KEY (agreement_id) REFERENCES biz_framework_agreement(id) ON DELETE CASCADE
+
+===== biz_seq(FWA) =====
+FWA|FWA|-|yyyyMMdd|框架协议编号：FWA-yyyyMMdd-000001，按天（CST）滚动

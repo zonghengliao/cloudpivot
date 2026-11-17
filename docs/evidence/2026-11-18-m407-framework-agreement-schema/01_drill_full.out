@@ -1,0 +1,79 @@
+== M4-07 框架协议表结构演练 · PG 172.18.10.145:5432 / 库 cp_m407_fa_drill_3553890 ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m407_fa_drill_3553890
+== 1) 补齐业务迁移 V0405…V0449 + 再上 V0450
+  [32mPASS[0m 45 条 V0405…V0449 迁移全部应用成功（演练库推到 V0449）
+  [32mPASS[0m 上 V0450 之前框架协议表还不存在（下面每一条断言才说明是 V0450 建的）（=GONE）
+== 1b) 应用 V0450（连跑两遍验幂等）
+  [32mPASS[0m 第一遍应用成功
+  [32mPASS[0m 第二遍应用成功（幂等：只该出 NOTICE）
+  [32mPASS[0m 第二遍输出无 ERROR（CREATE ... IF NOT EXISTS 生效）
+  [32mPASS[0m V0450 一条菜单都没加（上迁移前后菜单总数不变；本卡只做表结构）（=548）
+== 2) 结构断言
+  [32mPASS[0m 协议单头表存在（=biz_framework_agreement）
+  [32mPASS[0m 物料范围表存在（=biz_framework_agreement_item）
+  [32mPASS[0m 单头 29 列（=29）
+  [32mPASS[0m 明细 13 列（=13）
+  [32mPASS[0m 明细外键 ON DELETE CASCADE（=CASCADE）
+  [32mPASS[0m 7 个索引全在（=7）
+  [32mPASS[0m 协议号唯一索引是部分索引（软删后可重建同号）（=1）
+  [32mPASS[0m 取号规则 FWA 一行（=1）
+  [32mPASS[0m 三个单头查询索引都挂在框架协议表上（不占用固定资产已用的 idx_biz_fa_* 命名）（=3）
+  [32mPASS[0m 模板库克隆完整（public 表 > 180 张）（=1）
+== 3) 约束行为（卡面三块 + 供应商与物料范围）
+  [32mPASS[0m 旧前缀 FA-yyyyMMdd 的号被拒（库层拒了：ck_biz_fwa_no_fmt）
+  [32mPASS[0m 空白协议名被拒（库层拒了：ck_biz_fwa_name）
+  [32mPASS[0m 有效期起晚于止被拒（库层拒了：ck_biz_fwa_period）
+  [32mPASS[0m FLOATING 但没有调价规则被拒（库层拒了：ck_biz_fwa_adjust）
+  [32mPASS[0m FLOATING 的调价规则是空白串被拒（空串陷阱）（库层拒了：ck_biz_fwa_adjust）
+  [32mPASS[0m 币种不是 ISO 三位大写被拒（库层拒了：ck_biz_fwa_currency）
+  [32mPASS[0m 容差 1.5 被拒（0–1）（库层拒了：ck_biz_fwa_tolerance）
+  [32mPASS[0m 总量上限写 0 被拒（0 不是「不限」，不限要写 NULL）（库层拒了：ck_biz_fwa_caps）
+  [32mPASS[0m 状态域外的 EXPIRED 被拒（到期是时间的函数，不落状态）（库层拒了：ck_biz_fwa_status）
+  [32mPASS[0m SUBMITTED 没有审批实例被拒（库层拒了：ck_biz_fwa_instance）
+  [32mPASS[0m 正样本：FLOATING + 5% 容差 + 总额上限 + 两行物料（限量 / 不限量）都能插
+  [32mPASS[0m 协议价默认不含税（=false）
+  [32mPASS[0m 单头两个已执行合计默认 0（派生列，客户端不许传）（=true）
+  [32mPASS[0m 明细两个已执行列默认 0（=0）
+  [32mPASS[0m 同一供应商的第二份协议能插（库层不做 supplier 唯一；免审 APPROVED 无实例也合法）
+  [32mPASS[0m 同协议「同物料」第二行被拒（否则会出现两个协议价）（库层拒了：uk_biz_fwai_material）
+  [32mPASS[0m 负协议价被拒（库层拒了：ck_biz_fwai_price）
+  [32mPASS[0m 物料上限写 0 被拒（库层拒了：ck_biz_fwai_cap）
+  [32mPASS[0m 税率 1.5 被拒（0–1）（库层拒了：ck_biz_fwai_tax）
+  [32mPASS[0m 已执行量超上限必须写得进去（库层刻意不拦；超限拒绝属 M4-08）
+  [32mPASS[0m 负已执行量被拒（库层拒了：ck_biz_fwai_exec）
+  [32mPASS[0m 超上限的值原样落库（没有被 CHECK 改写/截断）（=true）
+== 4) 本卡范围守卫（不夹带权限码、菜单、订单表列）
+  [32mPASS[0m 框架协议权限码 0 行（M4-11 才落）（=0）
+  [32mPASS[0m 框架协议菜单 0 行（M4-11 才落）（=0）
+  [32mPASS[0m 采购订单（明细）表 0 个框架协议列（引用字段属 M4-08）（=0）
+  [32mPASS[0m 源码里 0 个 framework-agreement 权限码（连常量都不定义）（=0）
+  [32mPASS[0m 本卡 0 条路由（表结构卡不接线）（=0）
+== 5) 空库全链重放（mig_replay_fresh.sh，独立库）
+  [32mPASS[0m 空库按版本号升序重放全链通过（370/370 条版本化迁移在空库上按版本号升序全部通过）
+== 6) 回滚三段（数据护栏 / 成功 / 复原）
+  [32mPASS[0m 有数据时 down 被拒（数据护栏生效）
+  [32mPASS[0m 删单头连带删物料范围（ON DELETE CASCADE）（=0）
+  [32mPASS[0m 清空后 down 成功
+  [32mPASS[0m down 后单头表已删（=）
+  [32mPASS[0m down 后物料范围表已删（=）
+  [32mPASS[0m down 后取号行已删（=0）
+  [32mPASS[0m 再 up 复原成功
+  [32mPASS[0m up 复原后表回来了（=biz_framework_agreement）
+  [32mPASS[0m up 复原后列数仍是 29（=29）
+== 7) 真库用例（--test-threads=1 --nocapture）
+  [32mPASS[0m 本卡用例全绿（20 条：8 纯逻辑 + 12 真库）
+  [32mPASS[0m 本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  [32mPASS[0m 正向标记在位（[M4-07] 表形状 / 有效期 / 数量上限 / 物料范围）
+== 8) 门禁（permission_audit_tests + menu_invariants.sh）
+  [32mPASS[0m permission_audit_tests 全绿（本卡没动权限码，也不许打破审计）
+  [32mPASS[0m menu_invariants.sh 8 条断言全绿
+  ---- 菜单总数：548（门禁区间 400-540；本卡零新增）
+== 9) 夹具残留
+  [32mPASS[0m M407- 协议 0 残留（=0）
+  [32mPASS[0m M407- 物料范围 0 残留（=0）
+  [32mPASS[0m 自检探针号段 0 残留（=0）
+
+[32m== M4-07 演练结果：PASS=63  FAIL=0 —— 框架协议表结构（有效期 + 价格条款 + 数量上限 · 供应商 + 物料范围）就绪[0m
+RC=0
