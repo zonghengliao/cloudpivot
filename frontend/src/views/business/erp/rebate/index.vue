@@ -24,6 +24,8 @@
   | 计算落库 / 跑批 / 重算 | `POST /rebate-settlement`、`/run`、`/{id}/recalc` | 同上 |
   | 结算列表 / 详情 | `GET /rebate-settlement/page`、`/{id}` | `business:erp:rebate-settlement:list` |
   | 作废 | `DELETE /rebate-settlement/{id}?remark=` | `…:delete` |
+  | 票面试算 | `POST /rebate-settlement/{id}/invoice-preview`（**POST 不是 GET**） | `business:erp:rebate-settlement:invoice` |
+  | 开红字发票 | `POST /rebate-settlement/{id}/invoice`（`DRAFT → SETTLED`） | 同上 |
 
   # 六条与「想当然」不一样的交互（每条都有真接口依据）
 
@@ -41,10 +43,14 @@
   6. **作废只对 `DRAFT`**：`SETTLED` 已开红字发票（M3-17），想改只能红冲；按钮不渲染，
      后端也会 409。
 
-  # 本页不做的（已立卡/上报）
+  # 本页关于「开红字发票」的做法（M3-19F）
 
-  - **「生成红字发票」按钮**：接口与权限码（`business:erp:rebate-settlement:invoice`，M3-17）
-    已就绪，但票面预览 + 凭证口径确认是独立交互，本卡只读展示 `invoice_no` / `settled_at`。
+  - 入口只给**草稿**渲染：`SETTLED` 在「红字发票」列显示票号，`CANCELLED` 不显示；
+  - 草稿但 `rebate_amount <= 0` 仍渲染「开票」但置灰（tooltip 说原因）—— 按钮直接消失
+    会被当成权限问题；
+  - 点开先**试算**（三列拆分 + 凭证分录 + 能不能开），改日期 / 税率都会重算；
+  - 确认后列表刷新，状态变「已结算」、票号与转结时间落位；重复点由 `uk_biz_srs_invoice`
+    与状态闸兜（`409` 人话原样展示 + 刷新，不是白屏）。
 -->
 <template>
   <div class="rebate-page">
@@ -291,6 +297,22 @@
           <t-link theme="primary" data-testid="btn-rebate-settle-detail" @click="openDetail(row as RebateSettlementRow)">
             详情
           </t-link>
+          <t-tooltip
+            v-if="showInvoiceAction(row as RebateSettlementRow)"
+            :content="invoiceGateTip(row as RebateSettlementRow)"
+            placement="top-right"
+          >
+            <span class="gate-wrap">
+              <t-link
+                v-privilege="[PERM.settleInvoice]"
+                :theme="canInvoice(row as RebateSettlementRow) ? 'success' : 'default'"
+                data-testid="btn-rebate-settle-invoice"
+                @click="openInvoice(row as RebateSettlementRow)"
+              >
+                开票
+              </t-link>
+            </span>
+          </t-tooltip>
           <t-link
             v-if="isEditable(row as RebateSettlementRow)"
             v-privilege="[PERM.settleCalc]"
@@ -894,6 +916,135 @@
         <t-alert v-if="actionError" theme="error" :message="actionError" />
       </div>
     </t-dialog>
+
+    <!-- ==================== ⑧ 开红字发票（票面试算 → 确认开票） ==================== -->
+    <t-dialog
+      v-model:visible="invoiceVisible"
+      :header="invoiceTitle"
+      :width="780"
+      :confirm-btn="{
+        content: invoiceConfirmText(invoicePreview),
+        loading: invoiceSubmitting,
+        disabled: invoiceSubmitting || !canConfirmInvoice(invoicePreview),
+      }"
+      :cancel-btn="{ disabled: invoiceSubmitting }"
+      :close-on-overlay-click="false"
+      data-testid="rebate-invoice-dialog"
+      @confirm="submitInvoice"
+    >
+      <div class="form-body" data-testid="rebate-invoice-body">
+        <t-form label-width="100px" class="form">
+          <t-form-item label="开票日期" required-mark>
+            <t-date-picker
+              v-model="invoiceForm.invoice_date"
+              value-type="YYYY-MM-DD"
+              format="YYYY-MM-DD"
+              clearable
+              data-testid="rebate-invoice-date"
+              @change="refreshInvoicePreview"
+            />
+          </t-form-item>
+          <t-form-item label="税率" required-mark>
+            <t-input-number
+              v-model="invoiceForm.tax_rate"
+              :min="0"
+              :max="INVOICE_TAX_RATE_MAX"
+              :step="1"
+              :decimal-places="2"
+              theme="normal"
+              suffix="%"
+              data-testid="rebate-invoice-tax-rate"
+              @change="refreshInvoicePreview"
+            />
+          </t-form-item>
+          <t-form-item label="备注">
+            <t-textarea
+              v-model="invoiceForm.remark"
+              :maxlength="INVOICE_REMARK_MAX"
+              :placeholder="`留空 = 后端自动生成「返利结算 ${invoiceRow?.settlement_no ?? ''} 红冲」`"
+              data-testid="rebate-invoice-remark"
+            />
+          </t-form-item>
+        </t-form>
+        <p class="form-hint">
+          红字票三列<b>全为负</b>（冲减收入与销项税）；凭证：借主营业务收入 / 借应交税费-销项税（税额 0 时不出这行）/
+          贷其他应付款-销售返利。票、凭证、结算单状态在一个事务里同生共死，失败则单据仍是草稿，改完可重来。
+        </p>
+
+        <div v-if="invoicePreviewLoading" class="detail-loading">
+          <t-loading size="small" text="试算中…" />
+        </div>
+        <t-alert v-else-if="invoicePreviewError" theme="error" :message="invoicePreviewError" data-testid="rebate-invoice-preview-error" />
+
+        <template v-else-if="invoicePreview">
+          <t-alert
+            theme="info"
+            :message="invoicePreviewHeadline(invoicePreview)"
+            data-testid="rebate-invoice-headline"
+          />
+
+          <!-- 行级结论：金额 ≤ 0（66094）/ 非草稿（66093）—— 码表人话 + 本页出路 -->
+          <t-alert v-if="invoiceRowAdviceOf" theme="warning" data-testid="rebate-invoice-advice">
+            <template #message>
+              <div>{{ invoiceRowAdviceOf.message }}</div>
+              <div class="form-hint">{{ invoiceRowAdviceOf.guidance }}</div>
+            </template>
+          </t-alert>
+
+          <h4 class="detail-section">票面三列（含税反算，别再加负号）</h4>
+          <t-table
+            row-key="key"
+            size="small"
+            :data="invoiceSplitRowsOf"
+            :columns="INVOICE_SPLIT_COLUMNS"
+            data-testid="rebate-invoice-split"
+          />
+
+          <h4 class="detail-section">凭证分录</h4>
+          <t-table
+            row-key="key"
+            size="small"
+            :data="invoiceVoucherRowsOf"
+            :columns="INVOICE_VOUCHER_COLUMNS"
+            data-testid="rebate-invoice-voucher"
+          />
+          <p class="form-hint" data-testid="rebate-invoice-voucher-totals">
+            合计 借 <span class="mono">{{ moneyText(invoiceVoucherTotalsOf.debit) }}</span> / 贷
+            <span class="mono">{{ moneyText(invoiceVoucherTotalsOf.credit) }}</span>
+            <t-tag v-if="invoiceVoucherTotalsOf.balanced" size="small" variant="light" theme="success">借贷平衡</t-tag>
+            <t-tag v-else size="small" variant="light" theme="danger">借贷不平（后端会拒）</t-tag>
+          </p>
+
+          <t-alert v-if="invoiceBlockersOf.length" theme="error" data-testid="rebate-invoice-blockers">
+            <template #message>
+              <div>这张单现在开不了票，拦在：</div>
+              <ul class="blocker-list">
+                <li v-for="(item, index) in invoiceBlockersOf" :key="index">{{ item }}</li>
+              </ul>
+            </template>
+          </t-alert>
+          <t-alert
+            v-if="invoiceWarningsOf.length"
+            theme="warning"
+            :message="invoiceWarningsOf.join('；')"
+            data-testid="rebate-invoice-warnings"
+          />
+          <t-alert
+            v-if="invoiceExistingTextOf"
+            theme="info"
+            :message="invoiceExistingTextOf"
+            data-testid="rebate-invoice-existing"
+          />
+        </template>
+
+        <t-alert v-if="invoiceError" theme="error" data-testid="rebate-invoice-error">
+          <template #message>
+            <div>{{ invoiceError }}</div>
+            <div v-if="invoiceErrorHint" class="form-hint">{{ invoiceErrorHint }}</div>
+          </template>
+        </t-alert>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -912,16 +1063,19 @@ import { fetchCustomerPage, type Customer } from '@/api/business/erp';
 import {
   REBATE_PERMISSIONS,
   cancelRebateSettlement,
+  createRebateInvoice,
   createRebatePolicy,
   createRebateSettlement,
   deleteRebatePolicy,
   fetchRebatePolicyPage,
   fetchRebateSettlement,
   fetchRebateSettlementPage,
+  previewRebateInvoice,
   previewRebateSettlement,
   recalcRebateSettlement,
   runRebateSettlement,
   updateRebatePolicy,
+  type RebateInvoicePreview,
   type RebatePolicyFilter,
   type RebatePolicyRow,
   type RebatePreview,
@@ -1006,6 +1160,31 @@ import {
   tierHitText,
   validatePeriodCode,
 } from './settle-logic';
+import {
+  INVOICE_REMARK_MAX,
+  INVOICE_SPLIT_COLUMNS,
+  INVOICE_TAX_RATE_MAX,
+  INVOICE_VOUCHER_COLUMNS,
+  buildInvoiceReq,
+  canConfirmInvoice,
+  canInvoice,
+  emptyInvoiceForm,
+  invoiceBlockers,
+  invoiceConfirmText,
+  invoiceErrorGuidance,
+  invoiceExistingText,
+  invoiceGateTip,
+  invoicePreviewHeadline,
+  invoiceResultText,
+  invoiceRowAdvice,
+  invoiceSplitRows,
+  invoiceVoucherRows,
+  invoiceVoucherTotals,
+  invoiceWarnings,
+  showInvoiceAction,
+  validateInvoiceForm,
+  type InvoiceFormDraft,
+} from './invoice-logic';
 
 /** 本页权限码（与 V0438 / V0439 / V0440 的 auth_code 逐字一致） */
 const PERM = REBATE_PERMISSIONS;
@@ -1608,6 +1787,136 @@ async function submitAction(): Promise<void> {
   }
 }
 
+// ==================== 开红字发票（票面试算 → 确认开票） ====================
+
+const invoiceVisible = ref(false);
+const invoiceRow = ref<RebateSettlementRow | null>(null);
+const invoiceForm = reactive<InvoiceFormDraft>(emptyInvoiceForm());
+const invoicePreview = ref<RebateInvoicePreview | null>(null);
+const invoicePreviewLoading = ref(false);
+const invoicePreviewError = ref('');
+const invoiceSubmitting = ref(false);
+const invoiceError = ref('');
+const invoiceErrorHint = ref('');
+
+const invoiceTitle = computed(() =>
+  invoiceRow.value ? `开红字发票 · ${invoiceRow.value.settlement_no}` : '开红字发票',
+);
+const invoiceSplitRowsOf = computed(() =>
+  invoicePreview.value ? invoiceSplitRows(invoicePreview.value) : [],
+);
+const invoiceVoucherRowsOf = computed(() =>
+  invoicePreview.value ? invoiceVoucherRows(invoicePreview.value) : [],
+);
+const invoiceVoucherTotalsOf = computed(() =>
+  invoicePreview.value
+    ? invoiceVoucherTotals(invoicePreview.value)
+    : { debit: 0, credit: 0, balanced: true },
+);
+const invoiceBlockersOf = computed(() =>
+  invoicePreview.value ? invoiceBlockers(invoicePreview.value) : [],
+);
+const invoiceWarningsOf = computed(() =>
+  invoicePreview.value ? invoiceWarnings(invoicePreview.value) : [],
+);
+const invoiceExistingTextOf = computed(() =>
+  invoicePreview.value ? invoiceExistingText(invoicePreview.value) : '',
+);
+/** 行级结论（金额 ≤ 0 时的 66094 / 非草稿的 66093）：打开弹窗就能看见码表人话 + 出路 */
+const invoiceRowAdviceOf = computed(() =>
+  invoiceRow.value ? invoiceRowAdvice(invoiceRow.value) : null,
+);
+
+/** 点「开票」：先清状态，再立刻试算一次（默认今天 / 13% / 空备注） */
+function openInvoice(row: RebateSettlementRow): void {
+  invoiceRow.value = row;
+  Object.assign(invoiceForm, emptyInvoiceForm());
+  invoicePreview.value = null;
+  invoicePreviewError.value = '';
+  invoiceError.value = '';
+  invoiceErrorHint.value = '';
+  invoiceVisible.value = true;
+  void refreshInvoicePreview();
+}
+
+/**
+ * 重新试算（开票日 / 税率变化都会走这里）。
+ *
+ * 日期与税率都是**后端算数**的输入：期间闸按开票日查、拆分按税率算 ——
+ * 所以一改就必须重算，不能拿旧预览的结果去确认（那会把错误日期的票开出去）。
+ */
+async function refreshInvoicePreview(): Promise<void> {
+  const row = invoiceRow.value;
+  if (!row) {
+    return;
+  }
+  const formError = validateInvoiceForm(invoiceForm);
+  if (formError) {
+    invoicePreview.value = null;
+    invoicePreviewError.value = formError;
+    return;
+  }
+  invoicePreviewLoading.value = true;
+  invoicePreviewError.value = '';
+  invoiceError.value = '';
+  invoiceErrorHint.value = '';
+  try {
+    invoicePreview.value = await previewRebateInvoice(row.id, buildInvoiceReq(invoiceForm));
+  } catch (err) {
+    invoicePreview.value = null;
+    invoicePreviewError.value = `试算失败：${messageOf(err)}`;
+  } finally {
+    invoicePreviewLoading.value = false;
+  }
+}
+
+/**
+ * 确认开票。
+ *
+ * 三层防护对应「不产生第二张票」：
+ * ① `invoiceSubmitting` 挡住连点；② 试算结论 `can_generate` 为假时不准提交；
+ * ③ 真并发 / 过期行由后端状态闸（`409 + 66093`）或 `uk_biz_srs_invoice` 唯一约束兜住 ——
+ * 拿到这两种错误就**刷列表看真状态**，报文原样展示 + 补一句出路，绝不白屏。
+ */
+async function submitInvoice(): Promise<void> {
+  const row = invoiceRow.value;
+  if (!row || invoiceSubmitting.value) {
+    return;
+  }
+  const formError = validateInvoiceForm(invoiceForm);
+  if (formError) {
+    invoiceError.value = formError;
+    invoiceErrorHint.value = '';
+    return;
+  }
+  if (!canConfirmInvoice(invoicePreview.value)) {
+    invoiceError.value = '试算结论是「不能开票」：先按上面的原因处理，改完日期 / 税率会自动重算';
+    invoiceErrorHint.value = '';
+    return;
+  }
+  invoiceSubmitting.value = true;
+  invoiceError.value = '';
+  invoiceErrorHint.value = '';
+  try {
+    const res = await createRebateInvoice(row.id, buildInvoiceReq(invoiceForm));
+    MessagePlugin.success(invoiceResultText(res));
+    invoiceVisible.value = false;
+    await reloadSettleList();
+  } catch (err) {
+    invoiceError.value = `开票失败：${messageOf(err)}`;
+    invoiceErrorHint.value = err instanceof ApiError ? invoiceErrorGuidance(err.code) : '';
+    // 状态 / 唯一约束类错误说明这单已经不在「可开票」状态：刷列表看真状态（别人开过 / 刚被作废）
+    if (
+      err instanceof ApiError &&
+      (err.code === 66093 || err.code === 66094 || err.message.includes('唯一约束'))
+    ) {
+      await reloadSettleList();
+    }
+  } finally {
+    invoiceSubmitting.value = false;
+  }
+}
+
 // ==================== 模板里直接用的格式化（避免在 .vue 里写判断） ====================
 
 /** 客户展示（政策行 / 结算行同口径：两者的客户字段同名同形） */
@@ -1909,5 +2218,13 @@ function ruleTypeTheme(value: string | null | undefined): 'primary' | 'success' 
   margin: 8px 0 0;
   font-size: 14px;
   font-weight: 600;
+}
+
+/* 开票弹窗里「拦在哪」的逐条原因（后端 blockers 原文，一行动作一条） */
+.blocker-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 20px;
 }
 </style>

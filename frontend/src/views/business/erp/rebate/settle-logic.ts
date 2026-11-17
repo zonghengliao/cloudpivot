@@ -107,7 +107,8 @@ export const SETTLEMENT_COLUMNS: PrimaryTableCol[] = [
   { colKey: 'rebate_amount', title: '应返金额', width: 120, align: 'right' },
   { colKey: 'status', title: '状态', width: 90 },
   { colKey: 'invoice', title: '红字发票', width: 130, ellipsis: true },
-  { colKey: 'op', title: '操作', width: 145, fixed: 'right' },
+  // 操作列：详情 / 开票 / 重算 / 作废 四个入口（开票只在草稿渲染，但仍要留位）
+  { colKey: 'op', title: '操作', width: 195, fixed: 'right' },
 ];
 
 // ==================== 状态 ====================

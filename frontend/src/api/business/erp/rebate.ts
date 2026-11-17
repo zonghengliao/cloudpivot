@@ -20,7 +20,8 @@
  * | 期间码 | 月度 `yyyy-MM`、季度 `yyyy-QN`（形状与粒度**互相钉死**） | `ck_biz_srs_period_shape` |
  * | 结算状态 | `status`：`DRAFT` / `SETTLED` / `CANCELLED` | `ck_biz_srs_status` |
  * | 净基数 | `base.net_amount` / `base.net_qty`（= 订单 − 退货，**可为负**） | `RebateBaseRes` |
- * | 红字发票 | `invoice_id` / `invoice_no` / `settled_at`（M3-17 写入，本页只读） | `RebateSettleRes` |
+ * | 红字发票 | `invoice_id` / `invoice_no` / `settled_at`（M3-17 写入） | `RebateSettleRes` |
+ * | 开票 / 票面试算 | `POST …/{id}/invoice`、`POST …/{id}/invoice-preview`（**POST 不是 GET**） | `rebate_invoice_handler.rs` |
  *
  * # 五个容易踩的点
  *
@@ -445,6 +446,169 @@ export function cancelRebateSettlement(id: string, remark?: string): Promise<voi
   return del<void>(`${SETTLE_BASE}/${id}`, compact({ remark: remark ?? '' }));
 }
 
+// ==================== 返利 → 红字发票（M3-17 后端 / 本卡前端） ====================
+
+/**
+ * 开票入参（三个字段都可省：省了就是「今天 / 13% / 无备注」）。
+ *
+ * 字段逐字抄 `rebate_invoice_dto::RebateInvoiceReq`：
+ * - `invoice_date`：`NaiveDate` ⇒ JSON 是 `"yyyy-MM-dd"` 字符串；
+ * - `tax_rate`：**百分数**（13 = 13%，不是 0.13），`NUMERIC(7,4)` 最多 4 位小数、0~100；
+ * - `remark`：≤ 200 字（空白会被后端归一成 `null`，然后用自动备注）。
+ */
+export interface RebateInvoiceReq {
+  /** 开票日期 `yyyy-MM-dd`；省 = 服务端当天（CST） */
+  invoice_date?: string | null;
+  /** 税率（百分数 13 = 13%；省 = 13） */
+  tax_rate?: DecimalText | null;
+  /** 备注（省 = 后端自动生成「返利结算 RB-… 红冲」） */
+  remark?: string | null;
+}
+
+/** 凭证分录预览行（`VoucherLineRes`；金额是**正数绝对值**） */
+export interface RebateInvoiceVoucherLine {
+  /** `DEBIT` 借 / `CREDIT` 贷 */
+  side: 'DEBIT' | 'CREDIT' | string;
+  /** 科目编码（如 `5001` / `2221.02` / `2241.02`） */
+  account_code: string;
+  /** 科目名称（后端 join 实时名） */
+  account_name: string;
+  /** 金额（绝对值） */
+  amount: DecimalText;
+  /** 摘要 */
+  summary: string;
+}
+
+/**
+ * 一张已开出的红字发票（`POST …/{id}/invoice` 的回执，也是预览里的 `existing_invoice`）。
+ *
+ * 字段逐字抄 `RebateInvoiceRes`。注意三个金额**全是负数**（红字票的库层
+ * `ck_biz_invoice_sign` 要求 `amount < 0 && tax ≤ 0`），展示时别再加负号。
+ */
+export interface RebateInvoiceRow {
+  settlement_id: string;
+  settlement_no: string;
+  /** 结算单状态（开票成功后恒 `SETTLED`） */
+  settlement_status: RebateSettlementStatus;
+  settlement_status_label: string;
+  customer_id: string;
+  customer_code: string | null;
+  customer_name: string | null;
+  settle_period: RebateSettlePeriod;
+  period_code: string;
+  /** 应返金额（含税，**正数**：结算单原值） */
+  rebate_amount: DecimalText;
+  /** 红字发票 id */
+  invoice_id: string;
+  /** 红字发票号 `IV-yyyyMMdd-000001` */
+  invoice_no: string;
+  /** 票种（恒 `OUT_RED`） */
+  invoice_type: string;
+  /** 票种中文「销项红字票」 */
+  invoice_type_label: string;
+  /** 开票日期 `yyyy-MM-dd` */
+  invoice_date: string;
+  /** 不含税金额（**负**） */
+  invoice_amount: DecimalText;
+  /** 税额（**≤ 0**） */
+  invoice_tax: DecimalText;
+  /** 价税合计（**负** = 冲减的含税金额） */
+  invoice_total: DecimalText;
+  /** 税率（百分数） */
+  tax_rate: DecimalText;
+  /** 本位币 */
+  currency_code: string;
+  /** 发票状态（`ISSUED`；后续可能被作废成 `VOID`） */
+  invoice_status: string;
+  /** 红字凭证 id */
+  voucher_id: string | null;
+  /** 红字凭证号 */
+  voucher_no: string | null;
+  /** 转结时间 */
+  settled_at: string | null;
+}
+
+/**
+ * 票面试算（`POST …/{id}/invoice-preview`，**不落库**）。
+ *
+ * 字段逐字抄 `RebateInvoicePreviewRes`。三件事一次给全：
+ * ① 三列拆分（`invoice_amount` / `invoice_tax` / `invoice_total`，全为负）；
+ * ② 凭证分录（`voucher_lines`，借方为正数绝对值）；
+ * ③ **能不能开 + 拦在哪**（`can_generate` / `blockers` / `warnings`）。
+ *
+ * `can_generate === false` 时**不是接口报错**（HTTP 200）：预览的作用就是
+ * 「点开就能看见为什么不能开」，所以这里照常渲染，把 `blockers` 原样列出。
+ */
+export interface RebateInvoicePreview {
+  settlement_id: string;
+  settlement_no: string;
+  settlement_status: RebateSettlementStatus;
+  settlement_status_label: string;
+  customer_id: string;
+  customer_code: string | null;
+  customer_name: string | null;
+  settle_period: RebateSettlePeriod;
+  period_code: string;
+  /** 应返金额（含税，正数） */
+  rebate_amount: DecimalText;
+  /** 将采用的税率（百分数） */
+  tax_rate: DecimalText;
+  /** 票种（恒 `OUT_RED`） */
+  invoice_type: string;
+  invoice_type_label: string;
+  /** 将采用的开票日期 */
+  invoice_date: string;
+  currency_code: string;
+  /** 不含税金额（负） */
+  invoice_amount: DecimalText;
+  /** 税额（≤ 0） */
+  invoice_tax: DecimalText;
+  /** 价税合计（负） */
+  invoice_total: DecimalText;
+  /** 能否开票（`false` 时看 `blockers`） */
+  can_generate: boolean;
+  /** 拦下来的原因（人话；每条都是一个可修的动作） */
+  blockers: string[];
+  /** 提醒（不拦，例如税率与默认 13% 不一致） */
+  warnings: string[];
+  /** 凭证分录预览 */
+  voucher_lines: RebateInvoiceVoucherLine[];
+  /** 已开出的发票（`SETTLED` 时回显；`DRAFT` / `CANCELLED` 为 `null`） */
+  existing_invoice: RebateInvoiceRow | null;
+}
+
+/**
+ * 票面试算（**不落库**；权限 `business:erp:rebate-settlement:invoice`）。
+ *
+ * ⚠️ 这是 **POST 不是 GET**：后端要吃 `invoice_date` / `tax_rate` 才能算出
+ * 「改开票日会不会撞已结账期间」「换个税率拆出来多少」，路径参数只有 id 没法表达。
+ * （`rebate_invoice_handler::rebate_invoice_preview_api` 是 `#[nik::post]`，
+ * `rebate_invoice_dto` 顶部注释里写的 `GET` 是文档笔误。）
+ */
+export function previewRebateInvoice(
+  id: string,
+  payload: RebateInvoiceReq = {},
+): Promise<RebateInvoicePreview> {
+  return post<RebateInvoicePreview>(`${SETTLE_BASE}/${id}/invoice-preview`, payload);
+}
+
+/**
+ * 生成红字发票（`DRAFT ──▶ SETTLED`；权限同上）。
+ *
+ * 票、凭证、结算单状态在一个事务里同生共死（后端 `generate_of`），所以：
+ * - 成功 ⇒ 回执里 `settlement_status = 'SETTLED'` + `invoice_no` + `voucher_no`；
+ * - 失败 ⇒ 结算单仍是 `DRAFT`，**改完可以重来**（不需要工程师改库）。
+ *
+ * 会撞的三道闸：`66093` 状态（已开过 / 已作废）、`66094` 应返 ≤ 0、
+ * `66095` 开票日落在已结账期间。报文原样展示即可（`constants/error-messages.ts` 有翻译）。
+ */
+export function createRebateInvoice(
+  id: string,
+  payload: RebateInvoiceReq = {},
+): Promise<RebateInvoiceRow> {
+  return post<RebateInvoiceRow>(`${SETTLE_BASE}/${id}/invoice`, payload);
+}
+
 // ==================== 权限码（与 V0438 / V0439 / V0440 的 auth_code 逐字一致） ====================
 
 /** 本页全部权限码（页面里 `v-privilege` / `hasPermission` 用的唯一一处定义） */
@@ -456,4 +620,6 @@ export const REBATE_PERMISSIONS = {
   settleList: 'business:erp:rebate-settlement:list',
   settleCalc: 'business:erp:rebate-settlement:calc',
   settleDelete: 'business:erp:rebate-settlement:delete',
+  /** 票面试算 + 生成红字发票（M3-17；读写共用一个动作码，V0440 种） */
+  settleInvoice: 'business:erp:rebate-settlement:invoice',
 } as const;

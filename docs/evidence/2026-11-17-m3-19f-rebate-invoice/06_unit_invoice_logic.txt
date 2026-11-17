@@ -1,0 +1,142 @@
+TAP version 13
+# Subtest: 权限码与后端 / 前端逐字一致（V0440 种的 business:erp:rebate-settlement:invoice）
+ok 1 - 权限码与后端 / 前端逐字一致（V0440 种的 business:erp:rebate-settlement:invoice）
+  ---
+  duration_ms: 0.698956
+  type: 'test'
+  ...
+# Subtest: 票面试算是 POST（卡面写 GET 是笔误；前端照 GET 写会 405）
+ok 2 - 票面试算是 POST（卡面写 GET 是笔误；前端照 GET 写会 405）
+  ---
+  duration_ms: 0.104056
+  type: 'test'
+  ...
+# Subtest: 票种 / 默认税率 / 备注上限与后端常量一致
+ok 3 - 票种 / 默认税率 / 备注上限与后端常量一致
+  ---
+  duration_ms: 0.157605
+  type: 'test'
+  ...
+# Subtest: 三道闸的错误码在 error_code.rs 里真实存在（66093 / 66094 / 66095）
+ok 4 - 三道闸的错误码在 error_code.rs 里真实存在（66093 / 66094 / 66095）
+  ---
+  duration_ms: 0.178174
+  type: 'test'
+  ...
+# Subtest: 只有草稿行渲染「开票」入口（已结算看票号、已作废无入口）
+ok 5 - 只有草稿行渲染「开票」入口（已结算看票号、已作废无入口）
+  ---
+  duration_ms: 0.132413
+  type: 'test'
+  ...
+# Subtest: 可开 = 草稿 且 应返 > 0（0 / 负数 / 非草稿都不可开）
+ok 6 - 可开 = 草稿 且 应返 > 0（0 / 负数 / 非草稿都不可开）
+  ---
+  duration_ms: 0.124043
+  type: 'test'
+  ...
+# Subtest: tooltip 三种口径：可用 / 已开过 / 金额为 0
+ok 7 - tooltip 三种口径：可用 / 已开过 / 金额为 0
+  ---
+  duration_ms: 0.190374
+  type: 'test'
+  ...
+# Subtest: 税率：百分数 0~100、最多 4 位小数（0.13 不会被猜成 13%）
+ok 8 - 税率：百分数 0~100、最多 4 位小数（0.13 不会被猜成 13%）
+  ---
+  duration_ms: 0.12675
+  type: 'test'
+  ...
+# Subtest: 开票日期：yyyy-MM-dd 且必须是真实存在的日（2026-02-30 拒）
+ok 9 - 开票日期：yyyy-MM-dd 且必须是真实存在的日（2026-02-30 拒）
+  ---
+  duration_ms: 0.671016
+  type: 'test'
+  ...
+# Subtest: 表单整体校验：日期先于税率，备注超长也拦
+ok 10 - 表单整体校验：日期先于税率，备注超长也拦
+  ---
+  duration_ms: 0.786732
+  type: 'test'
+  ...
+# Subtest: 空表单：开票日 = 今天（CST）、税率 = 13、备注空
+ok 11 - 空表单：开票日 = 今天（CST）、税率 = 13、备注空
+  ---
+  duration_ms: 0.162143
+  type: 'test'
+  ...
+# Subtest: 入参：税率总是显式发、日期/备注为空则不发
+ok 12 - 入参：税率总是显式发、日期/备注为空则不发
+  ---
+  duration_ms: 0.870718
+  type: 'test'
+  ...
+# Subtest: 三列拆分：负数原样展示，不再补负号
+ok 13 - 三列拆分：负数原样展示，不再补负号
+  ---
+  duration_ms: 0.233763
+  type: 'test'
+  ...
+# Subtest: 结论一句话：含税应返 → 价税合计 + 税率
+ok 14 - 结论一句话：含税应返 → 价税合计 + 税率
+  ---
+  duration_ms: 0.107221
+  type: 'test'
+  ...
+# Subtest: 凭证分录：借 / 贷分列，合计平衡；税额为 0 时只有两行
+ok 15 - 凭证分录：借 / 贷分列，合计平衡；税额为 0 时只有两行
+  ---
+  duration_ms: 0.210154
+  type: 'test'
+  ...
+# Subtest: 分录方向：未知值原样显示（不吞成空白），借贷不平能识别
+ok 16 - 分录方向：未知值原样显示（不吞成空白），借贷不平能识别
+  ---
+  duration_ms: 0.077782
+  type: 'test'
+  ...
+# Subtest: 拦在哪：blockers / warnings 原样透出，空串行丢掉
+ok 17 - 拦在哪：blockers / warnings 原样透出，空串行丢掉
+  ---
+  duration_ms: 0.188001
+  type: 'test'
+  ...
+# Subtest: 确认按钮文案：带价税合计 / 不能开时明说
+ok 18 - 确认按钮文案：带价税合计 / 不能开时明说
+  ---
+  duration_ms: 0.104347
+  type: 'test'
+  ...
+# Subtest: 已开票回显：无票返回空串，有票带票号 / 凭证号
+ok 19 - 已开票回显：无票返回空串，有票带票号 / 凭证号
+  ---
+  duration_ms: 0.128415
+  type: 'test'
+  ...
+# Subtest: 成功提示：票号 / 凭证号 / 结算单新状态三件事都在
+ok 20 - 成功提示：票号 / 凭证号 / 结算单新状态三件事都在
+  ---
+  duration_ms: 0.116298
+  type: 'test'
+  ...
+# Subtest: 税率文案：13.0000 → 13、13.5 → 13.5
+ok 21 - 税率文案：13.0000 → 13、13.5 → 13.5
+  ---
+  duration_ms: 0.083862
+  type: 'test'
+  ...
+# Subtest: 行级结论：能开时无提示；金额 0 给 66094 码表人话；非草稿给 66093
+ok 22 - 行级结论：能开时无提示；金额 0 给 66094 码表人话；非草稿给 66093
+  ---
+  duration_ms: 0.177383
+  type: 'test'
+  ...
+1..22
+# tests 22
+# suites 0
+# pass 22
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 139.983619
