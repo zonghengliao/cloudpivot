@@ -938,8 +938,9 @@ pub(in crate::business::erp) async fn run_deferred_linkage_after_commit(
 
 // ==================== 作废 ====================
 
-/// 作废核心：`DRAFT | PENDING_POST → CANCELLED`（账没动过）与
-/// `POSTED → CANCELLED`（三本账回滚 + 红字凭证 + **销售来源冲销应收**）两条路。
+/// 作废核心：`DRAFT | PENDING_POST → CANCELLED`（三本账没动过，但**销售来源要在同一事务里
+/// 释放该发货单的在途行**）与 `POSTED → CANCELLED`（三本账回滚 + 红字凭证 + **销售来源冲销应收**）
+/// 两条路。
 pub async fn cancel_stock_out(
     id: Uuid,
     reason: &str,
@@ -1016,8 +1017,41 @@ async fn cancel_out_tx(
         )));
     }
 
-    // 草稿 / 待过账：从未动过账，到此为止
+    // 草稿 / 待过账：三本账从未动过 —— 但**在途账可能动过**。
+    //
+    // M2-02 起「发货过账」只写两样东西：一条在途（+shipped_qty）与这张停在 PENDING_POST 的
+    // 销售出库单（库存一分不扣）。所以在途行是发货过账留下的**唯一**痕迹 —— 作废这张出库单
+    // 等于宣布这批货不再出库，在途必须在**同一事务**里撤回，否则：
+    //   可用量（账面 − 未签收在途）会永久扣着这批货 ⇒ 该物料在该仓少一批可用量，
+    //   而单据已是终态、界面上没有任何可点的按钮 ⇒ 只能改库才能恢复（M2-02 遗留缺口，
+    //   t_f123b57f）。作废回滚时在途行跟着回滚（同一事务，不是提交后补偿）。
+    //
+    // 判据只能是 source_type='SALES' + source_id：手工建的其他出库单没有发货单可对应。
+    // **已过账（POSTED）那条路不走这里** —— 在途早已在过账 ⑤c 里推到 RECEIVED，
+    // 作废只做三本账回滚 + 红冲 + 冲销应收，再碰在途就是把已签收的量重复放回可用量。
     if from_status != STATUS_POSTED {
+        if let Some(shipment_id) = header
+            .source_id
+            .filter(|_| header.source_type.as_deref() == Some(SOURCE_TYPE_SALES))
+        {
+            let released = crate::business::erp::shipment::shipment_transit::cancel_open(
+                ex,
+                shipment_id,
+                operator,
+                now,
+                Some(reason),
+            )
+            .await?;
+            if !released.is_empty() {
+                tracing::info!(
+                    stock_out_id = %id,
+                    out_no = %header.out_no,
+                    shipment_id = %shipment_id,
+                    lines = released.len(),
+                    "出库单作废（未过账）：在途行已置 CANCELLED（可用量释放）"
+                );
+            }
+        }
         tracing::info!(
             stock_out_id = %id,
             out_no = %header.out_no,

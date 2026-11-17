@@ -10,7 +10,7 @@
 #   2. 补齐模板落后的业务迁移（V0405…V0420，全部幂等；V0420 建的正是在途账）
 #      —— 不补就缺 `biz_voucher.source_doc_no`（V0419），任何出库过账都会 500
 #   3. 跑真库用例（串行，共享夹具必须 --test-threads=1）：
-#        business::erp::shipment::shipment_receipt_tests  ← 本卡主证据（5 条真库 + 2 条纯逻辑）
+#        business::erp::shipment::shipment_receipt_tests  ← 本卡主证据（7 条真库 + 3 条纯逻辑）
 #        business::erp::shipment::shipment_posting        ← 上游口径未被破坏（在途 + 出库待确认）
 #        business::erp::shipment::shipment_transit        ← 在途账写入口
 #        business::erp::stockout                          ← 出库过账内核（⑤c 收口所在）
@@ -19,6 +19,8 @@
 #        · 在途恒等式 / 状态×数量咬合 / RECEIVED 必有 received_at
 #        · **不许**「出库单已过账但该发货单还有未签收在途」（扣了库存却挂账在途）
 #        · **不许**「出库单待确认但该发货单在途已清零」（清了在途没扣库存）
+#        · **不许**「出库单已作废（SALES）但该发货单还有未签收在途」（作废不释放在途，
+#          可用量被永久占住 —— M2-FIX t_f123b57f 的缺口；取样前单独再跑一遍作废用例）
 #        · 已签收的发货单：三本账确实扣了、成本结转凭证与应收各 1 条
 #   5. 打印 PASS/FAIL 汇总；任一不符退出码 1
 #
@@ -124,7 +126,7 @@ run_group() { # 模块路径 最少用例数 说明
 }
 
 echo "== 2) 本卡真库用例（串行；ERP_DB_URL 指向演练库）"
-run_group "business::erp::shipment::shipment_receipt_tests" 7 "本卡主证据（签收确认）"
+run_group "business::erp::shipment::shipment_receipt_tests" 10 "本卡主证据（签收确认 + 作废释放在途）"
 
 # ---------- 3) 落库形态复核（不依赖 Rust 断言） ----------
 # ⚠ 取样时机：就在本卡用例跑完之后、其它模块的 `cleanup()` 之前 ——
@@ -166,6 +168,31 @@ assert_ge 1 "$(psql_q "SELECT count(*) FROM biz_receivable r JOIN biz_stock_out 
 # 3.7 已签收的单不许再有成本/库位账与流水脱节：POSTED 的销售出库单流水净额 = −总数量
 assert_eq "0" "$(psql_q "SELECT count(*) FROM biz_stock_out o JOIN biz_shipment s ON s.id = o.source_id WHERE o.source_type='SALES' AND o.status='POSTED' AND s.warehouse_id IN (SELECT id FROM biz_warehouse WHERE warehouse_code='SO10R-WH') AND (SELECT COALESCE(SUM(CASE WHEN t.txn_type='OUT' THEN -t.qty ELSE t.qty END),0) FROM biz_inventory_txn t WHERE t.doc_id = o.id) <> -o.total_qty")" \
     "已过账的销售出库单：OUT 流水净额 = −出库总数量"
+
+# ---------- 3b) 作废释放在途（M2-FIX t_f123b57f）----------
+# 取样时机说明：3.4/3.5/3.6 的正向计数依赖「签收确认」那批夹具，而每个真库用例的
+# `setup()` 都会先清自己的夹具 —— 所以作废口径要单独再跑一遍作废用例再取样，
+# 这样库里一定同时有「已作废的 SALES 出库单 + 它的在途行」可查（不是空表假绿）。
+echo "== 3b) 作废释放在途：单独再跑一遍作废用例后取样（M2-FIX）"
+run_group "business::erp::shipment::shipment_receipt_tests::cancel_pending_stock_out_releases_transit" 1 "作废用例（取样前最后一跑）"
+
+# 3b.1 ★ 核心不变量③：**不许**「出库单已作废（SALES），但该发货单还有未签收在途」
+#      （= 作废不释放在途 ⇒ 可用量（账面 − 在途）被永久占住，只能改库恢复）
+assert_eq "0" "$(psql_q "SELECT count(*) FROM biz_stock_out o JOIN biz_shipment s ON s.id = o.source_id JOIN biz_inventory_in_transit t ON t.shipment_id = s.id WHERE o.source_type='SALES' AND o.status='CANCELLED' AND t.status='IN_TRANSIT'")" \
+    "已作废的销售出库单 ⇒ 该发货单没有未签收在途（作废与释放在途同事务）"
+
+# 3b.2 该发货单的 Σ(未签收在途) 必须是 0（换个写法再查一遍：单据视角）
+assert_eq "0" "$(psql_q "SELECT count(*) FROM biz_stock_out o WHERE o.source_type='SALES' AND o.status='CANCELLED' AND COALESCE((SELECT SUM(t.qty_in_transit) FROM biz_inventory_in_transit t WHERE t.shipment_id = o.source_id AND t.status='IN_TRANSIT'), 0) <> 0")" \
+    "已作废的销售出库单：其发货单未签收在途合计为 0（可用量已恢复）"
+
+# 3b.3 正向计数（防空表假绿）：确实有「作废 ⇒ 在途行 CANCELLED 且带作废原因」的样本
+assert_ge 1 "$(psql_q "SELECT count(*) FROM biz_stock_out o JOIN biz_shipment s ON s.id = o.source_id JOIN biz_inventory_in_transit t ON t.shipment_id = s.id WHERE o.source_type='SALES' AND o.status='CANCELLED' AND t.status='CANCELLED' AND COALESCE(t.remark,'') <> ''")" \
+    "至少 1 张已作废的销售出库单：在途行 CANCELLED 且备注写了作废原因"
+
+# 3b.4 作废不动数量：作废行的 shipped/received 必须原样（「发过货」是事实，审计要能回溯）
+assert_eq "0" "$(psql_q "SELECT count(*) FROM biz_inventory_in_transit t WHERE t.status='CANCELLED' AND (t.shipped_qty <= 0 OR t.received_qty <> 0)")" \
+    "作废行数量列原样（shipped > 0 / received = 0，只改状态）"
+
 
 echo "== 4) 回归组：上游 / 上下游口径未被本卡破坏（串行）"
 run_group "business::erp::shipment::shipment_posting" 11 "上游：发货过账仍在途 + 出库待确认"

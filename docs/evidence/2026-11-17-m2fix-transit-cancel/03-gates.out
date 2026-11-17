@@ -1,0 +1,9 @@
+== cargo fmt --check
+fmt OK (0 diff)
+
+== cargo clippy --lib -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.42s
+
+== cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 10s

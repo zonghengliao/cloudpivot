@@ -18,6 +18,8 @@
 //                            ③ 三本账 / 凭证 / 应收**一律不动**（库存不扣）
 // 签收确认（M2-03）          ④ 出库单过账 → 三本账负向 + 成本结转 + 挂应收
 //                            ⑤ 在途账 received_qty += n（一条 UPDATE 同时推状态）
+// 出库待确认作废（M2-FIX）    ⑥ 出库单 DRAFT|PENDING_POST → CANCELLED ⇒ 在途行置 CANCELLED
+//                              （同一事务，见 `cancel_open`；作废回滚时在途行一起回滚）
 // ```
 //
 // 为什么这样切：货发出去了但客户还没签收，实物已经离开仓库、账面还没确认出库 ——
@@ -332,6 +334,95 @@ pub async fn receive_open(
         );
     }
     Ok(done)
+}
+
+// ==================== 作废释放在途（M2-FIX t_f123b57f） ====================
+
+/// 作废释放在途：把该发货单**未签收**的在途行一律置 `CANCELLED`（两个数量列原样不动）。
+///
+/// # 什么时候用它
+///
+/// 出库单「待确认」（`DRAFT` / `PENDING_POST`）**作废**时，由
+/// `stockout_handler::cancel_out_tx` 的未过账分支在**同一个事务**里调用。
+///
+/// 为什么非要它：M2-02 的「发货过账」只做两件事 —— 写一条在途 + 生成一张停在
+/// `PENDING_POST` 的销售出库单（库存一分不扣）。作废这张出库单等于**宣布这批货不再出库**，
+/// 在途必须同步撤回。不撤的后果不是报错，而是静默少货：M2-02 的可用量口径是
+/// 「可用 = 账面 − 未签收在途」，这批货从此被永久扣着，而单据已经是终态 `CANCELLED`、
+/// 界面上没有任何可点的按钮 —— 只能改库才能恢复。
+///
+/// 已过账（`POSTED`）的出库单**不要**调它：那条路走红冲，在途早在过账 ⑤c 里推到
+/// `RECEIVED` 了；再作废一次等于把已签收的量重复放回可用量。
+///
+/// # 只改状态，不动数量
+///
+/// 「这批发过货」是事实（`shipped_qty` 是历史快照），作废的是「它还占着可用量」这件事。
+/// V0420 的 `ck_biz_inv_transit_state` 对 `CANCELLED` 不限数量，所以一条 UPDATE 就够；
+/// `qty_in_transit` 是生成列，作废行不参与任何在途取数（所有查询都带
+/// `status <> 'CANCELLED'`）。
+///
+/// # 返回
+///
+/// 被作废的行（**作废前**的快照，可直接打日志）。没有未签收行 → 空 `Vec`，不是错误：
+/// 手工建的出库单没有在途、重复作废也到不了这里（状态机先拦）。
+pub async fn cancel_open(
+    ex: &impl SqlExecutor,
+    shipment_id: Uuid,
+    operator: &state_machine::Operator,
+    now: DateTime<Utc>,
+    remark: Option<&str>,
+) -> std::result::Result<Vec<OpenLine>, ApiError> {
+    let operator_text = Value::Text(operator.id.map(|id| id.to_string()).unwrap_or_default());
+    // `remark` 列是 VARCHAR(255)：按**字符**截断（多字节安全，切不坏 UTF-8）；
+    // 空串交给 NULLIF —— 已有备注（例如过账时写的）不被清空。
+    let remark_text: String = remark.unwrap_or_default().trim().chars().take(255).collect();
+    let remark_value = Value::Text(remark_text);
+    let mut released: Vec<OpenLine> = Vec::new();
+    for line in lock_open(ex, shipment_id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定在途行（作废释放）"))?
+    {
+        let affected = ex
+            .exec_sql(
+                format!(
+                    "UPDATE {TABLE} \
+                        SET status = '{STATUS_CANCELLED}', \
+                            remark = COALESCE(NULLIF(?::text, ''), remark), \
+                            updated_at = ?, \
+                            update_by = NULLIF(?::text, '')::uuid \
+                      WHERE id = ?::uuid AND status = '{STATUS_IN_TRANSIT}'"
+                ),
+                vec![
+                    remark_value.clone(),
+                    Value::from(now),
+                    operator_text.clone(),
+                    Value::from(&line.id),
+                ],
+            )
+            .await
+            .map_err(|error| utils::db_error(error, "作废：释放在途"))?;
+        if affected == 0 {
+            // 行在本次作废期间被别人改掉（例如刚被签收）—— 整笔作废回滚，让用户刷新重试，
+            // 绝不留下「出库单已作废、在途还占着」的半截账。
+            return Err(ApiError::new(
+                409,
+                cloudpivot_kernel::shared::error_code::RESOURCE_CONFLICT,
+                format!(
+                    "物料 {} 的在途行在本次作废期间已被改动（可能刚被签收），请刷新后重试",
+                    line.material_id
+                ),
+            ));
+        }
+        released.push(line);
+    }
+    if !released.is_empty() {
+        tracing::info!(
+            shipment_id = %shipment_id,
+            lines = released.len(),
+            "出库单作废：在途行已置 CANCELLED（可用量释放）"
+        );
+    }
+    Ok(released)
 }
 
 /// 该 (物料, 仓库) 当前未签收的在途量合计（`status = 'IN_TRANSIT'`）。

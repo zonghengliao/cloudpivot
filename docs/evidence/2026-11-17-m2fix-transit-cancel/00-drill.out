@@ -1,0 +1,35 @@
+== M2-03 签收确认 → 在途转已出库 · 演练（PG 172.18.10.145:5432 / 库 cp_m203_receipt_drill_3229665）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m203_receipt_drill_3229665
+== 1) 补齐业务迁移 V0405…V0420（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 16 条业务迁移全部应用成功（V0420 自检通过 = 在途账表就位）
+  [32mPASS[0m 在途账表存在（=biz_inventory_in_transit）
+== 2) 本卡真库用例（串行；ERP_DB_URL 指向演练库）
+  [32mPASS[0m 本卡主证据（签收确认 + 作废释放在途）：business::erp::shipment::shipment_receipt_tests 全绿（10 条）（=10）
+== 3) 落库形态复核（SQL 直查，取样于本卡用例刚跑完）
+  [32mPASS[0m 在途量 = 发货量 − 累计签收（生成列恒等，异常行 0）（=0）
+  [32mPASS[0m 对账恒等式 sum(发货) = sum(已签收) + sum(在途)（=0）
+  [32mPASS[0m 在途行状态×数量咬合（IN_TRANSIT 有余量 / RECEIVED 已签满）（=0）
+  [32mPASS[0m RECEIVED 必须有 received_at（V0420 的 CHECK 在库层兜住）（=0）
+  [32mPASS[0m 出库单已过账 ⇒ 该发货单没有未签收在途（扣库存与清在途同事务）（=0）
+  [32mPASS[0m 出库单待确认且有在途行 ⇒ 必有一行未签收（清在途与扣库存同事务）（=0）
+  [32mPASS[0m 至少 1 张发货单：签收后出库单已过账 + 在途 RECEIVED（=1）
+  [32mPASS[0m 签收确认生成了成本结转凭证（本卡夹具仓库）（=1）
+  [32mPASS[0m 签收确认挂了应收（本卡夹具仓库）（=1）
+  [32mPASS[0m 已过账的销售出库单：OUT 流水净额 = −出库总数量（=0）
+== 3b) 作废释放在途：单独再跑一遍作废用例后取样（M2-FIX）
+  [32mPASS[0m 作废用例（取样前最后一跑）：business::erp::shipment::shipment_receipt_tests::cancel_pending_stock_out_releases_transit 全绿（1 条）（=1）
+  [32mPASS[0m 已作废的销售出库单 ⇒ 该发货单没有未签收在途（作废与释放在途同事务）（=0）
+  [32mPASS[0m 已作废的销售出库单：其发货单未签收在途合计为 0（可用量已恢复）（=0）
+  [32mPASS[0m 至少 1 张已作废的销售出库单：在途行 CANCELLED 且备注写了作废原因（=1）
+  [32mPASS[0m 作废行数量列原样（shipped > 0 / received = 0，只改状态）（=0）
+== 4) 回归组：上游 / 上下游口径未被本卡破坏（串行）
+  [32mPASS[0m 上游：发货过账仍在途 + 出库待确认：business::erp::shipment::shipment_posting 全绿（11 条）（=11）
+  [32mPASS[0m 在途账写入口：business::erp::shipment::shipment_transit 全绿（4 条）（=4）
+  [32mPASS[0m 出库过账内核（⑤c 在途清零收口所在）：business::erp::stockout 全绿（60 条）（=60）
+  [32mPASS[0m 下游：签收确认才挂应收：business::erp::receivable::receivable_bridge 全绿（13 条）（=13）
+
+== 汇总：PASS=24 FAIL=0 ==
+ALL PASS
+EXIT=0

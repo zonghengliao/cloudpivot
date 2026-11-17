@@ -1,0 +1,7 @@
+business::erp::shipment => test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 6066 filtered out; finished in 1.50s (SKIP 行数 0)
+business::erp::stockout => test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 6055 filtered out; finished in 1.32s (SKIP 行数 0)
+business::erp::sales => test result: FAILED. 234 passed; 81 failed; 0 ignored; 0 measured; 5800 filtered out; finished in 0.54s (SKIP 行数 0)
+business::erp::receivable => test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 6057 filtered out; finished in 1.60s (SKIP 行数 0)
+business::erp::linkage => test result: ok. 108 passed; 0 failed; 0 ignored; 0 measured; 6007 filtered out; finished in 0.88s (SKIP 行数 0)
+business::erp::stockin => test result: ok. 165 passed; 0 failed; 0 ignored; 0 measured; 5950 filtered out; finished in 23.72s (SKIP 行数 0)
+EXIT=0

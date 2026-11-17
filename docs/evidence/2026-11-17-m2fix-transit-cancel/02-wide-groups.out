@@ -1,0 +1,7 @@
+== 迁移补齐 191 张表
+business::erp::sales => test result: ok. 315 passed; 0 failed; 0 ignored; 0 measured; 5800 filtered out; finished in 5.11s (SKIP 行数 0)
+business::erp::shipment => test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 6066 filtered out; finished in 1.51s (SKIP 行数 0)
+business::erp::stockout => test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 6055 filtered out; finished in 1.42s (SKIP 行数 0)
+business::erp::receivable => test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 6057 filtered out; finished in 1.62s (SKIP 行数 0)
+business::erp::linkage => test result: ok. 108 passed; 0 failed; 0 ignored; 0 measured; 6007 filtered out; finished in 0.74s (SKIP 行数 0)
+EXIT=0

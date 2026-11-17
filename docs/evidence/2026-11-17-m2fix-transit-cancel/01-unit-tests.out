@@ -1,0 +1,22 @@
+== DB ready: cp_m2fix_iter
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 34s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 10 tests
+test business::erp::shipment::shipment_receipt_tests::cancel_pending_stock_out_releases_transit ... [M2-FIX] 作废出库待确认单：在途 6 → CANCELLED（备注留痕），可用量恢复，同一批货重发成功
+ok
+test business::erp::shipment::shipment_receipt_tests::cancel_posted_stock_out_leaves_received_transit_alone ... ok
+test business::erp::shipment::shipment_receipt_tests::posting_from_stock_out_page_also_clears_transit ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_clears_transit_and_posts_stock_out ... [M2-03] 签收确认：在途 6→0（RECEIVED），库存 20→14，凭证/应收各 1 张，出库单 POSTED
+ok
+test business::erp::shipment::shipment_receipt_tests::receipt_failure_leaves_transit_open_and_retryable ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_gate_uses_posted_status ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_reason_carries_ship_no ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_requires_posted_shipment ... ok
+test business::erp::shipment::shipment_receipt_tests::repeat_receipt_is_rejected_at_gate ... ok
+test business::erp::shipment::shipment_receipt_tests::transit_release_only_applies_to_sales_source ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 6105 filtered out; finished in 0.95s
+
+EXIT=0

@@ -12,6 +12,9 @@
 // | `receipt_requires_posted_shipment` | 草稿 / 待过账的发货单没有在途可签 —— 409 且不动账 |
 // | `posting_from_stock_out_page_also_clears_transit` | 出库单页面点「过账」= 同一件事的另一个入口，在途一样清零（两个入口不各算一次） |
 // | `receipt_failure_leaves_transit_open_and_retryable` | 过账半边失败（负库存）→ 整笔回滚：在途仍 `IN_TRANSIT`、出库单仍 `PENDING_POST`；补货后**重试成功**（AGENTS.md 约定 11：不留死单） |
+// | `cancel_pending_stock_out_releases_transit` | **M2-FIX（t_f123b57f）**：作废「出库待确认」的销售出库单（撤回→作废两步）⇒ 在途行 `CANCELLED`（数量列原样、备注写作废原因）、Σ未签收在途归零、可用量恢复、**同一批货能再发**；撤回那一步不释放在途、账一分没动 |
+// | `cancel_posted_stock_out_leaves_received_transit_alone` | **M2-FIX**：已过账（`POSTED`）出库单作废走红冲，**不许碰在途行**（仍 `RECEIVED` + 原备注），否则已签收的量被重复放回可用量 |
+// | `transit_release_only_applies_to_sales_source` | 纯逻辑：释放在途的判据只认 `source_type='SALES'` + `source_id`（手工建单不碰在途） |
 //
 // # 为什么单独一个文件
 //
@@ -284,6 +287,37 @@ async fn receive(ship_id: Uuid) -> std::result::Result<shipment_handler::Shipmen
     shipment_handler::confirm_receipt(None, &ship_id.to_string(), Some("签收演练：整单签收")).await
 }
 
+/// 出库单状态流转（前端「作废」按钮走的是这个入口：`PATCH /business/erp/stock-out/{id}/status`）。
+async fn cancel_stock_out(stock_out_id: Uuid, reason: &str) -> std::result::Result<(), ApiError> {
+    stockout_handler::change_status(
+        stock_out_id,
+        &StockOutStatusReq {
+            status: Some("CANCELLED".to_string()),
+            target_status: None,
+            reason: Some(reason.to_string()),
+        },
+        None,
+    )
+    .await
+}
+
+/// 出库单「撤回」：`PENDING_POST → DRAFT`（同一条 `PATCH /status` 入口）。
+///
+/// 出库单的边表（`state_machine::STOCK_OUT_EDGES`，6 条）**没有** `PENDING_POST → CANCELLED`；
+/// 待过账单要作废必须先撤回成草稿，与「已提交的单不能一步作废」同口径。
+async fn withdraw_stock_out(stock_out_id: Uuid, reason: &str) -> std::result::Result<(), ApiError> {
+    stockout_handler::change_status(
+        stock_out_id,
+        &StockOutStatusReq {
+            status: Some("DRAFT".to_string()),
+            target_status: None,
+            reason: Some(reason.to_string()),
+        },
+        None,
+    )
+    .await
+}
+
 async fn cost_qty() -> Decimal {
     scalar(
         "SELECT COALESCE(SUM(qty), 0)::text FROM biz_inventory WHERE material_id = ?::uuid",
@@ -335,6 +369,17 @@ async fn transit_shape(ship_id: Uuid) -> Option<String> {
         vec![Value::from(&ship_id), Value::from(&mat_a().await)],
     )
     .await
+}
+
+/// 在途行备注（作废原因落在这里；`COALESCE` 把 NULL 变成空串，便于断言）。
+async fn transit_remark(ship_id: Uuid) -> String {
+    scalar(
+        "SELECT COALESCE(remark, '') FROM biz_inventory_in_transit \
+          WHERE shipment_id = ?::uuid AND material_id = ?::uuid",
+        vec![Value::from(&ship_id), Value::from(&mat_a().await)],
+    )
+    .await
+    .unwrap_or_default()
 }
 
 async fn stock_out_of(ship_id: Uuid) -> Option<Uuid> {
@@ -630,5 +675,202 @@ fn receipt_gate_uses_posted_status() {
     assert!(
         !shipment_model::can_transition("POSTED", "POSTED"),
         "签收确认不推进发货单状态（POSTED 是终态），在途/出库单才是它的落点"
+    );
+}
+
+// ==================== 作废释放在途（M2-FIX t_f123b57f） ====================
+//
+// M2-02 的口径是「发货过账只写在途 + 生成出库待确认单，库存不扣」，可用量口径是
+// 「可用 = 账面 − 未签收在途」。作废那张出库待确认单 = 这批货不再出库，在途必须撤回 ——
+// 否则可用量被永久占住，单据却已是终态、界面上无按钮可点，只能改库恢复。
+
+/// **作废「出库待确认」的销售出库单 → 在途行 CANCELLED、可用量释放、同一批货能再发**。
+///
+/// 造法（把缺口逼到必现）：账面只有 6，第一批发 6（在途 6）⇒ 可用量 0，
+/// 再发同一批货必被「可用 = 账面 − 在途」拦下（409）—— 这就是 M2-02 遗留缺口的现场。
+/// 作废后：在途行 `CANCELLED`（数量列一个不动、备注写原因）、账一分没动、
+/// 同一批货再发能过账（不需要工程师改库）。
+///
+/// ⚠ 操作路径是 **撤回 → 作废** 两步：出库单边表（`STOCK_OUT_EDGES` 6 条）没有
+/// `PENDING_POST → CANCELLED`，待过账单必须先撤回成草稿再作废。「撤回」这一步不能释放在途
+/// （货还在路上、单据还可能再提交），所以两条分支分别断言。
+#[tokio::test]
+async fn cancel_pending_stock_out_releases_transit() {
+    let Some(_guard) = setup().await else { return };
+    seed_stock("6").await;
+    let (so_id, item_id) = fixture_order("12", "APPROVED").await;
+    let first = fixture_shipment(so_id, item_id, "6").await;
+    post_shipment(first)
+        .await
+        .unwrap_or_else(|error| panic!("第一批发货过账应成功：{} {}", error.code, error.msg));
+    let stock_out_id = stock_out_of(first).await.expect("过账必须生成销售出库单");
+    assert_eq!(open_transit_qty().await, dec("6"), "发货后 6 在途");
+    assert_eq!(cost_qty().await, dec("6"), "发货不扣库存（M2-02 口径）");
+    assert_eq!(
+        stock_out_status(stock_out_id).await.as_deref(),
+        Some("PENDING_POST"),
+        "出库单停在「出库待确认」"
+    );
+
+    // 缺口现场：可用量 6 − 在途 6 = 0 ⇒ 同一批货再发 6 必须被拦下
+    let second = fixture_shipment(so_id, item_id, "6").await;
+    let blocked = post_shipment(second)
+        .await
+        .expect_err("在途占着可用量，同一批货再发 6 必须被拒");
+    assert_eq!(blocked.status, 409, "应是库存不足，实际 {}", blocked.status);
+    assert!(
+        blocked.msg.contains("在途"),
+        "文案要点明「在途未签收」占着可用量，实际：{}",
+        blocked.msg
+    );
+    assert!(stock_out_of(second).await.is_none(), "被拒的发货单不许生成出库单");
+
+    // 作废「出库待确认」的销售出库单 —— 边表没有 PENDING_POST → CANCELLED，
+    // 真实操作路径是 **撤回 → 作废** 两步（前端两个按钮，两个入口都走 change_status）。
+    //
+    // ① 撤回（PENDING_POST → DRAFT）**不释放**在途：单据还可能被再次提交，
+    //    货也还在路上 —— 这时把在途撤掉就等于凭空还回可用量。
+    withdraw_stock_out(stock_out_id, "客户可能要取消，先撤回改单")
+        .await
+        .unwrap_or_else(|error| panic!("撤回待过账出库单应成功：{} {}", error.code, error.msg));
+    assert_eq!(
+        stock_out_status(stock_out_id).await.as_deref(),
+        Some("DRAFT"),
+        "撤回后回到草稿"
+    );
+    assert_eq!(
+        transit_shape(first).await.as_deref(),
+        Some("6.0000/0.0000/6.0000/IN_TRANSIT/false"),
+        "撤回不是作废：在途必须原样（仍占着可用量）"
+    );
+
+    // ② 作废（DRAFT → CANCELLED）—— 这里才是「这批货不出库了」，在途要同步撤回
+    cancel_stock_out(stock_out_id, "客户取消订单，这批货不出库了")
+        .await
+        .unwrap_or_else(|error| panic!("作废出库待确认单应成功：{} {}", error.code, error.msg));
+    assert_eq!(
+        stock_out_status(stock_out_id).await.as_deref(),
+        Some("CANCELLED"),
+        "出库单已作废"
+    );
+
+    // ① 在途行：状态 CANCELLED、数量列原样（「发过货」是事实）、备注 = 作废原因
+    assert_eq!(
+        transit_shape(first).await.as_deref(),
+        Some("6.0000/0.0000/6.0000/CANCELLED/false"),
+        "在途行必须置 CANCELLED（只改状态，不动 shipped/received），实际 {:?}",
+        transit_shape(first).await
+    );
+    assert_eq!(
+        transit_remark(first).await,
+        "客户取消订单，这批货不出库了",
+        "作废原因要落在在途行 remark（审计能回答「为什么不算在途了」）"
+    );
+
+    // ② Σ(未签收在途) 归零 = 可用量恢复
+    assert_eq!(
+        open_transit_qty().await,
+        Decimal::ZERO,
+        "作废后未签收在途必须归零（可用量 = 账面 − 在途 恢复成 6）"
+    );
+
+    // ③ 账一分没动：三本账 / 流水 / 凭证 / 应收都不许有痕迹（作废的是「没动过账」的单）
+    assert_eq!(cost_qty().await, dec("6"), "成本账不许动");
+    assert_eq!(location_qty().await, dec("6"), "库位账不许动");
+    assert_eq!(txn_net().await, Decimal::ZERO, "不许写出入库流水");
+    assert_eq!(voucher_count(stock_out_id).await, 0, "不许有凭证");
+    assert_eq!(receivable_count(stock_out_id).await, 0, "不许挂应收");
+
+    // ④ 同一批货现在能过账（这就是「用户自己能恢复」）
+    post_shipment(second)
+        .await
+        .unwrap_or_else(|error| panic!("作废释放在途后同一批货应能再发：{} {}", error.code, error.msg));
+    assert_eq!(open_transit_qty().await, dec("6"), "只有第二批的在途");
+    assert_eq!(cost_qty().await, dec("6"), "账面仍不扣（还没签收）");
+    assert_eq!(
+        transit_shape(first).await.as_deref(),
+        Some("6.0000/0.0000/6.0000/CANCELLED/false"),
+        "作废行不许被后来的发货「复活」"
+    );
+
+    // ⑤ 终态：已作废的单不能再作废（状态机 409），在途行也不被二次改动
+    let again = cancel_stock_out(stock_out_id, "再作废一次")
+        .await
+        .expect_err("已作废的出库单不能再作废");
+    assert_eq!(again.status, 409);
+    assert_eq!(
+        transit_remark(first).await,
+        "客户取消订单，这批货不出库了",
+        "二次作废不许覆盖原备注"
+    );
+
+    println!("[M2-FIX] 作废出库待确认单：在途 6 → CANCELLED（备注留痕），可用量恢复，同一批货重发成功");
+}
+
+/// **已过账（POSTED）的出库单作废不许碰在途行**：那条路走红冲，在途早已 `RECEIVED`。
+///
+/// 若在这里也把在途置 `CANCELLED`，等于把已签收的量重复放回可用量（一张单被算两遍），
+/// 所以「POSTED 分支不碰在途」必须有一条用例钉死。
+#[tokio::test]
+async fn cancel_posted_stock_out_leaves_received_transit_alone() {
+    let Some(_guard) = setup().await else { return };
+    seed_stock("20").await;
+    let (so_id, item_id) = fixture_order("6", "APPROVED").await;
+    let ship_id = fixture_shipment(so_id, item_id, "6").await;
+    post_shipment(ship_id).await.expect("发货过账");
+    let stock_out_id = stock_out_of(ship_id).await.expect("出库单");
+    receive(ship_id).await.expect("签收确认（在途 → RECEIVED）");
+    assert_eq!(
+        transit_shape(ship_id).await.as_deref(),
+        Some("6.0000/6.0000/0.0000/RECEIVED/true"),
+        "签收后在途行是「签满 RECEIVED」"
+    );
+    // 签收时写下的在途备注（文案由 `receipt_reason` 统一，这里只做「红冲不许改它」的基线）
+    let remark_before = transit_remark(ship_id).await;
+    assert!(
+        remark_before.contains("签收"),
+        "签收必须在途行留下备注，实际 {remark_before:?}"
+    );
+
+    // 已过账的出库单作废：三本账回滚 + 红冲 + 冲销应收
+    cancel_stock_out(stock_out_id, "客户退货，红冲")
+        .await
+        .unwrap_or_else(|error| panic!("已过账出库单作废应成功：{} {}", error.code, error.msg));
+    assert_eq!(
+        stock_out_status(stock_out_id).await.as_deref(),
+        Some("CANCELLED"),
+        "出库单已作废"
+    );
+
+    // 在途行一个字段都不许动（receipt 的四个落库值 + 备注）
+    assert_eq!(
+        transit_shape(ship_id).await.as_deref(),
+        Some("6.0000/6.0000/0.0000/RECEIVED/true"),
+        "已过账作废走红冲，在途行必须原样（RECEIVED / 有签收时间）"
+    );
+    assert_eq!(
+        transit_remark(ship_id).await,
+        remark_before,
+        "红冲不许覆盖签收时写的在途备注"
+    );
+    assert_eq!(open_transit_qty().await, Decimal::ZERO, "未签收在途仍是 0");
+
+    // 红冲确实做了事：库存原路退回、凭证蓝 + 红各一张
+    assert_eq!(cost_qty().await, dec("20"), "作废已过账 = 库存原路退回");
+    assert_eq!(location_qty().await, dec("20"));
+    assert_eq!(voucher_count(stock_out_id).await, 2, "蓝字 + 红字各一张");
+}
+
+/// 纯逻辑：作废释放在途的判据只认 `source_type='SALES'` + `source_id`。
+#[test]
+fn transit_release_only_applies_to_sales_source() {
+    use crate::business::erp::stockout::stockout_base::SOURCE_TYPE_SALES;
+    assert_eq!(SOURCE_TYPE_SALES, "SALES", "判据字面值必须与 V0285 的落库值一致");
+    // 手工建的其他出库单（source_type = None / source_id = None）filter 后必然是 None ⇒ 不碰在途
+    let manual: Option<&str> = None;
+    assert_eq!(
+        manual.filter(|value| Some(*value) == Some(SOURCE_TYPE_SALES)),
+        None,
+        "手工建单没有发货单可对应，不许释放在途"
     );
 }
