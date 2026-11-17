@@ -15,7 +15,9 @@
 //!     + 建单 create_plan / 整单替换 replace_plan / 软删 soft_delete_plan
 //!     + 状态流转 mark_submitted / mark_approved / mark_back_to_draft / mark_skipped_approval
 //!     + 分页 page_plans / 父单事实 parent_facts
-//! 没有：转采购申请（M4-03）· 执行率报表（M4-04）· 前端页面（M4-06）
+//!     + 转采购申请所需的 lock_items / add_executed_qty（M4-03，写法与口径见函数文档）
+//! 没有：执行率报表（M4-04）· 前端页面（M4-06）；转申请的编排在
+//!     `purchase_plan_convert_handler` / `purchase_plan_convert_dto`
 //! ```
 //!
 //! 写入口的三条硬口径（M4-01 交接注释逐条落地）：
@@ -381,6 +383,43 @@ pub async fn recalc_totals(ex: &impl SqlExecutor, plan_id: Uuid) -> DbResult<boo
         )
         .await?;
     Ok(affected > 0)
+}
+
+/// 锁住一张计划的全部明细行（转采购申请的第一句）。
+///
+/// 为什么必须锁：转换要「读剩余量 → 建单 → 回写」，两个并发请求若都先读到同一份
+/// `executed_qty`，就会各转一遍剩余量（同一段计划量转出两张申请单）。
+/// `ORDER BY id` 是加锁顺序约定（与采购申请转单的「定序加锁」同口径，避免互相锁死）。
+/// 返回锁到的行数（0 = 计划没有明细，调用方按「空计划」处理）。
+pub async fn lock_items(ex: &impl SqlExecutor, plan_id: Uuid) -> DbResult<u64> {
+    // SCOPE-EXEMPT: 按计划主键锁明细行，不涉及数据范围。
+    let rows = ex
+        .query_sql(
+            format!("SELECT id FROM {ITEM_TABLE} WHERE plan_id = ?::uuid ORDER BY id FOR UPDATE"),
+            vec![Value::from(&plan_id)],
+        )
+        .await?;
+    Ok(rows.len() as u64)
+}
+
+/// 回写已执行量：`executed_qty = executed_qty + 本次转出量`（M4-03 转采购申请）。
+///
+/// * 用 `+ qty` 而不是「读出来再写回去」—— 并发下后者会丢更新；
+/// * **不加** `executed_qty <= planned_qty` 的 CAS：超计划的合法性由 handler 在
+///   行锁内按剩余量判定（V0446 头注释 4：库层刻意允许超计划，拦在这里会让
+///   临时加量的场景直接 500）；
+/// * 返回 0 行 = 明细行被并发删掉（单据已不是 APPROVED 才会走到这里）→ 调用方 409。
+pub async fn add_executed_qty(ex: &impl SqlExecutor, item_id: Uuid, qty: Decimal, now: DateTime<Utc>) -> DbResult<u64> {
+    // SCOPE-EXEMPT: 按明细主键更新一列，不涉及数据范围。
+    ex.exec_sql(
+        format!(
+            "UPDATE {ITEM_TABLE} \
+                SET executed_qty = executed_qty + ?::text::numeric, updated_at = ? \
+              WHERE id = ?::uuid"
+        ),
+        vec![Value::Text(qty.to_string()), Value::from(now), Value::from(&item_id)],
+    )
+    .await
 }
 
 /// `Option<Uuid>` → `?::text::uuid` 参数（None = 空串 → NULL，与采购申请单同口径）。

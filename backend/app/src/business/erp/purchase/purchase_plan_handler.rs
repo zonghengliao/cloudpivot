@@ -11,6 +11,10 @@
 //! | GET    | `/business/erp/purchase-plan/{id}` | `business:erp:purchase-plan:list` | 详情（单头 + 明细） |
 //! | POST   | `/business/erp/purchase-plan/{id}/submit` | `business:erp:purchase-plan:submit` | 提交审批（走 `pp_approve` 流程） |
 //!
+//! 转采购申请（`POST …/{id}/to-requisition`，M4-03）在
+//! [`crate::business::erp::purchase::purchase_plan_convert_handler`] —— 那边要连带
+//! 写申请单与已执行量，和本文件的「单据自身状态机」不是一件事，所以另开一份。
+//!
 //! # 三条硬规则（每条都有落库证据）
 //!
 //! ```text
@@ -80,10 +84,12 @@ pub const PERM_UPDATE: &str = "business:erp:purchase-plan:update";
 pub const PERM_DELETE: &str = "business:erp:purchase-plan:delete";
 /// 提交审批。
 pub const PERM_SUBMIT: &str = "business:erp:purchase-plan:submit";
+/// 转采购申请（M4-03）。
+pub const PERM_TO_REQUISITION: &str = "business:erp:purchase-plan:to-requisition";
 
 // 代码里断言一份常量与 DTO 的清单一致：`perm_menu_gate` 只认字面量，
 // 但两份清单漂移时这里会红，不会等到运行时 403。
-const _: () = assert!(PLAN_PERMISSIONS.len() == 5);
+const _: () = assert!(PLAN_PERMISSIONS.len() == 6);
 
 /// 单据中文名（409 / 404 报文用）。
 const LABEL: &str = "采购计划";
@@ -813,7 +819,8 @@ fn status_drift(row: &PlanRow, action: &str) -> ApiError {
 
 // ==================== 行 → DTO ====================
 
-fn to_row_res(row: &PlanRow) -> PlanRowRes {
+/// 单头行 → DTO（详情 / 列表 / 转换结果共用一份，避免三条赋值路径）。
+pub(crate) fn to_row_res(row: &PlanRow) -> PlanRowRes {
     PlanRowRes {
         id: row.id.to_string(),
         plan_no: row.plan_no.clone(),

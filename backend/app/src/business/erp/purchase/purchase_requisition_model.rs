@@ -7,6 +7,11 @@
 //! | `biz_purchase_requisition` | 每月几十~几百 | 单号存活唯一；`status='CONVERTED'` ⇔ `po_id/po_no/converted_at` 三者齐全；`SUBMITTED/APPROVED` 必有审批实例 |
 //! | `biz_purchase_requisition_item` | 一单 1–200 行 | `(requisition_id, line_no)` 唯一；`qty > 0`、`est_price > 0` |
 //!
+//! `source_plan_id` / `plan_item_id` 是**采购计划转申请**（M4-03，V0448）的溯源列：
+//! 手工建单为 NULL，转申请时逐级写入（单头 → 源计划、明细 → 源计划行）。
+//! 建单入口有两个，共用同一段 INSERT（[`create_requisition`] 自己开事务；
+//! [`create_requisition_in`] 依附调用方事务，转申请要走后者）。
+//!
 //! # 写入口径
 //!
 //! * 建单：取号 + 单头 + 明细**同一事务**（明细随主单整体重建，与采购订单 / 询价单同口径）；
@@ -166,6 +171,8 @@ pub struct NewItem {
     pub suggest_supplier_id: Option<Uuid>,
     /// 行备注。
     pub remark: Option<String>,
+    /// 来源计划行（M4-03 转申请时写；手工建单为 `None`）。
+    pub plan_item_id: Option<Uuid>,
 }
 
 /// 建单单头（服务端已校验）。
@@ -189,6 +196,8 @@ pub struct NewRequisition {
     pub est_amount: Decimal,
     /// 备注。
     pub remark: Option<String>,
+    /// 来源采购计划（M4-03 转申请时写；手工建单为 `None`）。
+    pub source_plan_id: Option<Uuid>,
 }
 
 /// 提交时落库的预算判定快照。
@@ -290,45 +299,9 @@ pub async fn create_requisition(
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
     let tx = db().begin().await?;
-    let result = async {
-        let req_no = next_req_no(&tx, now).await?;
-        let id = Uuid::now_v7();
-        tx.exec_sql(
-            format!(
-                "INSERT INTO {REQ_TABLE} \
-                    (id, req_no, req_date, dept_id, dept_name, applicant_id, applicant_name, \
-                     demand_date, warehouse_id, status, est_amount, remark, \
-                     created_at, updated_at, create_by, update_by) \
-                 VALUES (?, ?, NULLIF(?::text,'')::date, ?::uuid, NULLIF(?::text,''), \
-                     NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
-                     NULLIF(?::text,'')::date, ?::uuid, 'DRAFT', ?::text::numeric, \
-                     NULLIF(?::text,''), ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
-            ),
-            vec![
-                Value::from(&id),
-                Value::Text(req_no),
-                Value::Text(head.req_date.to_string()),
-                Value::from(&head.dept_id),
-                optional_text(head.dept_name.as_deref()),
-                uuid_text(head.applicant_id),
-                optional_text(head.applicant_name.as_deref()),
-                Value::Text(head.demand_date.map(|date| date.to_string()).unwrap_or_default()),
-                Value::from(&head.warehouse_id),
-                Value::Text(head.est_amount.to_string()),
-                optional_text(head.remark.as_deref()),
-                Value::from(now),
-                Value::from(now),
-                uuid_text(operator),
-                uuid_text(operator),
-            ],
-        )
-        .await?;
-        insert_items(&tx, id, items).await?;
-        Ok::<Uuid, DbError>(id)
-    }
-    .await;
+    let result = create_requisition_in(&tx, head, items, operator, now).await;
     match result {
-        Ok(id) => {
+        Ok((id, _)) => {
             tx.commit().await?;
             Ok(id)
         }
@@ -339,6 +312,60 @@ pub async fn create_requisition(
     }
 }
 
+/// 在**调用方的事务里**建单（单头 + 明细），返回 `(id, 单号)`。
+///
+/// 为什么要这个变体：采购计划 → 采购申请（M4-03）必须在同一个事务里
+/// 「建申请单 + 回写计划已执行量」，否则会留下「单造了、量没记」（重复采购）
+/// 或「量记了、单没造」（假执行）两种半成品。`create_requisition` 自己开事务的形态
+/// 满足不了这个需求，故拆出本函数，两者共用同一段 INSERT（口径不会漂移）。
+///
+/// `head.source_plan_id` / `item.plan_item_id` 是 M4-03 的溯源列（V0448 加的），
+/// 手工建单传 `None`；本函数不判它们是否成套 —— 判据在调用方（转申请时两者都写）。
+pub async fn create_requisition_in(
+    ex: &impl SqlExecutor,
+    head: &NewRequisition,
+    items: &[NewItem],
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<(Uuid, String)> {
+    let req_no = next_req_no(ex, now).await?;
+    let id = Uuid::now_v7();
+    ex.exec_sql(
+        format!(
+            "INSERT INTO {REQ_TABLE} \
+                (id, req_no, req_date, dept_id, dept_name, applicant_id, applicant_name, \
+                 demand_date, warehouse_id, status, est_amount, remark, source_plan_id, \
+                 created_at, updated_at, create_by, update_by) \
+             VALUES (?, ?, NULLIF(?::text,'')::date, ?::uuid, NULLIF(?::text,''), \
+                 NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+                 NULLIF(?::text,'')::date, ?::uuid, 'DRAFT', ?::text::numeric, \
+                 NULLIF(?::text,''), NULLIF(?::text,'')::uuid, ?, ?, \
+                 NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+        ),
+        vec![
+            Value::from(&id),
+            Value::Text(req_no.clone()),
+            Value::Text(head.req_date.to_string()),
+            Value::from(&head.dept_id),
+            optional_text(head.dept_name.as_deref()),
+            uuid_text(head.applicant_id),
+            optional_text(head.applicant_name.as_deref()),
+            Value::Text(head.demand_date.map(|date| date.to_string()).unwrap_or_default()),
+            Value::from(&head.warehouse_id),
+            Value::Text(head.est_amount.to_string()),
+            optional_text(head.remark.as_deref()),
+            uuid_text(head.source_plan_id),
+            Value::from(now),
+            Value::from(now),
+            uuid_text(operator),
+            uuid_text(operator),
+        ],
+    )
+    .await?;
+    insert_items(ex, id, items).await?;
+    Ok((id, req_no))
+}
+
 /// 插入明细（建单专用；行号 1 起）。
 async fn insert_items(ex: &impl SqlExecutor, req_id: Uuid, items: &[NewItem]) -> DbResult<()> {
     for (index, item) in items.iter().enumerate() {
@@ -346,10 +373,10 @@ async fn insert_items(ex: &impl SqlExecutor, req_id: Uuid, items: &[NewItem]) ->
         ex.exec_sql(
             format!(
                 "INSERT INTO {ITEM_TABLE} (id, requisition_id, line_no, material_id, unit_id, qty, \
-                     est_price, tax_rate, demand_date, suggest_supplier_id, remark) \
+                     est_price, tax_rate, demand_date, suggest_supplier_id, remark, plan_item_id) \
                  VALUES (?, ?::uuid, ?, ?::uuid, ?::uuid, ?::text::numeric, ?::text::numeric, \
                      ?::text::numeric, NULLIF(?::text,'')::date, NULLIF(?::text,'')::uuid, \
-                     NULLIF(?::text,''))"
+                     NULLIF(?::text,''), NULLIF(?::text,'')::uuid)"
             ),
             vec![
                 Value::from(Uuid::now_v7()),
@@ -363,6 +390,7 @@ async fn insert_items(ex: &impl SqlExecutor, req_id: Uuid, items: &[NewItem]) ->
                 Value::Text(item.demand_date.map(|date| date.to_string()).unwrap_or_default()),
                 uuid_text(item.suggest_supplier_id),
                 optional_text(item.remark.as_deref()),
+                uuid_text(item.plan_item_id),
             ],
         )
         .await?;

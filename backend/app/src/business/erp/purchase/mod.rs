@@ -24,11 +24,14 @@ pub mod purchase_requisition_dto;
 pub mod purchase_requisition_handler;
 pub mod purchase_requisition_model;
 
-// ==================== 采购计划（PP）：表结构（M4-01）+ CRUD/审批（M4-02） ====================
+// ==================== 采购计划（PP）：表结构（M4-01）+ CRUD/审批（M4-02）+ 转申请（M4-03） ====================
 // M4-01 只交表结构：model 里是表名 / 列 / 取号（biz_seq PPL）/ 读入口 / 合计重算；
-// M4-02 补上建单 / 改单 / 删单 / 提交审批（dto + handler + bridge），model 直接复用。
-// 转采购申请属 M4-03，执行率报表属 M4-04，前端页面属 M4-06 —— 本目录**不含**它们。
+// M4-02 补上建单 / 改单 / 删单 / 提交审批（dto + handler + bridge），model 直接复用；
+// M4-03 补上「按计划生成采购申请」（convert_dto + convert_handler，一仓一单 + 已执行量回写）。
+// 执行率报表属 M4-04，前端页面属 M4-06 —— 本目录**不含**它们。
 pub mod purchase_plan_bridge;
+pub mod purchase_plan_convert_dto;
+pub mod purchase_plan_convert_handler;
 pub mod purchase_plan_dto;
 pub mod purchase_plan_handler;
 pub mod purchase_plan_model;
@@ -40,6 +43,10 @@ mod purchase_plan_db_tests;
 /// 采购计划 CRUD + 审批的真库用例（M4-02；同一个串行锁）。
 #[cfg(test)]
 mod purchase_plan_handler_db_tests;
+
+/// 采购计划 → 采购申请转换的真库用例（M4-03；同一个串行锁）。
+#[cfg(test)]
+mod purchase_plan_convert_db_tests;
 
 // ==================== 采购退货：四件套 + 过账 ====================
 pub mod purchase_return_bridge;

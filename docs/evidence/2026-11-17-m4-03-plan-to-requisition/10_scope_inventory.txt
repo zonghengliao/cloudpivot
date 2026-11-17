@@ -1,0 +1,55 @@
+M4-03 采购计划 → 采购申请转换 · 落地面盘点（2026-11-18 00:23 CST）
+
+## 改动文件
+   M backend/app/src/business/erp/purchase/mod.rs
+   M backend/app/src/business/erp/purchase/purchase_plan_dto.rs
+   M backend/app/src/business/erp/purchase/purchase_plan_handler.rs
+   M backend/app/src/business/erp/purchase/purchase_plan_model.rs
+   M backend/app/src/business/erp/purchase/purchase_requisition_handler.rs
+   M backend/app/src/business/erp/purchase/purchase_requisition_model.rs
+  ?? backend/app/migrations/business/V0448__purchase_plan_to_requisition.down.sql
+  ?? backend/app/migrations/business/V0448__purchase_plan_to_requisition.up.sql
+  ?? backend/app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs
+  ?? backend/app/src/business/erp/purchase/purchase_plan_convert_dto.rs
+  ?? backend/app/src/business/erp/purchase/purchase_plan_convert_handler.rs
+  ?? docs/evidence/2026-11-17-m4-03-plan-to-requisition/
+  ?? scripts/verify/m403_plan_to_requisition_drill.sh
+
+## 行数
+   727 backend/app/src/business/erp/purchase/purchase_plan_convert_dto.rs
+   378 backend/app/src/business/erp/purchase/purchase_plan_convert_handler.rs
+   794 backend/app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs
+   175 backend/app/migrations/business/V0448__purchase_plan_to_requisition.up.sql
+    22 backend/app/migrations/business/V0448__purchase_plan_to_requisition.down.sql
+   465 scripts/verify/m403_plan_to_requisition_drill.sh
+  2561 total
+
+## SCOPE-EXEMPT 登记（新增/改动代码里的每一处）
+  backend/app/src/business/erp/purchase/purchase_plan_convert_handler.rs:38://! SCOPE-EXEMPT: biz_purchase_plan / _item 与采购申请单同口径（计划是公司级滚动文件，
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:31://! SCOPE-EXEMPT: biz_purchase_plan / _item 与采购申请单同口径 —— 计划是公司级滚动文件
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:171:    // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:191:    // SCOPE-EXEMPT: 同上。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:271:    // SCOPE-EXEMPT: 按主键取单行，不涉及数据范围（见模块头）。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:290:    // SCOPE-EXEMPT: 唯一键探针，不涉及数据范围。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:316:    // SCOPE-EXEMPT: 明细随单头可见性走（见模块头）。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:369:    // SCOPE-EXEMPT: 按主键重算派生的合计列，不涉及数据范围。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:395:    // SCOPE-EXEMPT: 按计划主键锁明细行，不涉及数据范围。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:413:    // SCOPE-EXEMPT: 按明细主键更新一列，不涉及数据范围。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:435:/// 分页锚点（SCOPE-EXEMPT，理由见模块文档「数据权限」）。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:587:    // SCOPE-EXEMPT: 按主键取单行状态并加行锁，不涉及数据范围。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:881:    // SCOPE-EXEMPT: 按主键取 1 行的类型/年度/月份，不做数据范围裁剪。
+  backend/app/src/business/erp/purchase/purchase_plan_model.rs:903:    // SCOPE-EXEMPT: 按主键取 1 行名称。
+
+## 新增权限码（必须与 sys_menu 逐字一致）
+  backend/app/src/business/erp/purchase/purchase_plan_dto.rs:62:    "business:erp:purchase-plan:to-requisition",
+  backend/app/src/business/erp/purchase/purchase_plan_handler.rs:84:pub const PERM_TO_REQUISITION: &str = "business:erp:purchase-plan:to-requisition";
+  backend/app/src/business/erp/purchase/purchase_plan_convert_handler.rs:7://! | POST | `/business/erp/purchase-plan/{id}/to-requisition` | `business:erp:purchase-plan:to-requisition` | 按计划生成采购申请（**一仓一单**），回写已执行量 |
+  backend/app/src/business/erp/purchase/purchase_plan_convert_handler.rs:341:    permission = "business:erp:purchase-plan:to-requisition"
+  backend/app/src/business/erp/purchase/purchase_plan_convert_handler.rs:366:        assert_eq!(PERM_TO_REQUISITION, "business:erp:purchase-plan:to-requisition");
+  backend/app/migrations/business/V0448__purchase_plan_to_requisition.up.sql:9:--   ② 1 行菜单：`business:erp:purchase-plan:to-requisition`（menu_type=3，
+  backend/app/migrations/business/V0448__purchase_plan_to_requisition.up.sql:68:     'business:erp:purchase-plan:to-requisition', NULL,
+  backend/app/migrations/business/V0448__purchase_plan_to_requisition.up.sql:137:       AND auth_code = 'business:erp:purchase-plan:to-requisition'
+
+## 数据库新增列
+  biz_purchase_requisition.source_plan_id     UUID NULL（部分索引 idx_biz_purchase_requisition_source_plan）
+  biz_purchase_requisition_item.plan_item_id  UUID NULL（部分索引 idx_biz_prqi_plan_item）

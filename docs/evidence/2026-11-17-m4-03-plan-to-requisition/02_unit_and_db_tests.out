@@ -1,0 +1,42 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 23 tests
+test business::erp::purchase::purchase_plan_convert_db_tests::approved_plan_converts_one_requisition_per_warehouse ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::company_level_plan_needs_dept ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::converted_requisition_is_a_real_requisition ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::draft_and_submitted_plans_cannot_convert ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::executed_qty_and_totals_are_written_back ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::foreign_plan_item_is_rejected ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::over_remaining_is_rejected_with_numbers ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::partial_then_full_conversion_then_refused ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::provenance_columns_are_written ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::zero_price_line_needs_est_price_override ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::default_converts_remaining_only ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::fully_consumed_plan_refuses ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::groups_are_one_requisition_per_warehouse ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::head_remark_keeps_source_and_warns_when_too_long ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::numeric_guards ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::over_remaining_is_rejected_with_numbers ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::partial_conversion_keeps_plan_order ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::remaining_never_goes_negative ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::request_lines_are_validated ... ok
+test business::erp::purchase::purchase_plan_convert_dto::tests::zero_plan_price_needs_override ... ok
+test business::erp::purchase::purchase_plan_convert_handler::tests::permission_code_matches_route_annotation ... ok
+test business::erp::purchase::purchase_plan_convert_handler::tests::status_guard_message_is_actionable ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 6209 filtered out; finished in 1.09s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

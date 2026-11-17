@@ -206,6 +206,8 @@ pub async fn create_requisition(
             demand_date: line.demand_date,
             suggest_supplier_id,
             remark: clean_remark(line.remark.as_deref())?,
+            // 手工建单没有来源计划（转申请那条路在 `purchase_plan_convert_handler`）
+            plan_item_id: None,
         });
     }
 
@@ -219,6 +221,7 @@ pub async fn create_requisition(
         warehouse_id,
         est_amount: crate::business::erp::purchase::purchase_requisition_dto::est_amount_of(&amount_lines),
         remark: clean_remark(req.remark.as_deref())?,
+        source_plan_id: None,
     };
     model::create_requisition(&head, &items, operator, Utc::now())
         .await

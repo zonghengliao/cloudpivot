@@ -51,13 +51,15 @@ pub const MIN_PLAN_YEAR: i32 = 1990;
 /// 计划年度上界（与 `ck_biz_pp_year` 一致）。
 pub const MAX_PLAN_YEAR: i32 = 2200;
 
-/// 本模块 5 个**接口**权限码（页面显形码 `…:page` 只给前端，按约定 14 不在此列）。
-pub const PLAN_PERMISSIONS: [&str; 5] = [
+/// 本模块 6 个**接口**权限码（页面显形码 `…:page` 只给前端，按约定 14 不在此列）。
+pub const PLAN_PERMISSIONS: [&str; 6] = [
     "business:erp:purchase-plan:list",
     "business:erp:purchase-plan:create",
     "business:erp:purchase-plan:update",
     "business:erp:purchase-plan:delete",
     "business:erp:purchase-plan:submit",
+    // M4-03：转采购申请（V0448 的按钮行）
+    "business:erp:purchase-plan:to-requisition",
 ];
 
 /// 今天（北京时间）的日期。
@@ -680,15 +682,15 @@ mod tests {
         );
     }
 
-    /// ⑧ 权限码清单与库层（V0447）逐字一致；页面显形码**不在**接口码里（约定 14）。
+    /// ⑧ 权限码清单与库层（V0447 + V0448）逐字一致；页面显形码**不在**接口码里（约定 14）。
     #[test]
-    fn permission_codes_are_the_five_api_codes() {
-        assert_eq!(PLAN_PERMISSIONS.len(), 5);
+    fn permission_codes_are_the_six_api_codes() {
+        assert_eq!(PLAN_PERMISSIONS.len(), 6);
         for code in PLAN_PERMISSIONS {
             assert!(code.starts_with("business:erp:purchase-plan:"), "{code} 前缀不对");
             assert!(!code.ends_with(":page"), "{code} 是页面显形码，后端不许引用");
         }
-        for action in ["list", "create", "update", "delete", "submit"] {
+        for action in ["list", "create", "update", "delete", "submit", "to-requisition"] {
             let expected = format!("business:erp:purchase-plan:{action}");
             assert!(PLAN_PERMISSIONS.contains(&expected.as_str()), "缺 {expected}");
         }
