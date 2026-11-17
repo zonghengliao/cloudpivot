@@ -40,6 +40,9 @@
 #     bash scripts/verify/make_full_suite_db.sh               # 用隔离树自己的二进制
 #   KEEP_DB=1 bash scripts/verify/make_full_suite_db.sh       # 不删库，只补种子（幂等）
 #   NO_DEMO_SEED=1 bash scripts/verify/make_full_suite_db.sh  # 反例：只跑迁移（对比用）
+#   SELFTEST=0 bash scripts/verify/make_full_suite_db.sh      # 只建库+起实例+bootstrap，不跑 21 项自检
+#                                                             #   （给行为闸复用：judge 由调用方自己下，
+#                                                             #    见 scripts/verify/fresh_db_gate.sh，卡 t_a0099024）
 #
 # 跑完它会打印：
 #   export ERP_DB_URL=… SYS_DB_URL=… TASK_DB_URL=… P0FIX_DB_URL=…
@@ -98,7 +101,12 @@ say "==> 库 $DB 表属主 $OWNER"
 # ---------- 2) 建库（默认先删后建 ⇒ 重跑结果完全一致） ----------
 # 本机 PG（145）走 `su - postgres`（socket 免密，能指定 owner）；
 # 远端 PG（99 → 145）没有 postgres 系统用户可用，只能 `-h/-U cloudpivot`（它本身是 owner）。
-pg_local() { [ "$PGHOST" = "127.0.0.1" ] || [ "$PGHOST" = "localhost" ]; }
+# PG_REMOTE=1 强制走远端路径：99 上的 127.0.0.1:5432 是到 145 的隧道，`su - postgres` 不存在
+# （fresh_db_gate.sh 会自己判并传这个开关，见该脚本）。
+pg_local() {
+  [ "${PG_REMOTE:-0}" = "1" ] && return 1
+  [ "$PGHOST" = "127.0.0.1" ] || [ "$PGHOST" = "localhost" ]
+}
 db_drop() {
   if pg_local; then su - postgres -c "dropdb --force $DB"
   else PGPASSWORD="$DB_PASS" dropdb -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" --if-exists --force "$DB"; fi
@@ -127,8 +135,10 @@ export NIK_DATABASE_PORT="$PGPORT"
 export NIK_DATABASE_USER="$DB_USER"
 export NIK_DATABASE_PASSWORD="$DB_PASS"
 export NIK_SERVER_LISTEN="127.0.0.1:$PORT"
-export NIK_MIDDLEWARE_AUTH_JWT_SECRET="$(openssl rand -hex 32)"
-export CLOUDPIVOT_STORAGE_MASTER_KEY="$(openssl rand -hex 32)"
+# 允许调用方注入（fresh_db_gate.sh 要让「首次启动」与「迁移完再启动」用同一把密钥，
+# 否则两次启动的 JWT/存储密钥不同，二次启动就不是同一个环境）
+export NIK_MIDDLEWARE_AUTH_JWT_SECRET="${NIK_MIDDLEWARE_AUTH_JWT_SECRET:-$(openssl rand -hex 32)}"
+export CLOUDPIVOT_STORAGE_MASTER_KEY="${CLOUDPIVOT_STORAGE_MASTER_KEY:-$(openssl rand -hex 32)}"
 export NIK_ADMIN_PASSWORD="${NIK_ADMIN_PASSWORD:-Admin@123456}"
 if [ "$DEMO_SEED" = "1" ]; then
   export NIK_SEED_DEMO_USERS=true
@@ -171,6 +181,9 @@ tail -3 "$LOG" | sed 's/^/    /'
 [ "$admin_ready" = "1" ] || { tail -40 "$LOG" | sed 's/^/    /'; die "bootstrap 没跑完（库里没有 admin+SUPER_ADMIN），见 $LOG"; }
 
 # ---------- 4) 自检（关键表非空 + 关键角色有在职成员 + 种子流程 PUBLISHED） ----------
+# SELFTEST=0：只建库 + 起实例 + 等 bootstrap，跳过这 21 项（行为闸 fresh_db_gate.sh 复用时用；
+#   它的判据是「实例起得来 + bootstrap 完 + 没有失败迁移」，与全量套件的种子门槛不同口径）。
+if [ "${SELFTEST:-1}" = "1" ]; then
 say "==> 自检"
 fail=0
 check() { # <说明> <sql> <期望：非空/gt0/eq:值>
@@ -213,6 +226,9 @@ check "biz_flow_instance(应为 0)"        "select count(*) from biz_flow_instan
 
 if [ "$fail" != 0 ]; then
   die "自检未过（上面标 ✗ 的项），库 $DB 不可用于全量套件"
+fi
+else
+  say "==> SELFTEST=0：跳过自检（调用方自己下判据）"
 fi
 
 URL="postgres://$DB_USER:***@$PGHOST:$PGPORT/$DB"

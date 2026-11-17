@@ -1,0 +1,14 @@
+# 清场断言（跑完全部用例后）
+$ psql -h 172.18.10.145 -U cloudpivot -d postgres -Atc "select count(*) from pg_database where datname like 'cloudpivot_freshgate_%'"
+0
+
+# 版本化迁移磁盘条数 / 最大号
+365
+0445
+
+# V0442 指纹（新版 / 旧版）
+42617eef6574f717bbb9515e0bce151c9ec85525  backend/app/migrations/business/V0442__perm_gate_orphans_and_n20.up.sql
+4f5e2b2d4d70d06288fc5048c8c0ecc830afd95e  /root/.hermes/profiles/backend-developer/cache/scratch/v0442_old.sql
+
+# 被测提交
+608fa8c0edca0b8cee9f096c745592a0a702fc78

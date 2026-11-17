@@ -1,0 +1,4 @@
+==> 空库首启行为闸（fresh_db_gate.sh，模式 auto）
+    库主机：172.18.10.145:5432（账号 cloudpivot，来源 NIK_DATABASE_* / PG* / 默认值）
+  ℹ 跳过：没有可执行二进制 /nonexistent/cloudpivot（先 cd backend && cargo build --bin cloudpivot，或用 BIN=… 指定）
+    （本层不是 push 前必跑；CI / 发版 / 演练用 FRESH_DB_GATE=block 强制真跑）

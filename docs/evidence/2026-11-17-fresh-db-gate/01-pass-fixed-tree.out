@@ -1,0 +1,31 @@
+==> check.sh：本次执行 L4（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟） → L4 空库首启行为闸）
+==> 闸⓪：真库用例 —— 跳过（本档不含 L2：L4）
+==> 空库首启行为闸（fresh_db_gate.sh，模式 auto）
+    库主机：172.18.10.145:5432（账号 cloudpivot，来源 NIK_DATABASE_* / PG* / 默认值）
+    二进制：/opt/cloudpivot/backend/target/debug/cloudpivot
+    临时库：cloudpivot_freshgate_3390614_20261117194152（owner=cloudpivot，跑完 dropdb --force）
+==> 起实例（空库：migrations + bootstrap；演示种子 关）
+    ==> 仓根 /opt/cloudpivot
+    ==> 二进制 /opt/cloudpivot/backend/target/debug/cloudpivot（migrations 编译期内嵌，必须是被测树自己编的）
+    ==> 库 cloudpivot_freshgate_3390614_20261117194152 表属主 cloudpivot
+    ==> 已删除旧库 cloudpivot_freshgate_3390614_20261117194152
+    ==> 已建空库 cloudpivot_freshgate_3390614_20261117194152（owner=cloudpivot）
+    ==> 启动 pid=3390662 端口=42423 日志=/root/.hermes/profiles/backend-developer/cache/scratch/fresh_db_gate.nRiAOX.log（migrations + bootstrap + 演示组织）
+    ==> 实例已停（日志尾部）
+    ==> SELFTEST=0：跳过自检（调用方自己下判据）
+    ==> 就绪：cloudpivot_freshgate_3390614_20261117194152
+    首次启动（迁移 + bootstrap）耗时 7s（rc=0）
+==> 判据
+    ① 迁移跑满（versioned 行数 = 磁盘条数） 365 ✓
+    ② 版本对齐（max(version) = 磁盘最大） 445 ✓
+    ③ 失败迁移行数                     0 ✓
+    ④ bootstrap：admin 绑定 SUPER_ADMIN   1 ✓
+    ⑤ 日志里「数据库迁移失败 / FATAL」行数 0 ✓
+==> 判据 ⑥：迁移完的库再启动一次（/health + 跑满 5s）
+    ⑥ /health 200 且跑满 5s 仍存活     PID 3390719 ✓
+    ⑥b 二次启动日志无 FATAL / 迁移失败 0 ✓
+==> 耗时：14s（首次启动 7s + 判据 ⑥ 5s+）；迁移 365/365，max version 445
+  ✓ 空库首启通过：全量迁移 + bootstrap 跑完、0 条失败迁移、实例起得来（14s）
+    首启日志：/root/.hermes/profiles/backend-developer/cache/scratch/fresh_db_gate.nRiAOX.log
+    清场：临时库 cloudpivot_freshgate_3390614_20261117194152 已删除
+==> 全部检查通过（L4）

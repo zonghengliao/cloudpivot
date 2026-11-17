@@ -1,0 +1,7 @@
+skip_auto_rc=0
+block_nodb_rc=1
+nobin_auto_rc=0
+nocreatedb_auto_rc=0
+nocreatedb_block_rc=1
+dryrun_full_rc=0
+dryrun_fast_rc=0

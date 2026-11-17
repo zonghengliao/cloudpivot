@@ -1,0 +1,37 @@
+==> check.sh：本次执行 L0 L1 L2 L3 L4（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟） → L2 连库与存量档 → L3 干净检出闸 → L4 空库首启行为闸）
+==> 计划（--dry-run）：
+   [L1] 后端格式（workspace 全量：app + crates/*） cd backend && cargo fmt -- --check
+   [L1] 后端 lint（lib+bin+tests+examples，告警即错） cd backend && cargo clippy --all-targets -- -D warnings
+   [L1] 后端类型检查                           cd backend && cargo check
+   [L1] 词表 crate 契约单测（cloudpivot-doc，P2-40 起在 workspace 内） cd backend && cargo test -p cloudpivot-doc
+   [L1] 前端类型检查（src/**）               cd frontend && pnpm typecheck
+   [L1] 前端类型检查（tests/unit/**，tsconfig.unit.json） cd frontend && pnpm typecheck:unit
+   [L2] 闸⓪ 真库用例（仅 CHECK_WITH_DB=1 时真跑） cd backend && cargo test --lib --features test-hooks -- --test-threads=1
+   [L2] 批次B 闸① 分页唯一写法（paginate_with_params 必须 0 处） grep 静态检查（scripts/check.sh · batchb_gates）
+   [L2] 批次B 闸② 登记表必须接 scope:: 或 SCOPE-EXEMPT python3 scripts/lint/scope_gate.py --root . --baseline 21
+   [L0] C7 变更日志回滚零残留 G1–G6       grep/awk 静态检查（scripts/check.sh · batchc_gates）
+   [L0] 偏好字典 ui.palette ↔ 前端色板一致 python3 scripts/lint/palette_def_sync.py --root .
+   [L0] 迁移版本号跨目录全局唯一（自检 + 扫描） python3 scripts/lint/migration_version_unique.py --selftest && python3 scripts/lint/migration_version_unique.py --root .
+   [L0] 版本化迁移不得依赖 seed 行（自检 + 扫描） python3 scripts/lint/seed_dependency_gate.py --selftest && python3 scripts/lint/seed_dependency_gate.py --root .
+   [L0] 库存三本账唯一写入口（判据自检 + 扫描） python3 scripts/verify/inventory_write_gate.py [--self-test]
+   [L0] 脚本/钩子/CI 写死的源码路径必须存在 python3 scripts/lint/path_refs_gate.py [--self-test] [--root .]
+   [L0] 迁移授权段角色码（自检 + 扫描） python3 scripts/verify/role_code_gate.py [--self-test]
+   [L0] 参数分类必须在 config_category 字典里 python3 scripts/lint/config_category_gate.py（无库连接则跳过）
+   [L0] /metrics 端点存活 + cloudpivot_ 指标非空 bash scripts/verify/metrics_gate.sh auto（auto：有部署证据才真跑；SKIP_METRICS_CHECK=1 跳过）
+   [L0] kanban assignee 必须是真实 profile      python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）
+   [L0] 测试分域登记表自洽（域↔crate、前缀尾 ::） python3 scripts/test_domain.py check --manifest-only（完整性另跑 scripts/verify/test_domains_gate.sh）
+   [L0] 数据准备统一夹具（uniq/ensure_* 只有一份） scripts/verify/test_seed_gate.sh（① 转发 ② 导出 ③ 主数据 INSERT 预算；反证 --selftest）
+   [L0] CI 报告 JUnit XML（解析器 + 4 类畸变反证 + 接线） scripts/verify/junit_report_gate.sh（python3 scripts/junit_report.py selftest）
+   [L0] 耗时预算告警（单测 >5000ms 提示；边界 + 未量不算合格 + 接线） scripts/verify/test_budget_gate.sh（固定夹具，不编译不连库）
+   [L0] 页面零壳类声明（存量快照档）   cd frontend && node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json（SHELL_VARIANT_GATE=warn 默认）
+   [L2] 闸③ ERP 账务不变量                   python3 scripts/verify/erp_invariants.py
+   [L2] 闸④ 业务类型词表值域              python3 scripts/verify/biz_type_domain.py --strict
+   [L2] 闸⑤ 快照一致性巡检                 python3 scripts/verify/snapshot_audit.py
+   [L2] 闸⑥ 死权限码（handler 注解码必须有菜单承载） python3 scripts/verify/perm_menu_gate.py
+   [L2] 闸⑦ 孤儿按钮                          python3 scripts/verify/orphan_button_gate.py
+   [L3] 干净检出闸（git archive HEAD → lib 单测） bash scripts/verify/clean_checkout_gate.sh
+   [L4] 空库首启行为闸（临时空库真跑一次全量迁移 + bootstrap + 重启健康） bash scripts/verify/fresh_db_gate.sh auto（缺库/缺二进制/无建库权 → 跳过；block 强制真跑）
+
+   （L2 里 闸③–⑦ 需要库口令；无库环境按「无 DB 环境」跳过，与旧版口径一致）
+   （L4 自己建一个唯一名临时库 cloudpivot_freshgate_<pid>_<时间戳> 并 dropdb 清场，绝不碰既有库；
+     单次约 15–120s，判据见 scripts/verify/fresh_db_gate.sh 头注释）

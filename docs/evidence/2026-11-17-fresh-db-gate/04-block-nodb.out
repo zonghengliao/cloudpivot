@@ -1,0 +1,4 @@
+==> 空库首启行为闸（fresh_db_gate.sh，模式 block）
+    库主机：172.18.10.145:1（账号 cloudpivot，来源 NIK_DATABASE_* / PG* / 默认值）
+  ✗ FRESH_DB_GATE=block 要求真跑，但连不上库 172.18.10.145:1（没有可用连接信息 / 库没起）—— 先导出 ERP_DB_URL 或 NIK_DATABASE_*
+    修法：见脚本头注释「四种模式」；本机演练可直接 bash scripts/verify/make_full_suite_db.sh

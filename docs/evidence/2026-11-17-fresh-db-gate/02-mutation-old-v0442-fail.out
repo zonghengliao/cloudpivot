@@ -1,0 +1,34 @@
+==> check.sh：本次执行 L4（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟） → L4 空库首启行为闸）
+==> 闸⓪：真库用例 —— 跳过（本档不含 L2：L4）
+==> 空库首启行为闸（fresh_db_gate.sh，模式 auto）
+    库主机：172.18.10.145:5432（账号 cloudpivot，来源 NIK_DATABASE_* / PG* / 默认值）
+    二进制：/opt/cloudpivot/backend/target/debug/cloudpivot
+    临时库：cloudpivot_freshgate_3390457_20261117194137（owner=cloudpivot，跑完 dropdb --force）
+==> 起实例（空库：migrations + bootstrap；演示种子 关）
+    ==> 仓根 /opt/cloudpivot
+    ==> 二进制 /opt/cloudpivot/backend/target/debug/cloudpivot（migrations 编译期内嵌，必须是被测树自己编的）
+    ==> 库 cloudpivot_freshgate_3390457_20261117194137 表属主 cloudpivot
+    ==> 已删除旧库 cloudpivot_freshgate_3390457_20261117194137
+    ==> 已建空库 cloudpivot_freshgate_3390457_20261117194137（owner=cloudpivot）
+    ==> 启动 pid=3390505 端口=55277 日志=/root/.hermes/profiles/backend-developer/cache/scratch/fresh_db_gate.ncL45L.log（migrations + bootstrap + 演示组织）
+    ==> 实例已停（日志尾部）
+    !! bootstrap 没跑完（库里没有 admin+SUPER_ADMIN），见 /root/.hermes/profiles/backend-developer/cache/scratch/fresh_db_gate.ncL45L.log
+    首次启动（迁移 + bootstrap）耗时 8s（rc=1）
+  ── 空库首启失败真因 ──────────────────────────────────────────
+    26258:-- 改一个字节都会让实例启动直接 FATAL（migration version N was modified after it was applied）。
+    28641:--   （生产 / 144 / 各卡副本）启动即 `migration … was modified after it was applied`。
+    70920:2026-11-17T11:41:40.635064Z ERROR nik_web::app: 数据库迁移失败: query failed: : V0442: 祖先目录「系统管理」(1000…0001) 不存在，先应用系统菜单迁移 [P0001]
+    70921:FATAL: 服务启动失败: 配置错误: 数据库迁移失败: query failed: : V0442: 祖先目录「系统管理」(1000…0001) 不存在，先应用系统菜单迁移 [P0001]
+    ── 日志尾部（/root/.hermes/profiles/backend-developer/cache/scratch/fresh_db_gate.ncL45L.log）
+        IF n <> 2 THEN
+            RAISE EXCEPTION 'V0442 自检失败：business:notice:mine 的承载行应为 2（1 页面 + 1 按钮），实得 %', n;
+        END IF;
+    
+        RAISE NOTICE 'V0442 自检通过：notice:mine 按钮归位「消息中心」+ 账龄/互斥两对孤儿补授父页码 + N20 六码已授（目标角色 % 个）',
+            n_roles;
+    END $$;
+    
+    2026-11-17T11:41:40.635064Z ERROR nik_web::app: 数据库迁移失败: query failed: : V0442: 祖先目录「系统管理」(1000…0001) 不存在，先应用系统菜单迁移 [P0001]
+    FATAL: 服务启动失败: 配置错误: 数据库迁移失败: query failed: : V0442: 祖先目录「系统管理」(1000…0001) 不存在，先应用系统菜单迁移 [P0001]
+    （make_full_suite_db.sh 自身输出见 /root/.hermes/profiles/backend-developer/cache/scratch/fresh_db_gate.ncL45L.log.out）
+    清场：临时库 cloudpivot_freshgate_3390457_20261117194137 已删除

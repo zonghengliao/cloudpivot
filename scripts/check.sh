@@ -12,10 +12,16 @@
 #                                       / 闸③ERP不变量 / 闸④词表 / 闸⑤快照 / 闸⑥死权限码 / 闸⑦孤儿按钮
 #   L3  干净检出闸（≈15 秒）          ：`git archive HEAD` 提取干净树 → 跑 lib 单测
 #                                       （证明「不依赖本机 gitignored 私有配置」，见 scripts/verify/clean_checkout_gate.sh）
+#   L4  空库首启行为闸（≈15–120 秒）  ：真在一个**临时空库**上跑一次全量迁移 + bootstrap
+#                                       （scripts/verify/fresh_db_gate.sh；补 L0 静态闸抓不到的语义依赖）
+#                                       判据：迁移跑满 / 版本对齐 / 0 条失败迁移 / admin↔SUPER_ADMIN /
+#                                             日志无 FATAL / 迁移完再启动一次 /health 200 且跑满 5s
+#                                       缺库·缺二进制·无建库权 → 跳过（exit 0），FRESH_DB_GATE=block 强制真跑
 #
 # 用法：
 #   bash scripts/check.sh --fast       # L0+L1（≈2–3 分钟）—— push 前的机械门禁，pre-push 钩子就调这个
-#   bash scripts/check.sh --full       # L0+L1+L2+L3（不传参数时的默认行为，发版前必跑）
+#   bash scripts/check.sh --full       # L0+L1+L2+L3+L4（不传参数时的默认行为，发版前必跑）
+#   bash scripts/check.sh --fresh-db   # 只跑 L4：空库首启行为闸（改了迁移 / bootstrap 时快速自证）
 #   bash scripts/check.sh --dry-run    # 只打印会跑什么（含每项属于哪一层），不执行
 #   bash scripts/check.sh --help       # 同上说明
 #
@@ -31,6 +37,10 @@
 #   SKIP_METRICS_CHECK=1  等价于 METRICS_GATE=off（卡面要求的逃生门：本机没起服务时别挡路）
 #   METRICS_URL           直接指定完整地址（默认按 NIK_SERVER_LISTEN / env 文件 / config.toml 推出来）
 #   SHELL_VARIANT_GATE    页面零壳类声明（L0）：warn（默认，只告警）/ block（B1–B6 落完后改它）/ off
+#   FRESH_DB_GATE         L4 空库首启行为闸：auto（默认，缺库/缺二进制/无建库权就跳过）/ block / warn / off
+#   FRESH_DB_TIMEOUT      L4 建库+迁移+bootstrap 总超时（默认 900s）
+#   FRESH_DB_READY_SECONDS L4 判据 ⑥ 的「跑满 N 秒仍健康」（默认 5）
+#   FRESH_DB_KEEP_DB=1    出问题复盘时保留临时库（默认 0：一定清场）
 #
 # 说明：本脚本的退出码 = 「本次所跑层里任一检查失败」。批次B 闸② 是**故意**会在当前树上报错的
 #       —— 它度量的是「还没接入数据权限的存量查询」，见 docs/批次B-DDL.md §6 与
@@ -42,7 +52,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # ======================================================================
 # 分层与参数
 # ======================================================================
-LAYERS="L0 L1 L2 L3"     # --full：全跑
+LAYERS="L0 L1 L2 L3 L4"     # --full：全跑
 DRY_RUN=0
 
 usage() {
@@ -53,12 +63,15 @@ usage() {
 while [ $# -gt 0 ]; do
     case "$1" in
         --fast)    LAYERS="L0 L1"; shift ;;
-        --full)    LAYERS="L0 L1 L2 L3"; shift ;;
+        --full)    LAYERS="L0 L1 L2 L3 L4"; shift ;;
         --l0)      LAYERS="L0"; shift ;;
         --l1)      LAYERS="L1"; shift ;;
+        --l2)      LAYERS="L2"; shift ;;
+        --l3)      LAYERS="L3"; shift ;;
+        --fresh-db|--l4) LAYERS="L4"; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
-        *) echo "未知参数：$1（支持 --fast / --full / --dry-run / --help）" >&2; exit 2 ;;
+        *) echo "未知参数：$1（支持 --fast / --full / --fresh-db / --l0 / --l1 / --l2 / --l3 / --dry-run / --help）" >&2; exit 2 ;;
     esac
 done
 
@@ -71,6 +84,7 @@ want() {
 LAYER_DESC="L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟）"
 if want L2; then LAYER_DESC="$LAYER_DESC → L2 连库与存量档"; fi
 if want L3; then LAYER_DESC="$LAYER_DESC → L3 干净检出闸"; fi
+if want L4; then LAYER_DESC="$LAYER_DESC → L4 空库首启行为闸"; fi
 echo "==> check.sh：本次执行 $LAYERS（$LAYER_DESC）"
 
 # dry-run 用：声明一个计划项（层 · 说明 · 命令行）
@@ -127,8 +141,16 @@ plan_all() {
     if want L3; then
         plan L3 "干净检出闸（git archive HEAD → lib 单测）" "bash scripts/verify/clean_checkout_gate.sh"
     fi
+    if want L4; then
+        plan L4 "空库首启行为闸（临时空库真跑一次全量迁移 + bootstrap + 重启健康）" \
+                 "bash scripts/verify/fresh_db_gate.sh ${FRESH_DB_GATE:-auto}（缺库/缺二进制/无建库权 → 跳过；block 强制真跑）"
+    fi
     echo ""
     echo "   （L2 里 闸③–⑦ 需要库口令；无库环境按「无 DB 环境」跳过，与旧版口径一致）"
+    if want L4; then
+        echo "   （L4 自己建一个唯一名临时库 cloudpivot_freshgate_<pid>_<时间戳> 并 dropdb 清场，绝不碰既有库；"
+        echo "     单次约 15–120s，判据见 scripts/verify/fresh_db_gate.sh 头注释）"
+    fi
 }
 
 if [ "$DRY_RUN" = "1" ]; then
@@ -222,7 +244,7 @@ fi
 
 # ---- L2 层起点 --------------------------------------------------------
 if ! want L2; then
-    echo "==> 闸⓪：真库用例 —— 跳过（本档不含 L2；--fast 只跑 L0+L1）"
+    echo "==> 闸⓪：真库用例 —— 跳过（本档不含 L2：$LAYERS）"
 elif [ "${CHECK_WITH_DB:-0}" = "1" ]; then
     echo "==> 闸⓪：真库用例（cargo test --lib --features test-hooks -- --test-threads=1）"
     missing=""
@@ -1377,6 +1399,45 @@ clean_checkout_gate() {
 
 if want L3; then
 if ! clean_checkout_gate; then
+    exit 1
+fi
+fi
+
+# ======================================================================
+# L4 · 空库首启行为闸（卡 t_a0099024：补 L0 静态闸抓不到的语义依赖）
+#
+# 为什么需要这一层：t_08e1816a 的 P0 是「版本化迁移 V0442 把 seed 行当硬前置条件」，
+# 内核执行次序固定 versioned 先、seed 后 ⇒ **任何空库首启必炸**（新库造不出、L3 干净
+# 检出闸与新客户部署全被挡）。那一轮补的 L0 静态闸只抓「写法」（`count(*) INTO v … IF
+# v<>1 THEN RAISE EXCEPTION`），抓不到语义上的同类问题：
+#   · 迁移用 `JOIN` 动态解析了一个 seed 才建的父节点（语法对、空库拿不到）；
+#   · 迁移依赖某条 repeatable / 种子 / 基线表结构，或迁移之间隐含次序依赖。
+# 这类问题只有一个可靠判据：**真的在一个空库上跑一次全量迁移 + bootstrap**。
+# 而 `scripts/verify/make_full_suite_db.sh` 在此之前只是**被动工具**，没有任何一层闸会跑它。
+#
+# 判据（全硬，见 scripts/verify/fresh_db_gate.sh 头注释）：
+#   ① versioned 迁移行数 = 磁盘上的 V####__*.up.sql 条数（旧版 V0442 实测停在 361/365）
+#   ② 库内 max(version) = 磁盘最大版本号
+#   ③ `schema_migrations` 里 success=false 的行数 = 0
+#   ④ `admin` 绑定 `SUPER_ADMIN` 恰好 1 行（= bootstrap 跑完，与 make_full_suite_db.sh 同判据）
+#   ⑤ 日志里没有 `数据库迁移失败` / `FATAL`（只认日志级别行：迁移文件注释正文里也写着 FATAL）
+#   ⑥ 迁移完的库**再启动一次**：/health 200 且跑满 N 秒仍存活（顺带守指纹漂移这类重启才炸的错）
+#
+# 安全：临时库名唯一（cloudpivot_freshgate_<pid>_<时间戳>），trap 里 dropdb --force，
+#       **绝不碰既有库**。缺库 / 缺二进制 / 无建库权 → 跳过（exit 0，与其它「无 DB 环境」同口径）；
+#       CI / 发版 / 演练用 FRESH_DB_GATE=block 强制真跑（缺二进制会先 cargo build）。
+# ======================================================================
+fresh_db_gate() {
+    local gate="$ROOT/scripts/verify/fresh_db_gate.sh"
+    if [ ! -f "$gate" ]; then
+        echo "  ✗ 找不到 $gate（L4 空库首启行为闸；与 check.sh 同版本入库）" >&2
+        return 1
+    fi
+    bash "$gate" "${FRESH_DB_GATE:-auto}"
+}
+
+if want L4; then
+if ! fresh_db_gate; then
     exit 1
 fi
 fi

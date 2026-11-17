@@ -1,0 +1,5 @@
+==> 空库首启行为闸（fresh_db_gate.sh，模式 auto）
+    库主机：172.18.10.145:5432（账号 cloudpivot，来源 NIK_DATABASE_* / PG* / 默认值）
+    二进制：/opt/cloudpivot/backend/target/debug/cloudpivot
+  ℹ 跳过：没有建库权限（createdb cloudpivot_freshgate_3391161_20261117194302 被拒：createdb: error: database creation failed: ERROR:  role "no_such_role_xyz" does not exist）
+    （本层不是 push 前必跑；CI / 发版 / 演练用 FRESH_DB_GATE=block 强制真跑）

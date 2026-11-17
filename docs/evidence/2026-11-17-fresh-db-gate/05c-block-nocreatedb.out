@@ -1,0 +1,5 @@
+==> 空库首启行为闸（fresh_db_gate.sh，模式 block）
+    库主机：172.18.10.145:5432（账号 cloudpivot，来源 NIK_DATABASE_* / PG* / 默认值）
+    二进制：/opt/cloudpivot/backend/target/debug/cloudpivot
+  ✗ FRESH_DB_GATE=block 要求真跑，但没有建库权限（createdb cloudpivot_freshgate_3391174_20261117194302 被拒：createdb: error: database creation failed: ERROR:  role "no_such_role_xyz" does not exist）
+    修法：见脚本头注释「四种模式」；本机演练可直接 bash scripts/verify/make_full_suite_db.sh
