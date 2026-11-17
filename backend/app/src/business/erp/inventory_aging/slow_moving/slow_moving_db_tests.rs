@@ -49,6 +49,7 @@ use crate::business::erp::inventory_aging::report::dto::InventoryAgingReportQuer
 use crate::business::erp::inventory_aging::report::handler as report_handler;
 use crate::business::erp::inventory_aging::slow_moving::dto::{SlowMovingQuery, SlowMovingRes, THRESHOLD_CONFIG_KEY};
 use crate::business::erp::inventory_aging::slow_moving::handler;
+use crate::support::config::model::clear_runtime_snapshot_for_tests;
 use crate::test_seed;
 
 const WAREHOUSE_A_CODE: &str = "M210-WHA";
@@ -367,8 +368,15 @@ async fn default_threshold_matches_report_over_90() {
 ///
 /// ⚠ 本用例会临时改 `sys_config` 的阈值行，结束时按原值 / 原状态还原
 /// （`restore_threshold_row`：UPDATE 不 DELETE，迁移种下的那一行不许被用例删掉）。
-/// 只在**没有装载运行时快照**的测试进程里可信 —— 单测进程不跑 `bootstrap`，
-/// 因此 `read_text` 每次都回源数据库（快照装载后命中内存，见 `support::config::model`）。
+///
+/// ⚠ **每一步都先钉「写入生效」再钉「取值生效」**：报表读参数走
+/// `SysConfigModel::read_text`，它优先命中**进程内快照**（同一进程里跑过
+/// `fx_settings` / `opening` 之类写过参数的用例就会装载快照），命中即不再回源。
+/// 于是「库里有 30、报表读回 90」会伪装成「配置值不生效」。三个写入口
+/// （`write_threshold_row` / `disable_threshold_row` / `restore_threshold_row`）
+/// 都在写后调 `clear_runtime_snapshot_for_tests()` 显式作废快照；本用例再用直查
+/// `sys_config` 把「写入生效」这一步单独断言出来，失败时能一眼分辨是**写没落库**
+/// 还是**读了旧快照**（卡 t_9c3551b0）。
 #[tokio::test]
 async fn threshold_from_config_and_query_override() {
     let Some(_guard) = setup().await else { return };
@@ -379,6 +387,11 @@ async fn threshold_from_config_and_query_override() {
 
     // ① 系统参数 = 30 → 没传 days 时生效，来源 CONFIG
     write_threshold_row("30", TEMP_DESC, 1).await;
+    assert_eq!(
+        threshold_row().await,
+        Some(("30".to_string(), TEMP_DESC.to_string(), 1)),
+        "写入生效：`sys_config` 里必须已经是 30（直查，不经过参数读取路径）"
+    );
     let report = slow_moving(AS_OF, Some(material), Some(wh_b_id), None).await;
     assert_eq!(report.threshold_days, 30, "配置值生效");
     assert_eq!(report.threshold_source, "CONFIG");
@@ -394,6 +407,11 @@ async fn threshold_from_config_and_query_override() {
 
     // ③ 参数行停用（= 没配置；`read_text` 对停用行回 None）→ 回缺省 90
     disable_threshold_row().await;
+    assert_eq!(
+        threshold_row().await.map(|(_, _, status)| status),
+        Some(0),
+        "写入生效：阈值行必须已停用（直查）"
+    );
     let report = slow_moving(AS_OF, Some(material), Some(wh_b_id), None).await;
     assert_eq!(report.threshold_days, 90);
     assert_eq!(report.threshold_source, "DEFAULT");
@@ -589,6 +607,9 @@ async fn write_threshold_row(value: &str, description: &str, status: i32) {
         .await
         .unwrap_or_else(|error| panic!("更新阈值参数失败：{error}"));
     if affected > 0 {
+        // 直改库必须显式作废进程内参数快照：否则 `read_text` 会命中快照里的旧值
+        // （实测 t_9c3551b0：跑过 `fx_settings` 之后本用例恒读回种子值 90）。
+        clear_runtime_snapshot_for_tests();
         return;
     }
     exec(
@@ -604,6 +625,8 @@ async fn write_threshold_row(value: &str, description: &str, status: i32) {
         ],
     )
     .await;
+    // 直改库后必须显式作废快照（理由见 `write_threshold_row`）。
+    clear_runtime_snapshot_for_tests();
 }
 
 /// 模拟「没配置」：把参数行**停用**（`read_text` 对停用行回 `None`，与没这行等价）。
@@ -616,6 +639,7 @@ async fn disable_threshold_row() {
         vec![],
     )
     .await;
+    clear_runtime_snapshot_for_tests();
 }
 
 /// 还原阈值行（`None` = 本来就没有 → 删掉；正常情形是还原成 V0426 种子行）。
@@ -628,6 +652,7 @@ async fn restore_threshold_row(original: Option<(String, String, i32)>) {
                 vec![],
             )
             .await;
+            clear_runtime_snapshot_for_tests();
         }
     }
 }

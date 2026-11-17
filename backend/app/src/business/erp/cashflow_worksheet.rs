@@ -1570,8 +1570,11 @@ mod tests {
             .await
     }
 
-    /// 清场 + 铺夹具：两个期间（打开 / 已结账）+ 一条本卡自建分类配置（启用）。
-    async fn reset() {
+    /// **只删本卡自己的行**：底稿行 / 两个期间 / 本卡自建分类配置。
+    ///
+    /// 抽出来给 `reset()`（造数前）和 `zz_teardown_purges_fixtures`（收尾）共用 —— 收尾必须同样干净，
+    /// 理由见那条 teardown 的文档。
+    async fn purge_fixtures() {
         for sql in [
             "DELETE FROM biz_cashflow_worksheet WHERE period_code IN ('1913-01', '1913-02')",
             "DELETE FROM biz_accounting_period WHERE period_code IN ('1913-01', '1913-02')",
@@ -1586,7 +1589,11 @@ mod tests {
         )
         .await
         .expect("清临时分类配置");
+    }
 
+    /// 清场 + 铺夹具：两个期间（打开 / 已结账）+ 一条本卡自建分类配置（启用）。
+    async fn reset() {
+        purge_fixtures().await;
         for (period, status) in [(OPEN_PERIOD, "OPEN"), (CLOSED_PERIOD, "CLOSED")] {
             let year: i32 = period[..4].parse().expect("年");
             let month: u32 = period[5..].parse().expect("月");
@@ -1796,5 +1803,36 @@ mod tests {
             .await
             .expect_err("停用项目不能再写");
         assert_eq!(error.code, error_code::ERP_CASHFLOW_ITEM_INVALID);
+    }
+
+    /// 收尾清场（`zz_` 排在本模块最后跑）：底稿 / 期间 / 临时分类配置必须删干净。
+    ///
+    /// # 为什么这条必须有（卡 t_9c3551b0）
+    ///
+    /// `reset()` 的清场只对「本模块的下一条用例」有效。本模块最后一条跑完，`M114_SCRATCH_ITEM`
+    /// 就留在 `biz_cashflow_item` 里；而 `cash_flow::tests::r3_real_config_covers_all_accounts`
+    /// 断言的是**全表口径**「V0185 应种 12 条启用分类行」—— 第 13 条留在库里，**第二轮全量**
+    /// 必然 `left: 13 / right: 12`（模块顺序 `cash_flow` 在 `cashflow_worksheet` 之前，所以
+    /// 第一轮看不出来，第二轮才红 —— 典型的「只跑一遍就以为绿了」）。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        purge_fixtures().await;
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT (SELECT count(*) FROM biz_cashflow_worksheet \
+                          WHERE period_code IN ('1913-01', '1913-02')) \
+                      + (SELECT count(*) FROM biz_accounting_period \
+                          WHERE period_code IN ('1913-01', '1913-02')) \
+                      + (SELECT count(*) FROM biz_cashflow_item WHERE item_code = ?)",
+                vec![Value::Text(SCRATCH_ITEM.to_string())],
+            )
+            .await
+            .expect("清场核对")
+            .unwrap_or(0);
+        assert_eq!(left, 0, "底稿 / 1913 期间 / 临时分类配置 残留必须为 0");
+        println!("[M1-14] 清场：底稿 0、1913 期间 0、临时分类配置 0 ✓");
     }
 }

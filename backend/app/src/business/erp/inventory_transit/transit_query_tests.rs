@@ -113,9 +113,11 @@ async fn exec(statement: &str, params: Vec<Value>) {
         .unwrap_or_else(|error| panic!("执行失败：{error}\n{statement}"));
 }
 
-/// 清场：只删本模块**业务单据**（两个夹具客户下的订单 / 发货单 / 在途行）。
+/// 清场：删本模块**业务单据**（两个夹具客户下的订单 / 发货单 / 在途行）+ 别的套件留在
+/// 在途账上的残留行（理由见 [`purge_foreign_transit_rows`]）。
 /// 主数据（客户 / 仓库 / 物料）由 `test_seed` 负责，**不删** —— 它们是跨模块复用的夹具。
 async fn cleanup() {
+    purge_foreign_transit_rows().await;
     let orders = format!(
         "(SELECT id FROM biz_sales_order WHERE customer_id IN \
           (SELECT id FROM biz_customer WHERE code IN ('{CUSTOMER_A_CODE}', '{CUSTOMER_B_CODE}')))"
@@ -134,6 +136,53 @@ async fn cleanup() {
     .await;
     exec(&format!("DELETE FROM biz_shipment WHERE so_id IN {orders}"), vec![]).await;
     exec(&format!("DELETE FROM biz_sales_order WHERE id IN {orders}"), vec![]).await;
+}
+
+/// 把「不属于本模块夹具」的在途行挡在门外，并断言真的清干了。
+///
+/// # 为什么本模块要替别人收拾
+///
+/// `biz_inventory_in_transit` 是**派生投影**（发货过账写入、签收改状态），本模块的
+/// 8 条用例里有 6 条按契约要走「默认筛选」（`page_of(filter())` / `summary_of(default)`），
+/// 也就是**全表口径** —— 这是契约要求的（「留空 = 只看未签收在途」不能被测试夹具篡改成
+/// 「只看我的」）。而别的套件（`receivable_bridge` 的 `SO14-`、`shipment_receipt_tests` 的
+/// `SO10R-`）造完发货单不收回在途行：它们留在库里，本模块第二轮就恒红。
+///
+/// 实测（卡 t_9c3551b0，同一库连跑第二轮）：`left: 2 / right: 1`、`left: 4 / right: 3`……
+/// 8 条全红，原因都是「别人的一行」。
+///
+/// # 为什么不改成「只查自己的」
+///
+/// 那会把「默认筛选」这条契约的判据从「全表」缩成「我的两行」，属于**放宽判据**。
+/// 这里反过来：造数前把别人的残留清掉 + **断言清干**（清不干净直接红），判据仍是全表，
+/// 但不再受别的套件漏清的影响。清理范围只碰在途账（派生投影，可随时按发货单重算），
+/// 不动任何人的单据；被删的是「发货单还在、过账/签收用例早已跑完」的残留行。
+async fn purge_foreign_transit_rows() {
+    let removed = db()
+        .execute_with_params(
+            "DELETE FROM biz_inventory_in_transit WHERE shipment_id NOT IN \
+             (SELECT id FROM biz_shipment WHERE ship_no LIKE 'M204-SH-%')",
+            vec![],
+        )
+        .await
+        .expect("清理别的套件留下的在途行");
+    let left: i64 = db()
+        .scalar_sql(
+            "SELECT count(*) FROM biz_inventory_in_transit WHERE shipment_id NOT IN \
+             (SELECT id FROM biz_shipment WHERE ship_no LIKE 'M204-SH-%')"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .expect("核对外来在途行");
+    assert_eq!(
+        left, 0,
+        "外来在途行必须清干（本轮清了 {removed} 行）；清不干净说明 DELETE 条件与本模块的\
+         发货单前缀 'M204-SH-' 对不上"
+    );
+    if removed > 0 {
+        println!("[M2-04] 清场：清掉别的套件留下的在途行 {removed} 行（派生投影，按发货单可重算）");
+    }
 }
 
 async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {

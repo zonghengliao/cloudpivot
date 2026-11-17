@@ -1090,14 +1090,33 @@ mod tests {
         assert_eq!(frozen_only.total, 1);
         assert_eq!(frozen_only.list[0].code, format!("{CODE_PREFIX}PG-0003"));
 
+        // 名称模糊筛：判据只能钉在「本夹具自己的名字」上。
+        //
+        // ⚠ 别用 `客户乙` 这种**通用词**做全表计数断言：库里别的套件也有叫「…客户乙」的夹具
+        // （`inventory_transit` 的「在途查询客户乙」就在其中），第一轮各自干净、第二轮就
+        // `left: 2 / right: 1`（卡 t_9c3551b0 实测）。这里仍走 LIKE 路径（`name` 是模糊筛），
+        // 只是把计数锚定到唯一词 `分页测试客户乙`，再用通用词验一次「命中包含」。
         let by_name = page_customer(CustomerFilter {
-            name: Some("客户乙".to_string()),
+            name: Some("分页测试客户乙".to_string()),
             ..Default::default()
         })
         .await
         .expect("按名称筛应成功");
-        assert_eq!(by_name.total, 1);
+        assert_eq!(by_name.total, 1, "唯一词模糊筛应只命中本夹具这一行");
         assert_eq!(by_name.list[0].name, "分页测试客户乙");
+
+        let fuzzy = page_customer(CustomerFilter {
+            name: Some("客户乙".to_string()),
+            page_size: 200,
+            ..Default::default()
+        })
+        .await
+        .expect("通用词模糊筛应成功");
+        assert!(
+            fuzzy.list.iter().any(|row| row.name == "分页测试客户乙"),
+            "通用词模糊筛必须仍能命中本夹具（命中 {} 行，含别的套件的同词夹具）",
+            fuzzy.total
+        );
 
         let err = page_customer(CustomerFilter {
             status: Some("DELETED".to_string()),

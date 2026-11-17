@@ -1185,6 +1185,11 @@ mod tests {
             "DRAFT 的 999 不得出现在流水里"
         );
         // 对照：凭证列表（全状态）里它是在的。
+        //
+        // ⚠ 断言必须**收窄到本夹具的凭证集合**（`P2D1-`）：`voucher_page` 的 `total` 是
+        // **全表口径**，只要别的套件在同一进程里留过草稿就会红（实测 `fx_ledger` 夹具的
+        // `M108-D1`），而「别处有没有草稿」与本用例要钉的语义（草稿在列表里看得见、
+        // 只是不进总账）毫无关系。收窄后判据不变强也不变弱：本夹具的草稿仍必须**恰好 1 张**。
         let (all, total) = crate::business::erp::voucher::voucher_query::voucher_page(
             &crate::business::erp::voucher::voucher_query::VoucherFilter {
                 status: Some("DRAFT".to_string()),
@@ -1195,8 +1200,16 @@ mod tests {
         )
         .await
         .expect("草稿凭证列表");
-        assert_eq!(total, 1, "DRAFT 只应 1 张（列表口径看得见）");
-        assert_eq!(all[0].voucher_no, "P2D1-0004");
+        let mine: Vec<&str> = all
+            .iter()
+            .map(|row| row.voucher_no.as_str())
+            .filter(|voucher_no| voucher_no.starts_with("P2D1-"))
+            .collect();
+        assert_eq!(
+            mine,
+            vec!["P2D1-0004"],
+            "本夹具的 DRAFT 只应 1 张且列表口径看得见（全表 DRAFT 共 {total} 张，多出来的属别的套件）"
+        );
         println!("[P2D1-④] 只算 POSTED（列表仍可见 DRAFT）✓");
     }
 

@@ -799,16 +799,25 @@ mod tests {
             .await
     }
 
+    /// 造数前的准备：腾空本套件的 `M105-` / `2051-01` 夹具，并腾出 USD/EUR 汇率区间。
     async fn cleanup() {
+        purge_fixture_rows().await;
+        db().exec_sql(
+            "DELETE FROM biz_exchange_rate WHERE from_currency IN ('USD', 'EUR')".to_string(),
+            vec![],
+        )
+        .await
+        .ok();
+    }
+
+    /// **只删本套件自己的行**（收尾清场用：不碰汇率表 —— 那是按币种清的准备工作）。
+    async fn purge_fixture_rows() {
         for sql in [
             "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
              (SELECT id FROM biz_voucher WHERE source_no LIKE 'M105%' OR source_no = '2051-01')",
             "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
              (SELECT id FROM biz_voucher WHERE source_no LIKE 'M105%' OR source_no = '2051-01')",
             "DELETE FROM biz_voucher WHERE source_no LIKE 'M105%' OR source_no = '2051-01'",
-            // 汇率表在 V0407 之后带区间排除约束：模板库里已有 [2026-11-15, ∞) 的 USD 行，
-            // 2051 年的行会与它重叠 ⇒ 必须整对清掉（与 fx_revaluation 的 cleanup 同口径）。
-            "DELETE FROM biz_exchange_rate WHERE from_currency IN ('USD', 'EUR')",
             "DELETE FROM biz_account WHERE account_code LIKE 'M105%'",
             "DELETE FROM biz_accounting_period WHERE period_code LIKE '2051-%'",
         ] {
@@ -1338,5 +1347,32 @@ mod tests {
         assert!(err.msg.contains("USD"), "文案要点名币种：{}", err.msg);
         assert!(err.msg.contains("2051-01-31"), "文案要点名期末日：{}", err.msg);
         assert!(err.msg.contains(ACC_ASSET), "文案要点名科目：{}", err.msg);
+    }
+
+    /// 收尾清场（`zz_` 排在本模块最后跑）：`M105-` / `2051-01` / `2051-` 期间必须删干净。
+    ///
+    /// 调汇用例留在库里的 `M105FX01/M105FX02` 是「外币核算科目」，会被别人的报表看见
+    /// （`fx_ledger` 列该币种全部外币科目、`cash_flow` 的全表口径断言要每个科目都有分类行）。
+    /// `setup()` 的清场只管本套件内部，最后一条跑完就漏到下一轮（卡 t_9c3551b0）。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        purge_fixture_rows().await;
+        let left: i64 = db()
+            .scalar_sql(
+                "SELECT (SELECT count(*) FROM biz_voucher \
+                          WHERE source_no LIKE 'M105%' OR source_no = '2051-01') \
+                      + (SELECT count(*) FROM biz_account WHERE account_code LIKE 'M105%') \
+                      + (SELECT count(*) FROM biz_accounting_period \
+                          WHERE period_code LIKE '2051-%')"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("清场核对");
+        assert_eq!(left, 0, "M105- / 2051-01 / 2051- 期间残留必须为 0");
+        println!("[M1-05] 清场：M105- 残留 0 ✓");
     }
 }

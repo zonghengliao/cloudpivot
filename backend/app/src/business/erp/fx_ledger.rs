@@ -1065,14 +1065,29 @@ mod tests {
             .await
     }
 
+    /// 造数前的准备：腾空本套件的 `M108-` / `2062-` 夹具，并腾出 USD/EUR 汇率区间
+    /// （V0407 起汇率表带「区间不重叠」约束，不先清会和模板库里的行打架）。
     async fn cleanup() {
+        purge_fixture_rows().await;
+        db().exec_sql(
+            "DELETE FROM biz_exchange_rate WHERE from_currency IN ('USD', 'EUR')".to_string(),
+            vec![],
+        )
+        .await
+        .ok();
+    }
+
+    /// **只删本套件自己的行**（凭证 → 分录 / 状态日志 → 科目 → 期间）。
+    ///
+    /// 与 [`cleanup`] 分开的原因：收尾清场只许删自己的夹具。汇率表是按**币种**清的准备工作，
+    /// 收尾时顺手删就会误伤别的套件留下的汇率行。
+    async fn purge_fixture_rows() {
         for sql in [
             "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
              (SELECT id FROM biz_voucher WHERE source_no LIKE 'M108%')",
             "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
              (SELECT id FROM biz_voucher WHERE source_no LIKE 'M108%')",
             "DELETE FROM biz_voucher WHERE source_no LIKE 'M108%'",
-            "DELETE FROM biz_exchange_rate WHERE from_currency IN ('USD', 'EUR')",
             "DELETE FROM biz_account WHERE account_code LIKE 'M108%'",
             "DELETE FROM biz_accounting_period WHERE period_code LIKE '2062-%'",
         ] {
@@ -1331,7 +1346,25 @@ mod tests {
         assert_eq!(report.date_from, Some(date(2062, 2, 1)));
         assert_eq!(report.date_to, Some(date(2062, 2, 28)));
 
-        assert_eq!(report.accounts.len(), 2, "两个外币科目：{:?}", report.accounts);
+        // 口径：本表列的是「该币种**全部**外币核算科目」，不是只列本夹具那两个 ⇒ 断言只能钉
+        // 「自己的两个恰好在、且没有别人的科目混进来」。写死 `len() == 2` 在干净库上等价，
+        // 但一旦别的套件留了未清的 `M1xx` 外币科目，报错只给一个 `3 != 2`，看不出是谁漏了清场
+        // （实测：`fx_balance` 的 `M107FX01` 把它撑成 3，跨套件连锁红了
+        // `cash_flow::r3_real_config_covers_all_accounts`）。
+        let codes: Vec<&str> = report.accounts.iter().map(|row| row.account_code.as_str()).collect();
+        let foreign: Vec<&str> = codes
+            .iter()
+            .copied()
+            .filter(|code| *code != ACC_ASSET && *code != ACC_COUNTER)
+            .collect();
+        assert!(
+            foreign.is_empty(),
+            "外币明细账只应出本夹具的两个科目，实际还混进了别的套件未清的外币科目：{foreign:?}（全量 {codes:?}）"
+        );
+        assert!(
+            codes.contains(&ACC_ASSET) && codes.contains(&ACC_COUNTER),
+            "本夹具的两个外币科目都必须在表里：{codes:?}"
+        );
         let asset = report
             .accounts
             .iter()
@@ -1413,7 +1446,10 @@ mod tests {
         let mut page1 = ledger_query(None, Some(PERIOD));
         page1.page_size = 2;
         let first = fx_ledger(&page1).await.expect("第 1 页");
-        assert_eq!(first.total, 4, "全区间 4 行（期初 2 + 本期 2）");
+        assert_eq!(
+            first.total, 4,
+            "全区间 4 行（期初 2 + 本期 2）；多于 4 行 = 别的套件留了未清的 USD 外币凭证（见 zz_teardown_purges_fixtures）"
+        );
         assert_eq!(first.rows.len(), 2);
         // 全区间排序：科目优先 ⇒ M108FX01 的 01-20（+200）与 02-10（+100）在前
         assert_eq!(first.rows[0].running_fc_balance, dec("200"));
@@ -1607,5 +1643,49 @@ mod tests {
             "要点名这个科目：{:?}",
             filtered.warnings
         );
+    }
+
+    /// 收尾清场（`zz_` 排在本模块最后跑）：`M108-` / `2062-` 夹具必须删干净。
+    ///
+    /// # 为什么必须**收尾**删，而不是只在 `setup()` 里删
+    ///
+    /// `setup()` 的清场只对「本套件的下一条用例」有效：本模块最后一条跑完，残留会一直留到
+    /// 别的套件。实测后果（卡 t_9c3551b0）：
+    ///
+    /// * 本模块留下的 `M108FX01/M108FX02` + `fx_balance` 留下的 `M107FX01` + 调汇留下的
+    ///   `M105FX01` 会让**下一轮**的 `fx_ledger` 报表从 2 个科目变 3 个、流水从 4 行变 6 行；
+    /// * 更远的一环：`cash_flow::tests::r3_real_config_covers_all_accounts` 是**全表口径**
+    ///   （「每个非现金科目都要有分类行」），测试科目留在库里就必然红。
+    ///
+    /// 所以清场本身也要被断言：删完必须数出 0，不能「删了个寂寞」还绿着。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        purge_fixture_rows().await;
+        let left: i64 = db()
+            .scalar_sql(
+                "SELECT (SELECT count(*) FROM biz_voucher WHERE source_no LIKE 'M108%') \
+                      + (SELECT count(*) FROM biz_voucher_entry WHERE voucher_id IN \
+                          (SELECT id FROM biz_voucher WHERE source_no LIKE 'M108%')) \
+                      + (SELECT count(*) FROM biz_account WHERE account_code LIKE 'M108%') \
+                      + (SELECT count(*) FROM biz_accounting_period WHERE period_code LIKE '2062-%')"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("清场核对");
+        assert_eq!(left, 0, "M108- / 2062- 夹具残留必须为 0");
+
+        let orphans =
+            crate::business::erp::fixture_hygiene::purge_orphans(crate::business::erp::fixture_hygiene::FINANCE).await;
+        let after =
+            crate::business::erp::fixture_hygiene::orphans(crate::business::erp::fixture_hygiene::FINANCE).await;
+        assert_eq!(
+            after, 0,
+            "VOUCHER/PAYABLE 孤儿状态日志必须收干（本轮清了 {orphans} 条）"
+        );
+        println!("[M1-08] 清场：M108- 残留 0、凭证孤儿状态日志 0 ✓");
     }
 }

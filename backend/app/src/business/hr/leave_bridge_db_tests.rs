@@ -703,4 +703,123 @@ mod db {
 
         fx.clean(&[leave_a, leave_b]).await;
     }
+
+    /// 删掉「本文件内建的 hr_leave 流程定义」整条链（定义 / 版本 / 节点 / 边 / 实例 / 待办）。
+    ///
+    /// 认领口径 = `flow_code = 'hr_leave'` **且版本 `change_note` 是本文件的夹具标记**：
+    /// 正式种子 V0393 的版本没有这个 note，别的用例的夹具也没有 ⇒ 只删自己的。
+    /// 删实例是为了拆 FK（`biz_flow_instance.def_id` 引用定义），不拆就永远删不掉定义。
+    async fn purge_fixture_flows(note: &str) -> i64 {
+        // 先把要删的定义 id **抓成列表**再删：不能每一步都用「JOIN 版本」的子查询 ——
+        // 删完版本后，下一步的子查询就再也 JOIN 不出定义，定义会**静默留下**
+        // （实测踩过：库里留一条 `请假审批（HR25 夹具）` 的空壳定义、0 个版本）。
+        let rows = db()
+            .find_with_params(
+                "SELECT d.id::text AS id FROM biz_flow_def d \
+                  WHERE d.flow_code = 'hr_leave' \
+                    AND (NOT EXISTS (SELECT 1 FROM biz_flow_def_version v WHERE v.def_id = d.id) \
+                         OR EXISTS (SELECT 1 FROM biz_flow_def_version v \
+                                     WHERE v.def_id = d.id AND v.change_note = ?))",
+                vec![Value::Text(note.to_string())],
+            )
+            .await
+            .expect("查夹具流程定义");
+        let ids: Vec<String> = rows
+            .iter()
+            .map(|row| row.get_typed::<String>("id").expect("流程 id"))
+            .collect();
+        if ids.is_empty() {
+            return 0;
+        }
+        let defs = ids
+            .iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for sql in [
+            format!(
+                "DELETE FROM biz_flow_cc WHERE instance_id IN \
+                 (SELECT id FROM biz_flow_instance WHERE def_id IN ({defs}))"
+            ),
+            format!(
+                "DELETE FROM biz_task WHERE flow_instance_id IN \
+                 (SELECT id FROM biz_flow_instance WHERE def_id IN ({defs}))"
+            ),
+            format!(
+                "DELETE FROM biz_flow_task WHERE instance_id IN \
+                 (SELECT id FROM biz_flow_instance WHERE def_id IN ({defs}))"
+            ),
+            format!(
+                "DELETE FROM biz_flow_instance_node WHERE instance_id IN \
+                 (SELECT id FROM biz_flow_instance WHERE def_id IN ({defs}))"
+            ),
+            format!("DELETE FROM biz_flow_instance WHERE def_id IN ({defs})"),
+            format!(
+                "DELETE FROM biz_flow_edge WHERE version_id IN \
+                 (SELECT id FROM biz_flow_def_version WHERE def_id IN ({defs}))"
+            ),
+            format!(
+                "DELETE FROM biz_flow_node WHERE version_id IN \
+                 (SELECT id FROM biz_flow_def_version WHERE def_id IN ({defs}))"
+            ),
+            format!("DELETE FROM biz_flow_def_version WHERE def_id IN ({defs})"),
+            format!("DELETE FROM biz_flow_def WHERE id IN ({defs})"),
+        ] {
+            db().exec_sql(sql, vec![])
+                .await
+                .unwrap_or_else(|error| panic!("清流程夹具失败：{error}"));
+        }
+        db().scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM biz_flow_def d \
+              WHERE d.flow_code = 'hr_leave' \
+                AND (NOT EXISTS (SELECT 1 FROM biz_flow_def_version v WHERE v.def_id = d.id) \
+                     OR EXISTS (SELECT 1 FROM biz_flow_def_version v \
+                                 WHERE v.def_id = d.id AND v.change_note = ?))",
+            vec![Value::Text(note.to_string())],
+        )
+        .await
+        .expect("核对流程夹具残留")
+        .unwrap_or(0)
+    }
+
+    /// 收尾清场（`zz_` 排在本模块最后跑）：`hr_leave` 夹具流程必须一条不剩。
+    ///
+    /// # 为什么必须收尾删（卡 t_9c3551b0）
+    ///
+    /// 夹具流程是**手写行**：只写 `biz_flow_def` + `biz_flow_def_version`，快照手写、
+    /// `graph_hash` 填 `repeat('0',64)`，**没有 L1 节点行**。它只要留到下一轮，
+    /// `business::erp::stockin::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean`
+    /// （**全库**口径：PUBLISHED / ARCHIVED 版本 0 漂移）就会报 `RowsEdited`：
+    /// 行（空图）↔ 快照 ↔ `graph_hash` 三方对不上。实测第二轮
+    /// `batches=1 versions=29 drifted=1 … flow_code: "hr_leave"` —— 第一轮绿、第二轮红。
+    ///
+    /// 断言写成两层：①自己的夹具 0 行；②`hr_leave` 上不许留「零 hash 的已发布版本」
+    /// （后者就是 p16 会红的那条判据，早一点在本模块暴露）。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        if !ensure_db().await {
+            return;
+        }
+        let _guard = DB_LOCK.lock().await;
+        let left = purge_fixture_flows(FIXTURE_NOTE).await;
+        assert_eq!(left, 0, "HR-27 夹具流程（定义 + 版本）残留必须为 0");
+
+        let zeroed: i64 = db()
+            .scalar_sql(
+                "SELECT count(*) FROM biz_flow_def_version v \
+                   JOIN biz_flow_def d ON d.id = v.def_id \
+                  WHERE d.flow_code = 'hr_leave' \
+                    AND v.version_status IN ('PUBLISHED', 'ARCHIVED') \
+                    AND v.graph_hash ~ '^0+$'"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("核对零 hash 版本");
+        assert_eq!(
+            zeroed, 0,
+            "hr_leave 上不许留零 graph_hash 的已发布版本（p16 全库自检会报 RowsEdited）"
+        );
+        println!("[HR-27] 清场：hr_leave 夹具流程 0 行、零 hash 已发布版本 0 ✓");
+    }
 }

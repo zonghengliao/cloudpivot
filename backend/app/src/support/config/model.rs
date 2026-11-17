@@ -236,6 +236,26 @@ pub(crate) fn runtime_snapshot() -> Option<HashMap<String, String>> {
     Some(snapshot.values.clone())
 }
 
+/// 清空进程内参数快照（**仅测试**）：让后续 [`SysConfigModel::read_text`] 每次回源数据库。
+///
+/// # 为什么测试需要它
+///
+/// 同一进程里只要有一个用例调过 [`reload_runtime_snapshot`]（参数写操作 / 插件启动都会调），
+/// 快照就变成**权威结论** —— 命中与否都不再回源（见 [`SysConfigModel::read_text`] 第 1 条）。
+/// 于是「直接改 `sys_config` 行、再读参数」的用例会读到快照里的旧值。实测（卡 t_9c3551b0）：
+/// `slow_moving` 的阈值用例跑在 `fx_settings` 之后，读回的一直是种子值 90（`left: 90 / right: 30`），
+/// 而它自己写进去的 30 明明在库里。
+///
+/// 测试里**直改库**的用例必须在读写前后调用本函数，把「库是唯一真相」这个前提显式恢复；
+/// 生产代码不许调用（生产的失效路径只有一个：[`reload_runtime_snapshot`] 广播）。
+#[cfg(test)]
+pub(crate) fn clear_runtime_snapshot_for_tests() {
+    match runtime_cell().write() {
+        Ok(mut guard) => *guard = None,
+        Err(err) => panic!("清空参数快照失败（锁中毒）：{err}"),
+    }
+}
+
 /// 把单键回填进运行时快照（读路径回源成功时调用，顺带刷新新鲜度）。
 ///
 /// 快照尚未装载时**不**创建空快照：此时只有这一个键的信息，交给

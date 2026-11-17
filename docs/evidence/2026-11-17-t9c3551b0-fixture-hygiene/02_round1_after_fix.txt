@@ -1,0 +1,21 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+error[E0063]: missing fields `forecast_qty` and `revised_from_id` in initializer of `ForecastRow`
+   --> app/src/business/erp/sales/sales_target_handler.rs:375:15
+    |
+375 |     let row = ForecastRow {
+    |               ^^^^^^^^^^^ missing `forecast_qty` and `revised_from_id`
+
+error[E0063]: missing fields `forecast_qty` and `revised_from_id` in initializer of `ForecastRow`
+   --> app/src/business/erp/sales/sales_target_handler.rs:436:15
+    |
+436 |     let row = ForecastRow {
+    |               ^^^^^^^^^^^ missing `forecast_qty` and `revised_from_id`
+
+error[E0063]: missing fields `forecast_qty` and `revised_from_id` in initializer of `ForecastRes`
+   --> app/src/business/erp/sales/sales_target_handler.rs:159:5
+    |
+159 |     ForecastRes {
+    |     ^^^^^^^^^^^ missing `forecast_qty` and `revised_from_id`
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `cloudpivot` (lib test) due to 3 previous errors
