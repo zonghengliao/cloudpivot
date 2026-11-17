@@ -631,6 +631,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '采购申请', permission: 'business:erp:purchase-requisition:list' },
       },
       {
+        // ==================== ERP 采购计划（M4 · 年度 / 月度，物料 × 仓库；录入 + 执行率） ====================
+        // `sys_menu`（V0447 种子 …0946）path = `/business/erp/purchase-plan`、
+        // component `business/erp/purchase-plan/index`，页面显形码
+        // `business:erp:purchase-plan:page`（AGENTS 约定 14：页面码只给前端判显隐，
+        // 后端零引用）。**路由手工注册**（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/purchase-plan',
+        name: 'BusinessErpPurchasePlan',
+        component: () => import('@/views/business/erp/purchase-plan/index.vue'),
+        meta: { title: '采购计划', permission: 'business:erp:purchase-plan:page' },
+      },
+      {
         // ==================== ERP 采购退货（P2-03 · 退货 → 审批 → 红字应付 → 库存回冲 → 凭证） ====================
         // `sys_menu`（V0332 种子 …3341）path = `/business/erp/purchase-return`，
         // component `business/erp/purchase-return/index`。**路由手工注册**（没有 views 自动扫描），

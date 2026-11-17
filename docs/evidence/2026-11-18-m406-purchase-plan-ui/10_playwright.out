@@ -1,0 +1,14 @@
+[e2e-target] OK 隔离实例：http://127.0.0.1:5190（回环 + 隔离端口 5190）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5190（回环 + 隔离端口 5190）
+
+Running 6 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5190（回环 + 隔离端口 5190）
+  ✓  1 [chromium] › e2e/m406-purchase-plan.spec.ts:96:3 › 采购计划（M4-06）：录入 + 执行率 › ① 页面能开：两个 Tab 都在，列表接口 200 且表格有行 (2.0s)
+  ✓  2 [chromium] › e2e/m406-purchase-plan.spec.ts:122:3 › 采购计划（M4-06）：录入 + 执行率 › ② 通过表单真建一张计划（真 POST），列表立刻出现 (2.0s)
+  ✓  3 [chromium] › e2e/m406-purchase-plan.spec.ts:157:3 › 采购计划（M4-06）：录入 + 执行率 › ③ 同一个「物料 × 仓库」写两行：前端当场拦住并点出行号 (2.3s)
+  ✓  4 [chromium] › e2e/m406-purchase-plan.spec.ts:183:3 › 采购计划（M4-06）：录入 + 执行率 › ④ 执行率 Tab：已下满的计划 100.00% + 已下满，下钻能看出被哪张单吃掉 (1.5s)
+  ✓  5 [chromium] › e2e/m406-purchase-plan.spec.ts:213:3 › 采购计划（M4-06）：录入 + 执行率 › ⑤ 转采购申请：已全转的计划剩余量为 0，直接确认被前端拦住 (1.3s)
+  ✓  6 [chromium] › e2e/m406-purchase-plan.spec.ts:226:3 › 采购计划（M4-06）：录入 + 执行率 › ⑥ 取证截图（录入列表 / 执行率 / 下钻抽屉），给卡内汇报留现场 (1.9s)
+
+  6 passed (11.8s)
