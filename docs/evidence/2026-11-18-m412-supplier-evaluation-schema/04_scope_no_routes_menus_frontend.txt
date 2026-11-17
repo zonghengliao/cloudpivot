@@ -1,0 +1,25 @@
+== 本卡范围守卫（M4-12 只做表结构）==
+
+-- 1) 源码里的评估权限码常量（grep "supplier-evaluation:"）--
+0 命中
+
+-- 2) 挂在 supplier_evaluation 上的路由属性（grep '#\[nik::'）--
+0 条
+
+-- 3) 本卡前端文件（git status frontend/ | grep -E "m412|supplier"）--
+0 个（本卡零前端改动 → 不需要 pnpm typecheck / build）
+
+-- 4) 迁移里的 INSERT INTO sys_menu 语句数 --
+0
+（文件里唯一出现 sys_menu 的地方是头注释「本迁移不写一行 sys_menu」）
+
+-- 5) 迁移里的 ALTER TABLE biz_supplier 语句数 --
+0（供应商主数据一个列都不动；等级落在评估单上）
+
+-- 6) 演练脚本第 4 步（psql 侧）的同款断言（真实输出）—
+--    PASS 评估权限码 0 行（M4-16 才落）（=0）
+--    PASS 评估菜单 0 行（M4-16 才落）（=0）
+--    PASS biz_supplier 0 个评估列（供应商主数据不动）（=0）
+--    PASS biz_supplier 0 个等级列（等级落在评估单上，不写回主数据）（=0）
+--    PASS 源码里 0 个 supplier-evaluation 权限码（连常量都不定义）（=0）
+--    PASS 本卡 0 条路由（表结构卡不接线）（=0）

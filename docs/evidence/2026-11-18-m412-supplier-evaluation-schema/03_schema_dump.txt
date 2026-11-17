@@ -1,0 +1,66 @@
+                                                                                                                                                                          Table "public.biz_supplier_evaluation"
+     Column      |           Type           | Collation | Nullable |                                                                                Default                                                                                 | Storage  | Compression | Stats target |                                             Description                                             
+-----------------+--------------------------+-----------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+-------------+--------------+-----------------------------------------------------------------------------------------------------
+ id              | uuid                     |           | not null | gen_random_uuid()                                                                                                                                                      | plain    |             |              | 
+ evaluation_no   | character varying(32)    |           | not null |                                                                                                                                                                        | extended |             |              | 评估单号：SEV-yyyyMMdd-000001（biz_seq.seq_type=SEV，按北京时间天滚动）；存活行唯一，软删后可复用
+ supplier_id     | uuid                     |           | not null |                                                                                                                                                                        | plain    |             |              | 供应商（弱引用 biz_supplier.id）；同供应商同期间只能有一份评估（uk_biz_sev_supplier_period）
+ supplier_name   | character varying(200)   |           |          |                                                                                                                                                                        | extended |             |              | 供应商名快照（评估结论的历史事实）；展示「现名」时 join biz_supplier，两列并存不是冗余（约定 13）
+ period_start    | date                     |           | not null |                                                                                                                                                                        | plain    |             |              | 评估期间起（含）：月度/季度/半年度/年度都用起止日表达，不为季度另加列
+ period_end      | date                     |           | not null |                                                                                                                                                                        | plain    |             |              | 评估期间止（含）；ck_biz_sev_period 保证 period_start <= period_end
+ eval_date       | date                     |           | not null | CURRENT_DATE                                                                                                                                                           | plain    |             |              | 评估日（默认当日）；ck_biz_sev_eval_date 保证不早于 period_start（期间没开始就评完只能是录错）
+ evaluator_id    | uuid                     |           |          |                                                                                                                                                                        | plain    |             |              | 评估人（弱引用 sys_user.id）；姓名走 evaluator_name 快照（审计/历史类，约定 13）
+ evaluator_name  | character varying(64)    |           |          |                                                                                                                                                                        | extended |             |              | 评估人姓名快照：离职/改名后这份评估上写的仍是当时那个人
+ quality_weight  | numeric(7,4)             |           | not null | 0.2500                                                                                                                                                                 | main     |             |              | 质量权重（0–1）；四维之和必须 = 1（ck_biz_sev_weights），默认四等分 0.25
+ delivery_weight | numeric(7,4)             |           | not null | 0.2500                                                                                                                                                                 | main     |             |              | 交期权重（0–1）；四维之和必须 = 1
+ price_weight    | numeric(7,4)             |           | not null | 0.2500                                                                                                                                                                 | main     |             |              | 价格权重（0–1）；四维之和必须 = 1
+ service_weight  | numeric(7,4)             |           | not null | 0.2500                                                                                                                                                                 | main     |             |              | 服务权重（0–1）；四维之和必须 = 1
+ quality_score   | numeric(6,2)             |           | not null | 0                                                                                                                                                                      | main     |             |              | 质量得分（0–100）
+ delivery_score  | numeric(6,2)             |           | not null | 0                                                                                                                                                                      | main     |             |              | 交期得分（0–100）
+ price_score     | numeric(6,2)             |           | not null | 0                                                                                                                                                                      | main     |             |              | 价格得分（0–100）
+ service_score   | numeric(6,2)             |           | not null | 0                                                                                                                                                                      | main     |             |              | 服务得分（0–100）
+ total_score     | numeric(6,2)             |           |          | generated always as (round(quality_weight * quality_score + delivery_weight * delivery_score + price_weight * price_score + service_weight * service_score, 2)) stored | main     |             |              | 加权总分 = round(Σ 权重 × 分数, 2)：**生成列**（STORED），任何写入路径显式写它都会被 PG 拒（428C9）
+ grade           | character varying(2)     |           |          |                                                                                                                                                                        | extended |             |              | 等级 A/B/C/D；**NULL = 未评级**（不造 UNRATED 字符串）。分界阈值属 M4-13
+ remark          | text                     |           |          |                                                                                                                                                                        | extended |             |              | 备注：扣分事由 / 改进要求 / 复审约定
+ created_at      | timestamp with time zone |           | not null | CURRENT_TIMESTAMP                                                                                                                                                      | plain    |             |              | 
+ updated_at      | timestamp with time zone |           | not null | CURRENT_TIMESTAMP                                                                                                                                                      | plain    |             |              | 
+ create_by       | uuid                     |           |          |                                                                                                                                                                        | plain    |             |              | 
+ update_by       | uuid                     |           |          |                                                                                                                                                                        | plain    |             |              | 
+ deleted_at      | timestamp with time zone |           |          |                                                                                                                                                                        | plain    |             |              | 
+Indexes:
+    "biz_supplier_evaluation_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_sev_grade" btree (grade, period_end DESC) WHERE deleted_at IS NULL AND grade IS NOT NULL
+    "idx_biz_sev_period" btree (period_end DESC, supplier_id) WHERE deleted_at IS NULL
+    "uk_biz_sev_no" UNIQUE, btree (evaluation_no) WHERE deleted_at IS NULL
+    "uk_biz_sev_supplier_period" UNIQUE, btree (supplier_id, period_start, period_end) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_sev_eval_date" CHECK (eval_date >= period_start)
+    "ck_biz_sev_grade" CHECK (grade IS NULL OR (grade::text = ANY (ARRAY['A'::character varying, 'B'::character varying, 'C'::character varying, 'D'::character varying]::text[])))
+    "ck_biz_sev_no_fmt" CHECK (evaluation_no::text ~ '^SEV-[0-9]{8}-[0-9]{6}$'::text)
+    "ck_biz_sev_period" CHECK (period_start <= period_end)
+    "ck_biz_sev_scores" CHECK (quality_score >= 0::numeric AND quality_score <= 100::numeric AND delivery_score >= 0::numeric AND delivery_score <= 100::numeric AND price_score >= 0::numeric AND price_score <= 100::numeric AND service_score >= 0::numeric AND service_score <= 100::numeric)
+    "ck_biz_sev_weights" CHECK (quality_weight >= 0::numeric AND quality_weight <= 1::numeric AND delivery_weight >= 0::numeric AND delivery_weight <= 1::numeric AND price_weight >= 0::numeric AND price_weight <= 1::numeric AND service_weight >= 0::numeric AND service_weight <= 1::numeric AND (quality_weight + delivery_weight + price_weight + service_weight) = 1::numeric)
+Not-null constraints:
+    "biz_supplier_evaluation_id_not_null" NOT NULL "id"
+    "biz_supplier_evaluation_evaluation_no_not_null" NOT NULL "evaluation_no"
+    "biz_supplier_evaluation_supplier_id_not_null" NOT NULL "supplier_id"
+    "biz_supplier_evaluation_period_start_not_null" NOT NULL "period_start"
+    "biz_supplier_evaluation_period_end_not_null" NOT NULL "period_end"
+    "biz_supplier_evaluation_eval_date_not_null" NOT NULL "eval_date"
+    "biz_supplier_evaluation_quality_weight_not_null" NOT NULL "quality_weight"
+    "biz_supplier_evaluation_delivery_weight_not_null" NOT NULL "delivery_weight"
+    "biz_supplier_evaluation_price_weight_not_null" NOT NULL "price_weight"
+    "biz_supplier_evaluation_service_weight_not_null" NOT NULL "service_weight"
+    "biz_supplier_evaluation_quality_score_not_null" NOT NULL "quality_score"
+    "biz_supplier_evaluation_delivery_score_not_null" NOT NULL "delivery_score"
+    "biz_supplier_evaluation_price_score_not_null" NOT NULL "price_score"
+    "biz_supplier_evaluation_service_score_not_null" NOT NULL "service_score"
+    "biz_supplier_evaluation_created_at_not_null" NOT NULL "created_at"
+    "biz_supplier_evaluation_updated_at_not_null" NOT NULL "updated_at"
+Access method: heap
+
+biz_supplier_evaluation_pkey :: CREATE UNIQUE INDEX biz_supplier_evaluation_pkey ON public.biz_supplier_evaluation USING btree (id)
+idx_biz_sev_grade :: CREATE INDEX idx_biz_sev_grade ON public.biz_supplier_evaluation USING btree (grade, period_end DESC) WHERE ((deleted_at IS NULL) AND (grade IS NOT NULL))
+idx_biz_sev_period :: CREATE INDEX idx_biz_sev_period ON public.biz_supplier_evaluation USING btree (period_end DESC, supplier_id) WHERE (deleted_at IS NULL)
+uk_biz_sev_no :: CREATE UNIQUE INDEX uk_biz_sev_no ON public.biz_supplier_evaluation USING btree (evaluation_no) WHERE (deleted_at IS NULL)
+uk_biz_sev_supplier_period :: CREATE UNIQUE INDEX uk_biz_sev_supplier_period ON public.biz_supplier_evaluation USING btree (supplier_id, period_start, period_end) WHERE (deleted_at IS NULL)
+SEV SEV yyyyMMdd -

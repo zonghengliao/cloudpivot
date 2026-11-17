@@ -1,0 +1,84 @@
+== M4-12 供应商评估表结构演练 · PG 172.18.10.145:5432 / 库 cp_m412_sev_drill_3633544 ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m412_sev_drill_3633544
+== 1) 补齐业务迁移 V0405…V0453 + 再上 V0454
+  [32mPASS[0m 49 条 V0405…V0453 迁移全部应用成功（演练库推到 V0453）
+  [32mPASS[0m 上 V0454 之前供应商评估表还不存在（下面每一条断言才说明是 V0454 建的）（=GONE）
+== 1b) 应用 V0454（连跑两遍验幂等）
+  [32mPASS[0m 第一遍应用成功
+  [32mPASS[0m 第二遍应用成功（幂等：只该出 NOTICE）
+  [32mPASS[0m 第二遍输出无 ERROR（CREATE ... IF NOT EXISTS 生效）
+  [32mPASS[0m V0454 一条菜单都没加（上迁移前后菜单总数不变；本卡只做表结构）（=550）
+== 2) 结构断言
+  [32mPASS[0m 评估表存在（=biz_supplier_evaluation）
+  [32mPASS[0m 评估表 25 列（=25）
+  [32mPASS[0m 4 个索引全在（=4）
+  [32mPASS[0m 两个唯一索引都是部分索引（软删后可复用）（=2）
+  [32mPASS[0m total_score 是 GENERATED ALWAYS 列（任何写入路径都写不进）（=ALWAYS）
+  [32mPASS[0m 生成表达式是 round(Σ 四维权重 × 分数)（=1）
+  [32mPASS[0m 取号规则 SEV 一行（=1）
+  [32mPASS[0m 模板库克隆完整（public 表 > 180 张）（=1）
+  [32mPASS[0m 四维分数列（质量/交期/价格/服务）都在（=4）
+  [32mPASS[0m 四维权重列都在（=4）
+== 3) 约束行为（卡面四维 + 权重 + 期间 + 供应商）
+  [32mPASS[0m 旧形状 SEV-2026-1 的单号被拒（库层拒了：ck_biz_sev_no_fmt）
+  [32mPASS[0m 错前缀 SV-yyyyMMdd 的单号被拒（库层拒了：ck_biz_sev_no_fmt）
+  [32mPASS[0m 评估期间起晚于止被拒（库层拒了：ck_biz_sev_period）
+  [32mPASS[0m 评估日早于期间起点被拒（期间没开始就评完）（库层拒了：ck_biz_sev_eval_date）
+  [32mPASS[0m 四维权重之和 1.1 被拒（库层拒了：ck_biz_sev_weights）
+  [32mPASS[0m 只写三个权重（第四项取默认 0.25 → 和 1.15）被拒（库层拒了：ck_biz_sev_weights）
+  [32mPASS[0m 权重 1.5 / -0.5 被拒（和仍是 1，但单项越界）（库层拒了：ck_biz_sev_weights）
+  [32mPASS[0m 质量得分 100.01 被拒（百分制上限 100）（库层拒了：ck_biz_sev_scores）
+  [32mPASS[0m 负的服务得分被拒（库层拒了：ck_biz_sev_scores）
+  [32mPASS[0m 等级域外的 E 被拒（库层拒了：ck_biz_sev_grade）
+  [32mPASS[0m 小写等级 a 被拒（库层拒了：ck_biz_sev_grade）
+  [32mPASS[0m 自造的 UNRATED 等级被拒（未评级只许 NULL）（库层拒了：ERROR:  value too long for type character varying(2)）
+  [32mPASS[0m 正样本：默认四等分权重 + 期间 + 快照都能插
+  [32mPASS[0m 四维权重默认值 = 四等分 0.25（=0.2500|0.2500|0.2500|0.2500）
+  [32mPASS[0m grade 默认 NULL（未评级，不是字符串）（=NULL）
+  [32mPASS[0m 四维全 0 分时总分为 0.00（=0.00）
+  [32mPASS[0m 40/30/20/10 权重 + 80/90/70/60 分数能落库
+  [32mPASS[0m 加权总分由库算出 79.00（32+27+14+6）（=79.00）
+  [32mPASS[0m 改一维分数能落库
+  [32mPASS[0m 改分数后总分自动重算 82.00（生成列）（=82.00）
+  [32mPASS[0m UPDATE 显式写 total_score 被拒（生成列）（库层拒了：ERROR:  column "total_score" can only be updated to DEFAULT）
+  [32mPASS[0m INSERT 显式写 total_score 被拒（生成列）（库层拒了：ERROR:  cannot insert a non-DEFAULT value into column "total_score"）
+  [32mPASS[0m 同编号的第二份存活评估被拒（库层拒了：uk_biz_sev_no）
+  [32mPASS[0m 同供应商同期间的第二份评估被拒（库层拒了：uk_biz_sev_supplier_period）
+  [32mPASS[0m 同供应商换期间（Q2）能插
+  [32mPASS[0m 换供应商（同期间）能插
+== 4) 本卡范围守卫（不夹带权限码、菜单、供应商主数据列）
+  [32mPASS[0m 评估权限码 0 行（M4-16 才落）（=0）
+  [32mPASS[0m 评估菜单 0 行（M4-16 才落）（=0）
+  [32mPASS[0m biz_supplier 0 个评估列（供应商主数据不动）（=0）
+  [32mPASS[0m biz_supplier 0 个等级列（等级落在评估单上，不写回主数据）（=0）
+  [32mPASS[0m 源码里 0 个 supplier-evaluation 权限码（连常量都不定义）（=0）
+  [32mPASS[0m 本卡 0 条路由（表结构卡不接线）（=0）
+== 5) 空库全链重放（mig_replay_fresh.sh，独立库）
+  ---- SKIP_REPLAY=1：跳过（本地快速迭代用；提交前必须跑全）
+== 6) 回滚三段（数据护栏 / 成功 / 复原）
+  [32mPASS[0m 有数据时 down 被拒（数据护栏生效）
+  [32mPASS[0m 清空后评估表真的空了（down 的数据护栏才会放行）（=0）
+  [32mPASS[0m 清空后 down 成功
+  [32mPASS[0m down 后评估表已删（=）
+  [32mPASS[0m down 后取号行已删（=0）
+  [32mPASS[0m 再 up 复原成功
+  [32mPASS[0m up 复原后表回来了（=biz_supplier_evaluation）
+  [32mPASS[0m up 复原后列数仍是 25（=25）
+== 7) 真库用例（--test-threads=1 --nocapture）
+  ---- SKIP 自检模式（M412_BAD_URL=1）：连接串故意写错，期望 SKIP>0
+  [32mPASS[0m 本卡用例全绿（25 条：13 纯逻辑 + 12 真库）
+  [31mFAIL[0m 本组出现 1 行 SKIP（假绿）
+        test business::erp::purchase::supplier_evaluation_db_tests::dimension_scores_are_0_to_100 ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+  [31mFAIL[0m 缺正向标记 —— 用例没真跑（被跳过 / 被过滤）
+== 8) 门禁（permission_audit_tests + menu_invariants.sh）
+  [32mPASS[0m permission_audit_tests 全绿（本卡没动权限码，也不许打破审计）
+  [32mPASS[0m menu_invariants.sh 8 条断言全绿
+  ---- 菜单总数：550（门禁区间 400-540；本卡零新增）
+== 9) 夹具残留
+  [32mPASS[0m M412- 评估 0 残留（=0）
+  [32mPASS[0m 自检探针号段 0 残留（=0）
+  [32mPASS[0m 取号行复原后仍是 1 行（=1）
+
+[31m== M4-12 演练结果：PASS=64  FAIL=2 —— 见上面红行[0m

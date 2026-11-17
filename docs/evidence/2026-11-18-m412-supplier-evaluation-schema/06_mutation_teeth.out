@@ -1,0 +1,17 @@
+== 变异反证：删掉一条约束 / 降级生成列，用例必须变红 ==
+
+-- 变异 A：ALTER TABLE biz_supplier_evaluation DROP CONSTRAINT ck_biz_sev_weights --
+   期望：weights_must_sum_to_one_and_be_in_range 红
+   实测：FAILED
+   四维权重之和 1.1：库层居然接受了这条写入（约束失效）
+
+-- 变异 B：DROP COLUMN total_score 后 ADD COLUMN total_score NUMERIC(6,2) DEFAULT 0（生成列 → 普通列）--
+   期望：total_score_is_generated_from_weights_and_scores 红
+   实测：FAILED
+   加权总分必须由库算出 79.00 / left: 0.00 / right: 79.00
+
+-- 变异 C：M412_BAD_URL=1（真库连不上）--
+   期望：用例打 SKIP → 脚本判红
+   实测：RC=1，断言通过 64 条 / 失败 2 条（『本组出现 1 行 SKIP（假绿）』『缺正向标记』）见 02_teeth_skip_guard.out
+
+结论：三条变异各自都能让门禁变红 —— 断言不是摆设。

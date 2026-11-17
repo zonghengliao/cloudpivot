@@ -53,6 +53,18 @@ pub mod framework_agreement_execution_model;
 pub mod framework_agreement_model;
 pub mod framework_agreement_ref;
 
+// ==================== 供应商评估（SEV）：表结构（M4-12） ====================
+// M4-12 只交表结构：model 里是表名 / 四维常量 / 权重与分数的合法判据 / 取号（biz_seq SEV）/
+// 读入口 / 加权总分纯函数。总分在库里是**生成列**（写不进），Rust 侧 [`weighted_total`]
+// 只用于试算与对拍。
+// 评估打分编排 + 评级阈值属 M4-13、准入/黑名单属 M4-14、单测属 M4-15、页面属 M4-16 ——
+// 本目录**不含**它们（零路由 / 零权限码 / 零菜单）。
+pub mod supplier_evaluation_model;
+
+/// 供应商评估表结构的真库用例（M4-12；与其它 ERP 用例共用同一个串行锁）。
+#[cfg(test)]
+mod supplier_evaluation_db_tests;
+
 /// 框架协议表结构的真库用例（M4-07；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]
 mod framework_agreement_db_tests;

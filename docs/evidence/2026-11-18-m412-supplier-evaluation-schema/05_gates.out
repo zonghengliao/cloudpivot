@@ -1,0 +1,11 @@
+== 交付要求 1：cd backend && cargo fmt && cargo clippy --lib -- -D warnings ==
+
+$ cargo fmt --check
+EXIT=0
+
+$ cargo clippy -p cloudpivot --lib -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.55s
+EXIT=0
+
+== 交付要求 2：cd frontend && pnpm typecheck && pnpm build ==
+本卡 0 个前端文件（git status frontend/ 无本卡改动）→ 不适用（按卡面「不夹带」，前端留给 M4-16）
