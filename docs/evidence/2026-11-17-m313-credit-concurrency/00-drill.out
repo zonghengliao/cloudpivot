@@ -1,0 +1,40 @@
+== M3-13 客户信用并发单测 · 演练（PG 172.18.10.145:5432 / 库 cp_m313_concurrency_drill_3164111）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m313_concurrency_drill_3164111
+== 1) 补齐业务迁移 V0405…V0437（幂等，逐条 ON_ERROR_STOP；本卡**不加迁移**）
+  [32mPASS[0m 33 条业务迁移全部应用成功
+  [32mPASS[0m biz_customer 的 credit_policy / credit_used 都在（M3-09 + SO-38 的列）（=2）
+  [32mPASS[0m 本卡未新增迁移（下一个可用号 V0438 未被本卡占用）
+== 2) 静态断言：并发用例结构（7 条 / 预热 / 竞态护栏 / 台账链）
+  [32mPASS[0m 7 条用例全部用 multi_thread 运行时（current_thread 下 spawn 不会真并行）（=7）
+  [32mPASS[0m 每个并发段之前都预热连接池（函数定义 + 7 处调用 ≥ 8 次）（=8）
+  [32mPASS[0m 保留「竞态必须命中」的护栏（竞态分支不许变成死代码）（=1）
+  [32mPASS[0m 台账链断言只有一份实现（=1）
+  [32mPASS[0m 台账链断言被 5 条用例复用（③ 是「零占用 ⇒ 台账必须为空」，不用链断言）（=5）
+  [32mPASS[0m 没有临时探针残留（TEMP-PROBE）（=0）
+  [32mPASS[0m 缓存列 == 公式（S9 同源）的断言在每个并发场景后都跑（=10）
+== 3) perm_menu_gate.py（注解码 − 菜单码 必须为 0）
+  [32mPASS[0m 死权限码闸通过（65 行输出）
+== 4) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡并发用例（提交 / 审批 / 部分收款并发 / 占用释放交错）：business::erp::credit_concurrency_tests 全绿（7 条）（=7）
+  [32mPASS[0m 本卡并发用例（提交 / 审批 / 部分收款并发 / 占用释放交错）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m M3-12 回归（核销即释放六口径 + 回执契约）：business::erp::credit_release_tests 全绿（7 条）（=7）
+  [32mPASS[0m M3-12 回归（核销即释放六口径 + 回执契约）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 信用域整组（三释放出口 + 策略三态 + 实时快照 + 审批评估）：business::erp::credit 全绿（44 条）（=44）
+  [32mPASS[0m 信用域整组（三释放出口 + 策略三态 + 实时快照 + 审批评估）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 收款域整组（登记 / 核销 / 状态机 / 回调）：business::erp::receipt 全绿（35 条）（=35）
+  [32mPASS[0m 收款域整组（登记 / 核销 / 状态机 / 回调）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 退款域整组（冲减 / 反向边）：business::erp::receipt_refund 全绿（24 条）（=24）
+  [32mPASS[0m 退款域整组（冲减 / 反向边）：本组 SKIP=0（真库用例没被打成假绿）
+== 5) 收尾：夹具 0 残留 + S9 对拍 0 漂移
+  [32mPASS[0m biz_sales_order 无 M313 夹具订单（=0）
+  [32mPASS[0m biz_receivable 无 M313 夹具应收（=0）
+  [32mPASS[0m biz_receipt 无 M313 夹具收款（=0）
+  [32mPASS[0m 信用台账无 M313 夹具行（=0）
+  [32mPASS[0m 销售订单无 M313 孤儿状态日志（M3-08 的口径：entity_type 落 SALE_ORDER）（=0）
+  [32mPASS[0m S9 对拍：M313 客户 credit_used 与公式无漂移（容差 0.01）（=0）
+
+== 汇总：PASS=29 FAIL=0 ==
+ALL PASS
+EXIT=0

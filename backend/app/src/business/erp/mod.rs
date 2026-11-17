@@ -303,3 +303,8 @@ mod reminder_tests;
 /// 只在 `cargo test` 时编译。
 #[cfg(test)]
 mod credit_release_tests;
+
+/// M3-13 客户信用的**并发**真库单测（并发提交 / 并发审批 / 部分收款并发核销 + 竞态不变量）。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod credit_concurrency_tests;

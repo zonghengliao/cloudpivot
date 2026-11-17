@@ -1,0 +1,7 @@
+$ cargo fmt -p cloudpivot -- --check
+（0 差异）
+
+$ cargo clippy -p cloudpivot --lib --tests -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 44s
+EXIT=0
