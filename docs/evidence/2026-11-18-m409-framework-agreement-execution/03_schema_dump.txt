@@ -1,0 +1,316 @@
+== M4-09 结构实测（库 cp_m409_sql = 模板 cloudpivot_test + V0405…V0452）==
+
+                                                                                    View "public.v_framework_agreement_item_execution"
+          Column          |         Type          | Collation | Nullable | Default | Storage  |                                                        Description                                                         
+--------------------------+-----------------------+-----------+----------+---------+----------+----------------------------------------------------------------------------------------------------------------------------
+ agreement_item_id        | uuid                  |           |          |         | plain    | 
+ agreement_id             | uuid                  |           |          |         | plain    | 
+ agreement_no             | character varying(32) |           |          |         | extended | 
+ line_no                  | integer               |           |          |         | plain    | 
+ material_id              | uuid                  |           |          |         | plain    | 
+ material_code            | character varying     |           |          |         | extended | 
+ material_name            | character varying     |           |          |         | extended | 
+ unit_id                  | uuid                  |           |          |         | plain    | 
+ unit_name                | character varying     |           |          |         | extended | 
+ agreed_price             | numeric(18,6)         |           |          |         | main     | 
+ tax_rate                 | numeric(7,4)          |           |          |         | main     | 
+ price_includes_tax       | boolean               |           |          |         | plain    | 
+ price_currency           | character varying(8)  |           |          |         | extended | 
+ max_qty                  | numeric(18,4)         |           |          |         | main     | 
+ executed_qty             | numeric               |           |          |         | main     | 已用量 = Σ 引用本行的「存活（deleted_at IS NULL）且未作废（status <> CANCELLED）」采购明细 qty；草稿也算（量已占住）
+ booked_qty               | numeric(18,4)         |           |          |         | main     | 回写快照（biz_framework_agreement_item.executed_qty，M4-08 重算）；与 executed_qty 不一致 = 回写与单据链分叉，报表直接显形
+ executed_amount          | numeric               |           |          |         | main     | 
+ executed_amount_with_tax | numeric               |           |          |         | main     | 
+ executed_amount_capped   | numeric               |           |          |         | main     | 已用金额（按协议价口径）：协议价含税取 Σ with_tax_amount，否则取 Σ amount —— 与 M4-08 金额上限比较同一口径
+ remaining_qty            | numeric               |           |          |         | main     | 剩余 = max_qty − executed_qty；**可为负**（超上限执行，V0450 刻意不在库层拦）；max_qty 为 NULL（不限）时为 NULL，不是 0
+ cap_amount               | numeric               |           |          |         | main     | 
+ remaining_amount         | numeric               |           |          |         | main     | 
+ exec_qty_rate            | numeric               |           |          |         | main     | 
+ exec_amount_rate         | numeric               |           |          |         | main     | 
+ order_doc_count          | bigint                |           |          |         | plain    | 
+ order_line_count         | bigint                |           |          |         | plain    | 
+ last_order_on            | date                  |           |          |         | plain    | 
+ exec_state               | text                  |           |          |         | extended | 行状态：UNLIMITED（未设上限）/ NOT_STARTED（已用 0）/ PARTIAL / DONE（恰好用满）/ OVER（超上限）
+View definition:
+ SELECT it.id AS agreement_item_id,
+    it.agreement_id,
+    a.agreement_no,
+    it.line_no,
+    it.material_id,
+    COALESCE(m.material_code, ''::character varying) AS material_code,
+    COALESCE(m.material_name, ''::character varying) AS material_name,
+    it.unit_id,
+    COALESCE(u.unit_name, ''::character varying) AS unit_name,
+    it.agreed_price,
+    it.tax_rate,
+    a.price_includes_tax,
+    a.price_currency,
+    it.max_qty,
+    COALESCE(usg.qty, 0::numeric) AS executed_qty,
+    it.executed_qty AS booked_qty,
+    COALESCE(usg.amount, 0::numeric) AS executed_amount,
+    COALESCE(usg.with_tax, 0::numeric) AS executed_amount_with_tax,
+        CASE
+            WHEN a.price_includes_tax THEN COALESCE(usg.with_tax, 0::numeric)
+            ELSE COALESCE(usg.amount, 0::numeric)
+        END AS executed_amount_capped,
+    it.max_qty - COALESCE(usg.qty, 0::numeric) AS remaining_qty,
+    it.max_qty * it.agreed_price AS cap_amount,
+    it.max_qty * it.agreed_price -
+        CASE
+            WHEN a.price_includes_tax THEN COALESCE(usg.with_tax, 0::numeric)
+            ELSE COALESCE(usg.amount, 0::numeric)
+        END AS remaining_amount,
+    round(COALESCE(usg.qty, 0::numeric) / it.max_qty, 6) AS exec_qty_rate,
+    round(
+        CASE
+            WHEN a.price_includes_tax THEN COALESCE(usg.with_tax, 0::numeric)
+            ELSE COALESCE(usg.amount, 0::numeric)
+        END / NULLIF(it.max_qty * it.agreed_price, 0::numeric), 6) AS exec_amount_rate,
+    COALESCE(usg.doc_count, 0::bigint) AS order_doc_count,
+    COALESCE(usg.line_count, 0::bigint) AS order_line_count,
+    usg.last_order_on,
+        CASE
+            WHEN it.max_qty IS NULL THEN 'UNLIMITED'::text
+            WHEN COALESCE(usg.qty, 0::numeric) > it.max_qty THEN 'OVER'::text
+            WHEN COALESCE(usg.qty, 0::numeric) >= it.max_qty THEN 'DONE'::text
+            WHEN COALESCE(usg.qty, 0::numeric) > 0::numeric THEN 'PARTIAL'::text
+            ELSE 'NOT_STARTED'::text
+        END AS exec_state
+   FROM biz_framework_agreement_item it
+     JOIN biz_framework_agreement a ON a.id = it.agreement_id AND a.deleted_at IS NULL
+     LEFT JOIN biz_material m ON m.id = it.material_id AND m.deleted_at IS NULL
+     LEFT JOIN biz_unit u ON u.id = it.unit_id
+     LEFT JOIN ( SELECT i.framework_agreement_item_id AS item_id,
+            sum(i.qty) AS qty,
+            sum(i.amount) AS amount,
+            sum(i.with_tax_amount) AS with_tax,
+            count(DISTINCT o.id) AS doc_count,
+            count(*) AS line_count,
+            max(o.order_date) AS last_order_on
+           FROM biz_purchase_order_item i
+             JOIN biz_purchase_order o ON o.id = i.order_id AND o.deleted_at IS NULL AND o.status::text <> 'CANCELLED'::text
+          WHERE i.framework_agreement_item_id IS NOT NULL
+          GROUP BY i.framework_agreement_item_id) usg ON usg.item_id = it.id;
+
+                                                                                                    View "public.v_framework_agreement_execution"
+          Column          |           Type           | Collation | Nullable | Default | Storage  |                                                                    Description                                                                    
+--------------------------+--------------------------+-----------+----------+---------+----------+---------------------------------------------------------------------------------------------------------------------------------------------------
+ agreement_id             | uuid                     |           |          |         | plain    | 
+ agreement_no             | character varying(32)    |           |          |         | extended | 
+ agreement_name           | character varying(128)   |           |          |         | extended | 
+ supplier_id              | uuid                     |           |          |         | plain    | 
+ supplier_name            | character varying(200)   |           |          |         | extended | 
+ supplier_display_name    | character varying        |           |          |         | extended | 
+ dept_id                  | uuid                     |           |          |         | plain    | 
+ dept_name                | character varying(128)   |           |          |         | extended | 
+ owner_id                 | uuid                     |           |          |         | plain    | 
+ owner_name               | character varying(64)    |           |          |         | extended | 
+ start_date               | date                     |           |          |         | plain    | 
+ end_date                 | date                     |           |          |         | plain    | 
+ sign_date                | date                     |           |          |         | plain    | 
+ status                   | character varying(16)    |           |          |         | extended | 
+ price_mode               | character varying(16)    |           |          |         | extended | 
+ price_includes_tax       | boolean                  |           |          |         | plain    | 
+ price_currency           | character varying(8)     |           |          |         | extended | 
+ price_tolerance          | numeric(7,4)             |           |          |         | main     | 
+ total_max_qty            | numeric(18,4)            |           |          |         | main     | 
+ total_max_amount         | numeric(18,4)            |           |          |         | main     | 
+ cap_qty                  | numeric                  |           |          |         | main     | 有效数量封顶：total_max_qty，没写则取 item_max_qty_sum（明细全部设了上限时）；两者都没有 = NULL（不限）
+ cap_amount               | numeric(18,4)            |           |          |         | main     | 
+ item_max_qty_sum         | numeric                  |           |          |         | main     | 
+ item_count               | bigint                   |           |          |         | plain    | 
+ unlimited_items          | bigint                   |           |          |         | plain    | 
+ over_items               | bigint                   |           |          |         | plain    | 
+ done_items               | bigint                   |           |          |         | plain    | 
+ partial_items            | bigint                   |           |          |         | plain    | 
+ not_started_items        | bigint                   |           |          |         | plain    | 
+ executed_qty             | numeric                  |           |          |         | main     | 
+ executed_amount          | numeric                  |           |          |         | main     | 
+ executed_amount_with_tax | numeric                  |           |          |         | main     | 
+ executed_amount_capped   | numeric                  |           |          |         | main     | 
+ booked_qty               | numeric                  |           |          |         | main     | 
+ booked_total_qty         | numeric(18,4)            |           |          |         | main     | 
+ booked_total_amount      | numeric(18,4)            |           |          |         | main     | 
+ remaining_qty            | numeric                  |           |          |         | main     | 剩余可下单量 = cap_qty − executed_qty；**可为负**（超上限）；cap_qty 为 NULL（不限）时为 NULL，不是 0
+ remaining_amount         | numeric                  |           |          |         | main     | 
+ exec_qty_rate            | numeric                  |           |          |         | main     | 
+ exec_amount_rate         | numeric                  |           |          |         | main     | 
+ order_doc_count          | bigint                   |           |          |         | plain    | 已经吃了额度的采购单单数（存活且未作废）；released_doc_count 是作废/软删的（已释放，仅供解释「已用为什么没涨」）
+ released_doc_count       | bigint                   |           |          |         | plain    | 
+ last_order_on            | date                     |           |          |         | plain    | 
+ days_left                | integer                  |           |          |         | plain    | 
+ is_effective             | boolean                  |           |          |         | plain    | 
+ validity_state           | character varying        |           |          |         | extended | 有效期状态：DRAFT / SUBMITTED（不生效）/ NOT_STARTED（未到生效日）/ ACTIVE（生效中）/ EXPIRED（已过 end_date）—— 由 status + 起止日期现算，不落库
+ exec_state               | text                     |           |          |         | extended | 
+ created_at               | timestamp with time zone |           |          |         | plain    | 
+View definition:
+ WITH item_agg AS (
+         SELECT e.agreement_id,
+            count(*) AS item_count,
+            count(*) FILTER (WHERE e.exec_state = 'UNLIMITED'::text) AS unlimited_items,
+            count(*) FILTER (WHERE e.exec_state = 'OVER'::text) AS over_items,
+            count(*) FILTER (WHERE e.exec_state = 'DONE'::text) AS done_items,
+            count(*) FILTER (WHERE e.exec_state = 'PARTIAL'::text) AS partial_items,
+            count(*) FILTER (WHERE e.exec_state = 'NOT_STARTED'::text) AS not_started_items,
+            COALESCE(sum(e.executed_qty), 0::numeric) AS executed_qty,
+            COALESCE(sum(e.executed_amount), 0::numeric) AS executed_amount,
+            COALESCE(sum(e.executed_amount_with_tax), 0::numeric) AS executed_amount_with_tax,
+            COALESCE(sum(e.executed_amount_capped), 0::numeric) AS executed_amount_capped,
+            COALESCE(sum(e.booked_qty), 0::numeric) AS booked_qty,
+            sum(e.max_qty) FILTER (WHERE e.max_qty IS NOT NULL) AS item_max_qty_sum_raw
+           FROM v_framework_agreement_item_execution e
+          GROUP BY e.agreement_id
+        ), po_agg AS (
+         SELECT o.framework_agreement_id AS agreement_id,
+            count(DISTINCT o.id) FILTER (WHERE o.deleted_at IS NULL AND o.status::text <> 'CANCELLED'::text) AS order_doc_count,
+            count(DISTINCT o.id) FILTER (WHERE o.deleted_at IS NOT NULL OR o.status::text = 'CANCELLED'::text) AS released_doc_count,
+            max(o.order_date) FILTER (WHERE o.deleted_at IS NULL AND o.status::text <> 'CANCELLED'::text) AS last_order_on
+           FROM biz_purchase_order o
+          WHERE o.framework_agreement_id IS NOT NULL
+          GROUP BY o.framework_agreement_id
+        ), base AS (
+         SELECT a.id AS agreement_id,
+            a.agreement_no,
+            a.agreement_name,
+            a.supplier_id,
+            a.supplier_name,
+            COALESCE(s.supplier_name, a.supplier_name, ''::character varying) AS supplier_display_name,
+            a.dept_id,
+            a.dept_name,
+            a.owner_id,
+            a.owner_name,
+            a.start_date,
+            a.end_date,
+            a.sign_date,
+            a.status,
+            a.price_mode,
+            a.price_includes_tax,
+            a.price_currency,
+            a.price_tolerance,
+            a.total_max_qty,
+            a.total_max_amount,
+            a.total_executed_qty AS booked_total_qty,
+            a.total_executed_amount AS booked_total_amount,
+            COALESCE(i.item_count, 0::bigint) AS item_count,
+            COALESCE(i.unlimited_items, 0::bigint) AS unlimited_items,
+            COALESCE(i.over_items, 0::bigint) AS over_items,
+            COALESCE(i.done_items, 0::bigint) AS done_items,
+            COALESCE(i.partial_items, 0::bigint) AS partial_items,
+            COALESCE(i.not_started_items, 0::bigint) AS not_started_items,
+            COALESCE(i.executed_qty, 0::numeric) AS executed_qty,
+            COALESCE(i.executed_amount, 0::numeric) AS executed_amount,
+            COALESCE(i.executed_amount_with_tax, 0::numeric) AS executed_amount_with_tax,
+            COALESCE(i.executed_amount_capped, 0::numeric) AS executed_amount_capped,
+            COALESCE(i.booked_qty, 0::numeric) AS booked_qty,
+                CASE
+                    WHEN COALESCE(i.unlimited_items, 0::bigint) = 0 THEN COALESCE(i.item_max_qty_sum_raw, 0::numeric)
+                    ELSE NULL::numeric
+                END AS item_max_qty_sum,
+            COALESCE(p.order_doc_count, 0::bigint) AS order_doc_count,
+            COALESCE(p.released_doc_count, 0::bigint) AS released_doc_count,
+            p.last_order_on,
+            a.created_at,
+            a.end_date - CURRENT_DATE AS days_left,
+            a.status::text = 'APPROVED'::text AND CURRENT_DATE >= a.start_date AND CURRENT_DATE <= a.end_date AS is_effective,
+                CASE
+                    WHEN a.status::text = ANY (ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying]::text[]) THEN a.status
+                    WHEN CURRENT_DATE < a.start_date THEN 'NOT_STARTED'::character varying
+                    WHEN CURRENT_DATE > a.end_date THEN 'EXPIRED'::character varying
+                    ELSE 'ACTIVE'::character varying
+                END AS validity_state,
+            COALESCE(a.total_max_qty,
+                CASE
+                    WHEN COALESCE(i.unlimited_items, 0::bigint) = 0 THEN COALESCE(i.item_max_qty_sum_raw, 0::numeric)
+                    ELSE NULL::numeric
+                END) AS cap_qty,
+            a.total_max_amount AS cap_amount
+           FROM biz_framework_agreement a
+             LEFT JOIN biz_supplier s ON s.id = a.supplier_id AND s.deleted_at IS NULL
+             LEFT JOIN item_agg i ON i.agreement_id = a.id
+             LEFT JOIN po_agg p ON p.agreement_id = a.id
+          WHERE a.deleted_at IS NULL
+        )
+ SELECT agreement_id,
+    agreement_no,
+    agreement_name,
+    supplier_id,
+    supplier_name,
+    supplier_display_name,
+    dept_id,
+    dept_name,
+    owner_id,
+    owner_name,
+    start_date,
+    end_date,
+    sign_date,
+    status,
+    price_mode,
+    price_includes_tax,
+    price_currency,
+    price_tolerance,
+    total_max_qty,
+    total_max_amount,
+    cap_qty,
+    cap_amount,
+    item_max_qty_sum,
+    item_count,
+    unlimited_items,
+    over_items,
+    done_items,
+    partial_items,
+    not_started_items,
+    executed_qty,
+    executed_amount,
+    executed_amount_with_tax,
+    executed_amount_capped,
+    booked_qty,
+    booked_total_qty,
+    booked_total_amount,
+    cap_qty - executed_qty AS remaining_qty,
+    cap_amount - executed_amount_capped AS remaining_amount,
+    round(executed_qty / cap_qty, 6) AS exec_qty_rate,
+    round(executed_amount_capped / cap_amount, 6) AS exec_amount_rate,
+    order_doc_count,
+    released_doc_count,
+    last_order_on,
+    days_left,
+    is_effective,
+    validity_state,
+        CASE
+            WHEN cap_qty IS NULL AND cap_amount IS NULL THEN 'UNLIMITED'::text
+            WHEN cap_qty IS NOT NULL THEN
+            CASE
+                WHEN executed_qty > cap_qty THEN 'OVER'::text
+                WHEN executed_qty >= cap_qty THEN 'DONE'::text
+                WHEN executed_qty > 0::numeric THEN 'PARTIAL'::text
+                ELSE 'NOT_STARTED'::text
+            END
+            ELSE
+            CASE
+                WHEN executed_amount_capped > cap_amount THEN 'OVER'::text
+                WHEN executed_amount_capped >= cap_amount THEN 'DONE'::text
+                WHEN executed_amount_capped > 0::numeric THEN 'PARTIAL'::text
+                ELSE 'NOT_STARTED'::text
+            END
+        END AS exec_state,
+    created_at
+   FROM base b;
+
+
+-- 菜单两行 --
+                  id                  |    name    | menu_type |                 auth_code                  |               path                |              parent_id               |               component                | sort_order | status |    icon    |   title    
+--------------------------------------+------------+-----------+--------------------------------------------+-----------------------------------+--------------------------------------+----------------------------------------+------------+--------+------------+------------
+ 20000000-0000-0000-0000-000000004480 | 框架协议   |         2 | business:erp:framework-agreement:page      | /business/erp/framework-agreement | 20000000-0000-0000-0000-000000000946 | business/erp/framework-agreement/index |         39 |      1 | file-paste | 框架协议
+ 20000000-0000-0000-0000-000000004481 | 协议执行量 |         3 | business:erp:framework-agreement:execution |                                   | 20000000-0000-0000-0000-000000004480 |                                        |         10 |      1 |            | 执行量统计
+(2 rows)
+
+-- 授权 --
+    role_code     |               menu_id                |                 auth_code                  
+------------------+--------------------------------------+--------------------------------------------
+ FINANCE_MANAGER  | 20000000-0000-0000-0000-000000004480 | business:erp:framework-agreement:page
+ FINANCE_MANAGER  | 20000000-0000-0000-0000-000000004481 | business:erp:framework-agreement:execution
+ PURCHASE_MANAGER | 20000000-0000-0000-0000-000000004480 | business:erp:framework-agreement:page
+ PURCHASE_MANAGER | 20000000-0000-0000-0000-000000004481 | business:erp:framework-agreement:execution
+(4 rows)
+

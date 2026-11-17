@@ -39,12 +39,17 @@ pub mod purchase_plan_execution_model;
 pub mod purchase_plan_handler;
 pub mod purchase_plan_model;
 
-// ==================== 框架协议（FW）：表结构（M4-07）+ 订单引用（M4-08） ====================
+// ==================== 框架协议（FW）：表结构（M4-07）+ 订单引用（M4-08）+ 执行量统计（M4-09） ====================
 // M4-07 只交表结构：model 里是表名 / 列 / 取号（biz_seq FWA）/ 读入口 / 派生合计重算
 // + 有效期与容差判据（纯函数）。
 // M4-08 交「订单引用」：`framework_agreement_ref` 里是下单校验（可用性 / 单价 / 累计量与额）
 // + 执行量重算回写 + 详情出参的协议引用；订单表侧的迁移见 V0451。
-// 执行量统计接口属 M4-09、系统单测属 M4-10、前端页面属 M4-11 —— 本目录**不含**它们。
+// M4-09 交「执行量统计」：`framework_agreement_execution_{dto,model,handler}` 里是
+// 「已用 / 剩余」两个只读接口，由 V0452 的两个视图现算（不读回写列）。
+// 系统单测属 M4-10、前端页面属 M4-11 —— 本目录**不含**它们。
+pub mod framework_agreement_execution_dto;
+pub mod framework_agreement_execution_handler;
+pub mod framework_agreement_execution_model;
 pub mod framework_agreement_model;
 pub mod framework_agreement_ref;
 
@@ -55,6 +60,10 @@ mod framework_agreement_db_tests;
 /// 框架协议订单引用的真库用例（M4-08；同一个串行锁）。
 #[cfg(test)]
 mod framework_agreement_ref_db_tests;
+
+/// 框架协议执行量统计的真库用例（M4-09；同一个串行锁）。
+#[cfg(test)]
+mod framework_agreement_execution_db_tests;
 
 /// 采购计划执行率跟踪的真库用例（M4-04；同一个串行锁）。
 #[cfg(test)]

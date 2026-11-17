@@ -1,0 +1,77 @@
+== M4-09 框架协议执行量统计演练 · PG 172.18.10.145:5432 / 库 cp_m409_exec_drill_3584895 ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m409_exec_drill_3584895
+== 1) 补齐业务迁移 V0405…V0451（V0452 之前）
+  [32mPASS[0m 47 条 V0405…V0451 迁移全部应用成功（演练库推到 V0451）
+== 1b) 应用 V0452（连跑两遍验幂等）
+  [32mPASS[0m 上 V0452 之前框架协议 0 个视图（下面每条断言才说明是 V0452 建的）（=0）
+  [32mPASS[0m 第一遍应用成功
+  [32mPASS[0m 第二遍应用成功（幂等：只该出 NOTICE）
+  [32mPASS[0m 第二遍输出无 ERROR（CREATE OR REPLACE VIEW / ON CONFLICT 生效）
+  [32mPASS[0m V0452 只加 2 行菜单（页面 + 执行量按钮）（=550）
+== 2) 结构断言
+  [32mPASS[0m 两个视图都在位（物料行级 + 单头级）（=2）
+  [32mPASS[0m 物料行视图 28 列（=28）
+  [32mPASS[0m 单头视图 48 列（=48）
+  [32mPASS[0m 物料行视图有列 executed_qty
+  [32mPASS[0m 物料行视图有列 booked_qty
+  [32mPASS[0m 物料行视图有列 remaining_qty
+  [32mPASS[0m 物料行视图有列 executed_amount_capped
+  [32mPASS[0m 物料行视图有列 cap_amount
+  [32mPASS[0m 物料行视图有列 exec_qty_rate
+  [32mPASS[0m 物料行视图有列 exec_state
+  [32mPASS[0m 单头视图有列 cap_qty
+  [32mPASS[0m 单头视图有列 cap_amount
+  [32mPASS[0m 单头视图有列 remaining_qty
+  [32mPASS[0m 单头视图有列 remaining_amount
+  [32mPASS[0m 单头视图有列 exec_qty_rate
+  [32mPASS[0m 单头视图有列 exec_amount_rate
+  [32mPASS[0m 单头视图有列 validity_state
+  [32mPASS[0m 单头视图有列 is_effective
+  [32mPASS[0m 单头视图有列 released_doc_count
+== 2b) 菜单两行（页面行 + 按钮行）
+  [32mPASS[0m 页面行：显形码 / path / 父级采购管理 / sort=39 / 启用（=1）
+  [32mPASS[0m 按钮行：接口码 / 父级 = 页面行（不是孤儿）（=1）
+  [32mPASS[0m 两行 title 都 ≤12 字（侧栏不许换行）（=0）
+  [32mPASS[0m 两个角色共拿到 4 条菜单授权
+== 2c) 本卡范围守卫（新增 2 条路由 / 前端 0 处改动）
+  [32mPASS[0m 执行量接口 2 条路由（总览 + 详情）（=2）
+  [32mPASS[0m 两条路由都挂了接口码注解（N16 裸路由门禁）（=2）
+  [32mPASS[0m 前端 0 处改动（Vue 页面属 M4-11）（=0）
+== 3) 口径复核（SQL 直查视图，不依赖 Rust）
+  [32mPASS[0m 探针数据（1 协议 / 2 物料行 / 3 采购单：存活 + 作废 + 软删）插入成功
+  [32mPASS[0m 限量行：已用 30（作废 20 / 软删 5 都不算）、剩余 70、率 0.3（=1）
+  [32mPASS[0m 限量行状态 PARTIAL（=PARTIAL）
+  [32mPASS[0m 不限量行：剩余 / 率 / 金额上限都是 NULL（不是 0）（=1）
+  [32mPASS[0m 不限量行状态 UNLIMITED（=UNLIMITED）
+  [32mPASS[0m 单头：已用 40 / 金额 350 / 封顶 200（单头优先）/ 剩余 160 / 率 0.2（=1）
+  [32mPASS[0m 单头：计入 1 张 / 已释放 2 张（作废 + 软删）（=1）
+  [32mPASS[0m 单头：APPROVED + 今天在效期内 ⇒ ACTIVE / is_effective（=1）
+  [32mPASS[0m 作废单仍在采购明细里（视图只是不计入，不是删数据）（=PO-19990101-954102）
+== 3b) 探针清场
+  [32mPASS[0m 演练探针协议 0 残留（=0）
+  [32mPASS[0m 演练探针采购单 0 残留（=0）
+== 4) 空库全链重放（mig_replay_fresh.sh，独立库）
+  [32mPASS[0m 空库按版本号升序重放全链通过（372/372 条版本化迁移在空库上按版本号升序全部通过）
+== 5) 回滚（视图 + 菜单 + 授权全撤 → 再 up 复原）
+  [32mPASS[0m down 成功（视图是纯派生物，无数据护栏）
+  [32mPASS[0m down 后两个视图已删（=0）
+  [32mPASS[0m down 后两行菜单已删（=0）
+  [32mPASS[0m down 后授权行已删（=0）
+  [32mPASS[0m 再 up 复原成功
+  [32mPASS[0m up 复原后两个视图回来了（=2）
+== 6) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡用例全绿（24 条：12 纯逻辑 + 12 真库）
+  [32mPASS[0m 本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  [32mPASS[0m 正向标记 12/12 在位（每条用例都真跑过）
+== 7) 门禁（permission_audit_tests + menu_invariants.sh）
+  [32mPASS[0m permission_audit_tests 全绿（页面码已登记 ROUTE_LEVEL_ONLY，接口码有注解）
+  [32mPASS[0m menu_invariants.sh 8 条断言全绿
+  ---- 菜单总数：550（门禁区间 400-560；本卡 +2）
+== 8) 夹具残留
+  [32mPASS[0m M409- 协议 0 残留（=0）
+  [32mPASS[0m M409- 采购单 0 残留（=0）
+  [32mPASS[0m 演练探针采购单 0 残留（=0）
+
+[32m== M4-09 演练结果：PASS=60  FAIL=0 —— 框架协议执行量统计（已用 / 剩余 · 两个只读接口）就绪[0m

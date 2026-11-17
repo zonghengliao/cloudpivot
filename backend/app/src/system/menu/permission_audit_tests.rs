@@ -145,6 +145,14 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
          （侧栏显隐 + meta.permission）。与 V0423/V0427/V0431 同形：页面行不复用接口码，\
          把「能进这一页」与「能看全公司计划」拆开。",
     ),
+    // ---- ERP 框架协议页（V0452，卡 t_645358e9 / M4-09）----
+    (
+        "business:erp:framework-agreement:page",
+        "页面显形码（V0452）：框架协议页（协议维护 + 执行量）；两个只读接口判 \
+         business:erp:framework-agreement:execution（同迁移的按钮行），本码只给前端路由\
+         （侧栏显隐 + meta.permission）。Vue 页面文件由 M4-11（t_da2f0a9b）落地，\
+         本卡只落菜单行 —— 因为按钮权限点必须挂在页面行下（menu_invariants ① 孤儿 parent）。",
+    ),
 ];
 
 /// **已种菜单、后端校验点尚未落地**的权限码 → 落地它的卡（临时例外，落地即删）。

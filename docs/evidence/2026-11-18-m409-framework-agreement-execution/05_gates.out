@@ -1,0 +1,63 @@
+== M4-09 门禁（fmt / clippy / 真库用例 / 权限审计 / 菜单结构）==
+
+-- 001 rustfmt --check（本卡 6 个 Rust 文件）--
+rustfmt: OK（无差异）
+
+-- 002 cargo clippy --lib -- -D warnings --
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+
+-- 003 cargo clippy --lib --tests -- -D warnings --
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+-- 004 本卡用例（真库 cp_m409_sql；--test-threads=1）--
+test business::erp::purchase::framework_agreement_execution_db_tests::amount_basis_follows_price_includes_tax ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::cancelled_order_drops_out_of_usage ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::deleted_order_drops_out_of_usage ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::fresh_agreement_reports_full_remaining ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::head_cap_overrides_item_caps ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::head_totals_match_item_summary ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::orders_accumulate_usage_and_rate ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::over_limit_shows_negative_remaining ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::overview_filters_and_hides_soft_deleted ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::unlimited_item_reports_null_remaining ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::validity_states_follow_status_and_dates ... ok
+test business::erp::purchase::framework_agreement_execution_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::exec_state_matrix ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::filter_rejects_bad_input ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::pct_is_two_decimals ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::rate_needs_a_positive_denominator ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::remaining_keeps_null_and_negative ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::source_verdict_covers_all_three_failures ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::summary_falls_back_to_item_caps_only_when_all_limited ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::validity_state_prefers_status_over_dates ... ok
+test business::erp::purchase::framework_agreement_execution_dto::tests::view_names_match_migration ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::head_columns_cover_reader ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::head_target_is_unscoped ... ok
+test business::erp::purchase::framework_agreement_execution_model::tests::item_columns_cover_reader ... ok
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 6324 filtered out; finished in 0.73s
+
+-- 005 permission_audit_tests（SYS_DB_URL=cp_m409_sql）--
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... ok
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6340 filtered out; finished in 13.00s
+
+-- 006 menu_invariants.sh（8 条断言）--
+═══ 菜单结构不变量 ═══
+库: cp_m409_sql
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            550  ✅ (400-560)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 127 条，全部命中
+结果: 全绿 ✅

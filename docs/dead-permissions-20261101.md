@@ -322,3 +322,26 @@ N18 会持续校验这笔台账（例外的码一旦有了注解或消失，N18 
 后端源码一旦引用它、或菜单行消失，N18 立刻红）。与 V0423/V0427/V0431 同形：
 页面行不复用接口码 ——「能进这一页」不等于「能看全公司计划」，
 也避免同一个码在 `sys_menu` 出现两行（授权树两个同名勾选项）。
+
+## 12. 补记（M4-09 / V0452，2026-11-18）：框架协议页的页面显形码
+
+`V0452__framework_agreement_execution` 为「框架协议」页种下**一个页面显形码**
+`business:erp:framework-agreement:page`（`sys_menu.menu_type=2`，挂「采购管理」目录 …946 下，
+sort=39），执行量接口挂同迁移的 1 条 `menu_type=3` 按钮行（…4481）：
+
+| 码 | 管什么 | 承载行 | 谁判 |
+|---|---|---|---|
+| `business:erp:framework-agreement:page` | 侧栏显隐 + 路由 `meta.permission` | V0452 页面行 …4480 | **前端路由**（后端零引用） |
+| `business:erp:framework-agreement:execution` | `GET …/execution/page` + `GET …/{id}/execution` | V0452 按钮行 …4481 | 接口 `#[nik::permission]` |
+
+两条补充口径（与 V0447 不同的两点）：
+
+1. **Vue 页面文件不在本卡**：M4-09 只做后端（视图 + 两个只读接口），页面文件由 M4-11
+   （卡 `t_da2f0a9b`）落地。页面行必须先由本迁移落下，否则按钮行的 `parent_id` 指向
+   不存在的页面 → `menu_invariants` ①（孤儿 parent）直接红。与 V0447 在 M4-02 就先落
+   「采购计划」页面行、前端 M4-06 才补 Vue 页同款。
+2. **两个只读接口共用一个码**：ERP 尚未做「页面码/接口码」完全解耦（约定 14 的过渡期条款），
+   所以执行量总览与详情同判 `…:execution`，不另分 `:list`。
+
+页面码已按第 7 节登记进 `permission_audit_tests::ROUTE_LEVEL_ONLY`（N18 持续校验：
+后端源码一旦引用它、或菜单行消失，N18 立刻红）。

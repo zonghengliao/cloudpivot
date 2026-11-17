@@ -1,0 +1,33 @@
+== M4-09 范围守卫：路由 / 权限码 / 菜单 / 前端 / 迁移（本卡交什么、不交什么）==
+
+-- 001 新增路由（源码里的 2 条注解）--
+75:#[nik::get("/business/erp/framework-agreement/execution/page")]
+105:#[nik::get("/business/erp/framework-agreement/{id}/execution")]
+
+-- 002 权限码注解（2 条，同一个接口码）--
+73:    permission = "business:erp:framework-agreement:execution"
+103:    permission = "business:erp:framework-agreement:execution"
+
+-- 003 本卡新增文件 --
+-rw-r--r-- 1 root root  1392 Nov 18 04:33 backend/app/migrations/business/V0452__framework_agreement_execution.down.sql
+-rw-r--r-- 1 root root 39300 Nov 18 04:34 backend/app/migrations/business/V0452__framework_agreement_execution.up.sql
+-rw-r--r-- 1 root root 34034 Nov 18 04:47 backend/app/src/business/erp/purchase/framework_agreement_execution_db_tests.rs
+-rw-r--r-- 1 root root 32378 Nov 18 04:47 backend/app/src/business/erp/purchase/framework_agreement_execution_dto.rs
+-rw-r--r-- 1 root root 11231 Nov 18 04:47 backend/app/src/business/erp/purchase/framework_agreement_execution_handler.rs
+-rw-r--r-- 1 root root 21642 Nov 18 04:47 backend/app/src/business/erp/purchase/framework_agreement_execution_model.rs
+-rw-r--r-- 1 root root 22398 Nov 18 04:55 scripts/verify/m409_framework_agreement_execution_drill.sh
+
+-- 004 前端 0 处改动（grep framework-agreement in frontend/src）--
+0
+
+-- 005 本卡不写前端：页面 Vue 文件不存在（M4-11 的交付物）--
+ls: cannot access 'frontend/src/views/business/erp/framework-agreement': No such file or directory
+
+-- 006 迁移号段核对（动手前 tail -3 / 本卡取 V0452）--
+V0449
+V0450
+V0451
+V0452
+
+-- 007 菜单总数（未删；V0452 前后）--
+550
