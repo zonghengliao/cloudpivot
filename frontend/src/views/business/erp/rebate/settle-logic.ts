@@ -98,16 +98,16 @@ export const SETTLE_PERIOD_FILTER_OPTIONS: Array<{
 
 /** 结算单列表列（`op` 由页面用 `#op` 插槽渲染） */
 export const SETTLEMENT_COLUMNS: PrimaryTableCol[] = [
-  { colKey: 'settlement_no', title: '结算单号', width: 175, fixed: 'left' },
-  { colKey: 'customer', title: '客户', minWidth: 165, ellipsis: true },
-  { colKey: 'period', title: '期间', width: 155 },
-  { colKey: 'policy_no', title: '适用政策', width: 165, ellipsis: true },
-  { colKey: 'base', title: '净销售额 / 净销量', minWidth: 175, align: 'right' },
-  { colKey: 'tier', title: '命中档 / 费率', minWidth: 195, ellipsis: true },
-  { colKey: 'rebate_amount', title: '应返金额', width: 135, align: 'right' },
-  { colKey: 'status', title: '状态', width: 95 },
-  { colKey: 'invoice', title: '红字发票', width: 165, ellipsis: true },
-  { colKey: 'op', title: '操作', width: 165, fixed: 'right' },
+  { colKey: 'settlement_no', title: '结算单号', width: 160, fixed: 'left' },
+  { colKey: 'customer', title: '客户', minWidth: 150, ellipsis: true },
+  { colKey: 'period', title: '期间', width: 150 },
+  { colKey: 'policy_no', title: '适用政策', width: 150, ellipsis: true },
+  { colKey: 'base', title: '净销售额 / 净销量', minWidth: 160, align: 'right' },
+  { colKey: 'tier', title: '命中档 / 费率', minWidth: 175, ellipsis: true },
+  { colKey: 'rebate_amount', title: '应返金额', width: 120, align: 'right' },
+  { colKey: 'status', title: '状态', width: 90 },
+  { colKey: 'invoice', title: '红字发票', width: 130, ellipsis: true },
+  { colKey: 'op', title: '操作', width: 145, fixed: 'right' },
 ];
 
 // ==================== 状态 ====================

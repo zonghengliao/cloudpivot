@@ -54,6 +54,8 @@ API 层 11 个接口、两个纯逻辑模块、22 条单测；菜单收尾用**�
 | `10_permission_audit_tests.txt` | `system::menu::permission_audit_tests`（真库） | **8/8 pass**（N14/N15/N16/N18/N19/N20/N21 + N17 变异自检） |
 | `11_perm_menu_gate.txt` | `perm_menu_gate.py`（闸⑥ 死权限码） | **PASS** |
 | `12_shell_variant_gate.txt` | `shell-variant-report.cjs --baseline`（页面零壳类声明） | **无新增**（快照 6 条 = 当前 6 条；空态改用 `<StateView>`，不再本地声明 `.panel-empty*`） |
+| `19_backend_migrate_v0443.txt` | 空库首启：真实迁移器把 V0443 应用上去（`schema_migrations` 记账 version=443 + NOTICE 三行 + 菜单终态） | 通过（**不是手工 psql**） |
+| `17_browser_smoke.md` + `13~16/18_*.png` | **真浏览器冒烟**（真后端 :8023 + 真库 + 真前端 :5173）：登录 → 销售返利页（一个侧栏项两 tab）→ 新建按量政策 → 切阶梯返利看档位编辑器 → 结算试算（两条路径：未覆盖整期 `66091` 原文展示 / 覆盖后 0.00 + 警告 + 政策档位）→ 计算落库 `RB-20261117-000001` → 详情抽屉（政策快照档位表）→ 整期跑批（`已有跳过 1 张`，幂等） | 全链路走通 |
 
 后端改动只有一条 SQL 迁移（无 Rust 代码改动）：`cargo fmt --check` 0 diff、
 `cargo clippy --lib -- -D warnings` EXIT=0。
@@ -65,6 +67,15 @@ API 层 11 个接口、两个纯逻辑模块、22 条单测；菜单收尾用**�
 | `cp_be03f4e7_dev` | `pg_dump cloudpivot_dev`（540 菜单、V0442 状态） | menu_invariants 8/8、n08 真库 + 变异反证、permission_audit_tests、perm_menu_gate |
 | `cp_be03f4e7_menu` | `createdb -T cloudpivot_test_v0442a` | 首轮幂等 / down-up 反证（该克隆库自带 9 条历史孤儿 parent，与本卡无关，只在 `cp_be03f4e7_dev` 上出 8/8） |
 | `cp_be03f4e7_menu2` | 同上 | `06_*` 的完整四步证据 |
+| `cp_be03f4e7_e2e` | **空库** | 浏览器冒烟用：首启自动跑 432 条迁移（含 V0443），admin 口令由 `NIK_ADMIN_PASSWORD` 注入 |
+
+三个演练库与冒烟库都已 `dropdb`（`pg_database like 'cp_be03f4e7%'` = 0）。
+
+**环境副作用（如实记录）**：为了让后端在 99 启动，`apt-get install -y redis-server` 装了一次
+（dev profile 的安全守卫要求 `[cache] type = redis`，认证吊销依赖它）。冒烟结束后我
+`redis-cli shutdown nosave` 过，但 apt 装的 systemd unit 会把它拉回来（实测 pid 变了）；
+`systemctl stop/disable redis-server` 属「停系统服务」被工具闸拦下，需人工批准 —— 所以
+本机现在**有一个 loopback 上的 redis-server 在跑**。要彻底复原：`systemctl disable --now redis-server`。
 
 ## 复现
 

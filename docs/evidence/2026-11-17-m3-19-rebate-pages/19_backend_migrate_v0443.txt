@@ -1,0 +1,38 @@
+=== 空库首启：真实迁移器把 V0443 应用到 cp_be03f4e7_e2e（不是手工 psql）===
+--   改法（只改本文件，不加 V0443 —— 442 先炸，443 永远轮不到）：
+-- V0443：销售返利页「落地收尾」—— 把 V0438 故意留空的 path / component / is_visible 补齐，
+--   回滚：V0443 down 把该节点还原成 V0438 的终态（path NULL、component NULL、
+        RAISE EXCEPTION 'V0443 前置失败：返利页节点 …4380 不存在或已软删（V0438 没跑或已被回滚）';
+        RAISE EXCEPTION 'V0443 前置失败：…4380 的 menu_type = %（应为 2 页面节点）', v_type;
+        RAISE EXCEPTION 'V0443 前置失败：…4380 的 auth_code = %（应为 business:erp:rebate-policy:list）', v_code;
+        RAISE EXCEPTION 'V0443 前置失败：「销售管理」目录 …2701 不存在或不是目录节点（V0267 没跑？）';
+        RAISE EXCEPTION 'V0443 前置失败：返利页节点下的按钮 = %（期望 7：政策 create/update/delete + 结算 list/calc/delete + 开票 invoice），请先应用 V0438 / V0439 / V0440',
+    RAISE NOTICE 'V0443 ① path 更新 % 行', v_updated;
+    RAISE NOTICE 'V0443 ② component 更新 % 行', v_updated;
+    RAISE NOTICE 'V0443 ③ title/parent/sort/visible 更新 % 行', v_updated;
+        RAISE EXCEPTION 'V0443 自检失败：返利页节点 …4380 的终态不符（命中 % 行，期望 1）', v_count;
+        RAISE EXCEPTION 'V0443 自检失败：返利页节点下的按钮 = %（期望 7）', v_count;
+        RAISE EXCEPTION 'V0443 自检失败：结算/开票 4 个按钮码命中 % 行（期望 4）', v_count;
+        RAISE EXCEPTION 'V0443 自检失败：已有 % 条其它菜单占用 path %', v_count, v_path;
+    RAISE NOTICE 'V0443 完成：销售返利 % 已挂到「销售管理」目录（sort %，一行两 tab：返利政策 / 返利结算）',
+[2m2026-11-17T09:41:41.413960Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0443 ① path 更新 1 行
+[2m2026-11-17T09:41:41.413982Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0443 ② component 更新 1 行
+[2m2026-11-17T09:41:41.414017Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0443 ③ title/parent/sort/visible 更新 1 行
+[2m2026-11-17T09:41:41.414423Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0443 完成：销售返利 /business/erp/rebate-policy 已挂到「销售管理」目录（sort 85，一行两 tab：返利政策 / 返利结算）
+[2m2026-11-17T09:41:41.414862Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'sales_rebate_menu_page', '443', 'eed468268a165ed0dfe3712945041a5ca624801cc7581da1cfbc042d6fefda7f', 'executed', 1794908501, 363, 2, TRUE, 'app/migrations/business/V0443__sales_rebate_menu_page.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+
+=== schema_migrations 记账（返利四张迁移）===
+   kind    |          name           | version | applied_via | success 
+-----------+-------------------------+---------+-------------+---------
+ versioned | sales_rebate_policy     | 438     | executed    | t
+ versioned | sales_rebate_settlement | 439     | executed    | t
+ versioned | sales_rebate_invoice    | 440     | executed    | t
+ versioned | sales_rebate_menu_page  | 443     | executed    | t
+(4 rows)
+
+=== 迁移后的菜单行（V0443 的终态）===
+            path             |         component         |  title   | is_visible | sort_order 
+-----------------------------+---------------------------+----------+------------+------------
+ /business/erp/rebate-policy | business/erp/rebate/index | 销售返利 | t          |         85
+(1 row)
+
