@@ -1,0 +1,29 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 6 tests
+test business::erp::sales::sales_variance_summary_db_tests::grains_share_actual_total_but_isolate_forecast ... ok
+test business::erp::sales::sales_variance_summary_db_tests::pair_grain_reports_unforecast_pairs ... FAILED
+test business::erp::sales::sales_variance_summary_db_tests::soft_deleted_current_version_falls_back_in_variance ... ok
+test business::erp::sales::sales_variance_summary_db_tests::summary_adds_rows_and_excludes_history_versions ... ok
+test business::erp::sales::sales_variance_summary_db_tests::tolerance_only_moves_the_level_not_the_totals ... ok
+test business::erp::sales::sales_variance_summary_db_tests::zz_teardown_purges_fixtures ... ok
+
+failures:
+
+---- business::erp::sales::sales_variance_summary_db_tests::pair_grain_reports_unforecast_pairs stdout ----
+
+thread 'business::erp::sales::sales_variance_summary_db_tests::pair_grain_reports_unforecast_pairs' (3402299) panicked at app/src/business/erp/sales/sales_variance_summary_db_tests.rs:251:5:
+assertion `left == right` failed
+  left: 8000.00
+ right: 16000
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::sales::sales_variance_summary_db_tests::pair_grain_reports_unforecast_pairs
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 6158 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

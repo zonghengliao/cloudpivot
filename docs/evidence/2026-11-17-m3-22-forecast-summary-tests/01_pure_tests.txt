@@ -1,0 +1,68 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 14s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 60 tests
+test business::erp::sales::sales_target_dto::tests::achievement_rate_matches_dashboard_expectation ... ok
+test business::erp::sales::sales_target_dto::tests::achievement_rate_target_zero_is_zero_not_infinity ... ok
+test business::erp::sales::sales_target_dto::tests::check_amount_rejects_negative_and_over_precision ... ok
+test business::erp::sales::sales_target_dto::tests::check_qty_allows_four_decimals ... ok
+test business::erp::sales::sales_target_dto::tests::domain_values_match_v0318_checks ... ok
+test business::erp::sales::sales_target_dto::tests::gap_is_target_minus_actual ... ok
+test business::erp::sales::sales_target_dto::tests::money2_rounds_to_two_places ... ok
+test business::erp::sales::sales_target_dto::tests::normalize_basis_defaults_to_order ... ok
+test business::erp::sales::sales_target_dto::tests::normalize_scope_enforces_scope_id_rule ... ok
+test business::erp::sales::sales_target_dto::tests::normalize_status_and_confidence_defaults ... ok
+test business::erp::sales::sales_target_dto::tests::period_december_rolls_into_next_year ... ok
+test business::erp::sales::sales_target_dto::tests::period_month_is_half_open ... ok
+test business::erp::sales::sales_target_dto::tests::period_quarter_boundaries ... ok
+test business::erp::sales::sales_target_dto::tests::period_quarter_lowercase_is_normalized ... ok
+test business::erp::sales::sales_target_dto::tests::period_rejects_bad_shapes ... ok
+test business::erp::sales::sales_target_dto::tests::scope_label_covers_all_domains ... ok
+test business::erp::sales::sales_target_dto::tests::target_page_filter_normalizes_and_rejects ... ok
+test business::erp::sales::sales_target_handler::tests::achievement_rate_is_percentage_two_decimals ... ok
+test business::erp::sales::sales_target_handler::tests::achievement_rate_with_zero_target_is_zero_not_infinity ... ok
+test business::erp::sales::sales_target_handler::tests::all_grain_quantity_only_actual_is_still_a_missing_forecast ... ok
+test business::erp::sales::sales_target_handler::tests::amount_validation_rejects_negative_and_extra_decimals ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_all_grain_uses_company_total_and_reports_missing_forecast ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_all_scope_uses_totals ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_customer_grain_joins_actuals_and_adds_unforecast_rows ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_material_grain_never_borrows_customer_actuals ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_material_scope_keeps_scope_name ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_missing_actual_is_zero_not_error ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_pair_grain_keeps_customer_and_material_names ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_picks_basis_and_keeps_both ... ok
+test business::erp::sales::sales_target_handler::tests::basis_normalization_defaults_to_order ... ok
+test business::erp::sales::sales_target_handler::tests::deviation_level_compares_unrounded_rate ... ok
+test business::erp::sales::sales_target_handler::tests::dimension_and_tolerance_normalization ... ok
+test business::erp::sales::sales_target_handler::tests::gap_positive_means_shortfall_negative_means_overachieved ... ok
+test business::erp::sales::sales_target_handler::tests::pair_grain_unforecast_rows_keep_both_dimensions ... ok
+test business::erp::sales::sales_target_handler::tests::period_month_is_left_closed_right_open ... ok
+test business::erp::sales::sales_target_handler::tests::period_quarter_covers_three_months ... ok
+test business::erp::sales::sales_target_handler::tests::period_rejects_garbage ... ok
+test business::erp::sales::sales_target_handler::tests::permission_codes_match_v0318 ... ok
+test business::erp::sales::sales_target_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::sales::sales_target_handler::tests::rows_sort_by_absolute_variance_then_actual_then_name ... ok
+test business::erp::sales::sales_target_handler::tests::scope_normalization_matches_ddl_check ... ok
+test business::erp::sales::sales_target_handler::tests::status_and_confidence_normalization ... ok
+test business::erp::sales::sales_target_handler::tests::sum_of_object_actuals_matches_total_rule ... ok
+test business::erp::sales::sales_target_handler::tests::summarize_zero_rows_is_all_zero_without_rates ... ok
+test business::erp::sales::sales_target_handler::tests::summary_counts_zero_amount_forecast_row_but_excludes_it_from_mape ... ok
+test business::erp::sales::sales_target_handler::tests::summary_keeps_unforecast_actuals_in_totals ... ok
+test business::erp::sales::sales_target_handler::tests::summary_multi_rows_add_up_like_the_rows ... ok
+test business::erp::sales::sales_target_handler::tests::summary_quantity_rate_is_null_when_quantity_never_forecast ... ok
+test business::erp::sales::sales_target_handler::tests::summary_rate_comes_from_totals_not_mean_of_rates ... ok
+test business::erp::sales::sales_target_handler::tests::summary_worst_prefers_the_row_with_a_forecast ... ok
+test business::erp::sales::sales_target_handler::tests::tolerance_boundaries_pick_the_right_level ... ok
+test business::erp::sales::sales_target_handler::tests::variance_math_zero_forecast_has_no_rate ... ok
+test business::erp::sales::sales_target_handler::tests::version_no_must_be_positive ... ok
+test business::erp::sales::sales_target_model::tests::format_no_pads_six_digits ... ok
+test business::erp::sales::sales_target_model::tests::insert_forecast_sql_binds_uuid_columns_with_cast ... ok
+test business::erp::sales::sales_target_model::tests::insert_target_sql_binds_uuid_columns_with_cast ... ok
+test business::erp::sales::sales_target_model::tests::order_basis_uses_base_currency_not_original ... ok
+test business::erp::sales::sales_target_model::tests::order_status_whitelist_excludes_cancelled ... ok
+test business::erp::sales::sales_target_model::tests::period_key_uses_cst_not_utc ... ok
+test business::erp::sales::sales_target_model::tests::receipt_status_whitelist_only_confirmed_and_posted ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 6104 filtered out; finished in 0.02s
+

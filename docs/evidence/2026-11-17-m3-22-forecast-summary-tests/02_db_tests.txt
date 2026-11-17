@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.27s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 13 tests
+test business::erp::sales::sales_variance_db_tests::all_grain_uses_company_total ... ok
+test business::erp::sales::sales_variance_db_tests::base_currency_is_used_for_foreign_order ... ok
+test business::erp::sales::sales_variance_db_tests::customer_grain_compares_latest_version_against_orders ... ok
+test business::erp::sales::sales_variance_db_tests::dimension_counts_report_every_grain ... ok
+test business::erp::sales::sales_variance_db_tests::invalid_inputs_are_400_without_touching_db ... ok
+test business::erp::sales::sales_variance_db_tests::material_grain_uses_line_amount_and_qty ... ok
+test business::erp::sales::sales_variance_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::sales::sales_variance_summary_db_tests::grains_share_actual_total_but_isolate_forecast ... ok
+test business::erp::sales::sales_variance_summary_db_tests::pair_grain_reports_unforecast_pairs ... ok
+test business::erp::sales::sales_variance_summary_db_tests::soft_deleted_current_version_falls_back_in_variance ... ok
+test business::erp::sales::sales_variance_summary_db_tests::summary_adds_rows_and_excludes_history_versions ... ok
+test business::erp::sales::sales_variance_summary_db_tests::tolerance_only_moves_the_level_not_the_totals ... ok
+test business::erp::sales::sales_variance_summary_db_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 6151 filtered out; finished in 0.19s
+

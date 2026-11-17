@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 11 tests
+test business::erp::sales::sales_forecast_db_tests::bad_qty_is_400_and_writes_nothing ... ok
+test business::erp::sales::sales_forecast_db_tests::create_reads_back_qty_and_dimension_names ... ok
+test business::erp::sales::sales_forecast_db_tests::current_view_stays_out_of_list_ordering ... ok
+test business::erp::sales::sales_forecast_db_tests::duplicate_dimension_period_version_is_409 ... ok
+test business::erp::sales::sales_forecast_db_tests::material_dimension_filter_is_exact ... ok
+test business::erp::sales::sales_forecast_db_tests::qty_zero_when_only_amount_is_given ... ok
+test business::erp::sales::sales_forecast_db_tests::soft_deleted_latest_falls_back_to_previous ... ok
+test business::erp::sales::sales_forecast_db_tests::update_qty_and_break_chain ... ok
+test business::erp::sales::sales_forecast_db_tests::version_chain_links_previous_version ... ok
+test business::erp::sales::sales_forecast_db_tests::version_chain_rejects_bad_links ... ok
+test business::erp::sales::sales_forecast_db_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 6153 filtered out; finished in 0.13s
+

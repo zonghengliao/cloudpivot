@@ -1,0 +1,28 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 6 tests
+test business::erp::sales::sales_target_handler::tests::summary_counts_zero_amount_forecast_row_but_excludes_it_from_mape ... ok
+test business::erp::sales::sales_target_handler::tests::summary_keeps_unforecast_actuals_in_totals ... FAILED
+test business::erp::sales::sales_target_handler::tests::summary_multi_rows_add_up_like_the_rows ... ok
+test business::erp::sales::sales_target_handler::tests::summary_quantity_rate_is_null_when_quantity_never_forecast ... ok
+test business::erp::sales::sales_target_handler::tests::summary_rate_comes_from_totals_not_mean_of_rates ... ok
+test business::erp::sales::sales_target_handler::tests::summary_worst_prefers_the_row_with_a_forecast ... ok
+
+failures:
+
+---- business::erp::sales::sales_target_handler::tests::summary_keeps_unforecast_actuals_in_totals stdout ----
+
+thread 'business::erp::sales::sales_target_handler::tests::summary_keeps_unforecast_actuals_in_totals' (3402331) panicked at app/src/business/erp/sales/sales_target_handler.rs:2162:9:
+assertion `left == right` failed
+  left: 0
+ right: 50000
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::sales::sales_target_handler::tests::summary_keeps_unforecast_actuals_in_totals
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 6158 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

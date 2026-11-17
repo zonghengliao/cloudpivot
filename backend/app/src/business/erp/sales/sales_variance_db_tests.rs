@@ -50,26 +50,26 @@ use crate::test_seed;
 use cloudpivot_kernel::shared::error_code;
 
 /// 夹具订单号前缀（清场按它删，绝不碰生产号段）。
-const SO_PREFIX: &str = "M321-SO-";
+pub(crate) const SO_PREFIX: &str = "M321-SO-";
 /// 夹具期间（2032 年的预测真实业务不会有，天然隔离）。
-const PERIOD: &str = "2032-07";
+pub(crate) const PERIOD: &str = "2032-07";
 /// 夹具预测备注（清场判据：只删本卡造的预测行）。
-const MARK: &str = "M3-21 对比夹具";
+pub(crate) const MARK: &str = "M3-21 对比夹具";
 
-fn dec(text: &str) -> Decimal {
+pub(crate) fn dec(text: &str) -> Decimal {
     text.parse().expect("定点字面量")
 }
 
-async fn customer(code: &str, name: &str) -> Uuid {
+pub(crate) async fn customer(code: &str, name: &str) -> Uuid {
     test_seed::ensure_customer(code, name).await
 }
 
-async fn material(code: &str, name: &str) -> Uuid {
+pub(crate) async fn material(code: &str, name: &str) -> Uuid {
     test_seed::ensure_material(code, name).await
 }
 
 /// 清场：只删本卡造的预测行与订单（明细随订单 CASCADE；主数据复用，不删）。
-async fn cleanup() {
+pub(crate) async fn cleanup() {
     exec(
         "DELETE FROM biz_sales_forecast WHERE remark = ?",
         vec![Value::Text(MARK.to_string())],
@@ -82,7 +82,7 @@ async fn cleanup() {
     .await;
 }
 
-async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+pub(crate) async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     let guard = DB_LOCK.lock().await;
     if !ensure_db().await {
         return None;
@@ -94,7 +94,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 /// 一张「已批准」订单（金额 = 含税 = 不含税，税率 0 ⇒ `ck_sales_order_amount` 恒等成立）。
 ///
 /// `total` 是原币含税额，`base_total` 是**本位币**含税额（本位币单两者相等）。
-async fn sell(customer_id: Uuid, date: &str, total: &str, base_total: &str) -> Uuid {
+pub(crate) async fn sell(customer_id: Uuid, date: &str, total: &str, base_total: &str) -> Uuid {
     let so_id = Uuid::now_v7();
     exec(
         "INSERT INTO biz_sales_order \
@@ -118,7 +118,7 @@ async fn sell(customer_id: Uuid, date: &str, total: &str, base_total: &str) -> U
 }
 
 /// 订单明细一行（`amount` 不含税、税额 0 ⇒ 含税 = amount）。
-async fn sell_line(so_id: Uuid, line_no: i32, material_id: Uuid, qty: &str, amount: &str) {
+pub(crate) async fn sell_line(so_id: Uuid, line_no: i32, material_id: Uuid, qty: &str, amount: &str) {
     exec(
         "INSERT INTO biz_sales_order_item \
                 (so_id, line_no, material_id, qty, price, amount, tax_rate, tax_amount, delivered_qty) \
@@ -135,7 +135,7 @@ async fn sell_line(so_id: Uuid, line_no: i32, material_id: Uuid, qty: &str, amou
 }
 
 /// 建一条预测（走 handler：版本链 / 取号 / 唯一索引都照真实路径）。
-async fn forecast(
+pub(crate) async fn forecast(
     customer_id: Option<Uuid>,
     material_id: Option<Uuid>,
     amount: &str,
@@ -162,7 +162,7 @@ async fn forecast(
     .id
 }
 
-fn query(dimension: &str, tolerance: Option<&str>) -> ForecastVarianceQuery {
+pub(crate) fn query(dimension: &str, tolerance: Option<&str>) -> ForecastVarianceQuery {
     ForecastVarianceQuery {
         period_code: Some(PERIOD.to_string()),
         dimension: Some(dimension.to_string()),
@@ -171,7 +171,7 @@ fn query(dimension: &str, tolerance: Option<&str>) -> ForecastVarianceQuery {
 }
 
 /// 某粒度的行（按显示名前缀找，避免依赖排序位置）。
-fn row_named<'a>(
+pub(crate) fn row_named<'a>(
     response: &'a crate::business::erp::sales::sales_target_dto::ForecastVarianceRes,
     prefix: &str,
 ) -> &'a crate::business::erp::sales::sales_target_dto::ForecastVarianceRow {

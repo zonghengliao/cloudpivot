@@ -1376,8 +1376,8 @@ pub fn all_permissions() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::business::erp::sales::sales_target_dto::{
-        BASIS_ORDER, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, DEVIATION_ON_TARGET, SCOPE_DEPT, SCOPE_MATERIAL,
-        SCOPE_SALESPERSON, TARGET_ACTIVE, TARGET_STATUSES,
+        BASIS_ORDER, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, DEVIATION_NO_FORECAST, DEVIATION_ON_TARGET, SCOPE_DEPT,
+        SCOPE_MATERIAL, SCOPE_SALESPERSON, TARGET_ACTIVE, TARGET_STATUSES,
     };
     use nik::prelude::chrono::NaiveDate;
     use nik::prelude::rust_decimal::Decimal;
@@ -1993,5 +1993,467 @@ mod tests {
         assert!(normalize_tolerance_pct(Some("101")).is_err(), "超过 100% 没有含义");
         assert!(normalize_tolerance_pct(Some("5.123")).is_err(), "最多 2 位小数");
         assert!(normalize_tolerance_pct(Some("偏差")).is_err());
+    }
+
+    // ---------- 汇总口径（M3-22） ----------
+    //
+    // 这一节只钉 `summarize_variance` / `assemble_variance` 的**汇总语义**，
+    // 每条都对应 `sales_target_dto` 里「出参金额 / 比例」与行构造的一段口径：
+    //
+    // | 用例 | 钉住的口径 |
+    // |---|---|
+    // | `summary_multi_rows_add_up_like_the_rows` | 汇总 = 同一批行相加（不是另跑一遍全库 SQL）；over/under/on_target 只数有预测的行 |
+    // | `summary_rate_comes_from_totals_not_mean_of_rates` | **合计偏差率**用 Σ实际 / Σ预测 算；行偏差率的算术平均是 MAPE，两个数不同 |
+    // | `summary_keeps_unforecast_actuals_in_totals` | 漏预测行的实际额**进合计**（分子分母都进），偏差率才有意义 |
+    // | `summary_counts_zero_amount_forecast_row_but_excludes_it_from_mape` | 只预测数量（金额 0）的行算 OVER、进 counts，但比率无意义 ⇒ 不进 MAPE |
+    // | `summary_quantity_rate_is_null_when_quantity_never_forecast` | 数量侧同一规则：预测数量合计 0 ⇒ 数量偏差率 null |
+    // | `pair_grain_unforecast_rows_keep_both_dimensions` | 客户 × 物料的漏预测行两维 id/名字都带（与物料粒度的空客户列不同） |
+    // | `tolerance_boundaries_pick_the_right_level` | 容差边界：正好 ±容差算命中；容差 0 / 100 的两端 |
+    // | `rows_sort_by_absolute_variance_then_actual_then_name` | 行序：\|偏差\| 倒序 → 实际额倒序 → 显示名 —— 同额偏差不会每次刷新换位置 |
+    // | `summary_worst_prefers_the_row_with_a_forecast` | 同额偏差时 `worst` 取**有预测**的那行（能说清是哪条预测偏了） |
+    // | `all_grain_quantity_only_actual_is_still_a_missing_forecast` | 全公司没预测但只有数量（金额 0）也要给漏预测行（判据是「金额或数量非 0」） |
+
+    #[test]
+    fn summary_multi_rows_add_up_like_the_rows() {
+        let (customer_a, customer_b, customer_c) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let forecasts = vec![
+            forecast_pair(Some((customer_a, "客户甲")), None, "100000", "1000"),
+            forecast_pair(Some((customer_b, "客户乙")), None, "50000", "500"),
+            forecast_pair(Some((customer_c, "客户丙")), None, "40000", "400"),
+        ];
+        let actuals = VarianceActuals {
+            by_customer: vec![
+                model::CustomerActual {
+                    customer_id: customer_a,
+                    customer_name: Some("客户甲".to_string()),
+                    amount: dec("90000"),
+                    qty: dec("900"),
+                },
+                model::CustomerActual {
+                    customer_id: customer_b,
+                    customer_name: Some("客户乙".to_string()),
+                    amount: dec("65000"),
+                    qty: dec("650"),
+                },
+                model::CustomerActual {
+                    customer_id: customer_c,
+                    customer_name: Some("客户丙".to_string()),
+                    amount: dec("42000"),
+                    qty: dec("420"),
+                },
+            ],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        let summary = summarize_variance(&rows);
+
+        // 逐行：-10% UNDER / +30% OVER / 正好 +5.00% ON_TARGET（边界命中）
+        assert_eq!(
+            (summary.over_count, summary.under_count, summary.on_target_count),
+            (1, 1, 1)
+        );
+        assert_eq!(summary.row_count, 3);
+        assert_eq!(summary.forecast_count, 3, "三个档位相加必须等于有预测的行数");
+        assert_eq!(summary.unforecast_count, 0);
+
+        // 合计 = 三行相加（金额 2 位、数量 4 位都不丢精度）
+        assert_eq!(summary.forecast_amount, dec("190000"));
+        assert_eq!(summary.actual_amount, dec("197000"));
+        assert_eq!(summary.variance_amount, dec("7000.00"));
+        // 合计偏差率 = 7000 / 190000 = 3.68%（不是 (10+30+5)/3 = 15%）
+        assert_eq!(summary.variance_rate, Some(dec("3.68")));
+        assert_eq!(summary.forecast_qty, dec("1900"));
+        assert_eq!(summary.actual_qty, dec("1970"));
+        assert_eq!(summary.variance_qty, dec("70"));
+        assert_eq!(summary.variance_qty_rate, Some(dec("3.68")));
+        assert_eq!(summary.mape_pct, Some(dec("15.00")), "(10 + 30 + 5) / 3");
+
+        // 汇总与明细同源：把行自己再加一遍，必须与 summary 完全一致（含数量）
+        let row_forecast: Decimal = rows.iter().map(|row| row.forecast_amount).sum();
+        let row_actual: Decimal = rows.iter().map(|row| row.actual_amount).sum();
+        let row_forecast_qty: Decimal = rows.iter().map(|row| row.forecast_qty).sum();
+        let row_actual_qty: Decimal = rows.iter().map(|row| row.actual_qty).sum();
+        assert_eq!(row_forecast, summary.forecast_amount);
+        assert_eq!(row_actual, summary.actual_amount);
+        assert_eq!(row_forecast_qty, summary.forecast_qty);
+        assert_eq!(row_actual_qty, summary.actual_qty);
+
+        let worst = summary.worst.expect("有行就有最贵偏差");
+        assert_eq!(worst.display_name, "客户乙", "|+15000| 最大");
+        assert_eq!(worst.variance_amount, dec("15000.00"));
+        assert_eq!(worst.deviation_level, DEVIATION_OVER);
+    }
+
+    #[test]
+    fn summary_rate_comes_from_totals_not_mean_of_rates() {
+        let (big, small) = (Uuid::now_v7(), Uuid::now_v7());
+        let forecasts = vec![
+            forecast_pair(Some((big, "大客户")), None, "1000000", "10000"),
+            forecast_pair(Some((small, "小客户")), None, "1000", "10"),
+        ];
+        let actuals = VarianceActuals {
+            by_customer: vec![
+                model::CustomerActual {
+                    customer_id: big,
+                    customer_name: Some("大客户".to_string()),
+                    amount: dec("1010000"),
+                    qty: dec("10100"),
+                },
+                model::CustomerActual {
+                    customer_id: small,
+                    customer_name: Some("小客户".to_string()),
+                    amount: dec("2000"),
+                    qty: dec("20"),
+                },
+            ],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        let summary = summarize_variance(&rows);
+
+        // 行偏差率：大单 +1.00%、小单 +100.00%
+        assert_eq!(rows.len(), 2);
+        let rate_of = |name: &str| {
+            rows.iter()
+                .find(|row| row.display_name == name)
+                .and_then(|row| row.variance_rate)
+                .expect("两行都有预测金额")
+        };
+        assert_eq!(rate_of("大客户"), dec("1.00"));
+        assert_eq!(rate_of("小客户"), dec("100.00"));
+
+        // 合计偏差率按钱算：(1012000 - 1001000) / 1001000 = 1.10%（小单被大单摊薄）
+        assert_eq!(summary.forecast_amount, dec("1001000"));
+        assert_eq!(summary.actual_amount, dec("1012000"));
+        assert_eq!(summary.variance_amount, dec("11000.00"));
+        assert_eq!(summary.variance_rate, Some(dec("1.10")));
+        // 行等权的 MAPE 才是 (1 + 100) / 2 = 50.50%
+        assert_eq!(summary.mape_pct, Some(dec("50.50")));
+        assert_ne!(
+            summary.variance_rate, summary.mape_pct,
+            "合计率看钱、MAPE 看稳 —— 两个口径不能混成一个数"
+        );
+    }
+
+    #[test]
+    fn summary_keeps_unforecast_actuals_in_totals() {
+        let customer_a = Uuid::now_v7();
+        let customer_d = Uuid::now_v7();
+        let forecasts = vec![forecast_pair(Some((customer_a, "客户甲")), None, "100000", "1000")];
+        // 客户甲一单没开（实际 0）；客户丁完全没预测但卖了 50000
+        let actuals = VarianceActuals {
+            by_customer: vec![model::CustomerActual {
+                customer_id: customer_d,
+                customer_name: Some("客户丁".to_string()),
+                amount: dec("50000"),
+                qty: dec("500"),
+            }],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        let summary = summarize_variance(&rows);
+
+        assert_eq!(summary.forecast_count, 1);
+        assert_eq!(summary.unforecast_count, 1);
+        assert_eq!(summary.row_count, 2);
+        // 漏预测行的实际额必须进合计：否则「预测 10 万、实际 5 万」会被算成实际 0
+        assert_eq!(summary.forecast_amount, dec("100000"));
+        assert_eq!(summary.actual_amount, dec("50000"));
+        assert_eq!(summary.variance_amount, dec("-50000.00"));
+        assert_eq!(summary.variance_rate, Some(dec("-50.00")));
+        // MAPE 只统计有预测金额的行：客户甲 -100% 一行
+        assert_eq!(summary.mape_pct, Some(dec("100.00")));
+        assert_eq!(summary.under_count, 1, "漏预测行不算 UNDER（它没有档位可判）");
+    }
+
+    #[test]
+    fn summary_counts_zero_amount_forecast_row_but_excludes_it_from_mape() {
+        let customer_a = Uuid::now_v7();
+        // 只预测数量（金额 0）—— check_amount 明确允许 0，「0 件金额」是真业务写法
+        let forecasts = vec![forecast_pair(Some((customer_a, "客户甲")), None, "0", "100")];
+        let actuals = VarianceActuals {
+            by_customer: vec![model::CustomerActual {
+                customer_id: customer_a,
+                customer_name: Some("客户甲".to_string()),
+                amount: dec("5000"),
+                qty: dec("120"),
+            }],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert!(row.has_forecast);
+        assert_eq!(row.variance_amount, dec("5000.00"));
+        assert_eq!(row.variance_rate, None, "预测金额 0 ⇒ 比率无意义（不是 0%/100%）");
+        assert_eq!(
+            row.deviation_level, DEVIATION_OVER,
+            "预测 0 而实际 > 0 = 漏预测性质的 OVER"
+        );
+        // 数量侧正常：预测 100 / 实际 120
+        assert_eq!(row.variance_qty, dec("20"));
+        assert_eq!(row.variance_qty_rate, Some(dec("20.00")));
+
+        let summary = summarize_variance(&rows);
+        assert_eq!(summary.forecast_count, 1, "它有预测行，算 forecast_count");
+        assert_eq!(summary.over_count, 1);
+        assert_eq!(summary.unforecast_count, 0, "不是漏预测行（表里有预测）");
+        assert_eq!(summary.forecast_amount, Decimal::ZERO);
+        assert_eq!(summary.variance_rate, None);
+        assert_eq!(summary.mape_pct, None, "唯一的行没有比率 ⇒ 一行都不进 MAPE，不是 0");
+        assert_eq!(summary.variance_qty_rate, Some(dec("20.00")));
+    }
+
+    #[test]
+    fn summary_quantity_rate_is_null_when_quantity_never_forecast() {
+        let customer_a = Uuid::now_v7();
+        // 只预测金额（数量 0）：数量侧没有分母，比率必须空着
+        let forecasts = vec![forecast_pair(Some((customer_a, "客户甲")), None, "100000", "0")];
+        let actuals = VarianceActuals {
+            by_customer: vec![model::CustomerActual {
+                customer_id: customer_a,
+                customer_name: Some("客户甲".to_string()),
+                amount: dec("90000"),
+                qty: dec("300"),
+            }],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        assert_eq!(rows[0].variance_qty_rate, None, "预测数量 0 ⇒ 数量偏差率 null");
+        assert_eq!(rows[0].variance_qty, dec("300"));
+
+        let summary = summarize_variance(&rows);
+        assert_eq!(summary.forecast_qty, Decimal::ZERO);
+        assert_eq!(summary.variance_qty, dec("300"));
+        assert_eq!(summary.variance_qty_rate, None);
+        // 金额侧照常
+        assert_eq!(summary.variance_rate, Some(dec("-10.00")));
+        assert_eq!(summary.mape_pct, Some(dec("10.00")));
+    }
+
+    #[test]
+    fn pair_grain_unforecast_rows_keep_both_dimensions() {
+        let (customer_a, customer_b, material_1, material_2) =
+            (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let forecasts = vec![forecast_pair(
+            Some((customer_a, "客户甲")),
+            Some((material_1, "物料甲")),
+            "10000",
+            "100",
+        )];
+        let actuals = VarianceActuals {
+            by_pair: vec![
+                model::PairActual {
+                    customer_id: customer_a,
+                    customer_name: Some("客户甲".to_string()),
+                    material_id: material_1,
+                    material_name: Some("物料甲".to_string()),
+                    amount: dec("8000"),
+                    qty: dec("80"),
+                },
+                // 客户甲 × 物料乙：没预测但卖了
+                model::PairActual {
+                    customer_id: customer_a,
+                    customer_name: Some("客户甲".to_string()),
+                    material_id: material_2,
+                    material_name: Some("物料乙".to_string()),
+                    amount: dec("3000"),
+                    qty: dec("30"),
+                },
+                // 客户乙 × 物料甲：同上
+                model::PairActual {
+                    customer_id: customer_b,
+                    customer_name: Some("客户乙".to_string()),
+                    material_id: material_1,
+                    material_name: Some("物料甲".to_string()),
+                    amount: dec("5000"),
+                    qty: dec("50"),
+                },
+            ],
+            ..Default::default()
+        };
+        let rows = assemble_variance(
+            &forecasts,
+            &actuals,
+            FORECAST_DIM_CUSTOMER_MATERIAL,
+            "2031-05",
+            dec("5"),
+        );
+        assert_eq!(rows.len(), 3, "一行预测 + 两行漏预测");
+
+        // 按 |偏差| 倒序：客户乙 × 物料甲 5000 > 客户甲 × 物料乙 3000 > 客户甲 × 物料甲 -2000
+        assert_eq!(rows[0].display_name, "客户乙 × 物料甲");
+        assert!(!rows[0].has_forecast);
+        assert_eq!(rows[0].deviation_level, DEVIATION_NO_FORECAST);
+        // 漏预测行必须带**两维** id + 名字（物料粒度的漏预测行客户列是空的，别混）
+        assert!(rows[0].customer_id.is_some(), "客户 × 物料粒度两维都要给");
+        assert!(rows[0].material_id.is_some());
+        assert_eq!(rows[0].customer_name.as_deref(), Some("客户乙"));
+        assert_eq!(rows[0].material_name.as_deref(), Some("物料甲"));
+        assert_eq!(rows[0].variance_amount, dec("5000.00"));
+        assert_eq!(rows[0].variance_rate, None);
+
+        assert_eq!(rows[1].display_name, "客户甲 × 物料乙");
+        assert!(!rows[1].has_forecast);
+        assert_eq!(rows[2].display_name, "客户甲 × 物料甲");
+        assert!(rows[2].has_forecast);
+        assert_eq!(rows[2].variance_amount, dec("-2000.00"));
+        assert_eq!(rows[2].variance_rate, Some(dec("-20.00")));
+
+        let summary = summarize_variance(&rows);
+        assert_eq!(summary.row_count, 3);
+        assert_eq!(summary.forecast_count, 1);
+        assert_eq!(summary.unforecast_count, 2);
+        assert_eq!(summary.forecast_amount, dec("10000"));
+        assert_eq!(summary.actual_amount, dec("16000"));
+        assert_eq!(summary.variance_amount, dec("6000.00"));
+        assert_eq!(summary.variance_rate, Some(dec("60.00")));
+        assert_eq!(summary.mape_pct, Some(dec("20.00")), "两行漏预测不参与 MAPE");
+        assert_eq!(
+            summary.over_count + summary.under_count + summary.on_target_count,
+            summary.forecast_count,
+            "三个档位相加 = 有预测的行数（漏预测行不占档位）"
+        );
+    }
+
+    #[test]
+    fn tolerance_boundaries_pick_the_right_level() {
+        // 容差 0：只有完全相等算命中，差一分钱都算偏
+        assert_eq!(
+            deviation_level(dec("100000"), dec("100000"), dec("0")),
+            DEVIATION_ON_TARGET
+        );
+        assert_eq!(
+            deviation_level(dec("100000.01"), dec("100000"), dec("0")),
+            DEVIATION_OVER
+        );
+        assert_eq!(
+            deviation_level(dec("99999.99"), dec("100000"), dec("0")),
+            DEVIATION_UNDER
+        );
+
+        // 容差 100%：翻倍正好命中（|+100%| <= 100），再多一分钱就是 OVER
+        assert_eq!(
+            deviation_level(dec("200000"), dec("100000"), dec("100")),
+            DEVIATION_ON_TARGET
+        );
+        assert_eq!(
+            deviation_level(dec("200100"), dec("100000"), dec("100")),
+            DEVIATION_OVER
+        );
+        // -100%（实际 0）也在容差内 ⇒ 命中（实际为负的订单不存在，不需另判）
+        assert_eq!(
+            deviation_level(dec("0"), dec("100000"), dec("100")),
+            DEVIATION_ON_TARGET
+        );
+
+        // 5% 边界：±5.00% 命中，5.01% / -5.01% 出界
+        assert_eq!(
+            deviation_level(dec("105.00"), dec("100"), dec("5")),
+            DEVIATION_ON_TARGET
+        );
+        assert_eq!(deviation_level(dec("95.00"), dec("100"), dec("5")), DEVIATION_ON_TARGET);
+        assert_eq!(deviation_level(dec("105.01"), dec("100"), dec("5")), DEVIATION_OVER);
+        assert_eq!(deviation_level(dec("94.99"), dec("100"), dec("5")), DEVIATION_UNDER);
+    }
+
+    #[test]
+    fn rows_sort_by_absolute_variance_then_actual_then_name() {
+        let (customer_a, customer_b, customer_c) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let forecasts = vec![
+            forecast_pair(Some((customer_a, "客户甲")), None, "2000", "20"),
+            forecast_pair(Some((customer_b, "客户乙")), None, "1000", "10"),
+        ];
+        // 三行 |偏差| 全是 1000：甲 -1000（实际 1000）、乙 -1000（实际 0）、丙 漏预测 +1000（实际 1000）
+        let actuals = VarianceActuals {
+            by_customer: vec![
+                model::CustomerActual {
+                    customer_id: customer_a,
+                    customer_name: Some("客户甲".to_string()),
+                    amount: dec("1000"),
+                    qty: dec("10"),
+                },
+                model::CustomerActual {
+                    customer_id: customer_c,
+                    customer_name: Some("客户丙".to_string()),
+                    amount: dec("1000"),
+                    qty: dec("10"),
+                },
+            ],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        assert_eq!(rows.len(), 3);
+        assert!(rows.iter().all(|row| row.variance_amount.abs() == dec("1000.00")));
+        // 实际额倒序 ⇒ 实际 1000 的两行在前，实际 0 的「客户乙」垫底
+        assert_eq!(rows[2].display_name, "客户乙");
+        assert_eq!(rows[2].actual_amount, Decimal::ZERO);
+        // 同额同实际时按显示名升序（否则同一份数据每次刷新顺序都可能变）
+        let mut top_two = vec![rows[0].display_name.clone(), rows[1].display_name.clone()];
+        let mut expected = top_two.clone();
+        expected.sort();
+        assert_eq!(top_two, expected, "同额同实际按显示名升序");
+        top_two.sort();
+        assert_eq!(top_two, vec!["客户丙".to_string(), "客户甲".to_string()]);
+    }
+
+    #[test]
+    fn summary_worst_prefers_the_row_with_a_forecast() {
+        let (customer_a, customer_b) = (Uuid::now_v7(), Uuid::now_v7());
+        let forecasts = vec![forecast_pair(Some((customer_a, "客户甲")), None, "4000", "40")];
+        let actuals = VarianceActuals {
+            by_customer: vec![
+                model::CustomerActual {
+                    customer_id: customer_a,
+                    customer_name: Some("客户甲".to_string()),
+                    amount: dec("5000"),
+                    qty: dec("50"),
+                },
+                // 漏预测行 +1000，与客户甲同额
+                model::CustomerActual {
+                    customer_id: customer_b,
+                    customer_name: Some("客户乙".to_string()),
+                    amount: dec("1000"),
+                    qty: dec("10"),
+                },
+            ],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        let summary = summarize_variance(&rows);
+        let worst = summary.worst.expect("有行就有最贵偏差");
+        assert_eq!(worst.variance_amount, dec("1000.00"));
+        assert_eq!(
+            worst.display_name, "客户甲",
+            "同额偏差优先点名有预测的那行（能说清是哪条预测偏了）"
+        );
+        assert!(worst.forecast_no.is_some(), "有预测的行才带预测编号");
+    }
+
+    #[test]
+    fn all_grain_quantity_only_actual_is_still_a_missing_forecast() {
+        // 全公司没预测、金额 0 但卖了 500 件：判据是「金额或数量非 0」，必须给漏预测行
+        let actuals = VarianceActuals {
+            total_amount: Decimal::ZERO,
+            total_qty: dec("500"),
+            ..Default::default()
+        };
+        let rows = assemble_variance(&[], &actuals, FORECAST_DIM_ALL, "2031-05", dec("5"));
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].has_forecast);
+        assert_eq!(rows[0].display_name, "全公司");
+        assert_eq!(rows[0].actual_amount, Decimal::ZERO);
+        assert_eq!(rows[0].actual_qty, dec("500"));
+        assert_eq!(rows[0].variance_amount, Decimal::ZERO);
+        assert_eq!(rows[0].variance_qty, dec("500"));
+        assert_eq!(rows[0].deviation_level, DEVIATION_NO_FORECAST);
+
+        let summary = summarize_variance(&rows);
+        assert_eq!(summary.unforecast_count, 1);
+        assert_eq!(summary.forecast_count, 0);
+        assert_eq!(summary.actual_qty, dec("500"));
+        assert_eq!(summary.variance_rate, None, "预测金额 0 ⇒ 金额偏差率无意义");
+        assert_eq!(summary.variance_qty_rate, None, "预测数量 0 ⇒ 数量偏差率无意义");
+        assert_eq!(summary.mape_pct, None);
     }
 }

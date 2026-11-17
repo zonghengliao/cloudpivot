@@ -61,3 +61,7 @@ mod sales_forecast_db_tests;
 /// 预测 vs 实际（偏差分析，M3-21）的真库用例。
 #[cfg(test)]
 mod sales_variance_db_tests;
+
+/// 销售预测偏差分析的**汇总口径**真库用例（M3-22：合计怎么加、档位怎么数、容差动哪一层）。
+#[cfg(test)]
+mod sales_variance_summary_db_tests;
