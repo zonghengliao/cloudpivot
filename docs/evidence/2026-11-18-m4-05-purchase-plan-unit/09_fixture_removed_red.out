@@ -1,0 +1,86 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 25s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 11 tests
+test business::erp::purchase::purchase_plan_convert_db_tests::approved_plan_converts_one_requisition_per_warehouse ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::company_level_plan_needs_dept ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::converted_requisition_is_a_real_requisition ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::draft_and_submitted_plans_cannot_convert ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::executed_qty_and_totals_are_written_back ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::foreign_plan_item_is_rejected ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::over_remaining_is_rejected_with_numbers ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::partial_then_full_conversion_then_refused ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::provenance_columns_are_written ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::zero_price_line_needs_est_price_override ... FAILED
+test business::erp::purchase::purchase_plan_convert_db_tests::zz_teardown_purges_fixtures ... ok
+
+failures:
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::approved_plan_converts_one_requisition_per_warehouse stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::approved_plan_converts_one_requisition_per_warehouse' (3519767) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::company_level_plan_needs_dept stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::company_level_plan_needs_dept' (3519770) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::converted_requisition_is_a_real_requisition stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::converted_requisition_is_a_real_requisition' (3519771) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::draft_and_submitted_plans_cannot_convert stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::draft_and_submitted_plans_cannot_convert' (3519772) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:474:6:
+提交: ApiError { code: 65018, msg: "节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。", status: 422, internal_detail: None, data: Some(Object {"assignee_type": String("ROLE"), "candidate_count": Number(1), "escalated_from_role": String("PURCHASE_MANAGER"), "escalation_chain": Array [Object {"member_count": Number(0), "role_code": String("GENERAL_MANAGER"), "role_id": String("20000000-0000-4000-8000-0000000f0003"), "role_name": String("总经理"), "usable_count": Number(0)}], "escalation_reason": String("NO_MEMBER"), "excluded": Array [String("超级管理员：内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕")], "fix_hint": String("角色「采购经理」解析出的审批人全部是制单人 / 发起人本人：请再指派一名**其他**成员，或改由他人提交本单"), "flow_instance_id": String("01a1eab6-9607-7759-a044-9426f5a27acb"), "member_count": Number(0), "node_id": String("01a1eab6-960c-7340-9d04-d51bcca80f1a"), "node_key": String("n_pm"), "node_name": String("采购经理审批"), "reason": String("SELF_ONLY"), "reason_text": String("该节点解析到的审批人都是制单人 / 发起人本人（内控不允许自审）"), "role_code": String("PURCHASE_MANAGER"), "role_id": String("20000000-0000-4000-8000-0000000f0002"), "role_name": String("采购经理"), "usable_member_count": Number(0)}) }
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::executed_qty_and_totals_are_written_back stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::executed_qty_and_totals_are_written_back' (3519773) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::foreign_plan_item_is_rejected stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::foreign_plan_item_is_rejected' (3519774) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::over_remaining_is_rejected_with_numbers stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::over_remaining_is_rejected_with_numbers' (3519775) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::partial_then_full_conversion_then_refused stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::partial_then_full_conversion_then_refused' (3519776) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::provenance_columns_are_written stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::provenance_columns_are_written' (3519777) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:236:29:
+提交审批失败：65018 节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。
+
+---- business::erp::purchase::purchase_plan_convert_db_tests::zero_price_line_needs_est_price_override stdout ----
+
+thread 'business::erp::purchase::purchase_plan_convert_db_tests::zero_price_line_needs_est_price_override' (3519778) panicked at app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs:623:6:
+提交: ApiError { code: 65018, msg: "节点「采购经理审批」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，本节点没有一个可用审批人：超级管理员（内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕）。升级链已走完：采购经理（原角色，角色无成员） → 总经理（0/0 人）；兜底人未配置。请先把该节点的审批岗位（角色成员 / 指定审批人）、升级链上每一级的角色或节点兜底人指派给非制单人、非发起人；或改由他人提交本单。", status: 422, internal_detail: None, data: Some(Object {"assignee_type": String("ROLE"), "candidate_count": Number(1), "escalated_from_role": String("PURCHASE_MANAGER"), "escalation_chain": Array [Object {"member_count": Number(0), "role_code": String("GENERAL_MANAGER"), "role_id": String("20000000-0000-4000-8000-0000000f0003"), "role_name": String("总经理"), "usable_count": Number(0)}], "escalation_reason": String("NO_MEMBER"), "excluded": Array [String("超级管理员：内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕")], "fix_hint": String("角色「采购经理」解析出的审批人全部是制单人 / 发起人本人：请再指派一名**其他**成员，或改由他人提交本单"), "flow_instance_id": String("01a1eab6-98e4-7065-8c16-eb4f5b05f2bd"), "member_count": Number(0), "node_id": String("01a1eab6-98ea-7131-ae86-90b119ce5b80"), "node_key": String("n_pm"), "node_name": String("采购经理审批"), "reason": String("SELF_ONLY"), "reason_text": String("该节点解析到的审批人都是制单人 / 发起人本人（内控不允许自审）"), "role_code": String("PURCHASE_MANAGER"), "role_id": String("20000000-0000-4000-8000-0000000f0002"), "role_name": String("采购经理"), "usable_member_count": Number(0)}) }
+
+
+failures:
+    business::erp::purchase::purchase_plan_convert_db_tests::approved_plan_converts_one_requisition_per_warehouse
+    business::erp::purchase::purchase_plan_convert_db_tests::company_level_plan_needs_dept
+    business::erp::purchase::purchase_plan_convert_db_tests::converted_requisition_is_a_real_requisition
+    business::erp::purchase::purchase_plan_convert_db_tests::draft_and_submitted_plans_cannot_convert
+    business::erp::purchase::purchase_plan_convert_db_tests::executed_qty_and_totals_are_written_back
+    business::erp::purchase::purchase_plan_convert_db_tests::foreign_plan_item_is_rejected
+    business::erp::purchase::purchase_plan_convert_db_tests::over_remaining_is_rejected_with_numbers
+    business::erp::purchase::purchase_plan_convert_db_tests::partial_then_full_conversion_then_refused
+    business::erp::purchase::purchase_plan_convert_db_tests::provenance_columns_are_written
+    business::erp::purchase::purchase_plan_convert_db_tests::zero_price_line_needs_est_price_override
+
+test result: FAILED. 1 passed; 10 failed; 0 ignored; 0 measured; 6274 filtered out; finished in 0.43s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

@@ -867,3 +867,11 @@ fn to_item_res(item: &PlanItemRow) -> PlanItemRes {
         remark: item.remark.clone(),
     }
 }
+
+// ==================== 单测（纯逻辑：状态机 × 报错出口 × 表单快照 × 执行率） ====================
+
+// 挂成 handler 的子模块（而不是 `purchase/mod.rs`）：`ensure_draft` / `status_drift` /
+// `form_data` / `to_item_res` 这些私有件只有子模块够得着 —— 它们是最该被钉住的一层。
+#[cfg(test)]
+#[path = "purchase_plan_state_tests.rs"]
+mod purchase_plan_state_tests;

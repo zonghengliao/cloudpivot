@@ -75,13 +75,17 @@ async fn operator() -> Uuid {
     id
 }
 
-/// 取串行锁 + 探库 + 清场。
+/// 取串行锁 + 探库 + 清场 + 就绪「非制单人」的审批岗位成员。
 async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     let guard = DB_LOCK.lock().await;
     if !ensure_db().await {
         return None;
     }
     cleanup().await;
+    // 用例里那张 `approved_plan` 要真走完 `pp_approve`，而该流程带职责分离内控：
+    // 空库只剩 admin 时 65018（「审批人全部是制单人本人」）会把提交直接拒掉。
+    // 审批岗位成员走底座夹具（`test_seed` re-export，P2-62：测试代码不手写用户 / 角色成员）。
+    test_seed::ensure_approver_roles().await;
     Some(guard)
 }
 

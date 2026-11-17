@@ -1,0 +1,48 @@
+131:    if ordered >= planned {
+133:    } else if ordered >= planned {
+794:    if true {
+---- 变异运行 rc=101 ----
+failures:
+
+---- business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::every_non_draft_status_is_rejected_with_actionable_text stdout ----
+
+thread 'business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::every_non_draft_status_is_rejected_with_actionable_text' (3518477) panicked at app/src/business/erp/purchase/purchase_plan_state_tests.rs:178:52:
+SUBMITTED 不允许修改: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::exec_rate_and_state_are_consistent_over_a_grid stdout ----
+
+thread 'business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::exec_rate_and_state_are_consistent_over_a_grid' (3518478) panicked at app/src/business/erp/purchase/purchase_plan_state_tests.rs:570:13:
+assertion `left == right` failed: plan=1 / ordered=1
+  left: "OVER"
+ right: "DONE"
+
+---- business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::guard_message_labels_every_known_status stdout ----
+
+thread 'business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::guard_message_labels_every_known_status' (3518485) panicked at app/src/business/erp/purchase/purchase_plan_state_tests.rs:252:61:
+非草稿必拒: ()
+
+---- business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_mixed_over_and_under_can_land_done stdout ----
+
+thread 'business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_mixed_over_and_under_can_land_done' (3518494) panicked at app/src/business/erp/purchase/purchase_plan_state_tests.rs:687:5:
+assertion `left == right` failed: 整单按合计判（不是行状态多数，也不是「有一行超就整单超」）
+  left: "OVER"
+ right: "DONE"
+
+---- business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_totals_equal_per_line_sums_and_state_follows_totals stdout ----
+
+thread 'business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_totals_equal_per_line_sums_and_state_follows_totals' (3518495) panicked at app/src/business/erp/purchase/purchase_plan_state_tests.rs:653:5:
+assertion `left == right` failed
+--
+failures:
+    business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::every_non_draft_status_is_rejected_with_actionable_text
+    business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::exec_rate_and_state_are_consistent_over_a_grid
+    business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::guard_message_labels_every_known_status
+    business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_mixed_over_and_under_can_land_done
+    business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_totals_equal_per_line_sums_and_state_follows_totals
+
+test result: FAILED. 19 passed; 5 failed; 0 ignored; 0 measured; 6261 filtered out; finished in 0.01s
+test result: FAILED. 19 passed; 5 failed; 0 ignored; 0 measured; 6261 filtered out; finished in 0.01s
+---- 恢复校验（应为 OK）----
+/opt/cloudpivot/backend/app/src/business/erp/purchase/purchase_plan_execution_dto.rs: OK
+/opt/cloudpivot/backend/app/src/business/erp/purchase/purchase_plan_handler.rs: OK

@@ -1,0 +1,44 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 51s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 24 tests
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::convertible_clips_at_zero_while_remaining_keeps_negative ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::display_rounding_does_not_flip_the_state ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::draft_passes_every_state_guard ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::error_exits_use_the_documented_codes ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::every_non_draft_status_is_rejected_with_actionable_text ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::exec_rate_and_state_are_consistent_over_a_grid ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::exec_state_case_matches_pure_function ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::form_amount_threshold_is_lt_500000_matching_pp_approve_edge ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::form_defaults_empty_strings_for_missing_names ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::form_lists_all_items_in_line_order ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::form_totals_are_json_numbers_so_condition_edges_can_compare ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::form_totals_round_to_four_dp_before_threshold ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::guard_message_labels_every_known_status ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::item_res_passes_amounts_and_joined_names ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::json_number_parses_and_degrades_to_null ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::permission_constants_are_the_six_api_codes_and_none_is_page_only ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::request_rate_and_exec_rate_diverges_when_not_ordered_yet ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::row_res_marks_only_draft_editable ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::row_res_uuid_fields_become_strings_or_null ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::status_drift_is_409_asks_refresh_and_shares_the_guard_code ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::submit_conflict_maps_active_index_to_409_and_other_errors_to_500 ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_mixed_over_and_under_can_land_done ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::summary_totals_equal_per_line_sums_and_state_follows_totals ... ok
+test business::erp::purchase::purchase_plan_handler::purchase_plan_state_tests::write_error_is_500_internal_with_context_and_cause ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 6261 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

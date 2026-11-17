@@ -1,0 +1,31 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 07s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 11 tests
+test business::erp::purchase::purchase_plan_convert_db_tests::approved_plan_converts_one_requisition_per_warehouse ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::company_level_plan_needs_dept ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::converted_requisition_is_a_real_requisition ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::draft_and_submitted_plans_cannot_convert ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::executed_qty_and_totals_are_written_back ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::foreign_plan_item_is_rejected ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::over_remaining_is_rejected_with_numbers ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::partial_then_full_conversion_then_refused ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::provenance_columns_are_written ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::zero_price_line_needs_est_price_override ... ok
+test business::erp::purchase::purchase_plan_convert_db_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 6274 filtered out; finished in 1.04s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

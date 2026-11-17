@@ -80,13 +80,17 @@ async fn operator() -> Uuid {
     id
 }
 
-/// 取串行锁 + 探库 + 清场。
+/// 取串行锁 + 探库 + 清场 + 就绪「非制单人」的审批岗位成员。
 async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     let guard = DB_LOCK.lock().await;
     if !ensure_db().await {
         return None;
     }
     cleanup().await;
+    // 空库里往往只有一个 admin，而 `pp_approve` 带职责分离内控（65018：「审批人全部是
+    // 制单人本人」直接拒派）—— 审批岗位必须有**非制单人**成员，用例才走得完真审批。
+    // 与 M4-03 / M4-04 的真库用例同一把底座夹具（`test_seed` re-export，P2-62 口径）。
+    test_seed::ensure_approver_roles().await;
     Some(guard)
 }
 
