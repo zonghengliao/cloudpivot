@@ -248,7 +248,7 @@
         size="small"
         data-testid="prq-lines-table"
       >
-        <template #lineMaterial="{ row }">
+        <template #material_id="{ row }">
           <t-select
             v-model="row.material_id"
             :options="materialOptions"
@@ -258,7 +258,7 @@
             data-testid="prq-line-material"
           />
         </template>
-        <template #lineQty="{ row }">
+        <template #qty="{ row }">
           <t-input-number
             v-model="row.qty"
             :min="0.0001"
@@ -267,7 +267,7 @@
             data-testid="prq-line-qty"
           />
         </template>
-        <template #linePrice="{ row }">
+        <template #est_price="{ row }">
           <t-input-number
             v-model="row.est_price"
             :min="0"
@@ -277,7 +277,7 @@
             data-testid="prq-line-price"
           />
         </template>
-        <template #lineTax="{ row }">
+        <template #tax_rate="{ row }">
           <t-input-number
             v-model="row.tax_rate"
             :min="0"
@@ -287,7 +287,7 @@
             data-testid="prq-line-tax"
           />
         </template>
-        <template #lineDemand="{ row }">
+        <template #demand_date="{ row }">
           <t-date-picker
             v-model="row.demand_date"
             value-type="YYYY-MM-DD"
@@ -297,7 +297,7 @@
             data-testid="prq-line-demand"
           />
         </template>
-        <template #lineSupplier="{ row }">
+        <template #suggest_supplier_id="{ row }">
           <t-select
             v-model="row.suggest_supplier_id"
             :options="supplierOptions"
@@ -308,7 +308,7 @@
             data-testid="prq-line-supplier"
           />
         </template>
-        <template #lineOps="{ row }">
+        <template #ops="{ row }">
           <t-link theme="danger" @click="removeLine(row.key)">删除</t-link>
         </template>
       </t-table>

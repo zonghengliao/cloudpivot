@@ -1,0 +1,52 @@
+==> 0. 建**空**演练库（迁移由实例首启按版本号升序执行：这才是空库首启的真实路径）
+    空库 cp_m4prq_lines 已建
+==> 1. 起隔离后端（127.0.0.1:18102 → 172.18.10.145/cp_m4prq_lines）
+[PASS] 后端实例已起（/health 200）
+[PASS] V0331 的菜单页行在位（路由要对得上它）（1）
+==> 2. 夹具（部门 / 仓库 / 物料 / 供应商；页面下拉要能取到这几样）
+[PASS] 物料夹具已建（1）
+[PASS] 供应商夹具已建（1）
+==> 3. 登录 admin + 接口自检（下拉要取的主数据接口）
+[PASS] admin 登录拿到令牌
+[PASS] 申请单列表接口 200（200）
+[PASS] 物料下拉接口 200（200）
+[PASS] 物料下拉里能取到夹具物料（1）
+[PASS] 供应商下拉接口 200（200）
+[PASS] 供应商下拉里能取到夹具供应商（1）
+[PASS] 部门树接口 200（200）
+==> 4. 起前端 dev（127.0.0.1:5191 → 代理到 18102)
+[PASS] 前端 dev 已起（127.0.0.1:5191 200）
+[PASS] /api 代理链路通（未带令牌 401）（401）
+==> 5. 源码契约单测（插槽名必须逐字等于 colKey）
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 102.56354
+[PASS] 契约单测 3/3（插槽名 = colKey / 控件有 testid / 旧命名不再出现）
+==> 6. 跑 Playwright（真 Chromium，5 条用例）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+
+Running 5 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+  ✓  1 [chromium] › e2e/m4-prq-create-lines.spec.ts:137:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ① 明细行真的有输入控件：物料/数量/单价/税率/需求日期/建议供应商/删除 (3.8s)
+  ✓  2 [chromium] › e2e/m4-prq-create-lines.spec.ts:187:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ② 空提交被拦：先「请选择申请部门」，补单头后「第 1 行：请选择物料」 (1.9s)
+  ✓  3 [chromium] › e2e/m4-prq-create-lines.spec.ts:205:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ③ 明细控件绑的值真的进了报文：填满一行 → 真 POST 200 → 列表出现单号 (2.9s)
+  ✓  4 [chromium] › e2e/m4-prq-create-lines.spec.ts:239:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ④ 加一行 / 删一行：新行的控件同样在，删除回到 1 行 (1.4s)
+  ✓  5 [chromium] › e2e/m4-prq-create-lines.spec.ts:252:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ⑤ 取证截图（明细行控件 / 物料下拉展开），给卡内汇报留现场 (2.7s)
+
+  5 passed (13.5s)
+[PASS] Playwright 5 条用例全过（控件真的渲染/能点开能填/空提交被拦/报文带值/加删行）
+==> 7. 落库复核：浏览器在明细行里填的 3 / 2.5 真的写进了数据库
+    最新明细行（qty|est_price|tax_rate|supplier为空）: 3.0000|2.500000|13.0000|true
+[PASS] 明细数量 3（表格里填的）（3）
+[PASS] 明细单价 2.5（表格里填的）（2.5）
+
+RESULT: PASS=17 FAIL=0
+t_8dcb79d5 采购申请建单明细插槽演练：全过
+DRILL_RC=0

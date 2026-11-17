@@ -1,0 +1,21 @@
+扫过 93 张「有自定义插槽的 t-table」/ 494 个单元格插槽；其中 91 张按表级解析出 colKey、2 张回退文件级池
+带输入控件且插槽名≠colKey 的槽子：0 个
+
+### 表级解析命中（确定错误）：2
+==========================================================================
+/opt/cloudpivot/frontend/src/views/business/erp/purchase-requisition/index.vue  columns=mergeColumns
+  colKeys(6) = ['material_code', 'material_name', 'qty', 'est_price', 'tax_rate', 'source_req_nos']
+  BAD #mergeQty                 format-only
+  BAD #mergePrice               format-only
+  BAD #mergeSources             format-only
+==========================================================================
+/opt/cloudpivot/frontend/src/views/business/erp/purchase-requisition/index.vue  columns=detailItemColumns
+  colKeys(11) = ['line_no', 'material_code', 'material_name', 'unit_name', 'qty', 'est_price', 'est_price_incl', 'tax_rate', 'amount', 'suggest_supplier_id', 'po_item_id']
+  BAD #dQty                     format-only
+  BAD #dPrice                   format-only
+  BAD #dPriceIncl               format-only
+  BAD #dAmount                  format-only
+  BAD #dSupplier                format-only
+  BAD #dPoItem                  format-only
+
+### 文件级池回退命中（需人工确认）：0

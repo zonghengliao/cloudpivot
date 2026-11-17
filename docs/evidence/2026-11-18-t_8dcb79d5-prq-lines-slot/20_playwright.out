@@ -1,0 +1,13 @@
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+
+Running 5 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+  ✓  1 [chromium] › e2e/m4-prq-create-lines.spec.ts:137:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ① 明细行真的有输入控件：物料/数量/单价/税率/需求日期/建议供应商/删除 (3.8s)
+  ✓  2 [chromium] › e2e/m4-prq-create-lines.spec.ts:187:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ② 空提交被拦：先「请选择申请部门」，补单头后「第 1 行：请选择物料」 (1.9s)
+  ✓  3 [chromium] › e2e/m4-prq-create-lines.spec.ts:205:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ③ 明细控件绑的值真的进了报文：填满一行 → 真 POST 200 → 列表出现单号 (2.9s)
+  ✓  4 [chromium] › e2e/m4-prq-create-lines.spec.ts:239:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ④ 加一行 / 删一行：新行的控件同样在，删除回到 1 行 (1.4s)
+  ✓  5 [chromium] › e2e/m4-prq-create-lines.spec.ts:252:3 › 采购申请（P2-02）：建单明细插槽 = colKey › ⑤ 取证截图（明细行控件 / 物料下拉展开），给卡内汇报留现场 (2.7s)
+
+  5 passed (13.5s)
