@@ -1,0 +1,234 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+TAP version 13
+# Subtest: 65023 + HTTP 409 + 后端没给 msg → 展示表里的中文人话，且不出现裸码
+ok 1 - 65023 + HTTP 409 + 后端没给 msg → 展示表里的中文人话，且不出现裸码
+  ---
+  duration_ms: 0.921534
+  type: 'test'
+  ...
+# Subtest: 65023 + 后端原文已自足（含「票数」与「联系」）→ 用后端原文，细节不丢
+ok 2 - 65023 + 后端原文已自足（含「票数」与「联系」）→ 用后端原文，细节不丢
+  ---
+  duration_ms: 0.374521
+  type: 'test'
+  ...
+# Subtest: 65023 + 后端原文没给动作（只有现象）→ 表给「怎么办」，后端原文作为说明保留
+ok 3 - 65023 + 后端原文没给动作（只有现象）→ 表给「怎么办」，后端原文作为说明保留
+  ---
+  duration_ms: 0.207072
+  type: 'test'
+  ...
+# Subtest: 65020 + 「已处理过」后端原文 → 表补上「不用再点」的指引，且保留轮次细节
+ok 4 - 65020 + 「已处理过」后端原文 → 表补上「不用再点」的指引，且保留轮次细节
+  ---
+  duration_ms: 0.089662
+  type: 'test'
+  ...
+# Subtest: 66034 负库存 + 后端点名物料与可用量 → 表给「怎么办」，单号与数量不丢
+ok 5 - 66034 负库存 + 后端点名物料与可用量 → 表给「怎么办」，单号与数量不丢
+  ---
+  duration_ms: 0.193906
+  type: 'test'
+  ...
+# Subtest: 66066 期间已锁定 + 后端已给动作 → 整段用后端原文（带批次号）
+ok 6 - 66066 期间已锁定 + 后端已给动作 → 整段用后端原文（带批次号）
+  ---
+  duration_ms: 0.640299
+  type: 'test'
+  ...
+# Subtest: 66018 单据已被引用 + 后端没文案 → 表里说清「先处理单据，或改为终止」
+ok 7 - 66018 单据已被引用 + 后端没文案 → 表里说清「先处理单据，或改为终止」
+  ---
+  duration_ms: 0.102661
+  type: 'test'
+  ...
+# Subtest: 66038 期间已结账 + 后端只说现象 → 表补「反结账 / 开账」动作，后端原文保留
+ok 8 - 66038 期间已结账 + 后端只说现象 → 表补「反结账 / 开账」动作，后端原文保留
+  ---
+  duration_ms: 0.076955
+  type: 'test'
+  ...
+# Subtest: 20009 空闲自动退出 + 后端没文案 → 说清「为什么掉线」和「登录后回到原页」
+ok 9 - 20009 空闲自动退出 + 后端没文案 → 说清「为什么掉线」和「登录后回到原页」
+  ---
+  duration_ms: 0.298568
+  type: 'test'
+  ...
+# Subtest: 20008 权限已变更 + 后端原文已自足 → 用后端原文（不套本地话）
+ok 10 - 20008 权限已变更 + 后端原文已自足 → 用后端原文（不套本地话）
+  ---
+  duration_ms: 0.362273
+  type: 'test'
+  ...
+# Subtest: 20008 权限已变更 + 没有后端文案 → 表里点明「权限被调整过」，不是笼统的登录失效
+ok 11 - 20008 权限已变更 + 没有后端文案 → 表里点明「权限被调整过」，不是笼统的登录失效
+  ---
+  duration_ms: 0.191656
+  type: 'test'
+  ...
+# Subtest: 30001 无权限 + 后端点名了缺哪个权限码 → 表给动作，权限码不丢
+ok 12 - 30001 无权限 + 后端点名了缺哪个权限码 → 表给动作，权限码不丢
+  ---
+  duration_ms: 0.092078
+  type: 'test'
+  ...
+# Subtest: 30001 无权限 + 后端只写「权限不足」→ 表补动作，后端原文作说明
+ok 13 - 30001 无权限 + 后端只写「权限不足」→ 表补动作，后端原文作说明
+  ---
+  duration_ms: 0.071205
+  type: 'test'
+  ...
+# Subtest: 10005 登录限流 + 后端已给动作（含「请」）→ 整段用后端原文
+ok 14 - 10005 登录限流 + 后端已给动作（含「请」）→ 整段用后端原文
+  ---
+  duration_ms: 0.068954
+  type: 'test'
+  ...
+# Subtest: 40007 文件超限 + 后端只说现象 → 表补「压缩 / 拆分」，上限数字不丢
+ok 15 - 40007 文件超限 + 后端只说现象 → 表补「压缩 / 拆分」，上限数字不丢
+  ---
+  duration_ms: 0.124993
+  type: 'test'
+  ...
+# Subtest: 61003 改自己角色的数据范围 → 表说清「换一位管理员」，角色名不丢
+ok 16 - 61003 改自己角色的数据范围 → 表说清「换一位管理员」，角色名不丢
+  ---
+  duration_ms: 0.097661
+  type: 'test'
+  ...
+# Subtest: 码在表里 + 后端文案只说了现象（无可执行动作）→ 表给动作，后端原文当说明保留
+ok 17 - 码在表里 + 后端文案只说了现象（无可执行动作）→ 表给动作，后端原文当说明保留
+  ---
+  duration_ms: 0.073246
+  type: 'test'
+  ...
+# Subtest: 表里没有的业务码 + 没有文案 + 409 → 用 HTTP 状态的人话（仍不是裸码）
+ok 18 - 表里没有的业务码 + 没有文案 + 409 → 用 HTTP 状态的人话（仍不是裸码）
+  ---
+  duration_ms: 0.069704
+  type: 'test'
+  ...
+# Subtest: 表里没有的业务码 + 后端文案 → 用后端文案，不被 HTTP 409 通用话盖掉
+ok 19 - 表里没有的业务码 + 后端文案 → 用后端文案，不被 HTTP 409 通用话盖掉
+  ---
+  duration_ms: 0.05858
+  type: 'test'
+  ...
+# Subtest: 后端 msg 就是个裸码 → 视为没给文案，改走码表
+ok 20 - 后端 msg 就是个裸码 → 视为没给文案，改走码表
+  ---
+  duration_ms: 0.059664
+  type: 'test'
+  ...
+# Subtest: 后端 msg 是英文（反代 / 框架默认）→ 视为没给文案，改走 HTTP 码表
+ok 21 - 后端 msg 是英文（反代 / 框架默认）→ 视为没给文案，改走 HTTP 码表
+  ---
+  duration_ms: 0.092954
+  type: 'test'
+  ...
+# Subtest: 没有响应（断网 / 跨域）→ 网络人话，不是码、也不是空
+ok 22 - 没有响应（断网 / 跨域）→ 网络人话，不是码、也不是空
+  ---
+  duration_ms: 0.062872
+  type: 'test'
+  ...
+# Subtest: 请求超时（axios ECONNABORTED 的文案）→ 原样透出，不当成「没给文案」
+ok 23 - 请求超时（axios ECONNABORTED 的文案）→ 原样透出，不当成「没给文案」
+  ---
+  duration_ms: 0.06158
+  type: 'test'
+  ...
+# Subtest: 啥都没有 → 兜底人话（绝不返回空串）
+ok 24 - 啥都没有 → 兜底人话（绝不返回空串）
+  ---
+  duration_ms: 0.065579
+  type: 'test'
+  ...
+# Subtest: 表里每条文案：非空、含中文、不含裸码、长度适合 toast
+ok 25 - 表里每条文案：非空、含中文、不含裸码、长度适合 toast
+  ---
+  duration_ms: 0.558054
+  type: 'test'
+  ...
+# Subtest: 同一条码只有一个文案（表没有重复键被后写覆盖）
+ok 26 - 同一条码只有一个文案（表没有重复键被后写覆盖）
+  ---
+  duration_ms: 0.1627
+  type: 'test'
+  ...
+# Subtest: error_code.rs 里 65xxx（审批流）每一条常量，前端表里都有（后端加码 → 这里先红）
+ok 27 - error_code.rs 里 65xxx（审批流）每一条常量，前端表里都有（后端加码 → 这里先红）
+  ---
+  duration_ms: 1.065401
+  type: 'test'
+  ...
+# Subtest: error_code.rs 里 66xxx（ERP 单据 / 主数据）每一条常量，前端表里都有
+ok 28 - error_code.rs 里 66xxx（ERP 单据 / 主数据）每一条常量，前端表里都有
+  ---
+  duration_ms: 1.240891
+  type: 'test'
+  ...
+# Subtest: error_code.rs 里 1000x 通用 每一条常量，前端表里都有
+ok 29 - error_code.rs 里 1000x 通用 每一条常量，前端表里都有
+  ---
+  duration_ms: 0.355856
+  type: 'test'
+  ...
+# Subtest: error_code.rs 里 2000x 认证（登录 / 令牌 / 会话） 每一条常量，前端表里都有
+ok 30 - error_code.rs 里 2000x 认证（登录 / 令牌 / 会话） 每一条常量，前端表里都有
+  ---
+  duration_ms: 0.263736
+  type: 'test'
+  ...
+# Subtest: error_code.rs 里 3000x 授权（权限 / 角色 / 菜单 / 部门 / 用户） 每一条常量，前端表里都有
+ok 31 - error_code.rs 里 3000x 授权（权限 / 角色 / 菜单 / 部门 / 用户） 每一条常量，前端表里都有
+  ---
+  duration_ms: 0.989614
+  type: 'test'
+  ...
+# Subtest: error_code.rs 里 4000x 支撑域（字典 / 参数 / 文件 / 任务 / 日志 / 在线用户） 每一条常量，前端表里都有
+ok 32 - error_code.rs 里 4000x 支撑域（字典 / 参数 / 文件 / 任务 / 日志 / 在线用户） 每一条常量，前端表里都有
+  ---
+  duration_ms: 0.519597
+  type: 'test'
+  ...
+# Subtest: error_code.rs 里 6100x 数据权限 / 脱敏 / 角色互斥 每一条常量，前端表里都有
+ok 33 - error_code.rs 里 6100x 数据权限 / 脱敏 / 角色互斥 每一条常量，前端表里都有
+  ---
+  duration_ms: 0.342273
+  type: 'test'
+  ...
+# Subtest: request.ts 引入码表，并在 HTTP 失败 / 业务码非 0 两条路径上调用
+ok 34 - request.ts 引入码表，并在 HTTP 失败 / 业务码非 0 两条路径上调用
+  ---
+  duration_ms: 0.116619
+  type: 'test'
+  ...
+# Subtest: request.ts 不再硬编码绕过码表的兜底文案
+ok 35 - request.ts 不再硬编码绕过码表的兜底文案
+  ---
+  duration_ms: 0.067788
+  type: 'test'
+  ...
+# Subtest: request.ts 识破 401 + 20008（权限已变更）：不刷新、带 reason=changed 回登录页
+ok 36 - request.ts 识破 401 + 20008（权限已变更）：不刷新、带 reason=changed 回登录页
+  ---
+  duration_ms: 0.087329
+  type: 'test'
+  ...
+# Subtest: 登录页认识 reason=changed，并说清「权限被调整」而不是「长时间未操作」
+ok 37 - 登录页认识 reason=changed，并说清「权限被调整」而不是「长时间未操作」
+  ---
+  duration_ms: 0.255111
+  type: 'test'
+  ...
+1..37
+# tests 37
+# suites 0
+# pass 37
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 147.39737
+EXIT=0

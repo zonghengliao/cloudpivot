@@ -1,0 +1,144 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+TAP version 13
+# Subtest: 域值与后端常量逐字一致（改一个字母就是「插不进库 / 授不上权」）
+ok 1 - 域值与后端常量逐字一致（改一个字母就是「插不进库 / 授不上权」）
+  ---
+  duration_ms: 1.555833
+  type: 'test'
+  ...
+# Subtest: 8 个权限码与迁移逐字一致（V0438 政策 4 / V0439 结算 3 / V0440 开票 1）
+ok 2 - 8 个权限码与迁移逐字一致（V0438 政策 4 / V0439 结算 3 / V0440 开票 1）
+  ---
+  duration_ms: 0.38423
+  type: 'test'
+  ...
+# Subtest: 菜单收尾迁移与前端路由逐字一致（V0443 的 path / component；n08 会整串比对）
+ok 3 - 菜单收尾迁移与前端路由逐字一致（V0443 的 path / component；n08 会整串比对）
+  ---
+  duration_ms: 0.361397
+  type: 'test'
+  ...
+# Subtest: 按量 / 按额：恰好 1 档且 0 ~ ∞（多档 / 起征 / 封顶全部拒）
+ok 4 - 按量 / 按额：恰好 1 档且 0 ~ ∞（多档 / 起征 / 封顶全部拒）
+  ---
+  duration_ms: 0.298526
+  type: 'test'
+  ...
+# Subtest: 阶梯：2~20 档首尾相接、首档从 0、末档开口（五个反例逐一命中）
+ok 5 - 阶梯：2~20 档首尾相接、首档从 0、末档开口（五个反例逐一命中）
+  ---
+  duration_ms: 0.338648
+  type: 'test'
+  ...
+# Subtest: 比率与档位数值：> 0、百分比 ≤ 100、小数位上限（库层 NUMERIC 口径）
+ok 6 - 比率与档位数值：> 0、百分比 ≤ 100、小数位上限（库层 NUMERIC 口径）
+  ---
+  duration_ms: 0.126826
+  type: 'test'
+  ...
+# Subtest: 表单整体校验：名称 / 客户 / 粒度 / 生效日 / 有效期（按「先必填再语义」）
+ok 7 - 表单整体校验：名称 / 客户 / 粒度 / 生效日 / 有效期（按「先必填再语义」）
+  ---
+  duration_ms: 0.276651
+  type: 'test'
+  ...
+# Subtest: 切换规则类型：按量/按额压成单档并钉死单位，阶梯补两档模板
+ok 8 - 切换规则类型：按量/按额压成单档并钉死单位，阶梯补两档模板
+  ---
+  duration_ms: 0.118785
+  type: 'test'
+  ...
+# Subtest: 加档 / 删档：只有末档可开口，删只删最后一档
+ok 9 - 加档 / 删档：只有末档可开口，删只删最后一档
+  ---
+  duration_ms: 0.378813
+  type: 'test'
+  ...
+# Subtest: 改一档的上限 → 下一档下限跟着走（保持首尾相接）
+ok 10 - 改一档的上限 → 下一档下限跟着走（保持首尾相接）
+  ---
+  duration_ms: 0.377563
+  type: 'test'
+  ...
+# Subtest: 入参：数值转字符串、空上限发 null、rate_unit 显式发、status 是数字
+ok 11 - 入参：数值转字符串、空上限发 null、rate_unit 显式发、status 是数字
+  ---
+  duration_ms: 0.263778
+  type: 'test'
+  ...
+# Subtest: 编辑回填：全量档位、null 折空串、按 tier_from 升序（整单覆盖不能丢档）
+ok 12 - 编辑回填：全量档位、null 折空串、按 tier_from 升序（整单覆盖不能丢档）
+  ---
+  duration_ms: 0.281151
+  type: 'test'
+  ...
+# Subtest: 展示：类型中文 / 费率单位 / 档位摘要 / 有效期 / 状态
+ok 13 - 展示：类型中文 / 费率单位 / 档位摘要 / 有效期 / 状态
+  ---
+  duration_ms: 0.261319
+  type: 'test'
+  ...
+# Subtest: 筛选与空态：带筛选条件时才说「没有匹配」
+ok 14 - 筛选与空态：带筛选条件时才说「没有匹配」
+  ---
+  duration_ms: 0.106453
+  type: 'test'
+  ...
+# Subtest: 期间码：月度配 yyyy-MM、季度配 yyyy-QN，串配一律拒（与 PeriodArgs::resolve 同口径）
+ok 15 - 期间码：月度配 yyyy-MM、季度配 yyyy-QN，串配一律拒（与 PeriodArgs::resolve 同口径）
+  ---
+  duration_ms: 0.255528
+  type: 'test'
+  ...
+# Subtest: 期间候选：新的排最前、不含未来月、季度从本季起
+ok 16 - 期间候选：新的排最前、不含未来月、季度从本季起
+  ---
+  duration_ms: 0.362772
+  type: 'test'
+  ...
+# Subtest: 入参：期间码归一化、空备注不发、跑批空客户列表不发 customer_ids
+ok 17 - 入参：期间码归一化、空备注不发、跑批空客户列表不发 customer_ids
+  ---
+  duration_ms: 0.243404
+  type: 'test'
+  ...
+# Subtest: 展示：基数（负数为退货多于销售）/ 命中档 / 发票 / 状态 / 转结时间
+ok 18 - 展示：基数（负数为退货多于销售）/ 命中档 / 发票 / 状态 / 转结时间
+  ---
+  duration_ms: 0.383896
+  type: 'test'
+  ...
+# Subtest: 本页合计只汇总当前页（不是全量 —— 页面上也这么写）
+ok 19 - 本页合计只汇总当前页（不是全量 —— 页面上也这么写）
+  ---
+  duration_ms: 0.097495
+  type: 'test'
+  ...
+# Subtest: 试算结论：无政策时不能说「应返 0 元」，要说「没有政策可算」
+ok 20 - 试算结论：无政策时不能说「应返 0 元」，要说「没有政策可算」
+  ---
+  duration_ms: 0.190865
+  type: 'test'
+  ...
+# Subtest: 跑批结果：成功 / 跳过 / 失败都要说，失败排最前
+ok 21 - 跑批结果：成功 / 跳过 / 失败都要说，失败排最前
+  ---
+  duration_ms: 0.183823
+  type: 'test'
+  ...
+# Subtest: 结算筛选与空态文案 + 备注上限与后端一致
+ok 22 - 结算筛选与空态文案 + 备注上限与后端一致
+  ---
+  duration_ms: 0.380604
+  type: 'test'
+  ...
+1..22
+# tests 22
+# suites 0
+# pass 22
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 143.549262
+EXIT=0

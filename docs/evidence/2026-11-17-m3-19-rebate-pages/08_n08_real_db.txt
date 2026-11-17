@@ -1,0 +1,6 @@
+### n08（真库 cp_be03f4e7_dev：菜单 path 必须能在前端路由解析）
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... 测试C 已连接验证库（cloudpivot_test）
+[N08] 138 条菜单路径全部能在前端路由里解析 ✓
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6115 filtered out; finished in 0.21s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s

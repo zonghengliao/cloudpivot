@@ -1,0 +1,10 @@
+### 变异反证：把本卡菜单 path 改成前端未注册的值，n08 必须判红（证明 n08 确实读 cp_be03f4e7_dev 且覆盖本卡这一行）
+UPDATE 1
+以下菜单前端未注册路由，点进去必然 404：
+返利政策 (/business/erp/rebate-policyMUTATION, component=Some("business/erp/rebate/index"))
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6115 filtered out; finished in 0.20s
+
+### 还原并复绿
+UPDATE 1
+[N08] 138 条菜单路径全部能在前端路由里解析 ✓
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6115 filtered out; finished in 0.16s

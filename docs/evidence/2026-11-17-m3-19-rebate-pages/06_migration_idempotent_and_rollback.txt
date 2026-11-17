@@ -1,0 +1,48 @@
+### 前置状态（从 cloudpivot_test_v0442a 克隆）
+  path  | component |  title   | is_visible | sort_order 
+--------+-----------+----------+------------+------------
+ <NULL> | <NULL>    | 返利政策 | f          |         85
+(1 row)
+
+ buttons_under_4380 
+--------------------
+                  7
+(1 row)
+
+
+### 第一次应用 V0443
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ① path 更新 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ② component 更新 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ③ title/parent/sort/visible 更新 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 完成：销售返利 /business/erp/rebate-policy 已挂到「销售管理」目录（sort 85，一行两 tab：返利政策 / 返利结算）
+DO
+
+### 第二次应用（幂等：应 0 行更新）
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ① path 更新 0 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ② component 更新 0 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ③ title/parent/sort/visible 更新 0 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 完成：销售返利 /business/erp/rebate-policy 已挂到「销售管理」目录（sort 85，一行两 tab：返利政策 / 返利结算）
+DO
+
+### down（回滚到 V0438 终态）
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.down.sql:80: NOTICE:  V0443 down ① path/component 还原 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.down.sql:80: NOTICE:  V0443 down ② title/parent/sort/visible 还原 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.down.sql:80: NOTICE:  V0443 down 完成：返利页节点已还原为隐藏 + path/component 空（按钮与授权未动）
+DO
+  path  | component |  title   | is_visible | sort_order 
+--------+-----------+----------+------------+------------
+ <NULL> | <NULL>    | 返利政策 | f          |         85
+(1 row)
+
+
+### 再 up（重新落地）
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ① path 更新 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ② component 更新 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 ③ title/parent/sort/visible 更新 1 行
+psql:backend/app/migrations/business/V0443__sales_rebate_menu_page.up.sql:180: NOTICE:  V0443 完成：销售返利 /business/erp/rebate-policy 已挂到「销售管理」目录（sort 85，一行两 tab：返利政策 / 返利结算）
+DO
+            path             |         component         |  title   | is_visible | sort_order 
+-----------------------------+---------------------------+----------+------------+------------
+ /business/erp/rebate-policy | business/erp/rebate/index | 销售返利 | t          |         85
+(1 row)
+

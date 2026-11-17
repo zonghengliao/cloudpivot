@@ -518,6 +518,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '价格管理', permission: 'business:erp:cust-price:list' },
       },
       {
+        // ==================== ERP 销售返利（M3-19 · 销售链 M3-15/16/17 前端） ====================
+        // `sys_menu`（V0438 种子 …4380）path/component 留 NULL，由 V0443 收尾补成
+        // `/business/erp/rebate-policy` + `business/erp/rebate/index`
+        // （先注册路由、再填菜单：`system::menu::tests::n08` 是真库档硬门禁，
+        //  path 先填而路由后加会让 n08 一直红）。
+        // 一个侧边栏节点、两个 tab（返利政策 / 返利结算）：菜单总数已顶
+        // `menu_invariants` ⑤ 的上限（540），不能为结算再插一个页面节点。
+        path: 'business/erp/rebate-policy',
+        name: 'BusinessErpRebatePolicy',
+        component: () => import('@/views/business/erp/rebate/index.vue'),
+        meta: { title: '销售返利', permission: 'business:erp:rebate-policy:list' },
+      },
+      {
         // ==================== ERP 佣金规则（SO-37 · 销售链 §15.4） ====================
         // `sys_menu`（V0310 种子 …3301）path/component 留 NULL，由 V0312 收尾补成
         // `/business/erp/commission-rule` + `business/erp/commission-rule/index`
