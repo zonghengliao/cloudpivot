@@ -193,7 +193,7 @@ function preview(patch: Partial<RebateInvoicePreview> = {}): RebateInvoicePrevie
       },
       {
         side: 'CREDIT',
-        account_code: '2241.02',
+        account_code: '2241.05',
         account_name: '其他应付款-销售返利',
         amount: '1000.00',
         summary: '应付客户返利',
@@ -394,7 +394,7 @@ test('凭证分录：借 / 贷分列，合计平衡；税额为 0 时只有两�
   assert.equal(rows[0].credit, '');
   assert.equal(rows[2].debit, '');
   assert.equal(rows[2].credit, '1,000.00');
-  assert.match(rows[2].account, /2241\.02/);
+  assert.match(rows[2].account, /2241\.05/);
   assert.match(rows[2].account, /其他应付款-销售返利/);
 
   const totals = invoiceVoucherTotals(preview());
@@ -416,7 +416,7 @@ test('凭证分录：借 / 贷分列，合计平衡；税额为 0 时只有两�
       },
       {
         side: 'CREDIT',
-        account_code: '2241.02',
+        account_code: '2241.05',
         account_name: '其他应付款-销售返利',
         amount: '1000.00',
         summary: '应付客户返利',
@@ -444,7 +444,7 @@ test('分录方向：未知值原样显示（不吞成空白），借贷不平�
       },
       {
         side: 'CREDIT',
-        account_code: '2241.02',
+        account_code: '2241.05',
         account_name: '其他应付款-销售返利',
         amount: '1000.00',
         summary: '应付客户返利',

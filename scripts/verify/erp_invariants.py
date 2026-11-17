@@ -2112,6 +2112,9 @@ def group_o():
 # 干净库上销售链一条数据都没有，8 条会「绿色地空跑」。每条后面打一行
 # `· 覆盖：…`，把**实际查了多少行**写进报告 —— 免得「绿」和「没查」长得一样。
 # 验收要求 48 条全绿；本组在没上销售模块的库上退回 INFO 跳过（与 N2 缺列同口径）。
+# S10/S11（V0445 / t_627d2a4b）是「科目口径」判据：返利负债必须落在自己那条末级科目上，
+# 不能与销售佣金共用 2241.02 —— 金额判据（A1/S7）对此完全无感，这也是 V0440 那个
+# 「静默跳过 + 只验结构不验名称」的 bug 能一路绿到验收的原因。
 SALES_AR_ACCOUNT = "1122"      # 应收账款
 SALES_TAX_ACCOUNT = "2221.02"  # 应交税费-销项税
 SALES_REVENUE_ACCOUNT = "5001" # 主营业务收入（稿面 6001 在本仓不存在）
@@ -2131,11 +2134,13 @@ S_CHECK_NAMES = [
     "S7 销售相关凭证 Σ借 = Σ贷（且头金额 = 分录取和）",
     "S8 三账一致（销售出库：库存 = 库位账 = 流水）",
     "S9 客户信用额度 = 有效订单含税 − 已核销应收 − 已过账退货（下限 0）",
+    "S10 返利应付科目 2241.05 就位（名称逐字/末级/父 2241）且 2241.02 仍是佣金",
+    "S11 返利红字凭证贷方口径（已开票的负债必须落 2241.05 销售返利）",
 ]
 
 
 def group_s():
-    """销售链 9 条不变量（ARCH-7 §9.2 的 S1–S8 + SO-38 的 S9）。真库直查，全部 BLOCKER。"""
+    """销售链 11 条不变量（ARCH-7 §9.2 的 S1–S8 + SO-38 的 S9 + V0445 的 S10/S11）。真库直查，S10 BLOCKER / S11 WARN。"""
     print("\n" + "=" * 92)
     print("S. 销售链不变量（订单/发货/发票/应收/收款/出库/凭证/三账）")
     print("=" * 92)
@@ -2611,6 +2616,95 @@ def group_s():
                                   where t.customer_id=c.id and t.deleted_at is null
                                     and t.status='POSTED'),0))) > 0.01
               """)
+
+    # ── S10 返利应付科目就位（V0445 / t_627d2a4b）─────────────────────
+    # 背景：V0440 以为 2241.02 是空号，而它早在 V0311 就被种成「其他应付款-佣金」——
+    # 种子 `WHERE NOT EXISTS` 静默跳过、V0440 的自检只验结构不验名称，于是**每个库**
+    # （含全新空库首启）的返利红字凭证都贷记了**佣金**科目（金额对、科目口径错：
+    # 返利负债与销售佣金挤在同一个末级科目，总账/对账/报表附注分不开）。
+    # V0445 另种 2241.05 收口。这条判的就是科目口径本身，而 A1/L3 那些金额判据看不出来。
+    # 反向断言「2241.02 必须还叫佣金」同样重要：把名称改到佣金科目上等于把同一个 bug
+    # 挪给佣金结算（`commission_handler` 的计提/发放凭证认的就是 2241.02）。
+    name_s10 = S_CHECK_NAMES[9]
+    if not table_exists("biz_account"):
+        check(name_s10, tag, "INFO", True, "本库没有 biz_account，跳过")
+    else:
+        acc = q("""
+            select a.account_code, a.account_name, a.is_leaf, a.account_category,
+                   a.balance_direction, coalesce(p.account_code, '(无父级)')
+              from biz_account a
+              left join biz_account p on p.id = a.parent_id
+             where a.account_code in ('2241.02', '2241.05') and a.deleted_at is null
+        """)
+        by_code = {r[0]: r for r in acc}
+        rebate_acc = by_code.get("2241.05")
+        comm_acc = by_code.get("2241.02")
+        problems = []
+        if rebate_acc is None:
+            problems.append("科目 2241.05（其他应付款-销售返利）不存在 —— 本库迁移没跑到 V0445，"
+                            "返利开票会把负债贷记到佣金科目上")
+        else:
+            _, name, leaf, cat, direction, parent = rebate_acc
+            if name != "其他应付款-销售返利":
+                problems.append(f"2241.05 的名称是「{name}」，应为「其他应付款-销售返利」"
+                                "（V0440 的自检就是漏了这一条才让错科目一路绿）")
+            if str(leaf) != "1":
+                problems.append(f"2241.05 不是末级科目（is_leaf={leaf}），非末级不许记账")
+            if parent != "2241":
+                problems.append(f"2241.05 的父科目是 {parent}，应为 2241")
+            if cat != "LIABILITY" or direction != "CREDIT":
+                problems.append(f"2241.05 应为负债/贷方，实得 {cat}/{direction}")
+        if comm_acc is None:
+            problems.append("佣金科目 2241.02（其他应付款-佣金）不存在（V0311 种的）")
+        elif comm_acc[1] != "其他应付款-佣金":
+            problems.append(f"2241.02 的名称是「{comm_acc[1]}」，应为「其他应付款-佣金」"
+                            "（返利另开了 2241.05，不许占用佣金科目）")
+        check(name_s10, tag, "BLOCKER", not problems,
+              "\n".join(f"  · {p}" for p in problems) if problems else
+              "2241.05 其他应付款-销售返利（末级/负债/贷方）+ 2241.02 其他应付款-佣金 都就位",
+              """select account_code, account_name, is_leaf, account_category, balance_direction
+                   from biz_account
+                  where account_code in ('2241.02', '2241.05') and deleted_at is null
+                  order by account_code""")
+
+    # ── S11 返利红字凭证的贷方口径（WARN：历史票不追溯）──────────────
+    # 只判**已开出票**的结算单（voucher_id 非空）：它们的贷方负债必须落在
+    # 2241.05 其他应付款-销售返利，不许落 2241 子树里的其它末级（尤其 2241.02 佣金）。
+    # 级别是 WARN 而不是 BLOCKER：口径取舍已明确「历史票不追溯、新开票走 2241.05」
+    # （理由见 V0445 文件头：生产 144 在 V0440 之前就没跑过返利模块，历史错票只存在于
+    # 演练库/开发库的夹具数据里）。所以红的是**历史**留在佣金科目上的票，要人看、
+    # 不阻断门禁；真需要调账时按 evidence 里的调整凭证 SQL 人工补。
+    name_s11 = S_CHECK_NAMES[10]
+    if not (table_exists("biz_sales_rebate_settlement") and table_exists("biz_voucher_entry")):
+        check(name_s11, tag, "INFO", True, "本库没有返利结算单 / 凭证分录表，跳过")
+    else:
+        s11_sql = """
+            select s.settlement_no, e.account_code, e.account_name, e.credit_amount::text
+              from biz_sales_rebate_settlement s
+              join biz_voucher_entry e on e.voucher_id = s.voucher_id
+             where s.voucher_id is not null and s.deleted_at is null
+               and e.credit_amount > 0
+               and e.account_code like '2241%'
+               and e.account_code <> '2241.05'
+             order by s.settlement_no
+        """
+        s11 = q(s11_sql)
+        n_settled = one("""select count(*) from biz_sales_rebate_settlement
+                            where voucher_id is not null and deleted_at is null""")
+        print(f"  · 覆盖：已开红字发票的返利结算单 {n_settled} 张")
+        lines = []
+        if s11:
+            lines.append(f"返利红字凭证贷记了非「销售返利」的 2241 科目 {len(s11)} 行"
+                         "（结算单|科目|科目名|贷方）：")
+            for r in s11[:8]:
+                lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]}")
+            lines.append("含义：这些票是 V0445 之前开的（负债记在 2241.02 佣金科目上）。"
+                         "口径是「历史票不追溯、新开票走 2241.05」；真需要调账按 "
+                         "docs/evidence/2026-11-17-m3-19f-rebate-invoice/12_history_adjust.sql "
+                         "人工补调整凭证。")
+        check(name_s11, tag, "WARN", not s11,
+              "\n".join(lines) if lines else "已开票的返利凭证贷方全部落在 2241.05 其他应付款-销售返利",
+              s11_sql)
 
 
 # ══════════════════════════════════════════════════════════════════

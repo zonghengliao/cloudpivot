@@ -1,0 +1,30 @@
+# 生产（144 /opt/cloudpivot，systemctl cloudpivot）迁移前实测 —— 2026-11-17 19:18:06 CST
+
+## $ psql -d cloudpivot -c "select account_code, account_name, is_leaf from biz_account where account_code like '2241%' order by 1"
+ account_code |      account_name       | is_leaf 
+--------------+-------------------------+---------
+ 2241         | 其他应付款              |       0
+ 2241.01      | 其他应付款-员工垫付     |       1
+ 2241.02      | 其他应付款-佣金         |       1
+ 2241.03      | 其他应付款-社保(个人)   |       1
+ 2241.04      | 其他应付款-公积金(个人) |       1
+(5 rows)
+
+
+## 返利模块的表存在吗（V0440 在 144 跑过没有）
+ table_name 
+------------
+(0 rows)
+
+ has_rebate_tables 
+-------------------
+                 0
+(1 row)
+
+
+## 2241.02 上的凭证分录条数（若返利模块跑过，这里是佣金+返利混账）
+ count 
+-------
+     0
+(1 row)
+

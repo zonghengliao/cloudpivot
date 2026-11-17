@@ -469,7 +469,7 @@ export interface RebateInvoiceReq {
 export interface RebateInvoiceVoucherLine {
   /** `DEBIT` 借 / `CREDIT` 贷 */
   side: 'DEBIT' | 'CREDIT' | string;
-  /** 科目编码（如 `5001` / `2221.02` / `2241.02`） */
+  /** 科目编码（如 `5001` / `2221.02` / `2241.05`） */
   account_code: string;
   /** 科目名称（后端 join 实时名） */
   account_name: string;

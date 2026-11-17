@@ -313,7 +313,9 @@ async fn draft_settlement_issues_red_invoice() {
         "返利票不挂应收"
     );
 
-    // ── 凭证：借 5001 / 借 2221.02 / 贷 2241.02，借贷平衡 ──
+    // ── 凭证：借 5001 / 借 2221.02 / 贷 2241.05，借贷平衡 ──
+    // 贷方科目是 **2241.05 其他应付款-销售返利**，不是 2241.02（那是佣金科目，
+    // V0440 的种子静默跳过后返利负债被记错过，见 t_627d2a4b / V0445）。
     let entries = db()
         .query_sql(
             "SELECT account_code, account_name, debit_amount, credit_amount, summary \
@@ -346,15 +348,45 @@ async fn draft_settlement_issues_red_invoice() {
         .collect();
     assert_eq!(
         codes,
-        vec!["5001", "2221.02", "2241.02"],
-        "科目与顺序（借收入/借税/贷应付）"
+        vec!["5001", "2221.02", "2241.05"],
+        "科目与顺序（借收入/借税/贷应付）；贷方 2241.05 = 其他应付款-销售返利"
+    );
+    assert!(
+        !codes.contains(&"2241.02".to_string()),
+        "2241.02 是「其他应付款-佣金」，返利凭证不许贷记它（V0440 的静默跳过 bug）"
     );
     let payable = entries
         .iter()
-        .find(|row| row.get_typed::<String>("account_code").unwrap() == "2241.02")
-        .expect("贷方其他应付款");
+        .find(|row| row.get_typed::<String>("account_code").unwrap() == "2241.05")
+        .expect("贷方其他应付款-销售返利");
     assert_eq!(payable.get_typed::<Decimal>("credit_amount").unwrap(), dec("1000.00"));
     assert_eq!(payable.get_typed::<Decimal>("debit_amount").unwrap(), Decimal::ZERO);
+    // 名称也验（只比 code 正是当初漏过去的地方）：分录快照名 + 科目主数据实时名
+    assert_eq!(
+        payable.get_typed::<String>("account_name").unwrap(),
+        "其他应付款-销售返利",
+        "分录快照的科目名必须是「其他应付款-销售返利」"
+    );
+    let live_name = db()
+        .query_first_sql(
+            "SELECT account_name, is_leaf FROM biz_account \
+              WHERE account_code = '2241.05' AND deleted_at IS NULL"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .expect("读科目主数据")
+        .expect("科目 2241.05 必须存在");
+    assert_eq!(
+        live_name.get_typed::<String>("account_name").unwrap(),
+        "其他应付款-销售返利",
+        "科目主数据里 2241.05 必须是「其他应付款-销售返利」"
+    );
+    assert_eq!(
+        live_name.get_typed::<i16>("is_leaf").unwrap(),
+        1,
+        "返利应付必须是末级科目（非末级科目不许记账）"
+    );
 
     // ── 结算单：SETTLED + 票号 + 凭证 + 转结时间 ──
     let detail = settle_handler::detail_settlement_of(&saved.id).await.expect("详情");

@@ -1,0 +1,45 @@
+== 真后端 :18027（本卡新二进制）+ 145 空库首启库 cp_627d2a4b_e2e（已应用 V0445）—— 2026-11-17 19:27:33 CST
+== admin 首次登录改密后取 token（len=461）
+
+### ① 票面试算 —— POST /business/erp/rebate-settlement/…a1/invoice-preview  body={"tax_rate":13}
+{
+  "code": 0,
+  "msg": "ok",
+  "voucher_lines": [
+    {
+      "side": "DEBIT",
+      "account_code": "5001",
+      "account_name": "主营业务收入",
+      "amount": "884.96",
+      "summary": "冲减主营业务收入"
+    },
+    {
+      "side": "DEBIT",
+      "account_code": "2221.02",
+      "account_name": "应交税费-销项税",
+      "amount": "115.04",
+      "summary": "冲减销项税"
+    },
+    {
+      "side": "CREDIT",
+      "account_code": "2241.05",
+      "account_name": "其他应付款-销售返利",
+      "amount": "1000.00",
+      "summary": "应付客户返利"
+    }
+  ],
+  "can_generate": true,
+  "invoice_total": "-1000.00"
+}
+
+### ② 开红字发票 —— POST …/invoice  body={"tax_rate":13}
+{
+  "code": 0,
+  "msg": "ok",
+  "invoice_no": "IV-20261117-000001",
+  "voucher_no": "PZ-20261117-000001",
+  "voucher_id": "1890cd03-bc06-49bb-9f31-b7345b870195",
+  "status": "SETTLED",
+  "invoice_total": "-1000.0000"
+}
+

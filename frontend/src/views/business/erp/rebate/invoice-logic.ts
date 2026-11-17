@@ -8,7 +8,7 @@
  * | 能开的单 | `status = 'DRAFT'` 且 `rebate_amount > 0` | `rebate_invoice_dto::ensure_invoiceable` / `split_invoice` |
  * | 金额拆分 | 含税反算：`不含税 = −round(应返 / (1 + 税率/100), 2)`，`税额 = 价税合计 − 不含税` | `split_invoice` |
  * | 三列符号 | 全为负（`ck_biz_invoice_sign`：`amount < 0 && tax ≤ 0`）；**展示别再补负号** | V0298 |
- * | 凭证 | 借 5001 收入 / 借 2221.02 销项税（税额 0 时不出这行）/ 贷 2241.02 其他应付款-销售返利 | `rebate_invoice_handler::write_rebate_voucher` |
+ * | 凭证 | 借 5001 收入 / 借 2221.02 销项税（税额 0 时不出这行）/ 贷 2241.05 其他应付款-销售返利 | `rebate_invoice_handler::write_rebate_voucher` |
  * | 税率 | **百分数**（13 = 13%），0~100，最多 4 位小数；省 = 13 | `validate_tax_rate` |
  * | 备注 | ≤ 200 字；空白归一成 `null`（后端用自动备注） | `normalize_remark` |
  * | 状态机 | `DRAFT ──开票──▶ SETTLED`；`SETTLED` / `CANCELLED` 一律 409 + `66093` | `ensure_invoiceable` |

@@ -43,8 +43,25 @@
 //! ```text
 //! 借 5001    主营业务收入       |不含税|
 //! 借 2221.02 应交税费-销项税     |税额|      （税额为 0 时不出这一行）
-//! 贷 2241.02 其他应付款-销售返利 |价税合计|  （V0440 种的末级科目；2241 本身是非末级）
+//! 贷 2241.05 其他应付款-销售返利 |价税合计|  （V0445 种的末级科目；2241 本身是非末级）
 //! ```
+//!
+//! # 科目编码为什么在 V0445 又换了一次（**别改回去**）
+//!
+//! V0440 当初种的是 `2241.02`，以为那是空号 —— 但 `V0311`（佣金结算，SO-36）在它之前
+//! 已经种了 `2241.02 其他应付款-佣金`，于是 V0440 的
+//! `INSERT … WHERE NOT EXISTS (account_code = '2241.02')` **静默跳过**，
+//! 自检又只验「存在 / 末级 / 父为 2241 / 负债贷记」不验名称 ⇒ 迁移一路绿，
+//! 而返利红字凭证实际贷记的是**佣金**科目（返利负债与销售佣金混在一个末级科目里，
+//! 总账 / 往来对账 / 报表附注分不开）。
+//!
+//! 修法（`V0445__sales_rebate_payable_account`）：另种一个**独立末级**
+//! `2241.05 其他应付款-销售返利`（`2241.03/04` 已被 V0384 的社保/公积金占用），
+//! 不动 `2241.02`（佣金结算在用）。`ACCOUNT_REBATE_PAYABLE` 只按编码取行、
+//! **名称不参与运行时校验** —— 这正是当初静默记错科目的原因，所以名称这一侧由两道闸兜：
+//! 迁移自检（V0445 ⑥ 逐字比 `account_name`）+ `scripts/verify/erp_invariants.py` 的
+//! `S10/S11`（科目就位与名称、返利凭证贷方口径）。运行时不再比较名称是对的：
+//! 客户改名不该让开票直接 500，改错名要能被体检发现。
 
 use axum::Json;
 use axum::extract::Path;
@@ -78,8 +95,11 @@ pub const REBATE_INVOICE_PERMISSIONS: [&str; 1] = [PERM_INVOICE];
 pub const ACCOUNT_REVENUE: &str = voucher::ACCOUNT_REVENUE;
 /// 应交税费-销项税（叶子科目；`2221` 是汇总科目不许记账）。
 pub const ACCOUNT_OUTPUT_TAX: &str = voucher::ACCOUNT_OUTPUT_TAX;
-/// 其他应付款-销售返利（V0440 种的末级子科目；`2241` 在 V0226 已翻成非末级）。
-pub const ACCOUNT_REBATE_PAYABLE: &str = "2241.02";
+/// 其他应付款-销售返利（V0445 种的末级子科目；`2241` 在 V0226 已翻成非末级）。
+///
+/// 曾经是 `2241.02`，而那个码被 V0311 的「其他应付款-佣金」占着（V0440 的种子静默跳过）
+/// —— 见模块头「科目编码为什么在 V0445 又换了一次」。
+pub const ACCOUNT_REBATE_PAYABLE: &str = "2241.05";
 
 // ==================== 错误出口 ====================
 
@@ -398,7 +418,7 @@ async fn write_rebate_voucher(
         .map_err(|error| utils::db_error(error, "取主营业务收入科目 5001"))?;
     let payable_account = voucher::account_required(ex, ACCOUNT_REBATE_PAYABLE, "其他应付款-销售返利")
         .await
-        .map_err(|error| utils::db_error(error, "取其他应付款-销售返利科目 2241.02"))?;
+        .map_err(|error| utils::db_error(error, "取其他应付款-销售返利科目 2241.05"))?;
     let summary = format!("销售返利 {} 红字发票 {}", settle.settlement_no, invoice_no);
     let mut lines = vec![
         // 借：主营业务收入（冲减）
@@ -578,7 +598,7 @@ async fn preview_voucher_lines(
         .map_err(|error| utils::db_error(error, "取主营业务收入科目 5001"))?;
     let payable = voucher::account_required(ex, ACCOUNT_REBATE_PAYABLE, "其他应付款-销售返利")
         .await
-        .map_err(|error| utils::db_error(error, "取其他应付款-销售返利科目 2241.02"))?;
+        .map_err(|error| utils::db_error(error, "取其他应付款-销售返利科目 2241.05"))?;
     let mut lines = vec![dto::VoucherLineRes {
         side: "DEBIT".to_string(),
         account_code: revenue.code.clone(),
@@ -720,12 +740,20 @@ mod tests {
     }
 
     /// 科目码与库里的种子一致（改错一个字，`account_required` 直接报「科目不存在」）。
+    ///
+    /// `ACCOUNT_REBATE_PAYABLE` 这一条是**回归钉子**：它曾经是 `2241.02`，而那个码被
+    /// V0311 的「其他应付款-佣金」占着（V0440 的种子 `WHERE NOT EXISTS` 静默跳过），
+    /// 结果返利负债整笔记进了佣金科目。改回 `2241.02` 会让这个测试直接红。
     #[test]
     fn account_codes() {
         assert_eq!(ACCOUNT_REVENUE, "5001");
         assert_eq!(ACCOUNT_OUTPUT_TAX, "2221.02");
-        assert_eq!(ACCOUNT_REBATE_PAYABLE, "2241.02");
-        println!("[M3-17] 科目 5001 / 2221.02 / 2241.02 ✓");
+        assert_eq!(ACCOUNT_REBATE_PAYABLE, "2241.05");
+        assert_ne!(
+            ACCOUNT_REBATE_PAYABLE, "2241.02",
+            "2241.02 是「其他应付款-佣金」（V0311 种的），返利负债不能再记到它上面"
+        );
+        println!("[M3-17/V0445] 科目 5001 / 2221.02 / 2241.05（返利应付）✓");
     }
 
     /// 期间码只取年月（`yyyy-MM`），与 `biz_accounting_period.period_code` 同形。
