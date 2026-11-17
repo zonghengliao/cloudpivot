@@ -61,6 +61,16 @@ pub mod framework_agreement_ref;
 // 本目录**不含**它们（零路由 / 零权限码 / 零菜单）。
 pub mod supplier_evaluation_model;
 
+// ==================== 供应商评估（SEV）：打分 + 评级（M4-13） ====================
+// M4-13 交「打分与评级」的数据层：评级阈值（唯一出处）/ 总分→等级纯函数 /
+// 打分落库（同期间重打分覆盖，不新建单号）/ 按阈值重评级（regrade）/
+// 交期维度按真实入库单算准时率的参考分。接口与权限码属 M4-16。
+pub mod supplier_evaluation_grading;
+
+/// 供应商评估打分 + 评级的真库用例（M4-13；与其它 ERP 用例共用同一个串行锁）。
+#[cfg(test)]
+mod supplier_evaluation_grading_db_tests;
+
 /// 供应商评估表结构的真库用例（M4-12；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]
 mod supplier_evaluation_db_tests;

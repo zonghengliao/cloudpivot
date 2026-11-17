@@ -1,0 +1,14 @@
+test business::erp::purchase::supplier_evaluation_grading::tests::delivery_stat_scores_only_when_there_is_data ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_and_total_uses_weighted_total_and_validates_inputs ... FAILED
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_boundaries_are_inclusive_on_the_lower_bound ... FAILED
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_case_sql_mirrors_the_threshold_table ... FAILED
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_rejects_out_of_range_totals ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_thresholds_are_descending_and_end_with_zero ... ok
+thread 'business::erp::purchase::supplier_evaluation_grading::tests::grade_and_total_uses_weighted_total_and_validates_inputs' (3645512) panicked at app/src/business/erp/purchase/supplier_evaluation_grading.rs:626:9:
+assertion `left == right` failed
+thread 'business::erp::purchase::supplier_evaluation_grading::tests::grade_boundaries_are_inclusive_on_the_lower_bound' (3645513) panicked at app/src/business/erp/purchase/supplier_evaluation_grading.rs:590:9:
+assertion `left == right` failed
+thread 'business::erp::purchase::supplier_evaluation_grading::tests::grade_case_sql_mirrors_the_threshold_table' (3645514) panicked at app/src/business/erp/purchase/supplier_evaluation_grading.rs:643:9:
+assertion `left == right` failed: SQL CASE 必须逐字来自 GRADE_THRESHOLDS（阈值不许有第二份）
+test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 6395 filtered out; finished in 0.01s
+MUTATION_A_RC=101

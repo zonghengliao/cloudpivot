@@ -1,0 +1,31 @@
+# 变异反证 B：regrade 的 SQL CASE 偷偷写死一个阈值
+
+**变异**（`supplier_evaluation_grading.rs` 的 `grade_case_sql`，临时加入一行后立刻回退）：
+
+```rust
+let mut sql = format!("CASE WHEN {column} IS NULL THEN NULL");
+sql.push_str(&format!(" WHEN {column} >= 85 THEN 'B'"));   // ← 变异：B 的分界从 80 偷偷改成 85
+for (grade, min_total) in GRADE_THRESHOLDS { ... }
+```
+
+**跑法**（保留库 `cp_m413_sev_mut_drill`，V0454 已落地；跑完即删库）：
+
+```bash
+ERP_DB_URL="postgres://cloudpivot:***@172.18.10.145:5432/cp_m413_sev_mut_drill" \
+  cargo test -p cloudpivot --lib \
+  business::erp::purchase::supplier_evaluation_grading_db_tests::regrade -- --test-threads=1
+```
+
+**实测输出（原始节选）**：
+
+```text
+test business::erp::purchase::supplier_evaluation_grading_db_tests::regrade_repairs_wrong_and_null_grades ... FAILED
+test business::erp::purchase::supplier_evaluation_grading_db_tests::regrade_scope_leaves_other_periods_alone ... ok
+assertion `left == right` failed: 等级必须按总分重算
+  left: [("60.00", "D"), ("85.00", "B"), ("95.00", "B")]
+ right: [("60.00", "D"), ("85.00", "B"), ("95.00", "A")]
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 6399 filtered out; finished in 0.07s
+```
+
+**结论**：阈值只要出现第二份（哪怕只写死一行），95 分就被判成 B —— 用例立刻红。
+这就是「阈值只有 `GRADE_THRESHOLDS` 一处、SQL CASE 由它派生」的守卫。

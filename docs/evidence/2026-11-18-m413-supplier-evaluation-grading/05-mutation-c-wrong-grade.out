@@ -1,0 +1,40 @@
+# 变异反证 C：打分落库时乱写等级（证明「写完读回对拍」有牙）
+
+**变异**（`save_evaluation` 里临时把等级一律写成 A 后立刻回退）：
+
+```rust
+let (grade, rust_total) = grade_and_total(&input.weights, &input.scores)?;
+let grade = if grade.is_empty() { grade } else { model::GRADE_A };   // ← 变异
+```
+
+**跑法**（同一个保留库）：
+
+```bash
+ERP_DB_URL="postgres://cloudpivot:***@172.18.10.145:5432/cp_m413_sev_mut_drill" \
+  cargo test -p cloudpivot --lib \
+  business::erp::purchase::supplier_evaluation_grading_db_tests -- --test-threads=1
+```
+
+**实测输出（原始节选）**：
+
+```text
+test ...::delivery_stat_counts_only_posted_purchase_stock_ins ... ok
+test ...::delivery_stat_empty_without_receipts ... ok
+test ...::grade_boundaries_in_database ... FAILED
+test ...::invalid_inputs_are_rejected_before_write ... ok
+test ...::regrade_repairs_wrong_and_null_grades ... ok
+test ...::regrade_scope_leaves_other_periods_alone ... ok
+test ...::rust_total_matches_generated_column_on_grid ... FAILED
+test ...::save_creates_graded_evaluation ... FAILED
+test ...::save_twice_overwrites_same_document ... FAILED
+test ...::zz_teardown_purges_fixtures ... ok
+总分 89.99 打分失败：invalid value: 等级漂移：落库 A vs 按总分 89.99 应为 B
+第 0 组打分失败：invalid value: 等级漂移：落库 A vs 按总分 55.54 应为 D
+打分落库: InvalidValue("等级漂移：落库 A vs 按总分 79.00 应为 C")
+首轮打分: InvalidValue("等级漂移：落库 A vs 按总分 79.99 应为 C")
+test result: FAILED. 6 passed; 4 failed; 0 ignored; 0 measured; 6391 filtered out; finished in 0.17s
+```
+
+**结论**：`save_evaluation` 写完立即读回、用**库层生成列的总分**复算等级并比对 ——
+等级一旦与阈值不同源就直接报错（`等级漂移：…`），不会静默写进库里。
+4 条用例同时红，说明这条自检不是摆设。
