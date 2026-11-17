@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 8 tests
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... FAILED
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
+
+failures:
+
+---- system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role stdout ----
+
+thread 'system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role' (3246597) panicked at app/src/system/menu/permission_audit_tests.rs:1506:5:
+[N20] 以下 ERP 单据核心权限码**只授给了超管或谁都没授**（除超管外全员 403，其「审批」只能超管自批 → 职责分离失效）：
+business:erp:quotation:create
+business:erp:quotation:list
+business:erp:quotation:status
+business:erp:rebate-policy:create
+business:erp:rebate-policy:list
+business:erp:rebate-settlement:list
+修法：发迁移把码授给合适的业务角色（**建单与审批必须分属不同角色**），不要往白名单里塞；现场口径见 V0356 头注释。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 6107 filtered out; finished in 13.05s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

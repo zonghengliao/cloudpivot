@@ -1,0 +1,59 @@
+==============================================================
+FIX-权限闸 V0442 真库演练 · cp_permfix_drill_3244757 → 172.18.10.145
+==============================================================
+  ✔ 克隆演练库：cloudpivot_test → cp_permfix_drill_3244757
+== 1) 补齐业务迁移 V0405…最新（幂等，逐条 ON_ERROR_STOP）
+  ✔ 补齐 37 条业务迁移
+  ✔ 活跃菜单行数（menu_invariants ⑤ 上界 540，本卡不新增菜单）（= 540）
+== 2) 基线（还没应用 V0442）：把「修之前」的红记下来
+  ✔ perm_menu_gate 基线 PASS（missing_in_menu = 0）
+  ✔ 基线孤儿对数（4 对：notice:mine×2 / receivable:aging×1 / role-mutex:conflict×1）（= 4）
+  ✔ permission_audit_tests 基线 FAILED（N20 红，符合预期）
+  ✔ 基线 permission_audit_tests 的 SKIP 行数（0 = 真连库，不是假绿）（= 0）
+  ✔ 基线失败用例正是 N20（其余 7 条通过）
+  ✔ menu_invariants 基线 8 条全绿
+== 3) 应用 V0442（up 单事务），逐条验硬指标
+  ✔ V0442 应用成功（自检 NOTICE: V0442 自检通过：notice:mine 按钮归位「消息中心」+ 账龄/互斥两对孤儿补授父页码 + N20 六码已授…）
+  ✔ business:notice:mine 按钮 …414 归位到「消息中心」页（= 23000000-0000-0000-0000-000000000010）
+  ✔ 「消息中心」下按钮 sort_order 不重号（约定 12）（= 0）
+  ✔ FINANCE_DIRECTOR 拿到「应收台账」页（business:erp:receivable:list）（= 1）
+  ✔ TEST_UADMIN 拿到「角色互斥」页（system:role-mutex:list）（= 1）
+  ✔ TEST_UADMIN 补到祖先目录「系统管理」（否则页面在侧栏被静默丢弃）（= 1）
+  ✔ 职责分离：SALES_CLERK 不持有 business:flow:approve（业务员不能自审报价）（= 0）
+  ✔ N20 码 business:erp:quotation:list 有非超管持有者（= 4）
+  ✔ N20 码 business:erp:quotation:create 有非超管持有者（= 2）
+  ✔ N20 码 business:erp:quotation:status 有非超管持有者（= 2）
+  ✔ N20 码 business:erp:rebate-policy:list 有非超管持有者（= 3）
+  ✔ N20 码 business:erp:rebate-policy:create 有非超管持有者（= 1）
+  ✔ N20 码 business:erp:rebate-settlement:list 有非超管持有者（= 2）
+  ✔ orphan_button_gate 孤儿对数（= 0）
+  ✔ orphan_button_gate 退出码 0
+  ✔ perm_menu_gate 退出码 0（missing_in_menu = 0）
+  ✔ permission_audit_tests 退出码（0 = 8/8）（= 0）
+  ✔ permission_audit_tests 通过条数（= 8 passed）
+  ✔ permission_audit_tests 的 SKIP 行数（0 = 真连库）（= 0）
+  ✔ menu_invariants 8 条全绿（菜单总数未涨）
+== 4) 幂等（up 重放）+ 回滚（down → down 重放 → up 恢复）
+  ✔ 本迁移的授权行数（N20 矩阵 14 + 账龄/互斥两对补授 ≥2）（= 17）
+  ✔ 本迁移的祖先闭包行数（≥2：销售管理 / 系统管理）（= 4）
+  ✔ V0442 重放成功（幂等）
+  ✔ 重放后本迁移授权行数不变（= 17）
+  ✔ 重放后祖先闭包行数不变（= 4）
+  ✔ 重放后 sys_role_menu 总行数不变（= 1530）
+  ✔ V0442 down 成功
+  ✔ down 后 …414 回到「消息通知」页（= 20000000-0000-0000-0000-000000000410）
+  ✔ down 后 …414 的 sort_order 回到 40（= 40）
+  ✔ down 后本迁移授权行清零（= 0）
+  ✔ down 后祖先闭包行清零（= 0）
+  ✔ down 后 sys_role_menu 回到基线（授权 17 + 目录 4 全清）（= 1509）
+  ✔ down 后孤儿对数回到基线 4（闸因此证明自己不是永远绿）（= 4）
+  ✔ down 可重放（幂等）
+  ✔ down 重放后 sys_role_menu 行数不变（= 1509）
+  ✔ down 之后再 up：恢复成功
+  ✔ 恢复后授权行数与首次应用一致（= 17）
+  ✔ 恢复后孤儿对数回到 0（= 0）
+（证据已抄到 /opt/cloudpivot/docs/evidence/2026-11-17-permfix）
+==============================================================
+PASS=47 FAIL=0
+ALL PASS ✅
+EXIT=0
