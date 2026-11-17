@@ -1,0 +1,38 @@
+== M4-08 pre-push 门禁：先红后绿的真实原因（记录在案，避免后人误判）==
+
+## 现象
+
+第一次 `git push origin main` 被 pre-push 拒了，红项是：
+
+    ✘ push 被拒绝：L0/L1 门禁未通过
+    ==> 参数分类合法性（scripts/lint/config_category_gate.py）
+      ✗ 6 个分类不合法：announcement / changelog / erp / erp_budget / hr / (空)
+
+同一轮 pre-push 里其余全部绿：`cargo fmt --check`、`cargo clippy --all-targets -D warnings`、
+`cargo check`、`cloudpivot-doc` 19 条契约单测、`pnpm typecheck`（src + tests/unit）、
+C7 G1–G4、迁移 seed 依赖闸、页面壳类声明。
+
+## 真因（不是本卡改坏的）
+
+`config_category_gate.py` 的判据是**连库**查 `sys_config.category` 与 `dict_item(config_category)` 的差集，
+DSN 优先级：`$ERP_DB_URL` → `$NIK_DATABASE_*`（读 `/etc/cloudpivot/cloudpivot-dev.env`）→ 都没有就跳过。
+
+本机（99）上 `/etc/cloudpivot/cloudpivot-dev.env` **不存在**；这次之所以连上了库，是因为我自己的
+shell 里还留着演练时 `export` 的 `ERP_DB_URL`，指向 `cp_m408_drill`（= `cloudpivot_test` 在 V0404 的克隆）。
+那 6 个分类是模板库 V0404 之前就有的历史配置项（`announcement` / `changelog` / `erp` / `erp_budget` /
+`hr` / 空），**与 M4-08 无关**：
+
+    grep -c sys_config  backend/app/migrations/business/V0451__framework_agreement_order_ref.up.sql  →  0
+    git show --name-only HEAD | grep -c sys_config                                                   →  0
+
+## 处置
+
+`unset ERP_DB_URL SYS_DB_URL` 后重跑，门禁按设计在**无 DSN 时跳过**该检查，
+`==> 全部检查通过（L0 L1）` → `✓ pre-push 门禁通过（L0+L1，耗时 88s）`，
+origin 与 github 都推成功（`6019e4e5..56138ebf`）。**没有用 SKIP_PREPUSH 绕过。**
+
+## 教训（写给后面的卡）
+
+`export ERP_DB_URL=…drill` 之后别在同一个 shell 里 push：`config_category_gate.py` 会拿它当判据，
+用一个「模板克隆库」去查一个「随迁移演进的字典约束」，必然红 —— 很容易被误判成自己改坏的。
+演练脚本里的 `export ERP_DB_URL` 只应在其自身进程内生效。

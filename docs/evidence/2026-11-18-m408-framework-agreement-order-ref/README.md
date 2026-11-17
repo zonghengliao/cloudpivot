@@ -33,6 +33,7 @@
 | `03_schema_dump.txt` | 真库实测列/索引/外键/菜单/迁移登记 |
 | `04_scope_no_routes_menus_frontend.txt` | 范围守卫：0 路由 / 0 权限码 / 0 菜单 / 0 前端；迁移号段 V0451 |
 | `05_gates.out` | `cargo fmt --check` rc=0、`clippy --lib` 与 `--lib --tests` 全绿、66xxx 码段稳定自检 10 项全绿 |
+| `06_prepush_env_leak_misfire.txt` | pre-push 先红后绿的真因记录（演练时 `export` 的 `ERP_DB_URL` 把 `config_category_gate.py` 指到了模板克隆库；`unset` 后全绿推上，未用 SKIP_PREPUSH 绕过） |
 
 ## 口径（决定，不是待办）
 
