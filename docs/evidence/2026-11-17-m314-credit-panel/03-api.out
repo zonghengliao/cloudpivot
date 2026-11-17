@@ -1,0 +1,115 @@
+login: {"code":0,"msg":"ok","data":{"access_token":"<已脱敏>"}}（真机登录成功；令牌不入库）
+--- c3140001-0000-4000-8000-000000000001
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "customer_id": "c3140001-0000-4000-8000-000000000001",
+        "customer_code": "M314-PAGE-01",
+        "customer_name": "M314 \u6b63\u5e38\u5ba2\u6237\uff08\u989d\u5ea6 10 \u4e07\uff09",
+        "customer_status": "ACTIVE",
+        "credit_limit": "100000.0000",
+        "credit_policy": "BLOCK",
+        "used": "18080.00",
+        "cached_used": "18080.0000",
+        "cache_drift": false,
+        "pending": "7540.0000",
+        "open_receivable": "18080.0000",
+        "occupied": "25620.00",
+        "order_amount": null,
+        "total": "25620.00",
+        "available": "74380.00",
+        "available_after": "74380.00",
+        "over": "0",
+        "is_over": false,
+        "verdict": "WITHIN",
+        "allowed": true,
+        "basis": "\u5df2\u5360 = \u6709\u6548\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1 \u2212 \u5df2\u6838\u9500\u5e94\u6536 \u2212 \u5df2\u8fc7\u8d26\u9000\u8d27\uff08\u4e0b\u9650 0\uff09\uff1b\u5728\u5ba1 = \u5df2\u63d0\u4ea4\u5f85\u5ba1\u6279\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1\uff1b\u5360\u7528 = \u5df2\u5360 + \u5728\u5ba1\uff1b\u5408\u8ba1 = \u5360\u7528 + \u672c\u6b21\u8ba2\u5355\uff1b\u53ef\u7528 = \u989d\u5ea6 \u2212 \u5360\u7528\uff08\u4e0b\u9650 0\uff0c\u989d\u5ea6 0 = \u4e0d\u63a7\u989d\u5ea6\uff09\uff1b\u672a\u6e05\u5e94\u6536\u4e3a\u5bf9\u7167\u53e3\u5f84\uff0c\u4e0d\u91cd\u590d\u8ba1\u5165"
+    }
+}
+--- c3140001-0000-4000-8000-000000000002
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "customer_id": "c3140001-0000-4000-8000-000000000002",
+        "customer_code": "M314-PAGE-02",
+        "customer_name": "M314 \u8d85\u989d\u5ba2\u6237\uff08\u989d\u5ea6 5 \u4e07\uff09",
+        "customer_status": "ACTIVE",
+        "credit_limit": "50000.0000",
+        "credit_policy": "BLOCK",
+        "used": "60000.00",
+        "cached_used": "0.0000",
+        "cache_drift": true,
+        "pending": "0",
+        "open_receivable": "0",
+        "occupied": "60000.00",
+        "order_amount": null,
+        "total": "60000.00",
+        "available": "0",
+        "available_after": "0",
+        "over": "10000.00",
+        "is_over": true,
+        "verdict": "BLOCK",
+        "allowed": false,
+        "basis": "\u5df2\u5360 = \u6709\u6548\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1 \u2212 \u5df2\u6838\u9500\u5e94\u6536 \u2212 \u5df2\u8fc7\u8d26\u9000\u8d27\uff08\u4e0b\u9650 0\uff09\uff1b\u5728\u5ba1 = \u5df2\u63d0\u4ea4\u5f85\u5ba1\u6279\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1\uff1b\u5360\u7528 = \u5df2\u5360 + \u5728\u5ba1\uff1b\u5408\u8ba1 = \u5360\u7528 + \u672c\u6b21\u8ba2\u5355\uff1b\u53ef\u7528 = \u989d\u5ea6 \u2212 \u5360\u7528\uff08\u4e0b\u9650 0\uff0c\u989d\u5ea6 0 = \u4e0d\u63a7\u989d\u5ea6\uff09\uff1b\u672a\u6e05\u5e94\u6536\u4e3a\u5bf9\u7167\u53e3\u5f84\uff0c\u4e0d\u91cd\u590d\u8ba1\u5165"
+    }
+}
+--- c3140001-0000-4000-8000-000000000003
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "customer_id": "c3140001-0000-4000-8000-000000000003",
+        "customer_code": "M314-PAGE-03",
+        "customer_name": "M314 \u4e0d\u63a7\u989d\u5ea6\u5ba2\u6237\uff08\u989d\u5ea6 0\uff09",
+        "customer_status": "ACTIVE",
+        "credit_limit": "0.0000",
+        "credit_policy": "WARN",
+        "used": "5000.00",
+        "cached_used": "5000.0000",
+        "cache_drift": false,
+        "pending": "0",
+        "open_receivable": "0",
+        "occupied": "5000.00",
+        "order_amount": null,
+        "total": "5000.00",
+        "available": null,
+        "available_after": null,
+        "over": "0",
+        "is_over": false,
+        "verdict": "UNCONTROLLED",
+        "allowed": true,
+        "basis": "\u5df2\u5360 = \u6709\u6548\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1 \u2212 \u5df2\u6838\u9500\u5e94\u6536 \u2212 \u5df2\u8fc7\u8d26\u9000\u8d27\uff08\u4e0b\u9650 0\uff09\uff1b\u5728\u5ba1 = \u5df2\u63d0\u4ea4\u5f85\u5ba1\u6279\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1\uff1b\u5360\u7528 = \u5df2\u5360 + \u5728\u5ba1\uff1b\u5408\u8ba1 = \u5360\u7528 + \u672c\u6b21\u8ba2\u5355\uff1b\u53ef\u7528 = \u989d\u5ea6 \u2212 \u5360\u7528\uff08\u4e0b\u9650 0\uff0c\u989d\u5ea6 0 = \u4e0d\u63a7\u989d\u5ea6\uff09\uff1b\u672a\u6e05\u5e94\u6536\u4e3a\u5bf9\u7167\u53e3\u5f84\uff0c\u4e0d\u91cd\u590d\u8ba1\u5165"
+    }
+}
+--- c3140001-0000-4000-8000-000000000004
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "customer_id": "c3140001-0000-4000-8000-000000000004",
+        "customer_code": "M314-PAGE-04",
+        "customer_name": "M314 \u51bb\u7ed3\u5ba2\u6237",
+        "customer_status": "FROZEN",
+        "credit_limit": "200000.0000",
+        "credit_policy": "BLOCK",
+        "used": "0",
+        "cached_used": "0.0000",
+        "cache_drift": false,
+        "pending": "0",
+        "open_receivable": "0",
+        "occupied": "0",
+        "order_amount": null,
+        "total": "0",
+        "available": "200000.00",
+        "available_after": "200000.00",
+        "over": "0",
+        "is_over": false,
+        "verdict": "WITHIN",
+        "allowed": false,
+        "basis": "\u5df2\u5360 = \u6709\u6548\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1 \u2212 \u5df2\u6838\u9500\u5e94\u6536 \u2212 \u5df2\u8fc7\u8d26\u9000\u8d27\uff08\u4e0b\u9650 0\uff09\uff1b\u5728\u5ba1 = \u5df2\u63d0\u4ea4\u5f85\u5ba1\u6279\u8ba2\u5355\u4ef7\u7a0e\u5408\u8ba1\uff1b\u5360\u7528 = \u5df2\u5360 + \u5728\u5ba1\uff1b\u5408\u8ba1 = \u5360\u7528 + \u672c\u6b21\u8ba2\u5355\uff1b\u53ef\u7528 = \u989d\u5ea6 \u2212 \u5360\u7528\uff08\u4e0b\u9650 0\uff0c\u989d\u5ea6 0 = \u4e0d\u63a7\u989d\u5ea6\uff09\uff1b\u672a\u6e05\u5e94\u6536\u4e3a\u5bf9\u7167\u53e3\u5f84\uff0c\u4e0d\u91cd\u590d\u8ba1\u5165"
+    }
+}
+--- 未知参数应 400
+amout=400? 400

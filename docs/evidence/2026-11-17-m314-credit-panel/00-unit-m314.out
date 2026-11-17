@@ -1,0 +1,190 @@
+TAP version 13
+# Subtest: 额度 0 = 不控额度：文案写「不控额度（0.00）」，不是「额度用完」
+ok 1 - 额度 0 = 不控额度：文案写「不控额度（0.00）」，不是「额度用完」
+  ---
+  duration_ms: 1.081773
+  type: 'test'
+  ...
+# Subtest: 可用 0.00（额度用光）与 不控额度 是两个不同的显示
+ok 2 - 可用 0.00（额度用光）与 不控额度 是两个不同的显示
+  ---
+  duration_ms: 0.360105
+  type: 'test'
+  ...
+# Subtest: 额度为负（脏数据）按不控额度处理 —— 与后端 decide 的首个分支同口径
+ok 3 - 额度为负（脏数据）按不控额度处理 —— 与后端 decide 的首个分支同口径
+  ---
+  duration_ms: 0.191553
+  type: 'test'
+  ...
+# Subtest: 占用率：四舍五入到整数，超额给出 >100 的真实数字
+ok 4 - 占用率：四舍五入到整数，超额给出 >100 的真实数字
+  ---
+  duration_ms: 0.684999
+  type: 'test'
+  ...
+# Subtest: 占用率 ≥ 80% 转 warning，超额转 error，正常不给状态（默认色）
+ok 5 - 占用率 ≥ 80% 转 warning，超额转 error，正常不给状态（默认色）
+  ---
+  duration_ms: 0.157343
+  type: 'test'
+  ...
+# Subtest: 占用率文案：不控额度 / 带分母两种
+ok 6 - 占用率文案：不控额度 / 带分母两种
+  ---
+  duration_ms: 0.103964
+  type: 'test'
+  ...
+# Subtest: 顶部一句话：不控额度 / 已超 X / 可用 X 三种
+ok 7 - 顶部一句话：不控额度 / 已超 X / 可用 X 三种
+  ---
+  duration_ms: 0.106132
+  type: 'test'
+  ...
+# Subtest: 超额判定看 is_over / over，不看 available（它被后端夹在 0 以上）
+ok 8 - 超额判定看 is_over / over，不看 available（它被后端夹在 0 以上）
+  ---
+  duration_ms: 0.378523
+  type: 'test'
+  ...
+# Subtest: 明细行顺序固定：额度 → 已占 → 在审 → 占用 → 可用 → 未清应收
+ok 9 - 明细行顺序固定：额度 → 已占 → 在审 → 占用 → 可用 → 未清应收
+  ---
+  duration_ms: 1.214489
+  type: 'test'
+  ...
+# Subtest: 已占 + 在审 = 占用：三行数各自独立显示，不合并成一格
+ok 10 - 已占 + 在审 = 占用：三行数各自独立显示，不合并成一格
+  ---
+  duration_ms: 0.411775
+  type: 'test'
+  ...
+# Subtest: 试算本单：传了 amount 才多出 本单金额 / 试算合计 / 本单后可用 三行
+ok 11 - 试算本单：传了 amount 才多出 本单金额 / 试算合计 / 本单后可用 三行
+  ---
+  duration_ms: 0.199262
+  type: 'test'
+  ...
+# Subtest: 超额行只在 over > 0 时出现，且是 danger 色
+ok 12 - 超额行只在 over > 0 时出现，且是 danger 色
+  ---
+  duration_ms: 0.132633
+  type: 'test'
+  ...
+# Subtest: 不控额度：已占照实显示，可用写「不控额度」（不是 0.00）
+ok 13 - 不控额度：已占照实显示，可用写「不控额度」（不是 0.00）
+  ---
+  duration_ms: 0.083047
+  type: 'test'
+  ...
+# Subtest: 五种判定都有标签，BLOCK 才允许 blocked=true
+ok 14 - 五种判定都有标签，BLOCK 才允许 blocked=true
+  ---
+  duration_ms: 0.148425
+  type: 'test'
+  ...
+# Subtest: 未知判定 / 未知策略：原样显示，不猜成「额度内」「放行」
+ok 15 - 未知判定 / 未知策略：原样显示，不猜成「额度内」「放行」
+  ---
+  duration_ms: 0.108382
+  type: 'test'
+  ...
+# Subtest: 缓存列漂移才提示，且写明「页面按现算值显示」
+ok 16 - 缓存列漂移才提示，且写明「页面按现算值显示」
+  ---
+  duration_ms: 0.102048
+  type: 'test'
+  ...
+# Subtest: 冻结文案：FROZEN 才提示，且说明「与额度无关」
+ok 17 - 冻结文案：FROZEN 才提示，且说明「与额度无关」
+  ---
+  duration_ms: 0.077588
+  type: 'test'
+  ...
+# Subtest: 口径说明优先用后端 basis，空则退回本地常量
+ok 18 - 口径说明优先用后端 basis，空则退回本地常量
+  ---
+  duration_ms: 0.070171
+  type: 'test'
+  ...
+# Subtest: 额度输入框提示：0 说不控额度，非 0 报额度 + 策略
+ok 19 - 额度输入框提示：0 说不控额度，非 0 报额度 + 策略
+  ---
+  duration_ms: 0.081339
+  type: 'test'
+  ...
+# Subtest: 金额兜底：字符串 / 空 / 非法值都不炸，且不拼字符串
+ok 20 - 金额兜底：字符串 / 空 / 非法值都不炸，且不拼字符串
+  ---
+  duration_ms: 0.075505
+  type: 'test'
+  ...
+# Subtest: 字段集对拍：前端 CreditSnapshot == 后端 CreditSnapshotRes（21 个，双向相等）
+ok 21 - 字段集对拍：前端 CreditSnapshot == 后端 CreditSnapshotRes（21 个，双向相等）
+  ---
+  duration_ms: 0.458028
+  type: 'test'
+  ...
+# Subtest: 判定枚举名对拍：CREDIT_VERDICT_META 的 key == 后端 verdict_label 的字面量（5 个）
+ok 22 - 判定枚举名对拍：CREDIT_VERDICT_META 的 key == 后端 verdict_label 的字面量（5 个）
+  ---
+  duration_ms: 0.214596
+  type: 'test'
+  ...
+# Subtest: 策略字面量对拍：CREDIT_POLICY_LABELS 的 key == 后端 POLICY_* 常量值
+ok 23 - 策略字面量对拍：CREDIT_POLICY_LABELS 的 key == 后端 POLICY_* 常量值
+  ---
+  duration_ms: 0.528282
+  type: 'test'
+  ...
+# Subtest: 「额度 0 = 不控额度」「total <= limit = 额度内」两条后端口径还在
+ok 24 - 「额度 0 = 不控额度」「total <= limit = 额度内」两条后端口径还在
+  ---
+  duration_ms: 0.414608
+  type: 'test'
+  ...
+# Subtest: 接口路径对拍：前端 BASE 带 /api，后端宏不含 /api（漏前缀会命中 SPA fallback）
+ok 25 - 接口路径对拍：前端 BASE 带 /api，后端宏不含 /api（漏前缀会命中 SPA fallback）
+  ---
+  duration_ms: 0.189761
+  type: 'test'
+  ...
+# Subtest: 面板挂载点：客户详情（编辑弹窗）内嵌，且只在已有客户时渲染
+ok 26 - 面板挂载点：客户详情（编辑弹窗）内嵌，且只在已有客户时渲染
+  ---
+  duration_ms: 0.217013
+  type: 'test'
+  ...
+# Subtest: 面板取数失败降级：有重试、不抛错、不挡保存
+ok 27 - 面板取数失败降级：有重试、不抛错、不挡保存
+  ---
+  duration_ms: 0.255807
+  type: 'test'
+  ...
+# Subtest: 换客户必须清旧快照：A 的额度不许出现在 B 的表头下（实测踩过）
+ok 28 - 换客户必须清旧快照：A 的额度不许出现在 B 的表头下（实测踩过）
+  ---
+  duration_ms: 0.258849
+  type: 'test'
+  ...
+# Subtest: 同一家客户也要重拉：弹窗关闭不销毁内容，打开 / 保存后必须拨 refreshKey
+ok 29 - 同一家客户也要重拉：弹窗关闭不销毁内容，打开 / 保存后必须拨 refreshKey
+  ---
+  duration_ms: 0.199262
+  type: 'test'
+  ...
+# Subtest: 壳类样式：面板不自建壳类（§2.8 只允许 shell.less 定义）
+ok 30 - 壳类样式：面板不自建壳类（§2.8 只允许 shell.less 定义）
+  ---
+  duration_ms: 0.11134
+  type: 'test'
+  ...
+1..30
+# tests 30
+# suites 0
+# pass 30
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 126.891871

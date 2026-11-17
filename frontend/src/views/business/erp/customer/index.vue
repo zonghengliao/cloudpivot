@@ -311,6 +311,28 @@
       </t-form>
 
       <!--
+        客户信用（M3-14）：额度 / 占用 / 可用 —— 内嵌在客户详情里。
+        只读、现算（`GET /api/business/erp/credit/{id}`），与提交时的信用校验同一口径；
+        取不到只降级成一行提示，不挡保存（面板自己处理 loading / error）。
+      -->
+      <template v-if="isEdit && editing">
+        <div class="section-title">
+          信用占用
+          <span class="section-hint">实时现算，与提交销售单时的校验同一口径</span>
+        </div>
+        <!--
+          `:key` 换客户 → 重建面板（旧快照绝不带进新客户的表头）；
+          `:refresh-key` 每次打开 / 保存后 +1 → 同一家客户也重拉（弹窗关闭不销毁内容，实测）
+        -->
+        <CreditPanel
+          :key="editing.id"
+          :customer-id="editing.id"
+          :refresh-key="creditRefreshKey"
+          testid-prefix="cus-credit"
+        />
+      </template>
+
+      <!--
         ATT-11：营业执照 / 信用资料（建议传，不校验）。
         只有在**编辑已保存的客户**时才出现 —— 新建时还没有 doc id，附件无处可挂；
         保存后重新打开编辑即可上传。
@@ -370,6 +392,11 @@ import { ApiError } from '@/api/request';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+/**
+ * M3-14：客户信用面板（额度 / 占用 / 可用），内嵌在编辑弹窗里。
+ * 它自己取数（`GET /api/business/erp/credit/{id}`），本页只负责「保存成功后让它重拉」。
+ */
+import CreditPanel from './CreditPanel.vue';
 /**
  * P3-06：列表壳换成通用 `ListPage`（筛选 / 服务端分页 / 行操作 / 导出）。
  * 只换渲染与分页接线，`buildCustomerQuery` / `isCustomerFiltered` 的口径一行没动。
@@ -503,6 +530,14 @@ const formErrors = ref<CustomerFieldErrors>({});
 const submitError = ref('');
 /** 提交中 */
 const saving = ref(false);
+/**
+ * 信用面板的刷新信号（M3-14）：每次打开详情、保存成功后 `+1`，面板跟着重拉。
+ *
+ * 为什么不能只靠 `customerId` 变化：TDesign 的弹窗关闭**不销毁内容**，同一家客户
+ * 再打开时 `customerId` 没变、watch 不触发 —— 刚改完额度会看到旧数（实测踩过）。
+ * 也不在父页面缓存信用快照：面板自己拿最新值，省一份会漂的副本。
+ */
+const creditRefreshKey = ref(0);
 
 const isEdit = computed(() => editing.value !== null);
 
@@ -518,6 +553,8 @@ function openCreate(): void {
 /** 打开编辑（回填） */
 function openEdit(row: Customer): void {
   editing.value = row;
+  // 每次打开详情都重拉信用（别人可能刚收过款 / 改过额度）
+  creditRefreshKey.value += 1;
   Object.assign(form, customerFormFromRow(row));
   formErrors.value = {};
   submitError.value = '';
@@ -579,6 +616,8 @@ async function handleConfirm(): Promise<void> {
       }
       await updateCustomer(editing.value.id, payload);
       MessagePlugin.success('客户已保存');
+      // 额度 / 策略 / 冻结状态可能都变了：让信用面板重拉（同一家客户 watch 不到）
+      creditRefreshKey.value += 1;
     } else {
       const created = await createCustomer(buildCustomerCreatePayload(form));
       // 没点「生成编码」直接保存时编码由后端取号 —— 回填表单 + 提示里报出来（验收 ④）
@@ -723,6 +762,14 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 14px;
   margin: 12px 0 4px;
+}
+
+/* M3-14：信用区块标题旁的副说明（小字、不抢标题） */
+.section-hint {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .dlg-attach-tip {
