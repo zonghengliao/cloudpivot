@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 26 tests
+test business::erp::sales::sales_target_handler::tests::achievement_rate_is_percentage_two_decimals ... ok
+test business::erp::sales::sales_target_handler::tests::achievement_rate_with_zero_target_is_zero_not_infinity ... ok
+test business::erp::sales::sales_target_handler::tests::amount_validation_rejects_negative_and_extra_decimals ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_all_grain_uses_company_total_and_reports_missing_forecast ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_all_scope_uses_totals ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_customer_grain_joins_actuals_and_adds_unforecast_rows ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_material_grain_never_borrows_customer_actuals ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_material_scope_keeps_scope_name ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_missing_actual_is_zero_not_error ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_pair_grain_keeps_customer_and_material_names ... ok
+test business::erp::sales::sales_target_handler::tests::assemble_picks_basis_and_keeps_both ... ok
+test business::erp::sales::sales_target_handler::tests::basis_normalization_defaults_to_order ... ok
+test business::erp::sales::sales_target_handler::tests::deviation_level_compares_unrounded_rate ... ok
+test business::erp::sales::sales_target_handler::tests::dimension_and_tolerance_normalization ... ok
+test business::erp::sales::sales_target_handler::tests::gap_positive_means_shortfall_negative_means_overachieved ... ok
+test business::erp::sales::sales_target_handler::tests::period_month_is_left_closed_right_open ... ok
+test business::erp::sales::sales_target_handler::tests::period_quarter_covers_three_months ... ok
+test business::erp::sales::sales_target_handler::tests::period_rejects_garbage ... ok
+test business::erp::sales::sales_target_handler::tests::permission_codes_match_v0318 ... ok
+test business::erp::sales::sales_target_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::sales::sales_target_handler::tests::scope_normalization_matches_ddl_check ... ok
+test business::erp::sales::sales_target_handler::tests::status_and_confidence_normalization ... ok
+test business::erp::sales::sales_target_handler::tests::sum_of_object_actuals_matches_total_rule ... ok
+test business::erp::sales::sales_target_handler::tests::summarize_zero_rows_is_all_zero_without_rates ... ok
+test business::erp::sales::sales_target_handler::tests::variance_math_zero_forecast_has_no_rate ... ok
+test business::erp::sales::sales_target_handler::tests::version_no_must_be_positive ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 6122 filtered out; finished in 0.00s
+

@@ -57,3 +57,7 @@ mod rebate_rule_matrix_tests;
 /// 销售预测表结构（M3-20：预测数量 / 版本链 / 当前版本视图）的真库用例。
 #[cfg(test)]
 mod sales_forecast_db_tests;
+
+/// 预测 vs 实际（偏差分析，M3-21）的真库用例。
+#[cfg(test)]
+mod sales_variance_db_tests;

@@ -1,0 +1,180 @@
+== 1) POST /api/system/auth/login → {"code":0,"msg":"ok","data":{"access_token":"eyJ0eXAiOiJKV1Q…（token_len=492）
+
+== 2) POST /api/business/erp/sales-forecast（2032-08 全局预测 120000 / 1200）
+{"code":0,"msg":"ok","data":{"id":"01a1e971-c60d-7475-be5f-10daa728e91c","forecast_no":"SFC-20261117-000009","customer_id":null,"customer_name":null,"material_id":null,"material_name":null,"period_code":"2032-08","forecast_amount":"120000.00","forecast_qty":"1200.0000","confidence":"MEDIUM","version_no":1,"revised_from_id":null,"remark":"M3-21 冒烟","created_at":"2026-11-17T12:18:29.974774Z","updated_at":"2026-11-17T12:18:29.974774Z"}}
+
+== 3) 直插一笔本位币订单 96000 / 960 件（APPROVED，充当「实际」）
+
+== 4) GET …/variance?period_code=2032-08&dimension=ALL（预测 120000 vs 实际 96000 ⇒ -20% UNDER）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "period_code": "2032-08",
+        "dimension": "ALL",
+        "dimension_label": "全公司",
+        "basis": "ORDER",
+        "tolerance_pct": "5",
+        "summary": {
+            "row_count": 1,
+            "forecast_count": 1,
+            "unforecast_count": 0,
+            "over_count": 0,
+            "under_count": 1,
+            "on_target_count": 0,
+            "forecast_amount": "120000.00",
+            "actual_amount": "96000.00",
+            "variance_amount": "-24000.00",
+            "variance_rate": "-20.00",
+            "forecast_qty": "1200.0000",
+            "actual_qty": "960.0000",
+            "variance_qty": "-240.0000",
+            "variance_qty_rate": "-20.00",
+            "mape_pct": "20.00",
+            "worst": {
+                "display_name": "全公司",
+                "forecast_no": "SFC-20261117-000009",
+                "variance_amount": "-24000.00",
+                "variance_rate": "-20.00",
+                "deviation_level": "UNDER"
+            }
+        },
+        "dimension_counts": [
+            {
+                "dimension": "CUSTOMER",
+                "dimension_label": "按客户",
+                "row_count": 0
+            },
+            {
+                "dimension": "MATERIAL",
+                "dimension_label": "按物料",
+                "row_count": 0
+            },
+            {
+                "dimension": "CUSTOMER_MATERIAL",
+                "dimension_label": "按客户 × 物料",
+                "row_count": 0
+            },
+            {
+                "dimension": "ALL",
+                "dimension_label": "全公司",
+                "row_count": 1
+            }
+        ],
+        "rows": [
+            {
+                "dimension": "ALL",
+                "period_code": "2032-08",
+                "display_name": "全公司",
+                "forecast_id": "01a1e971-c60d-7475-be5f-10daa728e91c",
+                "forecast_no": "SFC-20261117-000009",
+                "version_no": 1,
+                "confidence": "MEDIUM",
+                "customer_id": null,
+                "customer_name": null,
+                "material_id": null,
+                "material_name": null,
+                "has_forecast": true,
+                "forecast_amount": "120000.00",
+                "forecast_qty": "1200.0000",
+                "actual_amount": "96000.00",
+                "actual_qty": "960.0000",
+                "variance_amount": "-24000.00",
+                "variance_rate": "-20.00",
+                "variance_qty": "-240.0000",
+                "variance_qty_rate": "-20.00",
+                "deviation_level": "UNDER"
+            }
+        ]
+    }
+}
+
+== 5) GET …&dimension=CUSTOMER（客户级没有预测、订单有实际 ⇒ 漏预测行 NO_FORECAST）
+{
+    "code": 0,
+    "msg": "ok",
+    "data": {
+        "period_code": "2032-08",
+        "dimension": "CUSTOMER",
+        "dimension_label": "按客户",
+        "basis": "ORDER",
+        "tolerance_pct": "5",
+        "summary": {
+            "row_count": 1,
+            "forecast_count": 0,
+            "unforecast_count": 1,
+            "over_count": 0,
+            "under_count": 0,
+            "on_target_count": 0,
+            "forecast_amount": "0",
+            "actual_amount": "96000.00",
+            "variance_amount": "96000.00",
+            "variance_rate": null,
+            "forecast_qty": "0",
+            "actual_qty": "960.0000",
+            "variance_qty": "960.0000",
+            "variance_qty_rate": null,
+            "mape_pct": null,
+            "worst": {
+                "display_name": "冒烟客户",
+                "forecast_no": null,
+                "variance_amount": "96000.00",
+                "variance_rate": null,
+                "deviation_level": "NO_FORECAST"
+            }
+        },
+        "dimension_counts": [
+            {
+                "dimension": "CUSTOMER",
+                "dimension_label": "按客户",
+                "row_count": 0
+            },
+            {
+                "dimension": "MATERIAL",
+                "dimension_label": "按物料",
+                "row_count": 0
+            },
+            {
+                "dimension": "CUSTOMER_MATERIAL",
+                "dimension_label": "按客户 × 物料",
+                "row_count": 0
+            },
+            {
+                "dimension": "ALL",
+                "dimension_label": "全公司",
+                "row_count": 1
+            }
+        ],
+        "rows": [
+            {
+                "dimension": "CUSTOMER",
+                "period_code": "2032-08",
+                "display_name": "冒烟客户",
+                "forecast_id": null,
+                "forecast_no": null,
+                "version_no": null,
+                "confidence": null,
+                "customer_id": "a3210000-0000-4000-8000-000000000001",
+                "customer_name": "冒烟客户",
+                "material_id": null,
+                "material_name": null,
+                "has_forecast": false,
+                "forecast_amount": "0",
+                "forecast_qty": "0",
+                "actual_amount": "96000.00",
+                "actual_qty": "960.0000",
+                "variance_amount": "96000.00",
+                "variance_rate": null,
+                "variance_qty": "960.0000",
+                "variance_qty_rate": null,
+                "deviation_level": "NO_FORECAST"
+            }
+        ]
+    }
+}
+
+== 6) 错误码 / 认证
+dimension=REGION  → HTTP 400
+tolerance_pct=abc → HTTP 400
+缺 period_code    → HTTP 400
+无 token          → HTTP 401

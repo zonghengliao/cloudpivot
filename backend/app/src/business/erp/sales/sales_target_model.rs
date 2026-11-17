@@ -42,8 +42,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::sales::sales_target_dto::{
-    ForecastFilter, ORDER_STATUSES, RECEIPT_STATUSES, SCOPE_DEPT, SCOPE_MATERIAL, SCOPE_SALESPERSON, TargetFilter,
-    money2,
+    FORECAST_DIM_ALL, FORECAST_DIM_CUSTOMER, FORECAST_DIM_CUSTOMER_MATERIAL, FORECAST_DIM_MATERIAL,
+    FORECAST_DIMENSIONS, ForecastFilter, ORDER_STATUSES, RECEIPT_STATUSES, SCOPE_DEPT, SCOPE_MATERIAL,
+    SCOPE_SALESPERSON, TargetFilter, money2,
 };
 use cloudpivot_kernel::utils;
 
@@ -834,6 +835,253 @@ pub async fn receipt_actual_total(from: NaiveDate, to: NaiveDate) -> DbResult<De
         )
         .await?;
     Ok(money2(total.unwrap_or_default()))
+}
+
+// ==================== 预测 vs 实际：取数（M3-21） ====================
+//
+// 卡：t_31257c83。口径见 `sales_target_dto` 的「预测 vs 实际（偏差分析）」一节：
+// 预测侧只查视图 [`FORECAST_CURRENT_VIEW`]，实际侧只算订单（[`ORDER_STATUSES`] +
+// 本位币含税金额 + 明细数量）。两张表的分工写在这里，handler 只做组装与判档。
+
+/// 按客户的订单实际数（金额 + 数量）。
+#[derive(Debug, Clone)]
+pub struct CustomerActual {
+    /// 客户 id。
+    pub customer_id: Uuid,
+    /// 客户名（`biz_customer.name`，名字缺失时 `None`）。
+    pub customer_name: Option<String>,
+    /// 实际金额（本位币含税）。
+    pub amount: Decimal,
+    /// 实际数量（明细 qty 合计）。
+    pub qty: Decimal,
+}
+
+/// 按物料的订单实际数（金额 + 数量）。
+#[derive(Debug, Clone)]
+pub struct MaterialActual {
+    /// 物料 id。
+    pub material_id: Uuid,
+    /// 物料名。
+    pub material_name: Option<String>,
+    /// 实际金额（明细本位币含税金额合计）。
+    pub amount: Decimal,
+    /// 实际数量（明细 qty 合计）。
+    pub qty: Decimal,
+}
+
+/// 按客户 × 物料的订单实际数（金额 + 数量）。
+#[derive(Debug, Clone)]
+pub struct PairActual {
+    /// 客户 id。
+    pub customer_id: Uuid,
+    /// 客户名。
+    pub customer_name: Option<String>,
+    /// 物料 id。
+    pub material_id: Uuid,
+    /// 物料名。
+    pub material_name: Option<String>,
+    /// 实际金额（明细本位币含税金额合计）。
+    pub amount: Decimal,
+    /// 实际数量（明细 qty 合计）。
+    pub qty: Decimal,
+}
+
+/// 某期间某粒度的**当前版本**预测（视图 [`FORECAST_CURRENT_VIEW`]）+ 维度名。
+///
+/// 粒度条件必须成对写 `IS NOT NULL` / `IS NULL`：`material_id = NULL` 恒为 UNKNOWN，
+/// 写成 `= NULL` 会静默返回零行（不是报错，最难查的那种）。
+pub async fn current_forecasts_for_period(period_code: &str, dimension: &str) -> DbResult<Vec<ForecastListRow>> {
+    let columns: Vec<String> = FORECAST_COLUMNS
+        .split(',')
+        .map(|column| format!("v.{}", column.trim()))
+        .collect();
+    let grain = match dimension {
+        FORECAST_DIM_CUSTOMER => "v.customer_id IS NOT NULL AND v.material_id IS NULL",
+        FORECAST_DIM_MATERIAL => "v.customer_id IS NULL AND v.material_id IS NOT NULL",
+        FORECAST_DIM_CUSTOMER_MATERIAL => "v.customer_id IS NOT NULL AND v.material_id IS NOT NULL",
+        FORECAST_DIM_ALL => "v.customer_id IS NULL AND v.material_id IS NULL",
+        _ => return Ok(Vec::new()),
+    };
+    let sql = format!(
+        "SELECT {}, c.name AS customer_name, m.material_name AS material_name \
+           FROM {FORECAST_CURRENT_VIEW} v \
+           LEFT JOIN biz_customer c ON c.id = v.customer_id \
+           LEFT JOIN biz_material m ON m.id = v.material_id \
+          WHERE v.period_code = ? AND {grain} \
+          ORDER BY v.created_at ASC, v.id ASC",
+        columns.join(", ")
+    );
+    let rows = db().query_sql(sql, vec![Value::Text(period_code.to_string())]).await?;
+    let mut list = Vec::with_capacity(rows.len());
+    for row in &rows {
+        list.push(map_forecast_row(row)?);
+    }
+    Ok(list)
+}
+
+/// 某期间**各粒度**的当前版本预测条数（出参 `dimension_counts` 用）。
+///
+/// 四种粒度一律给行（0 也给）：前端下拉要能显示「按物料（0 条）」，缺行等于让前端猜。
+pub async fn forecast_dimension_counts(period_code: &str) -> DbResult<Vec<(String, i64)>> {
+    let sql = format!(
+        "SELECT CASE \
+                 WHEN customer_id IS NOT NULL AND material_id IS NOT NULL THEN '{FORECAST_DIM_CUSTOMER_MATERIAL}' \
+                 WHEN customer_id IS NOT NULL THEN '{FORECAST_DIM_CUSTOMER}' \
+                 WHEN material_id IS NOT NULL THEN '{FORECAST_DIM_MATERIAL}' \
+                 ELSE '{FORECAST_DIM_ALL}' END AS dimension, \
+                count(*) AS n \
+           FROM {FORECAST_CURRENT_VIEW} \
+          WHERE period_code = ? \
+          GROUP BY 1"
+    );
+    let rows = db().query_sql(sql, vec![Value::Text(period_code.to_string())]).await?;
+    let mut found: Vec<(String, i64)> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let dimension: String = row.get_typed("dimension")?;
+        let n: i64 = row.get_typed("n")?;
+        found.push((dimension, n));
+    }
+    // 按固定顺序补齐 0（SQL `GROUP BY` 只返回出现过的粒度）
+    let mut out = Vec::with_capacity(FORECAST_DIMENSIONS.len());
+    for dimension in FORECAST_DIMENSIONS {
+        let n = found
+            .iter()
+            .find(|(name, _)| name == dimension)
+            .map(|(_, n)| *n)
+            .unwrap_or(0);
+        out.push((dimension.to_string(), n));
+    }
+    Ok(out)
+}
+
+/// 订单口径 · 按客户汇总（本位币含税金额 + 明细数量）。
+///
+/// 金额用订单级 [`base_amount_expr`]（多币种按锁汇的本位币，不混加）；
+/// 数量必须**先按单汇总明细再按客户加**：直接 `JOIN item` 会把订单金额按行数翻倍。
+pub async fn order_actual_by_customer(from: NaiveDate, to: NaiveDate) -> DbResult<Vec<CustomerActual>> {
+    let statuses = order_status_in();
+    let amount = base_amount_expr();
+    let sql = format!(
+        "WITH ord AS ( \
+             SELECT o.id, o.customer_id, {amount} AS amt \
+               FROM biz_sales_order o \
+              WHERE o.deleted_at IS NULL AND o.status IN ({statuses}) \
+                AND o.order_date >= ?::date AND o.order_date < ?::date), \
+         line AS ( \
+             SELECT i.so_id, SUM(i.qty) AS qty \
+               FROM biz_sales_order_item i \
+              WHERE i.so_id IN (SELECT id FROM ord) \
+              GROUP BY i.so_id) \
+         SELECT o.customer_id AS object_id, c.name AS object_name, \
+                COALESCE(SUM(o.amt), 0) AS amount, COALESCE(SUM(l.qty), 0) AS qty \
+           FROM ord o \
+           LEFT JOIN line l ON l.so_id = o.id \
+           LEFT JOIN biz_customer c ON c.id = o.customer_id \
+          GROUP BY o.customer_id, c.name \
+          ORDER BY o.customer_id"
+    );
+    let rows = db().query_sql(sql, vec![Value::from(from), Value::from(to)]).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let object_id: Option<Uuid> = row.get_typed("object_id")?;
+        let Some(customer_id) = object_id else { continue };
+        out.push(CustomerActual {
+            customer_id,
+            customer_name: clean_optional(row.get_typed("object_name")?),
+            amount: money2(row.get_typed::<Option<Decimal>>("amount")?.unwrap_or_default()),
+            qty: row.get_typed::<Option<Decimal>>("qty")?.unwrap_or_default(),
+        });
+    }
+    Ok(out)
+}
+
+/// 订单口径 · 按物料汇总（明细本位币含税金额 + 明细数量）。
+pub async fn order_actual_by_material(from: NaiveDate, to: NaiveDate) -> DbResult<Vec<MaterialActual>> {
+    let statuses = order_status_in();
+    let line_amount = base_line_amount_expr();
+    let sql = format!(
+        "SELECT i.material_id AS object_id, m.material_name AS object_name, \
+                COALESCE(SUM({line_amount}), 0) AS amount, COALESCE(SUM(i.qty), 0) AS qty \
+           FROM biz_sales_order o \
+           JOIN biz_sales_order_item i ON i.so_id = o.id \
+           LEFT JOIN biz_material m ON m.id = i.material_id \
+          WHERE o.deleted_at IS NULL AND o.status IN ({statuses}) \
+            AND o.order_date >= ?::date AND o.order_date < ?::date \
+          GROUP BY i.material_id, m.material_name \
+          ORDER BY i.material_id"
+    );
+    let rows = db().query_sql(sql, vec![Value::from(from), Value::from(to)]).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let object_id: Option<Uuid> = row.get_typed("object_id")?;
+        let Some(material_id) = object_id else { continue };
+        out.push(MaterialActual {
+            material_id,
+            material_name: clean_optional(row.get_typed("object_name")?),
+            amount: money2(row.get_typed::<Option<Decimal>>("amount")?.unwrap_or_default()),
+            qty: row.get_typed::<Option<Decimal>>("qty")?.unwrap_or_default(),
+        });
+    }
+    Ok(out)
+}
+
+/// 订单口径 · 按（客户, 物料）汇总（明细本位币含税金额 + 明细数量）。
+pub async fn order_actual_by_pair(from: NaiveDate, to: NaiveDate) -> DbResult<Vec<PairActual>> {
+    let statuses = order_status_in();
+    let line_amount = base_line_amount_expr();
+    let sql = format!(
+        "SELECT o.customer_id, c.name AS customer_name, i.material_id, m.material_name, \
+                COALESCE(SUM({line_amount}), 0) AS amount, COALESCE(SUM(i.qty), 0) AS qty \
+           FROM biz_sales_order o \
+           JOIN biz_sales_order_item i ON i.so_id = o.id \
+           LEFT JOIN biz_customer c ON c.id = o.customer_id \
+           LEFT JOIN biz_material m ON m.id = i.material_id \
+          WHERE o.deleted_at IS NULL AND o.status IN ({statuses}) \
+            AND o.order_date >= ?::date AND o.order_date < ?::date \
+          GROUP BY o.customer_id, c.name, i.material_id, m.material_name \
+          ORDER BY o.customer_id, i.material_id"
+    );
+    let rows = db().query_sql(sql, vec![Value::from(from), Value::from(to)]).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let customer_id: Option<Uuid> = row.get_typed("customer_id")?;
+        let material_id: Option<Uuid> = row.get_typed("material_id")?;
+        let (Some(customer_id), Some(material_id)) = (customer_id, material_id) else {
+            continue;
+        };
+        out.push(PairActual {
+            customer_id,
+            customer_name: clean_optional(row.get_typed("customer_name")?),
+            material_id,
+            material_name: clean_optional(row.get_typed("material_name")?),
+            amount: money2(row.get_typed::<Option<Decimal>>("amount")?.unwrap_or_default()),
+            qty: row.get_typed::<Option<Decimal>>("qty")?.unwrap_or_default(),
+        });
+    }
+    Ok(out)
+}
+
+/// 订单口径 · 全公司实际（本位币含税金额 + 明细数量）。
+pub async fn order_actual_total_with_qty(from: NaiveDate, to: NaiveDate) -> DbResult<(Decimal, Decimal)> {
+    let statuses = order_status_in();
+    let amount = base_amount_expr();
+    let sql = format!(
+        "WITH ord AS ( \
+             SELECT o.id, {amount} AS amt \
+               FROM biz_sales_order o \
+              WHERE o.deleted_at IS NULL AND o.status IN ({statuses}) \
+                AND o.order_date >= ?::date AND o.order_date < ?::date) \
+         SELECT COALESCE((SELECT SUM(amt) FROM ord), 0) AS amount, \
+                COALESCE((SELECT SUM(i.qty) FROM biz_sales_order_item i \
+                           WHERE i.so_id IN (SELECT id FROM ord)), 0) AS qty"
+    );
+    let rows = db().query_sql(sql, vec![Value::from(from), Value::from(to)]).await?;
+    let Some(row) = rows.first() else {
+        return Ok((Decimal::ZERO, Decimal::ZERO));
+    };
+    let amount: Option<Decimal> = row.get_typed("amount")?;
+    let qty: Option<Decimal> = row.get_typed("qty")?;
+    Ok((money2(amount.unwrap_or_default()), qty.unwrap_or_default()))
 }
 
 // ==================== 取号（`STG-` / `SFC-`） ====================

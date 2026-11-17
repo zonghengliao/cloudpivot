@@ -1,0 +1,15 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 14s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 7 tests
+test business::erp::sales::sales_variance_db_tests::all_grain_uses_company_total ... ok
+test business::erp::sales::sales_variance_db_tests::base_currency_is_used_for_foreign_order ... ok
+test business::erp::sales::sales_variance_db_tests::customer_grain_compares_latest_version_against_orders ... ok
+test business::erp::sales::sales_variance_db_tests::dimension_counts_report_every_grain ... ok
+test business::erp::sales::sales_variance_db_tests::invalid_inputs_are_400_without_touching_db ... ok
+test business::erp::sales::sales_variance_db_tests::material_grain_uses_line_amount_and_qty ... ok
+test business::erp::sales::sales_variance_db_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 6141 filtered out; finished in 0.12s
+

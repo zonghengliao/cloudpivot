@@ -8,6 +8,7 @@
 //! | PUT | `/business/erp/sales-target/{id}` | `business:erp:sales-target:update` |
 //! | DELETE | `/business/erp/sales-target/{id}` | `business:erp:sales-target:delete` |
 //! | GET | `/business/erp/sales-forecast/page` | `business:erp:sales-forecast:list` |
+//! | GET | `/business/erp/sales-forecast/variance` | `business:erp:sales-forecast:list` |
 //! | POST | `/business/erp/sales-forecast` | `business:erp:sales-forecast:create` |
 //! | PUT | `/business/erp/sales-forecast/{id}` | `business:erp:sales-forecast:update` |
 //! | DELETE | `/business/erp/sales-forecast/{id}` | `business:erp:sales-forecast:delete` |
@@ -751,6 +752,361 @@ pub struct AchievementBasis {
     pub achievement_rate: Decimal,
     /// 缺口。
     pub gap: Decimal,
+}
+
+// ==================== 预测 vs 实际（偏差分析，M3-21） ====================
+//
+// 卡：t_31257c83（M3-21【M3·销售】销售预测：预测 vs 实际对比）
+//
+// # 口径（一张表说清，改之前先读）
+//
+// ```text
+// 预测侧：v_biz_sales_forecast_current（V0444 视图）—— 同（客户, 物料, 期间）只取 version_no 最大的一条。
+//         直接查表 SUM 会把历史版本一起加进去（预测值翻几倍还看不出来），这是 M3-20 留下的唯一口径。
+// 实际侧：期间内 order_date 落在区间、status ∈ ORDER_STATUSES（APPROVED 及之后）的订单
+//         · 金额 = 本位币含税（与达成率看板的 ORDER 口径逐字一致，多币种不会混加）
+//         · 数量 = 订单明细 qty 合计（客户/客户×物料粒度按订单逐单汇总，物料粒度按明细汇总）
+// ```
+//
+// **只做订单口径，不做收款口径**：预测谈的是「能卖出去多少」，对标的必须是订单；
+// 收款还夹着账期与回款进度，拿它比预测会把「客户晚付钱」记成「预测不准」。
+// 收款口径的达成率在 `/sales-target/achievement` 的 `by_receipt` 里，两个口径**不要混用**。
+//
+// # 粒度必须显式选（`dimension`）
+//
+// ```text
+// CUSTOMER           客户级预测（customer_id 非空、material_id 为空） ↔ 按客户汇总的订单
+// MATERIAL           物料级预测（material_id 非空、customer_id 为空） ↔ 按物料汇总的订单明细
+// CUSTOMER_MATERIAL  客户 × 物料预测（两维都非空）                   ↔ 按（客户, 物料）汇总的订单明细
+// ALL                全局滚动预测（两维都空）                         ↔ 全公司订单
+// ```
+//
+// **为什么不一锅端**：同一个月可能既有客户级预测（"客户 A 这个月 30 万"）又有物料级预测
+// （"A 料这个月 5000 件"）。两者的实际数是**同一批订单**的两种切法，加在一起就是双计，
+// 偏差率会凭空变小。所以接口按粒度取一组行、汇总也只汇总这一组（`summary` 与 `rows` 同源）。
+// 别的粒度还有几条，用出参里的 `dimension_counts` 提示（前端不在同一页混着展示）。
+//
+// # 漏预测行（`has_forecast = false`）
+//
+// 偏差分析只看「预测过的」，会漏掉最贵的一类偏差：**根本没预测、但卖掉了很多**。
+// 所以 CUSTOMER / MATERIAL / CUSTOMER_MATERIAL 三种粒度会把「期间内有实际、当前没有预测行」
+// 的对象补成一行：`forecast_id = null`、`forecast_amount = 0`、`deviation_level = NO_FORECAST`、
+// `variance_amount` = 实际值（全差额）。`ALL` 粒度也按同一规则补（全公司没预测却有实际时给一行
+// 「全公司 · 漏预测」，不是什么都不返回）。按 `|偏差金额|` 倒排序时这些行会浮到最上面。
+//
+// # 偏差档位（`deviation_level`）
+//
+// ```text
+// OVER       实际 > 预测，且超过容差（预测 0 而实际 > 0 = 完全漏预测，也算 OVER）
+// UNDER      实际 < 预测，且超过容差
+// ON_TARGET  |差异率| <= tolerance_pct（默认 ±5%）；预测与实际都为 0 也是 ON_TARGET
+// NO_FORECAST 没有预测行（见上）
+// ```
+//
+// 容差比较用**未四舍五入的差异率**：5.004% 先四舍五入成 5.00 再比，会把它错判成「命中」。
+//
+// # 出参金额 / 比例
+//
+// 金额是 `NUMERIC` ⇒ JSON **字符串**；差异率与 MAPE 是百分数、2 位小数（`-12.34` = 实际比预测低 12.34%）。
+// `variance_rate = null` 只表示**预测金额为 0，比率没有意义**（不是 0%，也不是 100%）。
+
+/// 对比粒度 ①：按客户（客户级预测 ↔ 按客户汇总的订单）。
+pub const FORECAST_DIM_CUSTOMER: &str = "CUSTOMER";
+/// 对比粒度 ②：按物料（物料级预测 ↔ 按物料汇总的订单明细）。
+pub const FORECAST_DIM_MATERIAL: &str = "MATERIAL";
+/// 对比粒度 ③：客户 × 物料（两维都非空的预测 ↔ 按（客户, 物料）汇总的订单明细）。
+pub const FORECAST_DIM_CUSTOMER_MATERIAL: &str = "CUSTOMER_MATERIAL";
+/// 对比粒度 ④：全局滚动预测（两维都空）↔ 全公司订单。
+pub const FORECAST_DIM_ALL: &str = "ALL";
+
+/// 全部对比粒度（顺序即前端下拉顺序；缺省 `CUSTOMER`）。
+pub const FORECAST_DIMENSIONS: [&str; 4] = [
+    FORECAST_DIM_CUSTOMER,
+    FORECAST_DIM_MATERIAL,
+    FORECAST_DIM_CUSTOMER_MATERIAL,
+    FORECAST_DIM_ALL,
+];
+
+/// 偏差档位：实际超出预测（超出容差）。
+pub const DEVIATION_OVER: &str = "OVER";
+/// 偏差档位：实际低于预测（超出容差）。
+pub const DEVIATION_UNDER: &str = "UNDER";
+/// 偏差档位：在容差内（基本命中）。
+pub const DEVIATION_ON_TARGET: &str = "ON_TARGET";
+/// 偏差档位：没有预测（漏预测行）。
+pub const DEVIATION_NO_FORECAST: &str = "NO_FORECAST";
+
+/// 全部偏差档位。
+pub const DEVIATION_LEVELS: [&str; 4] = [
+    DEVIATION_OVER,
+    DEVIATION_UNDER,
+    DEVIATION_ON_TARGET,
+    DEVIATION_NO_FORECAST,
+];
+
+/// 默认容差：±5%（写库前的口径，前端不传就用它）。
+pub const DEFAULT_TOLERANCE_PCT: i64 = 5;
+
+/// 对比口径（出参里显式回一份，前端 tooltip 直接用）：本接口**只算订单口径**。
+pub const VARIANCE_BASIS: &str = BASIS_ORDER;
+
+/// 粒度归一化：空白 / 缺省 ⇒ `CUSTOMER`；域值外 ⇒ 400（不静默忽略）。
+pub fn normalize_dimension(raw: Option<&str>) -> std::result::Result<String, ApiError> {
+    let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
+        return Ok(FORECAST_DIM_CUSTOMER.to_string());
+    };
+    let dimension = text.to_ascii_uppercase();
+    if !FORECAST_DIMENSIONS.contains(&dimension.as_str()) {
+        return Err(bad_request(format!(
+            "dimension 只认 {}（收到「{text}」）",
+            FORECAST_DIMENSIONS.join(" / ")
+        )));
+    }
+    Ok(dimension)
+}
+
+/// 容差归一化：缺省 ±5%，范围 0 ~ 100（%），最多 2 位小数。
+///
+/// 参数故意收 `Option<&str>` 再由这里 `parse`：query string 里 `rust_decimal`
+/// 的 serde 反序列化对 `"5"` / `"5.5"` 两种写法的接受度依赖 feature 组合，
+/// 走字符串手工解析只有一个行为，且非法时能给出「收到什么」的中文 400。
+pub fn normalize_tolerance_pct(raw: Option<&str>) -> std::result::Result<Decimal, ApiError> {
+    let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
+        return Ok(Decimal::from(DEFAULT_TOLERANCE_PCT));
+    };
+    let value: Decimal = text
+        .parse()
+        .map_err(|_| bad_request(format!("tolerance_pct 不是合法数字（收到「{text}」）")))?;
+    if value < Decimal::ZERO || value > Decimal::from(100) {
+        return Err(bad_request(format!(
+            "tolerance_pct 必须在 0 ~ 100 之间（收到 {value}；这是百分数，5 = ±5%）"
+        )));
+    }
+    if value.scale() > 2 {
+        return Err(bad_request(format!("tolerance_pct 最多 2 位小数（收到 {value}）")));
+    }
+    Ok(value)
+}
+
+/// 偏差金额 = 实际 − 预测（正 = 卖得比预测多）。2 位小数（与金额列同口径）。
+pub fn variance_amount(actual: Decimal, forecast: Decimal) -> Decimal {
+    money2(actual - forecast)
+}
+
+/// 偏差率 =（实际 − 预测）/ 预测 × 100（%，2 位小数）。
+///
+/// **预测为 0 ⇒ `None`**：0 是除法的分母，报 0% 会让「没预测却卖了 50 万」看起来毫无偏差，
+/// 报 100% 又是编的。比率空着、看 `variance_amount` 就是全差额。
+pub fn variance_rate(actual: Decimal, forecast: Decimal) -> Option<Decimal> {
+    if forecast.is_zero() {
+        return None;
+    }
+    Some((((actual - forecast) / forecast) * Decimal::from(100)).round_dp(2))
+}
+
+/// 偏差档位（见本节模块注释的口径表）。
+///
+/// 容差比较走**未四舍五入**的差异率：先 round 再比，5.004% 会被判成「命中」。
+pub fn deviation_level(actual: Decimal, forecast: Decimal, tolerance_pct: Decimal) -> &'static str {
+    let diff = actual - forecast;
+    if diff.is_zero() {
+        return DEVIATION_ON_TARGET;
+    }
+    if forecast.is_zero() {
+        // 预测 0 而实际 > 0 = 完全漏预测（OVER）；预测 0 而实际 < 0 现实中不存在，按 UNDER 兜底
+        return if diff > Decimal::ZERO {
+            DEVIATION_OVER
+        } else {
+            DEVIATION_UNDER
+        };
+    }
+    let rate = diff / forecast * Decimal::from(100);
+    if rate.abs() <= tolerance_pct {
+        DEVIATION_ON_TARGET
+    } else if rate > Decimal::ZERO {
+        DEVIATION_OVER
+    } else {
+        DEVIATION_UNDER
+    }
+}
+
+/// 平均绝对偏差率（MAPE，%）= 各行 |差异率| 的算术平均（2 位小数）。
+///
+/// 只喂**预测金额 > 0** 的行（差异率为空的行不参与，否则「没预测」会把误差摊薄成 0）。
+/// 行与行等权（不像合计偏差率那样被大客户主导），两个数一起看：合计看钱，MAPE 看稳。
+pub fn mean_absolute_pct(rates: &[Decimal]) -> Option<Decimal> {
+    if rates.is_empty() {
+        return None;
+    }
+    let sum: Decimal = rates.iter().map(|rate| rate.abs()).sum();
+    Some((sum / Decimal::from(rates.len() as u64)).round_dp(2))
+}
+
+/// 粒度中文名（出参 / 前端下拉）。
+pub fn dimension_label(dimension: &str) -> &'static str {
+    match dimension {
+        FORECAST_DIM_CUSTOMER => "按客户",
+        FORECAST_DIM_MATERIAL => "按物料",
+        FORECAST_DIM_CUSTOMER_MATERIAL => "按客户 × 物料",
+        FORECAST_DIM_ALL => "全公司",
+        _ => "未知粒度",
+    }
+}
+
+/// 偏差档位中文名（前端 tooltip / 导出用）。
+pub fn deviation_label(level: &str) -> &'static str {
+    match level {
+        DEVIATION_OVER => "超出预测",
+        DEVIATION_UNDER => "低于预测",
+        DEVIATION_ON_TARGET => "基本命中",
+        DEVIATION_NO_FORECAST => "漏预测",
+        _ => "未知档位",
+    }
+}
+
+/// 预测 vs 实际 对比入参。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ForecastVarianceQuery {
+    /// 期间码（**必填**，`yyyy-MM` 或 `yyyy-QN`）。
+    #[serde(default)]
+    pub period_code: Option<String>,
+    /// 对比粒度（缺省 `CUSTOMER`）：`CUSTOMER` / `MATERIAL` / `CUSTOMER_MATERIAL` / `ALL`。
+    #[serde(default)]
+    pub dimension: Option<String>,
+    /// 容差百分数（缺省 5 = ±5%，0 ~ 100，最多 2 位小数）。
+    #[serde(default)]
+    pub tolerance_pct: Option<String>,
+}
+
+/// 预测 vs 实际 对比出参（一次给全：汇总 + 明细 + 其它粒度的条数）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ForecastVarianceRes {
+    /// 期间码（归一化后）。
+    pub period_code: String,
+    /// 对比粒度（归一化后）。
+    pub dimension: String,
+    /// 粒度中文名。
+    pub dimension_label: String,
+    /// 实际数口径（恒为 `ORDER`，显式回一份）。
+    pub basis: String,
+    /// 容差百分数（回显，前端不必自己再算一遍判档）。
+    pub tolerance_pct: Decimal,
+    /// 汇总（与 `rows` 同源同粒度，不存在双计）。
+    pub summary: ForecastVarianceSummary,
+    /// 本期间**其它粒度**还有几条当前版本预测（前端提示「换个粒度看」用）。
+    pub dimension_counts: Vec<ForecastDimensionCount>,
+    /// 明细行：按 |偏差金额| 倒序（偏差最大的在最上面，漏预测行会自然浮起）。
+    pub rows: Vec<ForecastVarianceRow>,
+}
+
+/// 汇总口径（**只汇总本次请求的粒度**）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ForecastVarianceSummary {
+    /// 明细行数（= `forecast_count + unforecast_count`）。
+    pub row_count: u32,
+    /// 有预测的行数（= `over_count + under_count + on_target_count`）。
+    pub forecast_count: u32,
+    /// 漏预测行数（有实际、无预测）。
+    pub unforecast_count: u32,
+    /// 超出预测（超容差）的行数。
+    pub over_count: u32,
+    /// 低于预测（超容差）的行数。
+    pub under_count: u32,
+    /// 基本命中（容差内）的行数。
+    pub on_target_count: u32,
+    /// 预测金额合计。
+    pub forecast_amount: Decimal,
+    /// 实际金额合计。
+    pub actual_amount: Decimal,
+    /// 偏差金额合计（实际 − 预测）。
+    pub variance_amount: Decimal,
+    /// 合计偏差率（%（Σ实际 − Σ预测）÷ Σ预测 × 100）；预测合计为 0 ⇒ `null`。
+    pub variance_rate: Option<Decimal>,
+    /// 预测数量合计。
+    pub forecast_qty: Decimal,
+    /// 实际数量合计。
+    pub actual_qty: Decimal,
+    /// 数量偏差合计。
+    pub variance_qty: Decimal,
+    /// 合计数量偏差率（同上，预测数量合计为 0 ⇒ `null`）。
+    pub variance_qty_rate: Option<Decimal>,
+    /// 平均绝对偏差率（只算有预测金额的行；一行都没有 ⇒ `null`）。
+    pub mape_pct: Option<Decimal>,
+    /// 偏差最贵的一行（|偏差金额| 最大；没有任何行 ⇒ `null`）。
+    pub worst: Option<ForecastVarianceWorst>,
+}
+
+/// 偏差最贵的一行（摘要里点名，前端不看明细也能说清「哪儿偏得最多」）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ForecastVarianceWorst {
+    /// 显示名（客户名 / 物料名 / 客户 × 物料 / 全公司）。
+    pub display_name: String,
+    /// 预测编号（漏预测行为 `null`）。
+    pub forecast_no: Option<String>,
+    /// 偏差金额（实际 − 预测）。
+    pub variance_amount: Decimal,
+    /// 偏差率（`null` = 预测为 0）。
+    pub variance_rate: Option<Decimal>,
+    /// 偏差档位。
+    pub deviation_level: String,
+}
+
+/// 某粒度在本期间的当前版本预测条数。
+#[derive(Debug, Clone, Serialize)]
+pub struct ForecastDimensionCount {
+    /// 粒度。
+    pub dimension: String,
+    /// 粒度中文名。
+    pub dimension_label: String,
+    /// 条数（只算存活行的当前版本）。
+    pub row_count: u32,
+}
+
+/// 对比明细一行（预测行 ↔ 同粒度实际数；漏预测行没有预测侧字段）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ForecastVarianceRow {
+    /// 粒度（与请求的 `dimension` 一致）。
+    pub dimension: String,
+    /// 期间码。
+    pub period_code: String,
+    /// 显示名（客户名 / 物料名 / 客户 × 物料 / 全公司；名字缺失时回落 id，不留空白格）。
+    pub display_name: String,
+    /// 预测 id（漏预测行 = `null`）。
+    pub forecast_id: Option<String>,
+    /// 预测编号（漏预测行 = `null`）。
+    pub forecast_no: Option<String>,
+    /// 版本号（漏预测行 = `null`）。
+    pub version_no: Option<i32>,
+    /// 信心度（漏预测行 = `null`）。
+    pub confidence: Option<String>,
+    /// 客户 id（`ALL` 粒度 = `null`）。
+    pub customer_id: Option<String>,
+    /// 客户名。
+    pub customer_name: Option<String>,
+    /// 物料 id（客户级 / `ALL` 粒度 = `null`）。
+    pub material_id: Option<String>,
+    /// 物料名。
+    pub material_name: Option<String>,
+    /// 是否有预测行。
+    pub has_forecast: bool,
+    /// 预测金额（漏预测行 = 0）。
+    pub forecast_amount: Decimal,
+    /// 预测数量（漏预测行 = 0）。
+    pub forecast_qty: Decimal,
+    /// 实际金额（本位币含税订单额）。
+    pub actual_amount: Decimal,
+    /// 实际数量（订单明细数量合计）。
+    pub actual_qty: Decimal,
+    /// 偏差金额（实际 − 预测）。
+    pub variance_amount: Decimal,
+    /// 偏差率（%；预测为 0 ⇒ `null`）。
+    pub variance_rate: Option<Decimal>,
+    /// 数量偏差（实际 − 预测）。
+    pub variance_qty: Decimal,
+    /// 数量偏差率（%；预测数量为 0 ⇒ `null`）。
+    pub variance_qty_rate: Option<Decimal>,
+    /// 偏差档位 `OVER` / `UNDER` / `ON_TARGET` / `NO_FORECAST`。
+    pub deviation_level: String,
 }
 
 // ==================== 单测 ====================

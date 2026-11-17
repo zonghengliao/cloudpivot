@@ -10,6 +10,7 @@
 //! | PUT | `/business/erp/sales-target/{id}` | `business:erp:sales-target:update` | 编辑 / 停用（部分更新） |
 //! | DELETE | `/business/erp/sales-target/{id}` | `business:erp:sales-target:delete` | 软删（录错了才用） |
 //! | GET | `/business/erp/sales-forecast/page` | `business:erp:sales-forecast:list` | 预测分页 |
+//! | GET | `/business/erp/sales-forecast/variance` | `business:erp:sales-forecast:list` | **预测 vs 实际**（偏差分析，订单口径） |
 //! | POST | `/business/erp/sales-forecast` | `business:erp:sales-forecast:create` | 新建预测 |
 //! | PUT | `/business/erp/sales-forecast/{id}` | `business:erp:sales-forecast:update` | 编辑预测 |
 //! | DELETE | `/business/erp/sales-forecast/{id}` | `business:erp:sales-forecast:delete` | 软删预测 |
@@ -53,10 +54,14 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::sales::sales_target_dto::{
-    AchievementBasis, AchievementQuery, AchievementRow, BASIS_RECEIPT, ForecastCreateReq, ForecastFilter,
-    ForecastPageQuery, ForecastRes, ForecastUpdateReq, Period, SCOPE_ALL, TargetCreateReq, TargetFilter,
-    TargetPageQuery, TargetRes, TargetUpdateReq, achievement_rate, check_amount, check_qty, gap, money2,
-    normalize_basis, normalize_confidence, normalize_period, normalize_scope, normalize_status,
+    AchievementBasis, AchievementQuery, AchievementRow, BASIS_RECEIPT, DEVIATION_OVER, DEVIATION_UNDER,
+    FORECAST_DIM_ALL, FORECAST_DIM_CUSTOMER, FORECAST_DIM_CUSTOMER_MATERIAL, FORECAST_DIM_MATERIAL,
+    FORECAST_DIMENSIONS, ForecastCreateReq, ForecastDimensionCount, ForecastFilter, ForecastPageQuery, ForecastRes,
+    ForecastUpdateReq, ForecastVarianceQuery, ForecastVarianceRes, ForecastVarianceRow, ForecastVarianceSummary,
+    ForecastVarianceWorst, Period, SCOPE_ALL, TargetCreateReq, TargetFilter, TargetPageQuery, TargetRes,
+    TargetUpdateReq, VARIANCE_BASIS, achievement_rate, check_amount, check_qty, deviation_level, dimension_label, gap,
+    mean_absolute_pct, money2, normalize_basis, normalize_confidence, normalize_dimension, normalize_period,
+    normalize_scope, normalize_status, normalize_tolerance_pct, variance_amount, variance_rate,
 };
 use crate::business::erp::sales::sales_target_model::{
     self as model, ForecastListRow, ForecastRow, TargetListRow, TargetRow,
@@ -702,6 +707,499 @@ pub async fn achievement(query: AchievementQuery) -> std::result::Result<Vec<Ach
     Ok(assemble_achievement(&targets, &actuals, &basis))
 }
 
+// ==================== 预测 vs 实际（偏差分析，M3-21） ====================
+//
+// 口径与字段语义见 `sales_target_dto` 的「预测 vs 实际（偏差分析）」一节（卡面替身）。
+// 这里只做三件事：取一组实际数 → 组装行（含漏预测行）→ 汇总。判档规则在 dto 的
+// [`deviation_level`]（纯函数，单测直接喂数）。
+
+/// 实际数取数结果（一次查一组，组装阶段不再碰库）。
+#[derive(Debug, Clone, Default)]
+pub struct VarianceActuals {
+    /// 按客户（`CUSTOMER` 粒度）。
+    pub by_customer: Vec<model::CustomerActual>,
+    /// 按物料（`MATERIAL` 粒度）。
+    pub by_material: Vec<model::MaterialActual>,
+    /// 按客户 × 物料（`CUSTOMER_MATERIAL` 粒度）。
+    pub by_pair: Vec<model::PairActual>,
+    /// 全公司实际金额（`ALL` 粒度）。
+    pub total_amount: Decimal,
+    /// 全公司实际数量（`ALL` 粒度）。
+    pub total_qty: Decimal,
+}
+
+/// 显示名：客户名缺失（被物理清过 / 视图外）时回落 id，列表里不留空白格，也不显示 `null`。
+fn display_customer(name: Option<&str>, id: Uuid) -> String {
+    name.map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| id.to_string())
+}
+
+/// 显示名：物料。
+fn display_material(name: Option<&str>, id: Uuid) -> String {
+    display_customer(name, id)
+}
+
+/// 显示名：客户 × 物料。
+fn display_pair(
+    customer_name: Option<&str>,
+    customer_id: Uuid,
+    material_name: Option<&str>,
+    material_id: Uuid,
+) -> String {
+    format!(
+        "{} × {}",
+        display_customer(customer_name, customer_id),
+        display_material(material_name, material_id)
+    )
+}
+
+/// 一行的维度视图：客户 / 物料的 id + 显示名（全公司粒度两项都空，`display_name` = 「全公司」）。
+///
+/// 抽成结构体而不是继续堆参数：行构造函数的入参一旦超过 7 个，clippy 的
+/// `too_many_arguments` 会直接判红，而且调用点会退化成「一排 None, None, None」。
+#[derive(Debug, Clone, Default)]
+struct DimensionView {
+    /// 客户 id。
+    customer_id: Option<Uuid>,
+    /// 客户名（JOIN 回来的）。
+    customer_name: Option<String>,
+    /// 物料 id。
+    material_id: Option<Uuid>,
+    /// 物料名（JOIN 回来的）。
+    material_name: Option<String>,
+    /// 显示名（名字缺失时已回落 id，绝不留空白）。
+    display_name: String,
+}
+
+/// 有预测的行（预测侧字段全给，实际数为同粒度同维度的订单数）。
+fn forecast_variance_row(
+    dimension: &str,
+    period_code: &str,
+    tolerance_pct: Decimal,
+    forecast: &ForecastRow,
+    view: DimensionView,
+    actual_amount: Decimal,
+    actual_qty: Decimal,
+) -> ForecastVarianceRow {
+    let actual_amount = money2(actual_amount);
+    let variance_qty = (actual_qty - forecast.forecast_qty).round_dp(4);
+    ForecastVarianceRow {
+        dimension: dimension.to_string(),
+        period_code: period_code.to_string(),
+        display_name: view.display_name,
+        forecast_id: Some(forecast.id.to_string()),
+        forecast_no: Some(forecast.forecast_no.clone()),
+        version_no: Some(forecast.version_no),
+        confidence: Some(forecast.confidence.clone()),
+        customer_id: forecast.customer_id.map(|id| id.to_string()),
+        customer_name: view.customer_name,
+        material_id: forecast.material_id.map(|id| id.to_string()),
+        material_name: view.material_name,
+        has_forecast: true,
+        forecast_amount: forecast.forecast_amount,
+        forecast_qty: forecast.forecast_qty,
+        actual_amount,
+        actual_qty,
+        variance_amount: variance_amount(actual_amount, forecast.forecast_amount),
+        variance_rate: variance_rate(actual_amount, forecast.forecast_amount),
+        variance_qty,
+        variance_qty_rate: variance_rate(actual_qty, forecast.forecast_qty),
+        deviation_level: deviation_level(actual_amount, forecast.forecast_amount, tolerance_pct).to_string(),
+    }
+}
+
+/// 漏预测行（有实际、没有当前版本预测）：预测侧全空 / 全 0，偏差 = 实际值。
+fn unforecast_variance_row(
+    dimension: &str,
+    period_code: &str,
+    view: DimensionView,
+    actual_amount: Decimal,
+    actual_qty: Decimal,
+) -> ForecastVarianceRow {
+    let actual_amount = money2(actual_amount);
+    ForecastVarianceRow {
+        dimension: dimension.to_string(),
+        period_code: period_code.to_string(),
+        display_name: view.display_name,
+        forecast_id: None,
+        forecast_no: None,
+        version_no: None,
+        confidence: None,
+        customer_id: view.customer_id.map(|id| id.to_string()),
+        customer_name: view.customer_name,
+        material_id: view.material_id.map(|id| id.to_string()),
+        material_name: view.material_name,
+        has_forecast: false,
+        forecast_amount: Decimal::ZERO,
+        forecast_qty: Decimal::ZERO,
+        actual_amount,
+        actual_qty,
+        variance_amount: actual_amount,
+        variance_rate: None,
+        variance_qty: actual_qty,
+        variance_qty_rate: None,
+        deviation_level: crate::business::erp::sales::sales_target_dto::DEVIATION_NO_FORECAST.to_string(),
+    }
+}
+
+/// 组装明细行（纯函数：单测直接喂预测行 + 实际数，不碰库）。
+///
+/// 按 `dimension` 选一组实际数；**漏预测行只在本粒度内补**（跨粒度补就是另一种双计）。
+/// 返回行按 `|偏差金额|` 倒序：偏差最大的在最上面，漏预测行会凭全差额自然浮起。
+pub fn assemble_variance(
+    forecasts: &[ForecastListRow],
+    actuals: &VarianceActuals,
+    dimension: &str,
+    period_code: &str,
+    tolerance_pct: Decimal,
+) -> Vec<ForecastVarianceRow> {
+    use std::collections::{HashMap, HashSet};
+    let mut rows: Vec<ForecastVarianceRow> = Vec::with_capacity(forecasts.len() + 8);
+
+    match dimension {
+        FORECAST_DIM_CUSTOMER => {
+            let by_id: HashMap<Uuid, &model::CustomerActual> = actuals
+                .by_customer
+                .iter()
+                .map(|item| (item.customer_id, item))
+                .collect();
+            let mut seen: HashSet<Uuid> = HashSet::new();
+            for (forecast, customer_name, _) in forecasts {
+                let Some(customer_id) = forecast.customer_id else {
+                    continue;
+                };
+                seen.insert(customer_id);
+                let (amount, qty) = by_id
+                    .get(&customer_id)
+                    .map(|item| (item.amount, item.qty))
+                    .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+                rows.push(forecast_variance_row(
+                    dimension,
+                    period_code,
+                    tolerance_pct,
+                    forecast,
+                    DimensionView {
+                        customer_name: customer_name.clone(),
+                        display_name: display_customer(customer_name.as_deref(), customer_id),
+                        ..Default::default()
+                    },
+                    amount,
+                    qty,
+                ));
+            }
+            for actual in &actuals.by_customer {
+                if seen.contains(&actual.customer_id) {
+                    continue;
+                }
+                rows.push(unforecast_variance_row(
+                    dimension,
+                    period_code,
+                    DimensionView {
+                        customer_id: Some(actual.customer_id),
+                        customer_name: actual.customer_name.clone(),
+                        display_name: display_customer(actual.customer_name.as_deref(), actual.customer_id),
+                        ..Default::default()
+                    },
+                    actual.amount,
+                    actual.qty,
+                ));
+            }
+        }
+        FORECAST_DIM_MATERIAL => {
+            let by_id: HashMap<Uuid, &model::MaterialActual> = actuals
+                .by_material
+                .iter()
+                .map(|item| (item.material_id, item))
+                .collect();
+            let mut seen: HashSet<Uuid> = HashSet::new();
+            for (forecast, _, material_name) in forecasts {
+                let Some(material_id) = forecast.material_id else {
+                    continue;
+                };
+                seen.insert(material_id);
+                let (amount, qty) = by_id
+                    .get(&material_id)
+                    .map(|item| (item.amount, item.qty))
+                    .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+                rows.push(forecast_variance_row(
+                    dimension,
+                    period_code,
+                    tolerance_pct,
+                    forecast,
+                    DimensionView {
+                        material_name: material_name.clone(),
+                        display_name: display_material(material_name.as_deref(), material_id),
+                        ..Default::default()
+                    },
+                    amount,
+                    qty,
+                ));
+            }
+            for actual in &actuals.by_material {
+                if seen.contains(&actual.material_id) {
+                    continue;
+                }
+                rows.push(unforecast_variance_row(
+                    dimension,
+                    period_code,
+                    DimensionView {
+                        material_id: Some(actual.material_id),
+                        material_name: actual.material_name.clone(),
+                        display_name: display_material(actual.material_name.as_deref(), actual.material_id),
+                        ..Default::default()
+                    },
+                    actual.amount,
+                    actual.qty,
+                ));
+            }
+        }
+        FORECAST_DIM_CUSTOMER_MATERIAL => {
+            let by_key: HashMap<(Uuid, Uuid), &model::PairActual> = actuals
+                .by_pair
+                .iter()
+                .map(|item| ((item.customer_id, item.material_id), item))
+                .collect();
+            let mut seen: HashSet<(Uuid, Uuid)> = HashSet::new();
+            for (forecast, customer_name, material_name) in forecasts {
+                let (Some(customer_id), Some(material_id)) = (forecast.customer_id, forecast.material_id) else {
+                    continue;
+                };
+                seen.insert((customer_id, material_id));
+                let (amount, qty) = by_key
+                    .get(&(customer_id, material_id))
+                    .map(|item| (item.amount, item.qty))
+                    .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+                rows.push(forecast_variance_row(
+                    dimension,
+                    period_code,
+                    tolerance_pct,
+                    forecast,
+                    DimensionView {
+                        customer_name: customer_name.clone(),
+                        material_name: material_name.clone(),
+                        display_name: display_pair(
+                            customer_name.as_deref(),
+                            customer_id,
+                            material_name.as_deref(),
+                            material_id,
+                        ),
+                        ..Default::default()
+                    },
+                    amount,
+                    qty,
+                ));
+            }
+            for actual in &actuals.by_pair {
+                if seen.contains(&(actual.customer_id, actual.material_id)) {
+                    continue;
+                }
+                rows.push(unforecast_variance_row(
+                    dimension,
+                    period_code,
+                    DimensionView {
+                        customer_id: Some(actual.customer_id),
+                        customer_name: actual.customer_name.clone(),
+                        material_id: Some(actual.material_id),
+                        material_name: actual.material_name.clone(),
+                        display_name: display_pair(
+                            actual.customer_name.as_deref(),
+                            actual.customer_id,
+                            actual.material_name.as_deref(),
+                            actual.material_id,
+                        ),
+                    },
+                    actual.amount,
+                    actual.qty,
+                ));
+            }
+        }
+        _ => {
+            // ALL：全公司只有一条口径，没有"漏预测"之外的分行
+            if let Some((forecast, _, _)) = forecasts.first() {
+                rows.push(forecast_variance_row(
+                    FORECAST_DIM_ALL,
+                    period_code,
+                    tolerance_pct,
+                    forecast,
+                    DimensionView {
+                        display_name: "全公司".to_string(),
+                        ..Default::default()
+                    },
+                    actuals.total_amount,
+                    actuals.total_qty,
+                ));
+            } else if !actuals.total_amount.is_zero() || !actuals.total_qty.is_zero() {
+                rows.push(unforecast_variance_row(
+                    FORECAST_DIM_ALL,
+                    period_code,
+                    DimensionView {
+                        display_name: "全公司".to_string(),
+                        ..Default::default()
+                    },
+                    actuals.total_amount,
+                    actuals.total_qty,
+                ));
+            }
+        }
+    }
+
+    rows.sort_by(|left, right| {
+        right
+            .variance_amount
+            .abs()
+            .cmp(&left.variance_amount.abs())
+            .then_with(|| right.actual_amount.cmp(&left.actual_amount))
+            .then_with(|| left.display_name.cmp(&right.display_name))
+    });
+    rows
+}
+
+/// 汇总（纯函数，喂的是 [`assemble_variance`] 的同一批行 —— 汇总与明细不可能对不上）。
+///
+/// `over/under/on_target` 只数**有预测**的行（三者之和 = `forecast_count`）；
+/// `row_count = forecast_count + unforecast_count`。
+pub fn summarize_variance(rows: &[ForecastVarianceRow]) -> ForecastVarianceSummary {
+    let mut summary = ForecastVarianceSummary {
+        row_count: 0,
+        forecast_count: 0,
+        unforecast_count: 0,
+        over_count: 0,
+        under_count: 0,
+        on_target_count: 0,
+        forecast_amount: Decimal::ZERO,
+        actual_amount: Decimal::ZERO,
+        variance_amount: Decimal::ZERO,
+        variance_rate: None,
+        forecast_qty: Decimal::ZERO,
+        actual_qty: Decimal::ZERO,
+        variance_qty: Decimal::ZERO,
+        variance_qty_rate: None,
+        mape_pct: None,
+        worst: None,
+    };
+    let mut rates: Vec<Decimal> = Vec::with_capacity(rows.len());
+    for row in rows {
+        summary.row_count += 1;
+        summary.forecast_amount += row.forecast_amount;
+        summary.actual_amount += row.actual_amount;
+        summary.forecast_qty += row.forecast_qty;
+        summary.actual_qty += row.actual_qty;
+        if !row.has_forecast {
+            summary.unforecast_count += 1;
+            continue;
+        }
+        summary.forecast_count += 1;
+        match row.deviation_level.as_str() {
+            DEVIATION_OVER => summary.over_count += 1,
+            DEVIATION_UNDER => summary.under_count += 1,
+            _ => summary.on_target_count += 1,
+        }
+        if let Some(rate) = row.variance_rate {
+            rates.push(rate);
+        }
+    }
+    summary.variance_amount = variance_amount(summary.actual_amount, summary.forecast_amount);
+    summary.variance_rate = variance_rate(summary.actual_amount, summary.forecast_amount);
+    summary.variance_qty = (summary.actual_qty - summary.forecast_qty).round_dp(4);
+    summary.variance_qty_rate = variance_rate(summary.actual_qty, summary.forecast_qty);
+    summary.mape_pct = mean_absolute_pct(&rates);
+    summary.worst = rows
+        .iter()
+        .max_by(|left, right| {
+            left.variance_amount
+                .abs()
+                .cmp(&right.variance_amount.abs())
+                .then_with(|| left.has_forecast.cmp(&right.has_forecast))
+                .then_with(|| right.display_name.cmp(&left.display_name))
+        })
+        .map(|row| ForecastVarianceWorst {
+            display_name: row.display_name.clone(),
+            forecast_no: row.forecast_no.clone(),
+            variance_amount: row.variance_amount,
+            variance_rate: row.variance_rate,
+            deviation_level: row.deviation_level.clone(),
+        });
+    summary
+}
+
+/// 预测 vs 实际（偏差分析）。`period_code` 必填；`dimension` 缺省按客户。
+pub async fn forecast_variance(query: ForecastVarianceQuery) -> std::result::Result<ForecastVarianceRes, ApiError> {
+    let raw_period = query
+        .period_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| bad_request("period_code 必填（yyyy-MM 或 yyyy-QN）".to_string()))?;
+    let period = Period::from_code(&normalize_period(raw_period)?)?;
+    let dimension = normalize_dimension(query.dimension.as_deref())?;
+    let tolerance_pct = normalize_tolerance_pct(query.tolerance_pct.as_deref())?;
+
+    let forecasts = model::current_forecasts_for_period(&period.code, &dimension)
+        .await
+        .map_err(|error| utils::db_error(error, "查询当前版本的销售预测"))?;
+    let counts = model::forecast_dimension_counts(&period.code)
+        .await
+        .map_err(|error| utils::db_error(error, "统计各粒度的销售预测条数"))?;
+
+    let mut actuals = VarianceActuals::default();
+    match dimension.as_str() {
+        FORECAST_DIM_CUSTOMER => {
+            actuals.by_customer = model::order_actual_by_customer(period.from, period.to)
+                .await
+                .map_err(|error| utils::db_error(error, "统计按客户的订单实际数"))?;
+        }
+        FORECAST_DIM_MATERIAL => {
+            actuals.by_material = model::order_actual_by_material(period.from, period.to)
+                .await
+                .map_err(|error| utils::db_error(error, "统计按物料的订单实际数"))?;
+        }
+        FORECAST_DIM_CUSTOMER_MATERIAL => {
+            actuals.by_pair = model::order_actual_by_pair(period.from, period.to)
+                .await
+                .map_err(|error| utils::db_error(error, "统计按客户 × 物料的订单实际数"))?;
+        }
+        _ => {
+            let (amount, qty) = model::order_actual_total_with_qty(period.from, period.to)
+                .await
+                .map_err(|error| utils::db_error(error, "统计全公司订单实际数"))?;
+            actuals.total_amount = amount;
+            actuals.total_qty = qty;
+        }
+    }
+
+    let rows = assemble_variance(&forecasts, &actuals, &dimension, &period.code, tolerance_pct);
+    let summary = summarize_variance(&rows);
+    // 各粒度条数：四种粒度都回（0 也回），前端下拉不必猜哪个粒度有数据
+    let dimension_counts = FORECAST_DIMENSIONS
+        .iter()
+        .map(|name| ForecastDimensionCount {
+            dimension: (*name).to_string(),
+            dimension_label: dimension_label(name).to_string(),
+            row_count: u32::try_from(
+                counts
+                    .iter()
+                    .find(|(found, _)| found == name)
+                    .map(|(_, n)| *n)
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(ForecastVarianceRes {
+        period_code: period.code,
+        dimension: dimension.clone(),
+        dimension_label: dimension_label(&dimension).to_string(),
+        basis: VARIANCE_BASIS.to_string(),
+        tolerance_pct,
+        summary,
+        dimension_counts,
+        rows,
+    })
+}
+
 // ==================== 小工具 ====================
 
 /// 解析必填 UUID 参数。
@@ -853,6 +1351,20 @@ pub async fn sales_forecast_delete_api(
     Ok(Res::ok(()))
 }
 
+/// 预测 vs 实际（偏差分析，订单口径；`dimension` 缺省按客户）。
+///
+/// 路径 `/variance` 是静态段，与 `PUT/DELETE /sales-forecast/{id}` 不冲突
+/// （方法不同，且 `variance` 不会被当成 UUID —— 这里也不接受任何 `{id}`）。
+#[nik::permission(
+    path = "/business/erp/sales-forecast/variance",
+    method = "GET",
+    permission = "business:erp:sales-forecast:list"
+)]
+#[nik::get("/business/erp/sales-forecast/variance")]
+pub async fn sales_forecast_variance_api(Query(query): Query<ForecastVarianceQuery>) -> ResResult<ForecastVarianceRes> {
+    Ok(Res::ok(forecast_variance(query).await?))
+}
+
 /// 权限码自检出口（与 `handler::all_permissions` 同形，便于汇总脚本收集）。
 pub fn all_permissions() -> Vec<&'static str> {
     SALES_TARGET_PERMISSIONS.to_vec()
@@ -864,8 +1376,8 @@ pub fn all_permissions() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::business::erp::sales::sales_target_dto::{
-        BASIS_ORDER, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, SCOPE_DEPT, SCOPE_MATERIAL, SCOPE_SALESPERSON, TARGET_ACTIVE,
-        TARGET_STATUSES,
+        BASIS_ORDER, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, DEVIATION_ON_TARGET, SCOPE_DEPT, SCOPE_MATERIAL,
+        SCOPE_SALESPERSON, TARGET_ACTIVE, TARGET_STATUSES,
     };
     use nik::prelude::chrono::NaiveDate;
     use nik::prelude::rust_decimal::Decimal;
@@ -943,6 +1455,7 @@ mod tests {
             "/business/erp/sales-target",
             "/business/erp/sales-target/{id}",
             "/business/erp/sales-forecast/page",
+            "/business/erp/sales-forecast/variance",
             "/business/erp/sales-forecast",
             "/business/erp/sales-forecast/{id}",
         ] {
@@ -1195,5 +1708,290 @@ mod tests {
         assert_eq!(error.code, error_code::PARAM_INVALID);
         assert!(check_version_no(-3).is_err());
         assert!(error.msg.contains("version_no"), "{}", error.msg);
+    }
+
+    // ---------- 预测 vs 实际（偏差分析，M3-21） ----------
+
+    /// 预测行夹具（客户 / 物料都给名字，显示名走 JOIN 回来的那份）。
+    fn forecast_pair(
+        customer: Option<(Uuid, &str)>,
+        material: Option<(Uuid, &str)>,
+        amount: &str,
+        qty: &str,
+    ) -> ForecastListRow {
+        (
+            ForecastRow {
+                id: Uuid::now_v7(),
+                forecast_no: "SFC-20310501-000001".to_string(),
+                customer_id: customer.map(|(id, _)| id),
+                material_id: material.map(|(id, _)| id),
+                period_code: "2031-05".to_string(),
+                forecast_amount: dec(amount),
+                forecast_qty: dec(qty),
+                confidence: "MEDIUM".to_string(),
+                version_no: 1,
+                revised_from_id: None,
+                remark: None,
+                created_at: now_utc_time(),
+                updated_at: now_utc_time(),
+            },
+            customer.map(|(_, name)| name.to_string()),
+            material.map(|(_, name)| name.to_string()),
+        )
+    }
+
+    #[test]
+    fn variance_math_zero_forecast_has_no_rate() {
+        // 预测 0 而实际 50000：比率没有意义（None），差额就是全差额，档位 OVER
+        assert_eq!(variance_amount(dec("50000"), dec("0")), dec("50000.00"));
+        assert_eq!(variance_rate(dec("50000"), dec("0")), None);
+        assert_eq!(deviation_level(dec("50000"), dec("0"), dec("5")), DEVIATION_OVER);
+        // 预测与实际都为 0 = 命中（不是 OVER）
+        assert_eq!(deviation_level(dec("0"), dec("0"), dec("5")), DEVIATION_ON_TARGET);
+        // 常规：实际 85000 / 预测 100000 ⇒ 差 -15000、率 -15.00%
+        assert_eq!(variance_amount(dec("85000"), dec("100000")), dec("-15000.00"));
+        assert_eq!(variance_rate(dec("85000"), dec("100000")), Some(dec("-15.00")));
+        assert_eq!(deviation_level(dec("85000"), dec("100000"), dec("5")), DEVIATION_UNDER);
+        // 除不尽四舍五入（不是截断）
+        assert_eq!(variance_rate(dec("2"), dec("3")), Some(dec("-33.33")));
+    }
+
+    #[test]
+    fn deviation_level_compares_unrounded_rate() {
+        // 5.004% 先四舍五入成 5.00 再比会被误判成「命中」—— 必须按未取整的比率判
+        assert_eq!(
+            deviation_level(dec("105004"), dec("100000"), dec("5")),
+            DEVIATION_OVER,
+            "5.004% 超出 5% 容差"
+        );
+        // 正好 5% 算命中（含边界）
+        assert_eq!(
+            deviation_level(dec("105000"), dec("100000"), dec("5")),
+            DEVIATION_ON_TARGET
+        );
+        assert_eq!(
+            deviation_level(dec("95000"), dec("100000"), dec("5")),
+            DEVIATION_ON_TARGET
+        );
+        assert_eq!(deviation_level(dec("94999"), dec("100000"), dec("5")), DEVIATION_UNDER);
+        // 容差 0 = 任何非零差额都算偏差
+        assert_eq!(deviation_level(dec("100001"), dec("100000"), dec("0")), DEVIATION_OVER);
+    }
+
+    #[test]
+    fn assemble_customer_grain_joins_actuals_and_adds_unforecast_rows() {
+        let (customer_a, customer_b, customer_c) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let forecasts = vec![
+            forecast_pair(Some((customer_a, "客户甲")), None, "100000", "1000"),
+            forecast_pair(Some((customer_b, "客户乙")), None, "50000", "500"),
+        ];
+        let actuals = VarianceActuals {
+            by_customer: vec![
+                model::CustomerActual {
+                    customer_id: customer_a,
+                    customer_name: Some("客户甲".to_string()),
+                    amount: dec("85000"),
+                    qty: dec("900"),
+                },
+                // 客户丙完全没预测，但期间内卖了 30000 —— 必须补成漏预测行
+                model::CustomerActual {
+                    customer_id: customer_c,
+                    customer_name: Some("客户丙".to_string()),
+                    amount: dec("30000"),
+                    qty: dec("300"),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let rows = assemble_variance(&forecasts, &actuals, FORECAST_DIM_CUSTOMER, "2031-05", dec("5"));
+        assert_eq!(rows.len(), 3, "两行预测 + 一行漏预测");
+
+        // 按 |偏差金额| 倒序：客户乙 -50000 > 客户丙 +30000（漏预测）> 客户甲 -15000
+        assert_eq!(rows[0].display_name, "客户乙");
+        assert!(rows[0].has_forecast);
+        assert_eq!(rows[0].actual_amount, dec("0.00"));
+        assert_eq!(rows[0].variance_amount, dec("-50000.00"));
+        assert_eq!(rows[0].variance_rate, Some(dec("-100.00")));
+        assert_eq!(rows[0].deviation_level, DEVIATION_UNDER);
+        assert_eq!(rows[0].forecast_no.as_deref(), Some("SFC-20310501-000001"));
+
+        assert_eq!(rows[1].display_name, "客户丙");
+        assert!(!rows[1].has_forecast, "没预测的行 has_forecast=false");
+        assert!(rows[1].forecast_id.is_none() && rows[1].forecast_no.is_none());
+        assert!(rows[1].version_no.is_none() && rows[1].confidence.is_none());
+        assert_eq!(rows[1].forecast_amount, Decimal::ZERO);
+        assert_eq!(rows[1].variance_amount, dec("30000.00"));
+        assert_eq!(rows[1].variance_rate, None);
+        assert_eq!(rows[1].variance_qty, dec("300"));
+        assert_eq!(rows[1].deviation_level, "NO_FORECAST");
+
+        assert_eq!(rows[2].display_name, "客户甲");
+        assert_eq!(rows[2].variance_amount, dec("-15000.00"));
+        assert_eq!(rows[2].variance_rate, Some(dec("-15.00")));
+        assert_eq!(rows[2].variance_qty, dec("-100"));
+
+        // 汇总与明细同源：合计偏差 = 各行之和
+        let summary = summarize_variance(&rows);
+        assert_eq!(summary.row_count, 3);
+        assert_eq!(summary.forecast_count, 2);
+        assert_eq!(summary.unforecast_count, 1);
+        assert_eq!(summary.forecast_amount, dec("150000"));
+        assert_eq!(summary.actual_amount, dec("115000"));
+        assert_eq!(summary.variance_amount, dec("-35000.00"));
+        assert_eq!(summary.variance_rate, Some(dec("-23.33")));
+        assert_eq!(
+            (summary.over_count, summary.under_count, summary.on_target_count),
+            (0, 2, 0)
+        );
+        // MAPE 只算有预测金额的行：(100 + 15) / 2 = 57.50%
+        assert_eq!(summary.mape_pct, Some(dec("57.50")));
+        let worst = summary.worst.expect("有行就有最贵偏差");
+        assert_eq!(worst.display_name, "客户乙");
+        assert_eq!(worst.variance_amount, dec("-50000.00"));
+    }
+
+    #[test]
+    fn assemble_material_grain_never_borrows_customer_actuals() {
+        let material_id = Uuid::now_v7();
+        let forecasts = vec![forecast_pair(None, Some((material_id, "螺栓 M8")), "80000", "1000")];
+
+        // 客户口径的实际数不能串到物料口径：这里只给 by_customer，物料行必须读到 0
+        let customer_only = VarianceActuals {
+            by_customer: vec![model::CustomerActual {
+                customer_id: Uuid::now_v7(),
+                customer_name: Some("客户甲".to_string()),
+                amount: dec("99999"),
+                qty: dec("9"),
+            }],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &customer_only, FORECAST_DIM_MATERIAL, "2031-05", dec("5"));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].actual_amount, dec("0.00"), "物料粒度只认物料实际数");
+        assert_eq!(rows[0].variance_rate, Some(dec("-100.00")));
+
+        // 真正的物料实际数到了才对得上
+        let with_material = VarianceActuals {
+            by_material: vec![model::MaterialActual {
+                material_id,
+                material_name: Some("螺栓 M8".to_string()),
+                amount: dec("96000"),
+                qty: dec("1200"),
+            }],
+            ..Default::default()
+        };
+        let rows = assemble_variance(&forecasts, &with_material, FORECAST_DIM_MATERIAL, "2031-05", dec("5"));
+        assert_eq!(rows[0].display_name, "螺栓 M8");
+        assert_eq!(rows[0].actual_amount, dec("96000.00"));
+        assert_eq!(rows[0].variance_rate, Some(dec("20.00")));
+        assert_eq!(rows[0].variance_qty, dec("200"));
+        assert_eq!(rows[0].variance_qty_rate, Some(dec("20.00")));
+        assert_eq!(rows[0].deviation_level, DEVIATION_OVER);
+    }
+
+    #[test]
+    fn assemble_pair_grain_keeps_customer_and_material_names() {
+        let (customer_id, material_id) = (Uuid::now_v7(), Uuid::now_v7());
+        let forecasts = vec![forecast_pair(
+            Some((customer_id, "客户甲")),
+            Some((material_id, "螺栓 M8")),
+            "10000",
+            "100",
+        )];
+        let actuals = VarianceActuals {
+            by_pair: vec![model::PairActual {
+                customer_id,
+                customer_name: Some("客户甲".to_string()),
+                material_id,
+                material_name: Some("螺栓 M8".to_string()),
+                amount: dec("10000"),
+                qty: dec("100"),
+            }],
+            ..Default::default()
+        };
+        let rows = assemble_variance(
+            &forecasts,
+            &actuals,
+            FORECAST_DIM_CUSTOMER_MATERIAL,
+            "2031-05",
+            dec("5"),
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].display_name, "客户甲 × 螺栓 M8");
+        assert_eq!(rows[0].variance_amount, Decimal::ZERO);
+        assert_eq!(rows[0].deviation_level, DEVIATION_ON_TARGET);
+        let summary = summarize_variance(&rows);
+        assert_eq!(summary.variance_rate, Some(Decimal::ZERO));
+        assert_eq!(summary.mape_pct, Some(Decimal::ZERO));
+    }
+
+    #[test]
+    fn assemble_all_grain_uses_company_total_and_reports_missing_forecast() {
+        let period = Period::from_code("2031-05").expect("期间");
+        let global = vec![forecast_pair(None, None, "1000000", "10000")];
+        let with_forecast = VarianceActuals {
+            total_amount: dec("1200000"),
+            total_qty: dec("11000"),
+            ..Default::default()
+        };
+        let rows = assemble_variance(&global, &with_forecast, FORECAST_DIM_ALL, &period.code, dec("5"));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].display_name, "全公司");
+        assert_eq!(rows[0].actual_amount, dec("1200000.00"));
+        assert_eq!(rows[0].variance_rate, Some(dec("20.00")));
+        assert_eq!(rows[0].deviation_level, DEVIATION_OVER);
+
+        // 没有全局预测但有实际：给一行「全公司 · 漏预测」，不是返回空列表说没偏差
+        let rows = assemble_variance(&[], &with_forecast, FORECAST_DIM_ALL, &period.code, dec("5"));
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].has_forecast);
+        assert_eq!(rows[0].deviation_level, "NO_FORECAST");
+        assert_eq!(rows[0].variance_amount, dec("1200000.00"));
+
+        // 既没预测也没实际：空列表（不是一行 0）
+        let rows = assemble_variance(
+            &[],
+            &VarianceActuals::default(),
+            FORECAST_DIM_ALL,
+            &period.code,
+            dec("5"),
+        );
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn summarize_zero_rows_is_all_zero_without_rates() {
+        let summary = summarize_variance(&[]);
+        assert_eq!(summary.row_count, 0);
+        assert_eq!(summary.forecast_amount, Decimal::ZERO);
+        assert_eq!(summary.variance_rate, None, "预测合计 0 ⇒ 比率无意义");
+        assert_eq!(summary.variance_qty_rate, None);
+        assert_eq!(summary.mape_pct, None);
+        assert!(summary.worst.is_none());
+    }
+
+    #[test]
+    fn dimension_and_tolerance_normalization() {
+        assert_eq!(normalize_dimension(None).expect("缺省"), FORECAST_DIM_CUSTOMER);
+        assert_eq!(normalize_dimension(Some("  ")).expect("空白"), FORECAST_DIM_CUSTOMER);
+        assert_eq!(
+            normalize_dimension(Some(" material ")).expect("小写"),
+            FORECAST_DIM_MATERIAL
+        );
+        assert_eq!(
+            normalize_dimension(Some("customer_material")).expect("下划线粒度"),
+            FORECAST_DIM_CUSTOMER_MATERIAL
+        );
+        assert!(normalize_dimension(Some("REGION")).is_err());
+        assert_eq!(FORECAST_DIMENSIONS.len(), 4);
+
+        assert_eq!(normalize_tolerance_pct(None).expect("缺省"), dec("5"));
+        assert_eq!(normalize_tolerance_pct(Some(" 0 ")).expect("0 合法"), Decimal::ZERO);
+        assert_eq!(normalize_tolerance_pct(Some("12.5")).expect("小数"), dec("12.5"));
+        assert!(normalize_tolerance_pct(Some("-1")).is_err(), "负容差没有含义");
+        assert!(normalize_tolerance_pct(Some("101")).is_err(), "超过 100% 没有含义");
+        assert!(normalize_tolerance_pct(Some("5.123")).is_err(), "最多 2 位小数");
+        assert!(normalize_tolerance_pct(Some("偏差")).is_err());
     }
 }
