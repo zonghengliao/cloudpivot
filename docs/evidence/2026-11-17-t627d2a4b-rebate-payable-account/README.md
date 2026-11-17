@@ -87,6 +87,7 @@
 | ⑨ | **S10/S11 反向验证**（证明闸不是永远绿） | 改坏 2241.05 名称 → S10 **BLOCKER**；把贷方行改回 2241.02（模拟历史票）→ S11 **WARN** 并列出结算单号；还原 → 11/11 全绿 | `07_negative_test.txt` |
 | ⑩ | 前端（受影响的契约注释与夹具） | `npx tsx --test tests/unit/erp-rebate-invoice.test.ts` **22/22 pass**；`vue-tsc --noEmit` 见 `10_typecheck.txt` | `09_frontend_unit_rebate_invoice.txt`、`10_typecheck.txt` |
 | ⑪ | 生产现状（为什么可以「不追溯」） | 144 无 `biz_sales_rebate_*` 表、`2241.02` 0 条分录 | `00_prod_precheck.txt` |
+| ⑫ | 追加：**老库（有数据、schema 落后到 V0440 之前）也能升级** | 145 `cloudpivot_test_full` 克隆（84 条科目、无返利表）上跑 V0445：`INSERT 0 1` + 自检通过；证明 V0445 只依赖 `2241 / 2241.02`，不依赖 V0440 的表 | `11_migration_on_populated_db.txt` |
 
 ## 复跑方式
 
