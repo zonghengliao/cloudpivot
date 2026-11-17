@@ -70,3 +70,8 @@ mod sales_variance_summary_db_tests;
 /// 上游夹具全部走真实入口，审批逐节点真派真批）。
 #[cfg(test)]
 mod sales_chain_e2e_tests;
+
+/// 销售缺口 E2E：信用控制 / 超限场景（M3-25：占用 → 拦截 → 调额 → 核销释放 →
+/// WARN/PASS → 审批点拦截 → 过审兜底，全部走真实入口）。
+#[cfg(test)]
+mod credit_control_e2e_tests;

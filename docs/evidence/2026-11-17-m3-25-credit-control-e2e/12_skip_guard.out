@@ -1,0 +1,62 @@
+== M3-25 销售缺口 E2E（信用控制 · 超限场景）演练（PG 172.18.10.145:5432 / 库 cp_m325_credit_e2e_3431295）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m325_credit_e2e_3431295
+== 1) 补齐业务迁移 V0405…V0445（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 41 条业务迁移全部应用成功
+== 2) 前置：本链依赖的表 / 额度列 / 流程 / 角色 / 状态机边
+  [32mPASS[0m 信用台账表存在（V0313）（=biz_credit_log）
+  [32mPASS[0m 在途账表存在（V0420）（=biz_inventory_in_transit）
+  [32mPASS[0m 核销明细表存在（M3-12 依赖）（=biz_receipt_allocation）
+  [32mPASS[0m 客户表有 credit_policy 列（V0437）（=credit_policy）
+  [32mPASS[0m credit_policy 的白名单 CHECK 在位（BLOCK/WARN/PASS）（=1）
+  [32mPASS[0m so_approve 已发布（V0281）（=1）
+  [32mPASS[0m SALES_SUPERVISOR 角色在位（审批第一跳）（=1）
+  [32mPASS[0m 信用链五张单据没有被关掉的状态机边（=0）
+== 3) 真库用例（--test-threads=1 --nocapture）
+  ---- SKIP 自检模式（M325_BAD_URL=1）：连接串故意写错，期望下面出现 SKIP>0 与「缺正向标记」的 FAIL
+  [32mPASS[0m 本卡（超限全链 1 条 + 收尾 1 条）：business::erp::sales::credit_control_e2e_tests 全绿（2 条）
+  [31mFAIL[0m 本卡（超限全链 1 条 + 收尾 1 条）：本组出现 1 行 SKIP（真库用例被跳过 = 假绿）
+        test business::erp::sales::credit_control_e2e_tests::credit_control_over_limit_full_chain ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+  [31mFAIL[0m 本卡（超限全链 1 条 + 收尾 1 条）：缺正向标记「[M3-25] 全链通过」—— 说明用例没真跑（被跳过 / 被过滤）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3431295_business::erp::sales::credit_control_e2e_tests.out
+  [32mPASS[0m 信用域整组（占用 / 释放 / 策略 / 快照 / 并发未被本卡打破）：business::erp::credit 全绿（44 条）
+  [31mFAIL[0m 信用域整组（占用 / 释放 / 策略 / 快照 / 并发未被本卡打破）：本组出现 3 行 SKIP（真库用例被跳过 = 假绿）
+        test business::erp::credit::tests::scenario_assess_order_matches_submit_guard_reads ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::credit_concurrency_tests::db_concurrent_allocate_over_balance_one_wins_one_rejected ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::credit_handler::tests::scenario_snapshot_computes_available_credit ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3431295_business::erp::credit.out
+  [32mPASS[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：business::erp::sales 全绿（361 条）
+  [31mFAIL[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：本组出现 11 行 SKIP（真库用例被跳过 = 假绿）
+        test business::erp::sales::credit_control_e2e_tests::credit_control_over_limit_full_chain ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::sales::quotation_handler::quotation_convert_tests::conversion_only_backfills_the_link_and_never_rewrites_the_quote ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::sales::quotation_handler::quotation_state_tests::approved_instance_unlocks_issue_and_reason_names_the_instance ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::sales::quotation_handler::tests::convert_creates_order_with_lines_and_backfills_quotation ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::sales::quotation_model::tests::apply_status_is_compare_and_swap ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3431295_business::erp::sales.out
+  [32mPASS[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：business::erp::shipment 全绿（49 条）
+  [31mFAIL[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：本组出现 4 行 SKIP（真库用例被跳过 = 假绿）
+        test business::erp::shipment::shipment_model::tests::apply_status_is_cas_guarded ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::shipment::shipment_page_fill_tests::batch_labels_dedupe_and_skip_soft_deleted ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::shipment::shipment_posting::tests::in_transit_reserves_available_quantity ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+        test business::erp::shipment::shipment_receipt_tests::cancel_pending_stock_out_releases_transit ... SKIP: ERP_DB_URL 连接失败（connection failed: db error）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3431295_business::erp::shipment.out
+== 4) 夹具清场（M325- 一律 0 残留）
+  [32mPASS[0m biz_customer 无 M325 夹具客户（=0）
+  [32mPASS[0m sys_user 无 M325 夹具账号（=0）
+  [32mPASS[0m biz_sales_order 无 M325 夹具订单（=0）
+  [32mPASS[0m biz_shipment 无 M325 夹具发货单（=0）
+  [32mPASS[0m biz_stock_out 无 M325 夹具出库单（=0）
+  [32mPASS[0m biz_flow_instance 无 M325 夹具审批实例（=0）
+  [32mPASS[0m biz_voucher 无 M325 夹具凭证（=0）
+  [32mPASS[0m biz_receivable 无 M325 夹具应收（=0）
+  [32mPASS[0m biz_receipt 无 M325 夹具收款（=0）
+  [32mPASS[0m biz_receipt_allocation 无 M325 夹具核销明细（=0）
+  [32mPASS[0m biz_credit_log 无 M325 夹具台账（=0）
+  [32mPASS[0m biz_inventory 无 M325 夹具库存（=0）
+  [32mPASS[0m biz_inventory_location 无 M325 夹具库位账（=0）
+  [32mPASS[0m biz_inventory_txn 无 M325 夹具流水（=0）
+  [32mPASS[0m biz_inventory_in_transit 无 M325 夹具在途行（=0）
+
+== 汇总：PASS=30 FAIL=5 ==
+有失败项，见上面的 FAIL 行

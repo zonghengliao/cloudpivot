@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test business::erp::sales::credit_control_e2e_tests::credit_control_over_limit_full_chain ... [M3-25] ERP 审批回调实现已注册 18 个
+[M3-25] 步 1/12 建订单 A（含税 800 / 额度 1000）→ 提交 → 真审批 → APPROVED
+[M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25] 步 2/12 订单 B（含税 300）超限：提交必须 409 + 10003，单据留 DRAFT
+[M3-25] 步 3/12 额度调高到 1100（走客户编辑接口）→ B 重提：800 + 300 = 1100 边界通过
+[M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25] 步 4/12 订单 C（含税 300）：额度已用满，提交必须再次 409
+[M3-25] 步 5/12 发货 A → 过账 → 签收确认 → 挂应收 800（此刻额度**不释放**）
+[M3-25] 步 6/12 登记收款 800 → 核销该应收 → 占用 1100 → 300（核销即释放）
+[M3-25] 步 7/12 订单 C 重提：300 + 0 + 300 = 600 ≤ 1100 → 通过 → 审批
+[M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25] 步 8/12 策略改 WARN：订单 D（700）超限但放行，响应带 credit_warning + 台账 delta=0
+[M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25] 步 9/12 策略改 PASS：订单 E（500）超限静默放行（无 warning、台账不增）
+[M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25] 步 10/12 额度调 5000 → 订单 F(1000) 提交通过 → 额度调低到 100 → 审批被 409 拦
+[M3-25]   节点 n_sales 的审批前闸已拦下（符合预期）
+[M3-25] 步 11/12 绕过前闸直接 approve → 回调发现超限 → 打回 DRAFT（可重提）
+[M3-25]   审批待办（绕过前闸）：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25] 步 12/12 额度置 0（不控额度）：订单 G(5000) 在 BLOCK 策略下照样提交
+[M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+[M3-25] 收口：台账 Σdelta / 无 PENDING 实例 / 快照无漂移 / 夹具清场
+[M3-25] 全链通过：M325-CUST 额度 1000→1100→0 的 12 步信用链，终态占用 7800.00
+[M3-25] M325_KEEP_FIXTURES=1：保留夹具不清场（供 SQL 取证）
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6167 filtered out; finished in 1.42s
+

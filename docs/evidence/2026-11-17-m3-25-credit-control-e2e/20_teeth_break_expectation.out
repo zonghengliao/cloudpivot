@@ -1,0 +1,77 @@
+== M3-25 销售缺口 E2E（信用控制 · 超限场景）演练（PG 172.18.10.145:5432 / 库 cp_m325_credit_e2e_3427411）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m325_credit_e2e_3427411
+== 1) 补齐业务迁移 V0405…V0445（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 41 条业务迁移全部应用成功
+== 2) 前置：本链依赖的表 / 额度列 / 流程 / 角色 / 状态机边
+  [32mPASS[0m 信用台账表存在（V0313）（=biz_credit_log）
+  [32mPASS[0m 在途账表存在（V0420）（=biz_inventory_in_transit）
+  [32mPASS[0m 核销明细表存在（M3-12 依赖）（=biz_receipt_allocation）
+  [32mPASS[0m 客户表有 credit_policy 列（V0437）（=credit_policy）
+  [32mPASS[0m credit_policy 的白名单 CHECK 在位（BLOCK/WARN/PASS）（=1）
+  [32mPASS[0m so_approve 已发布（V0281）（=1）
+  [32mPASS[0m SALES_SUPERVISOR 角色在位（审批第一跳）（=1）
+  [32mPASS[0m 信用链五张单据没有被关掉的状态机边（=0）
+== 3) 真库用例（--test-threads=1 --nocapture）
+  [31mFAIL[0m 本卡（超限全链 1 条 + 收尾 1 条）：business::erp::sales::credit_control_e2e_tests 有 1 条失败（见 /root/.hermes/profiles/backend-developer/cache/scratch/m325_3427411_business::erp::sales::credit_control_e2e_tests.out）
+thread 'business::erp::sales::credit_control_e2e_tests::credit_control_over_limit_full_chain' (3427818) panicked at app/src/business/erp/sales/credit_control_e2e_tests.rs:349:5:
+assertion `left == right` failed: 核销后（核销即释放，不等 02:10 重算）：缓存列 credit_used 应为 301，实际 300.0000（有效订单 1100.00 − 已核销 800.00 − 已退货 0 = 已用 300.00）
+  left: 300.0000
+ right: 301
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+  ---- 步骤轨迹（尾 10 行）：
+        [M3-25] 步 1/12 建订单 A（含税 800 / 额度 1000）→ 提交 → 真审批 → APPROVED
+        [M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+        [M3-25] 步 2/12 订单 B（含税 300）超限：提交必须 409 + 10003，单据留 DRAFT
+        [M3-25] 步 3/12 额度调高到 1100（走客户编辑接口）→ B 重提：800 + 300 = 1100 边界通过
+        [M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+        [M3-25] 步 4/12 订单 C（含税 300）：额度已用满，提交必须再次 409
+        [M3-25] 步 5/12 发货 A → 过账 → 签收确认 → 挂应收 800（此刻额度**不释放**）
+        [M3-25] 步 6/12 登记收款 800 → 核销该应收 → 占用 1100 → 300（核销即释放）
+  [32mPASS[0m 本卡（超限全链 1 条 + 收尾 1 条）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3427411_business::erp::sales::credit_control_e2e_tests.out
+  [32mPASS[0m 信用域整组（占用 / 释放 / 策略 / 快照 / 并发未被本卡打破）：business::erp::credit 全绿（44 条）
+  [32mPASS[0m 信用域整组（占用 / 释放 / 策略 / 快照 / 并发未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3427411_business::erp::credit.out
+  [31mFAIL[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：business::erp::sales 有 1 条失败（见 /root/.hermes/profiles/backend-developer/cache/scratch/m325_3427411_business::erp::sales.out）
+thread 'business::erp::sales::credit_control_e2e_tests::credit_control_over_limit_full_chain' (3427938) panicked at app/src/business/erp/sales/credit_control_e2e_tests.rs:349:5:
+assertion `left == right` failed: 核销后（核销即释放，不等 02:10 重算）：缓存列 credit_used 应为 301，实际 300.0000（有效订单 1100.00 − 已核销 800.00 − 已退货 0 = 已用 300.00）
+  left: 300.0000
+ right: 301
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+  ---- 步骤轨迹（尾 10 行）：
+        [M3-25] 步 1/12 建订单 A（含税 800 / 额度 1000）→ 提交 → 真审批 → APPROVED
+        [M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+        [M3-25] 步 2/12 订单 B（含税 300）超限：提交必须 409 + 10003，单据留 DRAFT
+        [M3-25] 步 3/12 额度调高到 1100（走客户编辑接口）→ B 重提：800 + 300 = 1100 边界通过
+        [M3-25]   审批待办：节点 n_sales / 受派人 006ed118-34d8-843e-8fe5-086d0d28cbc9
+        [M3-25] 步 4/12 订单 C（含税 300）：额度已用满，提交必须再次 409
+        [M3-25] 步 5/12 发货 A → 过账 → 签收确认 → 挂应收 800（此刻额度**不释放**）
+        [M3-25] 步 6/12 登记收款 800 → 核销该应收 → 占用 1100 → 300（核销即释放）
+  [32mPASS[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3427411_business::erp::sales.out
+  [32mPASS[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：business::erp::shipment 全绿（49 条）
+  [32mPASS[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m325_3427411_business::erp::shipment.out
+== 4) 夹具清场（M325- 一律 0 残留）
+  [32mPASS[0m biz_customer 无 M325 夹具客户（=0）
+  [32mPASS[0m sys_user 无 M325 夹具账号（=0）
+  [32mPASS[0m biz_sales_order 无 M325 夹具订单（=0）
+  [32mPASS[0m biz_shipment 无 M325 夹具发货单（=0）
+  [32mPASS[0m biz_stock_out 无 M325 夹具出库单（=0）
+  [32mPASS[0m biz_flow_instance 无 M325 夹具审批实例（=0）
+  [32mPASS[0m biz_voucher 无 M325 夹具凭证（=0）
+  [32mPASS[0m biz_receivable 无 M325 夹具应收（=0）
+  [32mPASS[0m biz_receipt 无 M325 夹具收款（=0）
+  [32mPASS[0m biz_receipt_allocation 无 M325 夹具核销明细（=0）
+  [32mPASS[0m biz_credit_log 无 M325 夹具台账（=0）
+  [32mPASS[0m biz_inventory 无 M325 夹具库存（=0）
+  [32mPASS[0m biz_inventory_location 无 M325 夹具库位账（=0）
+  [32mPASS[0m biz_inventory_txn 无 M325 夹具流水（=0）
+  [32mPASS[0m biz_inventory_in_transit 无 M325 夹具在途行（=0）
+
+== 汇总：PASS=32 FAIL=2 ==
+有失败项，见上面的 FAIL 行
