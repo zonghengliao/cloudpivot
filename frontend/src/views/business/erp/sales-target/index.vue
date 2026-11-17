@@ -319,6 +319,9 @@
             <template #forecast_amount="{ row }">
               <span class="mono">{{ formatMoney(row.forecast_amount) }}</span>
             </template>
+            <template #forecast_qty="{ row }">
+              <span class="mono">{{ qtyText(row.forecast_qty) }}</span>
+            </template>
             <template #confidence="{ row }">
               <t-tag size="small" variant="light" :theme="confidenceTheme(row.confidence)">
                 {{ confidenceLabel(row.confidence) }}
@@ -359,6 +362,11 @@
               @change="loadForecasts"
             />
           </div>
+        </t-tab-panel>
+
+        <!-- ==================== ④ 预测 vs 实际（偏差分析，M3-21 接口 / M3-23 页面） ==================== -->
+        <t-tab-panel value="variance" label="预测 vs 实际">
+          <ForecastVariancePanel v-if="activeTab === 'variance'" :init-period="periodCode" />
         </t-tab-panel>
       </t-tabs>
     </t-card>
@@ -452,6 +460,10 @@
         <t-form-item label="预测金额" required-mark>
           <t-input-number v-model="forecastForm.forecast_amount" :min="0" :decimal-places="2" theme="normal" data-testid="forecast-form-amount" />
         </t-form-item>
+        <t-form-item label="预测数量">
+          <t-input-number v-model="forecastForm.forecast_qty" :min="0" :decimal-places="4" theme="normal" data-testid="forecast-form-qty" />
+          <span class="form-hint">可选（0 = 只预测金额不预测数量）</span>
+        </t-form-item>
         <t-form-item label="信心度">
           <t-radio-group v-model="forecastForm.confidence">
             <t-radio v-for="item in confidenceOptions" :key="item.value" :value="item.value">
@@ -475,13 +487,14 @@
 /**
  * 销售目标与预测（SO-44 / ARCH-7 §15.8）
  *
- * # 三个页签
+ * # 四个页签
  *
  * | 页签 | 干什么 | 关键点 |
  * |------|--------|--------|
  * | 达成率看板 | 目标 vs 实际（进度条 + 缺口） | **两个口径**（订单 / 已收款）一次请求都拿到，切口径不重发 |
  * | 目标维护 | 建 / 改 / 停用 / 软删目标 | `ALL` 不带 scope_id；「范围 + 期间」唯一（409 原文回显） |
- * | 销售预测 | 滚动预测（客户 / 物料 / 全局 × 版本） | 同维度同期间同版本唯一 |
+ * | 销售预测 | 滚动预测（客户 / 物料 / 全局 × 版本） | 同维度同期间同版本唯一；含预测数量（0 = 只预测金额） |
+ * | 预测 vs 实际 | 偏差分析（四粒度 + 容差判档 + 对比图） | 数据来自 M3-21 的 `/sales-forecast/variance`，逻辑在 `forecast-variance-logic.ts` |
  *
  * # 看板数字怎么读
  *
@@ -499,6 +512,7 @@
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import ForecastVariancePanel from './ForecastVariancePanel.vue';
 import { ApiError } from '@/api/request';
 import { fetchCustomerPage, fetchMaterialPage, type MaterialRow } from '@/api/business/erp';
 import { pageUsers, type UserRes } from '@/api/system/user-api';
@@ -529,6 +543,7 @@ import {
   type TargetRow,
   type TargetStatus,
 } from '@/api/business/erp/sales-target';
+import { qtyText } from './forecast-variance-logic';
 
 /** 本页权限码（与 `V0318__sales_target_forecast.up.sql` 的 auth_code 逐字一致） */
 const PERM = {
@@ -599,7 +614,7 @@ function rateColor(value: unknown): string {
 }
 
 // ==================== 页签 ====================
-const activeTab = ref<'board' | 'target' | 'forecast'>('board');
+const activeTab = ref<'board' | 'target' | 'forecast' | 'variance'>('board');
 
 // ==================== 看板 ====================
 const periodCode = ref(currentPeriod());
@@ -892,6 +907,7 @@ const forecastColumns = [
   { colKey: 'dimension', title: '维度', minWidth: 220 },
   { colKey: 'period_code', title: '期间', width: 100 },
   { colKey: 'forecast_amount', title: '预测金额', width: 150, align: 'right' as const },
+  { colKey: 'forecast_qty', title: '预测数量', width: 120, align: 'right' as const },
   { colKey: 'confidence', title: '信心度', width: 90 },
   { colKey: 'version_no', title: '版本', width: 80 },
   { colKey: 'op', title: '操作', width: 140, fixed: 'right' as const },
@@ -941,6 +957,7 @@ interface ForecastFormDraft {
   material_id: string;
   period_code: string;
   forecast_amount: number;
+  forecast_qty: number;
   confidence: Confidence;
   version_no: number;
   remark: string;
@@ -958,6 +975,7 @@ function emptyForecastForm(): ForecastFormDraft {
     material_id: '',
     period_code: periodCode.value || currentPeriod(),
     forecast_amount: 0,
+    forecast_qty: 0,
     confidence: 'MEDIUM',
     version_no: 1,
     remark: '',
@@ -979,6 +997,7 @@ function openForecastEdit(row: ForecastRow): void {
     material_id: row.material_id ?? '',
     period_code: row.period_code,
     forecast_amount: Number(row.forecast_amount),
+    forecast_qty: Number(row.forecast_qty ?? 0),
     confidence: row.confidence,
     version_no: row.version_no,
     remark: row.remark ?? '',
@@ -1002,6 +1021,7 @@ async function submitForecastForm(): Promise<void> {
     material_id: forecastForm.material_id || null,
     period_code: forecastForm.period_code.trim().toUpperCase(),
     forecast_amount: forecastForm.forecast_amount.toFixed(2),
+    forecast_qty: (forecastForm.forecast_qty ?? 0).toFixed(4),
     confidence: forecastForm.confidence,
     version_no: forecastForm.version_no,
     remark: forecastForm.remark.trim() || null,

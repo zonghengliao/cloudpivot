@@ -1,0 +1,154 @@
+TAP version 13
+# Subtest: toNumber：Decimal 字符串转数字，空值 / 非法 → null（不是 0）
+ok 1 - toNumber：Decimal 字符串转数字，空值 / 非法 → null（不是 0）
+  ---
+  duration_ms: 0.76026
+  type: 'test'
+  ...
+# Subtest: moneyOf：缺失按 0（漏预测行的预测金额确实是 0），非法也按 0 不抛
+ok 2 - moneyOf：缺失按 0（漏预测行的预测金额确实是 0），非法也按 0 不抛
+  ---
+  duration_ms: 0.0897
+  type: 'test'
+  ...
+# Subtest: shortName：短名原样，超长补 …，空 → （未命名）
+ok 3 - shortName：短名原样，超长补 …，空 → （未命名）
+  ---
+  duration_ms: 0.136154
+  type: 'test'
+  ...
+# Subtest: shortName：按码点截断，不劈开 emoji（否则横轴显示半个字符）
+ok 4 - shortName：按码点截断，不劈开 emoji（否则横轴显示半个字符）
+  ---
+  duration_ms: 0.093407
+  type: 'test'
+  ...
+# Subtest: pickChartRows：只切前 N 行，顺序完全照后端（|偏差| 倒序）
+ok 5 - pickChartRows：只切前 N 行，顺序完全照后端（|偏差| 倒序）
+  ---
+  duration_ms: 0.728472
+  type: 'test'
+  ...
+# Subtest: pickChartRows：默认上限 = CHART_ROW_LIMIT，超出按顺序截前 12 行
+ok 6 - pickChartRows：默认上限 = CHART_ROW_LIMIT，超出按顺序截前 12 行
+  ---
+  duration_ms: 0.127071
+  type: 'test'
+  ...
+# Subtest: buildVarianceChartOption：三序列（预测柱 / 实际柱 / 偏差率线），名字与图例一致
+ok 7 - buildVarianceChartOption：三序列（预测柱 / 实际柱 / 偏差率线），名字与图例一致
+  ---
+  duration_ms: 0.265891
+  type: 'test'
+  ...
+# Subtest: buildVarianceChartOption：金额按数字画柱，偏差率 null 保持 null（不补 0）
+ok 8 - buildVarianceChartOption：金额按数字画柱，偏差率 null 保持 null（不补 0）
+  ---
+  duration_ms: 12.048717
+  type: 'test'
+  ...
+# Subtest: buildVarianceChartOption：横轴用截断名，行多时轴标签旋转
+ok 9 - buildVarianceChartOption：横轴用截断名，行多时轴标签旋转
+  ---
+  duration_ms: 0.418209
+  type: 'test'
+  ...
+# Subtest: buildVarianceChartOption：零行不抛，data 全空（页面据此显示空状态）
+ok 10 - buildVarianceChartOption：零行不抛，data 全空（页面据此显示空状态）
+  ---
+  duration_ms: 0.381505
+  type: 'test'
+  ...
+# Subtest: deviationMeta：四档文案与颜色，未知档位不静默当命中
+ok 11 - deviationMeta：四档文案与颜色，未知档位不静默当命中
+  ---
+  duration_ms: 0.154818
+  type: 'test'
+  ...
+# Subtest: rateText：null / 空 → —（不是 0.00%），数字两位小数
+ok 12 - rateText：null / 空 → —（不是 0.00%），数字两位小数
+  ---
+  duration_ms: 0.071326
+  type: 'test'
+  ...
+# Subtest: varianceTone：正 = 实际超出，负 = 实际低于，0 = 持平
+ok 13 - varianceTone：正 = 实际超出，负 = 实际低于，0 = 持平
+  ---
+  duration_ms: 0.066785
+  type: 'test'
+  ...
+# Subtest: axisMoneyText：≥1 万走「万」，小数 1 位；1 万以下千分位取整
+ok 14 - axisMoneyText：≥1 万走「万」，小数 1 位；1 万以下千分位取整
+  ---
+  duration_ms: 0.136529
+  type: 'test'
+  ...
+# Subtest: toleranceText：去掉尾零（5.00 → 5），缺失回落后端缺省 5
+ok 15 - toleranceText：去掉尾零（5.00 → 5），缺失回落后端缺省 5
+  ---
+  duration_ms: 0.069618
+  type: 'test'
+  ...
+# Subtest: qtyText：4 位小数去尾零；0 照实显示（= 只预测金额），null → —
+ok 16 - qtyText：4 位小数去尾零；0 照实显示（= 只预测金额），null → —
+  ---
+  duration_ms: 0.065868
+  type: 'test'
+  ...
+# Subtest: summaryHeadline：行数 / 档位计数 / MAPE 一次说清，MAPE 空也照实
+ok 17 - summaryHeadline：行数 / 档位计数 / MAPE 一次说清，MAPE 空也照实
+  ---
+  duration_ms: 0.116572
+  type: 'test'
+  ...
+# Subtest: worstText：漏预测行不带「偏差率」（null 不是比率），有率时带上
+ok 18 - worstText：漏预测行不带「偏差率」（null 不是比率），有率时带上
+  ---
+  duration_ms: 0.128029
+  type: 'test'
+  ...
+# Subtest: dimensionHint：只提其它粒度且条数 > 0；当前粒度不重复提；没有就空串
+ok 19 - dimensionHint：只提其它粒度且条数 > 0；当前粒度不重复提；没有就空串
+  ---
+  duration_ms: 0.106531
+  type: 'test'
+  ...
+# Subtest: 契约①：四个粒度值 / 标签与后端 FORECAST_DIM_* + dimension_label 逐字一致
+ok 20 - 契约①：四个粒度值 / 标签与后端 FORECAST_DIM_* + dimension_label 逐字一致
+  ---
+  duration_ms: 0.774801
+  type: 'test'
+  ...
+# Subtest: 契约②：四档偏差值与 label 与后端 DEVIATION_* + deviation_label 逐字一致
+ok 21 - 契约②：四档偏差值与 label 与后端 DEVIATION_* + deviation_label 逐字一致
+  ---
+  duration_ms: 0.265849
+  type: 'test'
+  ...
+# Subtest: 契约③：路由与权限码 —— 后端 GET /variance（sales-forecast:list），前端调的就是这条
+ok 22 - 契约③：路由与权限码 —— 后端 GET /variance（sales-forecast:list），前端调的就是这条
+  ---
+  duration_ms: 0.374006
+  type: 'test'
+  ...
+# Subtest: 契约④：对比行 / 汇总 / 出参字段与后端 DTO 双向齐全（改名当场红）
+ok 23 - 契约④：对比行 / 汇总 / 出参字段与后端 DTO 双向齐全（改名当场红）
+  ---
+  duration_ms: 0.53049
+  type: 'test'
+  ...
+# Subtest: 契约⑤：后端 query 只三个入参（period_code / dimension / tolerance_pct），前端不多发
+ok 24 - 契约⑤：后端 query 只三个入参（period_code / dimension / tolerance_pct），前端不多发
+  ---
+  duration_ms: 0.269265
+  type: 'test'
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 125.144971

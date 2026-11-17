@@ -1,13 +1,14 @@
 /**
  * 销售目标 / 预测 API 层（后端 `backend/app/src/business/erp/sales_target_handler.rs`，SO-44）。
  *
- * # 三块接口
+ * # 四块接口
  *
  * | 页面区 | 接口 |
  * |--------|------|
  * | 达成率看板 | `GET /api/business/erp/sales-target/achievement?period_code=&scope_type=&basis=` |
  * | 目标维护 | `GET /api/business/erp/sales-target/page` + `POST` / `PUT {id}` / `DELETE {id}` |
  * | 销售预测 | `GET /api/business/erp/sales-forecast/page` + `POST` / `PUT {id}` / `DELETE {id}` |
+ * | 预测 vs 实际 | `GET /api/business/erp/sales-forecast/variance?period_code=&dimension=&tolerance_pct=`（M3-21，复用 `sales-forecast:list`） |
  *
  * # 字段名逐字抄后端（不是猜的）
  *
@@ -54,6 +55,12 @@ export type TargetStatus = 'ACTIVE' | 'INACTIVE';
 
 /** 预测信心度 */
 export type Confidence = 'HIGH' | 'MEDIUM' | 'LOW';
+
+/** 对比粒度（与后端 `FORECAST_DIMENSIONS` 一致） */
+export type ForecastDimension = 'CUSTOMER' | 'MATERIAL' | 'CUSTOMER_MATERIAL' | 'ALL';
+
+/** 偏差档位（与后端 `DEVIATION_*` 常量一致） */
+export type DeviationLevel = 'OVER' | 'UNDER' | 'ON_TARGET' | 'NO_FORECAST';
 
 /** 范围下拉（顺序与后端 SCOPE_TYPES 一致） */
 export const SCOPE_OPTIONS: { value: ScopeType; label: string }[] = [
@@ -287,6 +294,114 @@ export function updateForecast(id: string, payload: ForecastUpdatePayload): Prom
 /** 软删预测 */
 export function deleteForecast(id: string): Promise<void> {
   return del<void>(`${BASE}/sales-forecast/${id}`);
+}
+
+// ==================== 预测 vs 实际（偏差分析，M3-21） ====================
+
+/**
+ * 对比查询（`GET /api/business/erp/sales-forecast/variance`）。
+ *
+ * 权限码与预测列表**同一个** `business:erp:sales-forecast:list`（M3-21 决定，不新增码）。
+ */
+export interface ForecastVarianceQuery {
+  /** axios params 需要索引签名 */
+  [key: string]: unknown;
+  /** **必填**：`yyyy-MM` 或 `yyyy-QN` */
+  period_code: string;
+  /** 缺省 `CUSTOMER` */
+  dimension?: ForecastDimension;
+  /** 容差百分数（**传字符串**：`'5'` = ±5%，0~100，最多 2 位小数；后端缺省 5） */
+  tolerance_pct?: string;
+}
+
+/** 偏差最贵的一行（后端摘要里点名的那条） */
+export interface ForecastVarianceWorst {
+  display_name: string;
+  /** 漏预测行为 `null` */
+  forecast_no: string | null;
+  variance_amount: DecimalText;
+  /** 预测金额为 0 ⇒ `null`（不是 0%） */
+  variance_rate: DecimalText | null;
+  deviation_level: DeviationLevel;
+}
+
+/** 汇总（与 `rows` 同源同粒度，行相加 = 这里 —— 别在前端另算一份） */
+export interface ForecastVarianceSummary {
+  /** = forecast_count + unforecast_count */
+  row_count: number;
+  forecast_count: number;
+  unforecast_count: number;
+  over_count: number;
+  under_count: number;
+  on_target_count: number;
+  forecast_amount: DecimalText;
+  actual_amount: DecimalText;
+  /** 实际 − 预测 */
+  variance_amount: DecimalText;
+  /** 合计偏差率 %（Σ实际−Σ预测）÷Σ预测；预测合计 0 ⇒ `null` */
+  variance_rate: DecimalText | null;
+  forecast_qty: DecimalText;
+  actual_qty: DecimalText;
+  variance_qty: DecimalText;
+  /** 预测数量合计 0 ⇒ `null` */
+  variance_qty_rate: DecimalText | null;
+  /** 平均绝对偏差率（只算有预测金额的行；同比率 ≠ 合计偏差率） */
+  mape_pct: DecimalText | null;
+  /** 没有任何行 ⇒ `null` */
+  worst: ForecastVarianceWorst | null;
+}
+
+/** 某粒度在本期间的当前版本预测条数（四种粒度都回，0 也回） */
+export interface ForecastDimensionCount {
+  dimension: ForecastDimension;
+  dimension_label: string;
+  row_count: number;
+}
+
+/** 对比明细一行（漏预测行没有预测侧字段） */
+export interface ForecastVarianceRow {
+  dimension: ForecastDimension;
+  period_code: string;
+  /** 客户名 / 物料名 / 客户 × 物料 / 全公司（名字缺失时后端回落 id） */
+  display_name: string;
+  forecast_id: string | null;
+  forecast_no: string | null;
+  version_no: number | null;
+  confidence: Confidence | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  material_id: string | null;
+  material_name: string | null;
+  has_forecast: boolean;
+  forecast_amount: DecimalText;
+  forecast_qty: DecimalText;
+  /** 本位币含税订单额 */
+  actual_amount: DecimalText;
+  actual_qty: DecimalText;
+  variance_amount: DecimalText;
+  variance_rate: DecimalText | null;
+  variance_qty: DecimalText;
+  variance_qty_rate: DecimalText | null;
+  deviation_level: DeviationLevel;
+}
+
+/** 对比出参（一次给全：汇总 + 明细 + 其它粒度条数） */
+export interface ForecastVarianceRes {
+  period_code: string;
+  dimension: ForecastDimension;
+  dimension_label: string;
+  /** 实际数口径，恒为 `ORDER` */
+  basis: string;
+  tolerance_pct: DecimalText;
+  summary: ForecastVarianceSummary;
+  dimension_counts: ForecastDimensionCount[];
+  /** 按 |偏差金额| 倒序（漏预测行会自然浮起） */
+  rows: ForecastVarianceRow[];
+}
+
+/** 预测 vs 实际（偏差分析）。`period_code` 必填，缺了后端 400。 */
+export function fetchForecastVariance(params: ForecastVarianceQuery): Promise<ForecastVarianceRes> {
+  return get<ForecastVarianceRes>(`${BASE}/sales-forecast/variance`, params);
 }
 
 // ==================== 展示辅助（纯函数，页面直接用） ====================
