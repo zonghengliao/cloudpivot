@@ -1,11 +1,11 @@
-//! P2-33 的用例：ERP 侧 18 个 `DocReader` 实现的**契约**与**真库查询**。
+//! P2-33 的用例：ERP 侧 19 个 `DocReader` 实现的**契约**与**真库查询**。
 //!
 //! # 两类用例，判据不同
 //!
 //! | 类 | 需要库 | 钉住什么 |
 //! |:--|:--:|:--|
-//! | 契约（`#[test]`） | ❌ | 注册键集合 = `internal_control` 的 17 个 `governed` 分支；`biz_type` 落库码与各 `*_bridge::BIZ_TYPE` 常量逐字一致；重复注册被点名拒绝；`doc_status` 的四段 SQL 标识符在迁移里真实存在（防「表名 / 列名拼错 → 运行期 `column does not exist`」） |
-//! | 真库（`ERP_DB_URL` 开关） | ✅ | 18 条 `doc_status` 的 SQL 真的能跑；采购单 / 报销单各一条**含数据**的往返（报销单专门钉住「制单人取 `reporter_id` 而不是 `create_by`」） |
+//! | 契约（`#[test]`） | ❌ | 注册键集合 = `internal_control` 的 18 个 `governed` 分支；`biz_type` 落库码与各 `*_bridge::BIZ_TYPE` 常量逐字一致；重复注册被点名拒绝；`doc_status` 的四段 SQL 标识符在迁移里真实存在（防「表名 / 列名拼错 → 运行期 `column does not exist`」） |
+//! | 真库（`ERP_DB_URL` 开关） | ✅ | 19 条 `doc_status` 的 SQL 真的能跑；采购单 / 报销单各一条**含数据**的往返（报销单专门钉住「制单人取 `reporter_id` 而不是 `create_by`」） |
 //!
 //! 真库用例不设 `ERP_DB_URL` 时全部 **SKIP**（与本仓其它 ERP 真库用例同口径）。
 //! 交付前必须真跑一遍：
@@ -30,7 +30,7 @@ use crate::business::erp::cost::cost_period_bridge;
 use crate::business::erp::doc_reader_impl::{self, ErpDoc, ErpDocReader};
 use crate::business::erp::expense::expense_bridge;
 use crate::business::erp::payable::payable_bridge;
-use crate::business::erp::purchase::{purchase_bridge, purchase_return_bridge};
+use crate::business::erp::purchase::{purchase_bridge, purchase_plan_bridge, purchase_return_bridge};
 use crate::business::erp::receipt_refund_bridge;
 use crate::business::erp::requisition_bridge;
 use crate::business::erp::sales::{quotation_approval_bridge, sales_approval_bridge};
@@ -66,21 +66,23 @@ fn bridge_codes() -> Vec<(FlowBizType, &'static str)> {
         (FlowBizType::ReceiptRefund, receipt_refund_bridge::BIZ_TYPE),
         // M3-04：报价单审批（发出前置，受内控约束：制单人不可自审）
         (FlowBizType::QuotationApprove, quotation_approval_bridge::BIZ_TYPE),
+        // M4-02：采购计划审批（受内控约束：制单人不可自审自己编的计划）
+        (FlowBizType::PpApprove, purchase_plan_bridge::BIZ_TYPE),
     ]
 }
 
-/// 17 个受控实现与 17 个 `governed` 分支**一一对应**，外加 1 个「只接回调」的调拨单，
-/// 且落库码与桥常量逐字一致（M3-04 起实现数 = 18）。
+/// 18 个受控实现与 18 个 `governed` 分支**一一对应**，外加 1 个「只接回调」的调拨单，
+/// 且落库码与桥常量逐字一致（M4-02 起实现数 = 19）。
 #[test]
 fn supported_set_matches_governed_branches() {
     let expected = bridge_codes();
-    assert_eq!(expected.len(), 17, "登记表本身应恰好 17 条");
+    assert_eq!(expected.len(), 18, "登记表本身应恰好 18 条");
 
     let implemented: Vec<FlowBizType> = ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect();
     assert_eq!(
         implemented.len(),
-        18,
-        "ErpDoc::ALL 应恰好 18 个实现（17 受控 + 调拨单）"
+        19,
+        "ErpDoc::ALL 应恰好 19 个实现（18 受控 + 调拨单）"
     );
 
     // ⓪ P2-34：多出来的那一个必须**恰好**是 STOCK_TRANSFER —— 它只接终态回调、不做内控排除。
@@ -154,9 +156,9 @@ fn registers_every_reader_once() {
     let mut registry = DocRegistry::new();
     assert!(registry.is_empty(), "空注册表应 is_empty");
 
-    let count = doc_reader_impl::register_into(&mut registry).expect("18 个实现应能一次注册完");
-    assert_eq!(count, 18, "register_into 应报告注册了 18 个（17 受控 + 调拨单）");
-    assert_eq!(registry.len(), 18, "注册表里应有 18 个键");
+    let count = doc_reader_impl::register_into(&mut registry).expect("19 个实现应能一次注册完");
+    assert_eq!(count, 19, "register_into 应报告注册了 19 个（18 受控 + 调拨单）");
+    assert_eq!(registry.len(), 19, "注册表里应有 19 个键");
 
     // 按落库编码取（P2-34 调用点最常用的入口）
     for doc in ErpDoc::ALL {
@@ -167,7 +169,7 @@ fn registers_every_reader_once() {
     }
 
     let registered: BTreeSet<FlowBizType> = registry.registered().into_iter().collect();
-    assert_eq!(registered.len(), 18, "registered() 应给出 18 个键（17 受控 + 调拨单）");
+    assert_eq!(registered.len(), 19, "registered() 应给出 19 个键（18 受控 + 调拨单）");
     assert_eq!(
         registered,
         ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect::<BTreeSet<_>>(),
@@ -301,7 +303,7 @@ fn migration_files() -> Vec<std::path::PathBuf> {
     files
 }
 
-/// 18 张单据表的单号 / 状态 / 制单人列，**都在迁移里真实存在**。
+/// 19 张单据表的单号 / 状态 / 制单人列，**都在迁移里真实存在**。
 ///
 /// # 为什么离线也要查一遍
 ///
@@ -364,8 +366,8 @@ async fn process_registry_is_filled_by_register_all() {
     assert_eq!(doc_reader::len(), 0, "reset 之后应为空");
 
     let count = doc_reader_impl::register_all().expect("启动期注册应成功");
-    assert_eq!(count, 18);
-    assert_eq!(doc_reader::len(), 18, "进程级注册表应有 18 个键（17 受控 + 调拨单）");
+    assert_eq!(count, 19);
+    assert_eq!(doc_reader::len(), 19, "进程级注册表应有 19 个键（18 受控 + 调拨单）");
 
     // 分派助手（P2-34 的替换点）能按编码取到实现
     for doc in ErpDoc::ALL {
@@ -425,7 +427,7 @@ mod db {
     /// 真库用例串行锁（共用全局 `db()` 与既有 181 表模板库）。
     static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    /// 18 条 `doc_status` 的 SQL **都能执行**（表 / 列 / 类型全对），且不存在的单据返回 `Ok(None)`。
+    /// 19 条 `doc_status` 的 SQL **都能执行**（表 / 列 / 类型全对），且不存在的单据返回 `Ok(None)`。
     ///
     /// 这条用例的价值在「能执行」而不是「返回什么」：一个拼错的表名或列名，
     /// 或者「`status` 其实是 `i16`」这类类型不符，都会在这里变成 `Err`。

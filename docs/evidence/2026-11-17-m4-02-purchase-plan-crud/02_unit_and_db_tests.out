@@ -1,0 +1,60 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 41 tests
+test business::erp::purchase::purchase_plan_bridge::tests::status_constants_are_exact ... ok
+test business::erp::purchase::purchase_plan_bridge::tests::biz_type_and_flow_code_match_seed ... ok
+test business::erp::purchase::purchase_plan_bridge::tests::verdict_maps_only_final_states ... ok
+test business::erp::purchase::purchase_plan_db_tests::item_granularity_is_material_x_warehouse ... ok
+test business::erp::purchase::purchase_plan_db_tests::annual_plan_has_no_month_monthly_plan_needs_one ... ok
+test business::erp::purchase::purchase_plan_db_tests::next_plan_no_uses_ppl_seq ... ok
+test business::erp::purchase::purchase_plan_db_tests::delete_plan_cascades_items ... ok
+test business::erp::purchase::purchase_plan_db_tests::plan_no_format_is_enforced ... ok
+test business::erp::purchase::purchase_plan_db_tests::planned_qty_positive_executed_non_negative_and_may_exceed ... ok
+test business::erp::purchase::purchase_plan_db_tests::same_period_and_dept_keeps_one_live_plan ... ok
+test business::erp::purchase::purchase_plan_db_tests::schema_shape_matches_migration ... ok
+test business::erp::purchase::purchase_plan_db_tests::status_domain_is_three_values_and_submitted_needs_instance ... ok
+test business::erp::purchase::purchase_plan_dto::tests::labels_fall_back_to_raw_values ... ok
+test business::erp::purchase::purchase_plan_dto::tests::duplicate_cells_are_rejected_with_line_numbers ... ok
+test business::erp::purchase::purchase_plan_dto::tests::month_must_match_plan_type ... ok
+test business::erp::purchase::purchase_plan_dto::tests::name_and_remark_guards ... ok
+test business::erp::purchase::purchase_plan_dto::tests::parent_plan_must_be_annual_of_same_year ... ok
+test business::erp::purchase::purchase_plan_dto::tests::permission_codes_are_the_five_api_codes ... ok
+test business::erp::purchase::purchase_plan_dto::tests::page_query_normalizes_and_rejects ... ok
+test business::erp::purchase::purchase_plan_dto::tests::qty_price_guards_and_line_amount ... ok
+test business::erp::purchase::purchase_plan_dto::tests::type_and_year_ranges ... ok
+test business::erp::purchase::purchase_plan_db_tests::totals_default_zero_and_recalc_rolls_up_items ... ok
+test business::erp::purchase::purchase_plan_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::create_plan_computes_totals_and_joins_names ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::delete_soft_deletes_and_detail_404 ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::duplicate_material_warehouse_cell_is_rejected ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::duplicate_period_is_rejected ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::large_plan_needs_finance_second_sign ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::month_must_match_type ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::monthly_plan_submits_and_approves_too ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::only_draft_can_be_updated_or_deleted ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::page_filters_by_status_type_year_and_keyword ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::parent_plan_must_be_annual_of_same_year ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::reject_returns_to_draft_with_comment ... ok
+test business::erp::purchase::purchase_plan_model::tests::period_key_rolls_over_at_cst_midnight ... ok
+test business::erp::purchase::purchase_plan_model::tests::plan_no_is_zero_padded_to_six_digits ... ok
+test business::erp::purchase::purchase_plan_model::tests::status_and_type_sets_match_migration_check ... ok
+test business::erp::purchase::purchase_plan_model::tests::uuid_text_maps_none_to_empty_string ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::submit_goes_through_flow_and_approve_lands_approved ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::update_replaces_items_and_recalcs ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 6168 filtered out; finished in 0.86s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

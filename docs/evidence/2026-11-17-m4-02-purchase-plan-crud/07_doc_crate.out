@@ -1,0 +1,32 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 19 tests
+test contract_tests::demo_seed_source_guard_matches_enum ... ok
+test contract_tests::attachment_doc_types_match_rust ... ok
+test contract_tests::demo_seed_voucher_sources_are_enum_values ... ok
+test contract_tests::frontend_ts_mirror_matches_rust ... ok
+test contract_tests::flow_cc_source_map_matches_snapshot_registry ... ok
+test contract_tests::test_residue_predicate_matches_python_and_sql ... ok
+test contract_tests::serial_source_map_matches_snapshot_registry ... ok
+test contract_tests::txn_doc_map_matches_snapshot_registry ... ok
+test vocab_tests::cross_axis_mappings_are_consistent ... ok
+test vocab_tests::domain_columns_exist_and_cover_all_axes ... ok
+test vocab_tests::domain_consts_match_enums ... ok
+test vocab_tests::every_axis_value_is_uppercase_underscore ... ok
+test contract_tests::frontend_ts_labels_match_rust ... ok
+test vocab_tests::every_enum_has_a_label ... ok
+test vocab_tests::parse_is_strict ... ok
+test contract_tests::voucher_source_map_matches_snapshot_registry ... ok
+test vocab_tests::routes_are_unique_and_round_trip ... ok
+test vocab_tests::values_are_unique_per_axis ... ok
+test contract_tests::doc_kind_registries_match_doc_kind_table ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cloudpivot_doc
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

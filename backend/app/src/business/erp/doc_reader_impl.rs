@@ -46,6 +46,7 @@
 //! | 16 | `RECEIPT_REFUND` | `biz_receipt_refund` | `refund_no` | `status` | `create_by` | [`receipt_refund_bridge::on_refund_settled`] |
 //! | 17 | `STOCK_TRANSFER` | `biz_stock_transfer` | `transfer_no` | `status` | `create_by` | [`transfer_approval_settle::on_transfer_settled`] |
 //! | 18 | `QUOTATION_APPROVE` | `biz_quotation` | `quote_no` | `status` | `create_by` | [`quotation_approval_bridge::on_quotation_settled`] |
+//! | 19 | `PP_APPROVE` | `biz_purchase_plan` | `plan_no` | `status` | `create_by` | [`purchase_plan_bridge::on_pp_settled`] |
 //!
 //! **第 17 行是 P2-34 补的**：调拨单的终态回调原来住在 `flow::task_bridge`（直连 ERP），
 //! 搬进 ERP 后需要一个入口被调起 —— 注册表就是那个入口。它**不在**内控受控集合里
@@ -124,7 +125,8 @@ use crate::business::erp::cost::{cost_period_bridge, cost_period_dto};
 use crate::business::erp::expense::{expense_bridge, expense_dto};
 use crate::business::erp::payable::{payable_bridge, payable_payment, payable_query};
 use crate::business::erp::purchase::{
-    purchase_bridge, purchase_model, purchase_requisition_dto, purchase_return_bridge, purchase_return_dto,
+    purchase_bridge, purchase_model, purchase_plan_bridge, purchase_plan_dto, purchase_requisition_dto,
+    purchase_return_bridge, purchase_return_dto,
 };
 use crate::business::erp::sales::{quotation_approval_bridge, quotation_model, sales_approval_bridge, sales_model};
 use crate::business::erp::stockin::{stockin_base, stockin_bridge};
@@ -226,13 +228,18 @@ pub enum ErpDoc {
     /// 审批是「发出」（`DRAFT → SENT`）的前置条件，不是单据状态；通过回调**自动发出**，
     /// 驳回 / 撤回留在草稿。受内控约束（制单人不可自审，`GOVERNED_CODES` 已登记）。
     QuotationApprove,
+    /// 采购计划审批（`PP_APPROVE`，采购链 M4-02）。
+    ///
+    /// 年度 / 月度采购计划提交审批：通过即 `APPROVED`（可转采购申请），
+    /// 驳回 / 撤回打回 `DRAFT`。受内控约束（制单人不可自审，`GOVERNED_CODES` 已登记）。
+    PurchasePlan,
 }
 
 impl ErpDoc {
-    /// 全部实现（= 注册表里应当出现的 18 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
+    /// 全部实现（= 注册表里应当出现的 19 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
     ///
-    /// 17 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
-    pub const ALL: [ErpDoc; 18] = [
+    /// 18 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
+    pub const ALL: [ErpDoc; 19] = [
         ErpDoc::PurchaseOrder,
         ErpDoc::StockInPost,
         ErpDoc::StockInCancel,
@@ -251,6 +258,7 @@ impl ErpDoc {
         ErpDoc::ReceiptRefund,
         ErpDoc::StockTransfer,
         ErpDoc::QuotationApprove,
+        ErpDoc::PurchasePlan,
     ];
 
     /// 审批业务类型（注册表键）。
@@ -274,6 +282,7 @@ impl ErpDoc {
             ErpDoc::ReceiptRefund => FlowBizType::ReceiptRefund,
             ErpDoc::StockTransfer => FlowBizType::StockTransfer,
             ErpDoc::QuotationApprove => FlowBizType::QuotationApprove,
+            ErpDoc::PurchasePlan => FlowBizType::PpApprove,
         }
     }
 
@@ -298,6 +307,7 @@ impl ErpDoc {
             ErpDoc::ReceiptRefund => "收款退款单",
             ErpDoc::StockTransfer => "调拨单",
             ErpDoc::QuotationApprove => "报价单",
+            ErpDoc::PurchasePlan => "采购计划",
         }
     }
 
@@ -428,6 +438,13 @@ impl ErpDoc {
                 creator: "create_by",
                 label: |status| quotation_model::status_label(status).to_string(),
             },
+            ErpDoc::PurchasePlan => DocSpec {
+                table: "biz_purchase_plan",
+                doc_no: "plan_no",
+                status: "status",
+                creator: "create_by",
+                label: |status| purchase_plan_dto::status_label(status).to_string(),
+            },
         }
     }
 
@@ -492,6 +509,9 @@ impl ErpDoc {
             ErpDoc::QuotationApprove => {
                 let _ = quotation_approval_bridge::on_quotation_settled(instance_id, instance_status).await;
             }
+            ErpDoc::PurchasePlan => {
+                let _ = purchase_plan_bridge::on_pp_settled(instance_id, instance_status).await;
+            }
         }
     }
 
@@ -520,6 +540,7 @@ impl ErpDoc {
             // 补闸 = 多拦一批人 = 改变生产行为，不属于「解环」，所以这里显式放行。
             ErpDoc::StockTransfer => Ok(()),
             ErpDoc::QuotationApprove => quotation_approval_bridge::guard_self_approval(task_id, operator).await,
+            ErpDoc::PurchasePlan => purchase_plan_bridge::guard_self_approval(task_id, operator).await,
         }
     }
 
@@ -547,7 +568,8 @@ impl ErpDoc {
             | ErpDoc::CostSettle
             | ErpDoc::ReceiptRefund
             | ErpDoc::StockTransfer
-            | ErpDoc::QuotationApprove => Ok(()),
+            | ErpDoc::QuotationApprove
+            | ErpDoc::PurchasePlan => Ok(()),
         }
     }
 
@@ -577,6 +599,7 @@ impl ErpDoc {
             // 这里必须显式补上「制单人取哪一列」，不能靠一个静默的兜底值。
             ErpDoc::StockTransfer => Ok(None),
             ErpDoc::QuotationApprove => quotation_approval_bridge::internal_control_creator(biz_id).await,
+            ErpDoc::PurchasePlan => purchase_plan_bridge::internal_control_creator(biz_id).await,
         }
     }
 }

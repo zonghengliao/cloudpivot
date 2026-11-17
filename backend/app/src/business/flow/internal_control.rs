@@ -64,11 +64,13 @@ use cloudpivot_kernel::business::shared::separation;
 /// ——那是改变生产行为（多拦一批人），不属于「解环」。
 /// 集合变动的唯一入口是「新增一条审批线」：那时注册表多一个实现，这里同步加一个码，
 /// `flow::doc_reader_tests::governed_codes_match_registered_readers` 双向对账。
-pub const GOVERNED_CODES: [&str; 17] = [
+pub const GOVERNED_CODES: [&str; 18] = [
     // 采购链
     "PO_APPROVE",
     "PR_APPROVE",
     "PRT_APPROVE",
+    // 采购链 M4-02：采购计划审批（制单人不可自审自己编的计划）
+    "PP_APPROVE",
     // 库存链
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",

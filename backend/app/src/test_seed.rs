@@ -242,12 +242,58 @@ pub async fn ensure_material(code: &str, name: &str) -> Uuid {
     ensure_material_kind(code, name, "FINISHED").await
 }
 
+/// 启用的**基本单位**（`is_base = 1`；一个都没有才造 `TST-UB`）。
+///
+/// 为什么需要它另开一个函数：[`ensure_unit`] 挑的是「第一个启用单位」，模板库里它可能是
+/// 「箱」这类**非**基本单位，而 `unit_guard::ensure_base_unit` 只认基本单位
+/// （本版本不支持多单位换算）——「按基本单位录入」的用例（采购申请 / 采购计划 / 收货 …）
+/// 用这个，别再去猜拾取顺序。
+pub async fn ensure_base_unit() -> Uuid {
+    static CACHED: OnceLock<Uuid> = OnceLock::new();
+    if let Some(id) = CACHED.get() {
+        return *id;
+    }
+    let rows = db()
+        .query_sql(
+            "SELECT id FROM biz_unit WHERE deleted_at IS NULL AND status = 1 AND is_base = 1 \
+             ORDER BY created_at, unit_code LIMIT 1"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("查基本计量单位失败：{err}"));
+    if let Some(id) = rows.first().and_then(|row| row.get_typed::<Uuid>("id").ok()) {
+        let _ = CACHED.set(id);
+        return id;
+    }
+    let id = fixture_uuid("unit:TST-UB");
+    exec(
+        "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, rate, status) \
+         VALUES (?, 'TST-UB', 'TST 基本单位', 1, 1, 1) ON CONFLICT DO NOTHING",
+        vec![Value::from(&id)],
+    )
+    .await;
+    let _ = CACHED.set(id);
+    id
+}
+
+/// 物料（单位固定为**基本单位**，其余与 [`ensure_material`] 一致）。
+pub async fn ensure_material_base_unit(code: &str, name: &str) -> Uuid {
+    let unit = ensure_base_unit().await;
+    upsert_material(code, name, "FINISHED", unit).await
+}
+
 /// 物料（指定 `material_type`：`RAW` / `FINISHED` …）。
 ///
 /// `id` 由 `material:<code>` 派生 ⇒ 同一 code 跨进程是同一个 id；`code` 已存在时**复用**
 /// （这就是「缺才补」：上一轮跑完没清掉的行，这一轮直接接着用，不会撞 `uk_biz_material_code`）。
 pub async fn ensure_material_kind(code: &str, name: &str, material_type: &str) -> Uuid {
     let unit = ensure_unit().await;
+    upsert_material(code, name, material_type, unit).await
+}
+
+/// 物料 upsert 的实现体（单位由调用方决定：默认取 [`ensure_unit`]，基本单位取 [`ensure_base_unit`]）。
+async fn upsert_material(code: &str, name: &str, material_type: &str, unit: Uuid) -> Uuid {
     let id = fixture_uuid(&format!("material:{code}"));
     upsert_id(
         "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \

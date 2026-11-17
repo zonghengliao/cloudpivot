@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 16 tests
+test business::erp::doc_reader_impl_tests::db::internal_control_creator_without_biz_id_is_none ... ok
+test business::erp::doc_reader_impl_tests::db::doc_status_sql_executes_for_every_doc ... ok
+test business::erp::doc_reader_impl_tests::db::dispatch_helpers_reach_erp_readers ... ok
+test business::erp::doc_reader_impl_tests::duplicate_registration_is_rejected_by_name ... ok
+test business::erp::doc_reader_impl_tests::every_implementation_names_its_doc ... ok
+test business::erp::doc_reader_impl_tests::expense_takes_its_creator_from_reporter_id ... ok
+test business::erp::doc_reader_impl_tests::payable_pay_reads_approval_status ... ok
+test business::erp::doc_reader_impl_tests::process_registry_is_filled_by_register_all ... ok
+test business::erp::doc_reader_impl_tests::registers_every_reader_once ... ok
+test business::erp::doc_reader_impl_tests::status_label_falls_back_for_unknown_values ... ok
+test business::erp::doc_reader_impl_tests::stock_in_post_and_cancel_share_one_table ... ok
+test business::erp::doc_reader_impl_tests::supported_set_matches_governed_branches ... ok
+test business::erp::doc_reader_impl_tests::unknown_code_is_none_not_error ... ok
+test business::erp::doc_reader_impl_tests::db::expense_snapshot_uses_reporter_as_creator ... ok
+test business::erp::doc_reader_impl_tests::db::purchase_order_snapshot_roundtrip ... ok
+test business::erp::doc_reader_impl_tests::doc_spec_identifiers_exist_in_migrations ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 6193 filtered out; finished in 0.17s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

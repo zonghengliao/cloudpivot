@@ -24,15 +24,22 @@ pub mod purchase_requisition_dto;
 pub mod purchase_requisition_handler;
 pub mod purchase_requisition_model;
 
-// ==================== 采购计划（PP）：表结构（M4-01） ====================
-// M4-01 只交表结构：model 里是表名 / 列 / 取号（biz_seq PPL）/ 两个读入口 / 合计重算，
-// **没有** handler 与 dto —— 建单 / 改单 / 删单 / 提交审批属 M4-02（届时光加 handler + dto，
-// model 直接复用，不用再猜列名）。真库用例见 `purchase_plan_db_tests`（`ERP_DB_URL` 开关）。
+// ==================== 采购计划（PP）：表结构（M4-01）+ CRUD/审批（M4-02） ====================
+// M4-01 只交表结构：model 里是表名 / 列 / 取号（biz_seq PPL）/ 读入口 / 合计重算；
+// M4-02 补上建单 / 改单 / 删单 / 提交审批（dto + handler + bridge），model 直接复用。
+// 转采购申请属 M4-03，执行率报表属 M4-04，前端页面属 M4-06 —— 本目录**不含**它们。
+pub mod purchase_plan_bridge;
+pub mod purchase_plan_dto;
+pub mod purchase_plan_handler;
 pub mod purchase_plan_model;
 
-/// 采购计划表结构的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用同一个串行锁）。
+/// 采购计划的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]
 mod purchase_plan_db_tests;
+
+/// 采购计划 CRUD + 审批的真库用例（M4-02；同一个串行锁）。
+#[cfg(test)]
+mod purchase_plan_handler_db_tests;
 
 // ==================== 采购退货：四件套 + 过账 ====================
 pub mod purchase_return_bridge;

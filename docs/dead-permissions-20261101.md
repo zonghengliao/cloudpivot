@@ -302,3 +302,23 @@ N18 会持续校验这笔台账（例外的码一旦有了注解或消失，N18 
 （授权树两个同名勾选项），还会破上游 `m2xx` 验证据本钉死的「取数码只有 1 个
 `menu_type=3` 节点」。**页内**再按三个取数码决定渲染哪几个 Tab，所以「有页面码、
 只有报表码」的角色看到的是一个 Tab，而不是三个 Tab 全 403。
+
+## 11. 补记（M4-02 / V0447，2026-11-17）：采购计划页的页面显形码
+
+`V0447__purchase_plan_crud` 为「采购计划」页种下**一个页面显形码**
+`business:erp:purchase-plan:page`（`sys_menu.menu_type=2`，挂「采购管理」目录 …946 下），
+它与 5 个**接口码**刻意分开（同迁移的 5 条 `menu_type=3` 按钮行 …4472–…4476）：
+
+| 码 | 管什么 | 承载行 | 谁判 |
+|---|---|---|---|
+| `business:erp:purchase-plan:page` | 侧栏显隐 + 路由 `meta.permission` | V0447 页面行 …4471 | **前端路由**（后端零引用） |
+| `business:erp:purchase-plan:list` | `GET /page` + `GET /{id}` | V0447 按钮行 …4472 | 接口 `#[nik::permission]` |
+| `business:erp:purchase-plan:create` | `POST /purchase-plan` | …4473 | 同上 |
+| `business:erp:purchase-plan:update` | `PUT /purchase-plan/{id}` | …4474 | 同上 |
+| `business:erp:purchase-plan:delete` | `DELETE /purchase-plan/{id}` | …4475 | 同上 |
+| `business:erp:purchase-plan:submit` | `POST /purchase-plan/{id}/submit` | …4476 | 同上 |
+
+页面码已按第 7 节登记进 `permission_audit_tests::ROUTE_LEVEL_ONLY`（N18 持续校验：
+后端源码一旦引用它、或菜单行消失，N18 立刻红）。与 V0423/V0427/V0431 同形：
+页面行不复用接口码 ——「能进这一页」不等于「能看全公司计划」，
+也避免同一个码在 `sys_menu` 出现两行（授权树两个同名勾选项）。

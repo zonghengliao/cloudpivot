@@ -1,0 +1,43 @@
+=== ① 本卡新增的 6 条路由（源码里的注解，逐一列出）===
+299:#[nik::post("/business/erp/purchase-plan")]
+349:#[nik::put("/business/erp/purchase-plan/{id}")]
+385:#[nik::delete("/business/erp/purchase-plan/{id}")]
+404:#[nik::get("/business/erp/purchase-plan/page")]
+424:#[nik::get("/business/erp/purchase-plan/{id}")]
+770:#[nik::post("/business/erp/purchase-plan/{id}/submit")]
+
+=== ② handler 的权限码常量与 #[nik::permission] 声明（应一一对应）===
+74:pub const PERM_LIST: &str = "business:erp:purchase-plan:list";
+76:pub const PERM_CREATE: &str = "business:erp:purchase-plan:create";
+78:pub const PERM_UPDATE: &str = "business:erp:purchase-plan:update";
+80:pub const PERM_DELETE: &str = "business:erp:purchase-plan:delete";
+82:pub const PERM_SUBMIT: &str = "business:erp:purchase-plan:submit";
+297:    permission = "business:erp:purchase-plan:create"
+347:    permission = "business:erp:purchase-plan:update"
+383:    permission = "business:erp:purchase-plan:delete"
+402:    permission = "business:erp:purchase-plan:list"
+422:    permission = "business:erp:purchase-plan:list"
+768:    permission = "business:erp:purchase-plan:submit"
+
+=== ③ 页面显形码在**后端可执行代码**里的引用（剥注释后必须是 0：只给前端）===
+0 处可执行引用（仅文档注释里提到、以及 permission_audit_tests 的台账行）
+-- 注释里的提及（不算落地，N14 剥注释）--
+backend/app/src/business/erp/purchase/purchase_plan_dto.rs:24://! 页面显形码 `business:erp:purchase-plan:page` **不在这里**（AGENTS 约定 14：
+-- 例外台账登记（N18 会持续校验「仍在菜单 + 后端零引用」）--
+142:        "business:erp:purchase-plan:page",
+
+=== ④ 前端镜像（doc-kinds.ts 三处 + 单测断言）===
+276:  'PP_APPROVE',
+310:  PP_APPROVE: '采购计划审批',
+341:  PP_APPROVE: 'pp_approve',
+95:test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，26 个）', () => {
+
+=== ⑤ 迁移号段与文件 ===
+-rw-r--r-- 1 root root  2385 Nov 17 22:20 V0446__purchase_plan.down.sql
+-rw-r--r-- 1 root root 27529 Nov 17 22:28 V0446__purchase_plan.up.sql
+-rw-r--r-- 1 root root  2296 Nov 17 22:57 V0447__purchase_plan_crud.down.sql
+-rw-r--r-- 1 root root 28920 Nov 17 22:57 V0447__purchase_plan_crud.up.sql
+全部迁移里最大号：V0447（本卡取 V0447，全局唯一、未改任何已应用的旧迁移）
+
+=== ⑥ 迁移里种的菜单与授权（真库实测：空库首启后的 cp_m402_drill）===
+（见剪贴的 01_drill_full.out：菜单 6 行 / 流程 pp_approve 1 行 / 校验全绿）

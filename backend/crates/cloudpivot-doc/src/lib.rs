@@ -740,6 +740,17 @@ pub enum FlowBizType {
     ///
     /// 顺序：追加在末尾（前端 `FLOW_BIZ_TYPES` 是保序逐字比对）。
     QuotationApprove,
+    /// 采购计划审批（`pp_approve`，采购链 M4-02 / V0447）。
+    ///
+    /// 年度 / 月度采购计划提交审批：采购经理复核计划量与预估金额，
+    /// 计划金额 ≥ 50 万再加一道财务经理复核（分级写在流程定义的条件边上，不是代码里的 if/else）。
+    /// 通过即 `APPROVED`（此后才允许转采购申请，M4-03）；驳回 / 撤回打回 `DRAFT` 并把意见追加到备注。
+    ///
+    /// 对象轴：**`None`** —— 采购计划没有 [`DocKind`] 成员（与 `PR_APPROVE` 同口径），
+    /// 不挂附件 / 提醒，如实不硬塞。
+    ///
+    /// 顺序：追加在末尾（前端 `FLOW_BIZ_TYPES` 是保序逐字比对）。
+    PpApprove,
 }
 
 impl FlowBizType {
@@ -749,7 +760,7 @@ impl FlowBizType {
     /// （`hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`），
     /// 每套都有一个独立 `biz_type`；§8.1 的「+3」是卡面笔误（漏数了 `HR_EMPLOYEE_RESIGN`）。
     /// 少一个值 = 第 4 套流程落不了 `biz_flow_def.biz_type`，所以按 §3.2 ⑨ 的 4 个落。
-    pub const ALL: [FlowBizType; 25] = [
+    pub const ALL: [FlowBizType; 26] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -779,6 +790,8 @@ impl FlowBizType {
         FlowBizType::CostSettle,
         // 销售链 M3-04：报价单审批（追加在末尾，前端镜像保序）
         FlowBizType::QuotationApprove,
+        // 采购链 M4-02：采购计划审批（追加在末尾，前端镜像保序）
+        FlowBizType::PpApprove,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -827,6 +840,7 @@ impl FlowBizType {
             FlowBizType::PrtApprove => "PRT_APPROVE",
             FlowBizType::CostSettle => "COST_SETTLE",
             FlowBizType::QuotationApprove => "QUOTATION_APPROVE",
+            FlowBizType::PpApprove => "PP_APPROVE",
         }
     }
 
@@ -862,6 +876,8 @@ impl FlowBizType {
             FlowBizType::CostSettle => "cost_settle_approve",
             // M3-04：与 V0435 种下的 `flow_code` 逐字一致（`ck_biz_flow_def_code` 只认小写）
             FlowBizType::QuotationApprove => "quotation_approve",
+            // 采购链 M4-02：与 V0447 种下的 `flow_code` 逐字一致（`ck_biz_flow_def_code` 只认小写）
+            FlowBizType::PpApprove => "pp_approve",
         }
     }
 
@@ -895,6 +911,7 @@ impl FlowBizType {
             FlowBizType::PrtApprove => "采购退货审批",
             FlowBizType::CostSettle => "成本结算审批",
             FlowBizType::QuotationApprove => "报价单审批",
+            FlowBizType::PpApprove => "采购计划审批",
         }
     }
 
@@ -938,6 +955,9 @@ impl FlowBizType {
             FlowBizType::CostSettle => DocKind::CostPeriod,
             // M3-04：报价单审批挂在报价单上（审批详情能点进单据）
             FlowBizType::QuotationApprove => DocKind::Quotation,
+            // 采购链 M4-02：采购计划**没有**对象轴成员（未登记进 [`DocKind`]，不挂附件 / 提醒），
+            // 与 `PR_APPROVE` 同口径如实返回 `None`，不硬塞一个「采购申请」冒充计划。
+            FlowBizType::PpApprove => return None,
             FlowBizType::PrApprove => return None,
             FlowBizType::TaskAccept | FlowBizType::Other => return None,
         })
@@ -1687,7 +1707,7 @@ const DOC_KIND_VALUES: [&str; 37] = [
     "QUOTATION",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 25] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 26] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1716,6 +1736,8 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 25] = [
     "COST_SETTLE",
     // 销售链 M3-04：报价单审批（「发出」的前置条件，V0435 种）
     "QUOTATION_APPROVE",
+    // 采购链 M4-02：采购计划审批（V0447 种）
+    "PP_APPROVE",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 23] = [

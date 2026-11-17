@@ -729,13 +729,13 @@ async fn guard_approve_for_task_walks_every_reader_and_propagates_the_denial() {
 
 /// 受控码表 `flow::internal_control::GOVERNED_CODES` 的自检（**不改表就改这条**）。
 ///
-/// 三件事一起验：① 恰好 17 个且不重复；② 每个码都是词表里真实存在的 `FlowBizType`；
+/// 三件事一起验：① 恰好 18 个且不重复；② 每个码都是词表里真实存在的 `FlowBizType`；
 /// ③ **调拨单不在里面** —— 它注册了终态回调但不做内控排除，加进去 = 多拦一批人（改变生产行为）。
 #[test]
 fn governed_codes_are_the_sixteen_approval_lines() {
     use crate::business::flow::internal_control::GOVERNED_CODES;
 
-    assert_eq!(GOVERNED_CODES.len(), 17, "受控集合必须恰好 17 个审批码");
+    assert_eq!(GOVERNED_CODES.len(), 18, "受控集合必须恰好 18 个审批码");
     let unique: std::collections::BTreeSet<&str> = GOVERNED_CODES.iter().copied().collect();
     assert_eq!(unique.len(), GOVERNED_CODES.len(), "受控码表里有重复项");
 
@@ -753,6 +753,6 @@ fn governed_codes_are_the_sixteen_approval_lines() {
     // 任务是另一条审批线，也不受 ERP 内控约束
     assert!(
         !GOVERNED_CODES.contains(&FlowBizType::TaskAccept.as_str()),
-        "任务验收不受内控约束（TaskAccept 不在这 17 条里）"
+        "任务验收不受内控约束（TaskAccept 不在这 18 条里）"
     );
 }

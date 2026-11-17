@@ -92,7 +92,7 @@ function rustFlowBizTypes(): string[] {
   return [...body.matchAll(/FlowBizType::\w+ => "([A-Z_]+)"/g)].map((match) => match[1] ?? '');
 }
 
-test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，25 个）', () => {
+test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，26 个）', () => {
   const rust = rustFlowBizTypes();
   // 13 → 15：FIN-1 加 BUDGET_APPROVE、FIN-2 加 ASSET_DISPOSAL（镜像已同步，只有本断言漏改）
   // 15 → 16：SO-14 加 RECEIPT_REFUND（同上，镜像早已同步，本断言漏改 → E2E-10 演练发现）
@@ -100,7 +100,8 @@ test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、�
   // 20 → 24：t_c49010bf 补登记存量 4 个域外值（SO_APPROVE / PR_APPROVE / PRT_APPROVE / COST_SETTLE，
   //          它们早就在 biz_flow_def 里，来自 V0281 / V0331 / V0332 / V0381）
   // 24 → 25：M3-04 加 QUOTATION_APPROVE（报价单审批流接线，V0435；镜像已同步，本断言漏改）
-  assert.equal(rust.length, 25, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
+  // 25 → 26：M4-02 加 PP_APPROVE（采购计划审批流接线，V0447；镜像已同步）
+  assert.equal(rust.length, 26, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
   assert.deepEqual([...FLOW_BIZ_TYPES], rust);
 });
 

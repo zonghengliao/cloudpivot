@@ -137,6 +137,14 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
          「即时库存」页下），本码只给前端路由（侧栏显隐 + meta.permission）。与 V0427 库龄页同形：\
          页面行不复用接口码，避免同码两行节点，也不动 V0428/V0429 自检钉死的接口码形状。",
     ),
+    // ---- ERP 采购计划页（V0447，卡 t_c6473745 / M4-02）----
+    (
+        "business:erp:purchase-plan:page",
+        "页面显形码（V0447）：采购计划页；接口各自判 business:erp:purchase-plan:\
+         {list,create,update,delete,submit}（同迁移的 5 个按钮行），本码只给前端路由\
+         （侧栏显隐 + meta.permission）。与 V0423/V0427/V0431 同形：页面行不复用接口码，\
+         把「能进这一页」与「能看全公司计划」拆开。",
+    ),
 ];
 
 /// **已种菜单、后端校验点尚未落地**的权限码 → 落地它的卡（临时例外，落地即删）。

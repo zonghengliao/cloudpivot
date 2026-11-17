@@ -33,6 +33,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use cloudpivot_kernel::business::shared::scope;
+
 // ==================== 表名 / 取号 / 枚举值 ====================
 
 /// 计划单头表。
@@ -81,6 +83,8 @@ pub struct PlanRow {
     pub plan_month: Option<i32>,
     /// 月度计划挂到的年度计划。
     pub parent_plan_id: Option<Uuid>,
+    /// 月度计划挂到的年度计划**单号**（实时 join；详情 / 列表直接展示）。
+    pub parent_plan_no: Option<String>,
     /// 编制部门。
     pub dept_id: Option<Uuid>,
     /// 编制部门名快照。
@@ -216,15 +220,17 @@ pub async fn next_plan_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbResult
 
 // ==================== 读 ====================
 
-/// 单头 select（带明细计数）。
+/// 单头 select（带明细计数 + 父计划单号）。
 fn plan_select_sql() -> String {
     format!(
-        "SELECT id, plan_no, plan_name, plan_type, plan_year, plan_month, parent_plan_id, \
-                dept_id, dept_name, planner_id, planner_name, status, approval_instance_id, \
-                total_planned_qty, total_executed_qty, total_planned_amount, remark, \
-                created_at, create_by, \
+        "SELECT p.id, p.plan_no, p.plan_name, p.plan_type, p.plan_year, p.plan_month, p.parent_plan_id, \
+                par.plan_no AS parent_plan_no, \
+                p.dept_id, p.dept_name, p.planner_id, p.planner_name, p.status, p.approval_instance_id, \
+                p.total_planned_qty, p.total_executed_qty, p.total_planned_amount, p.remark, \
+                p.created_at, p.create_by, \
                 (SELECT count(*) FROM {ITEM_TABLE} it WHERE it.plan_id = p.id) AS item_count \
            FROM {PLAN_TABLE} p \
+           LEFT JOIN {PLAN_TABLE} par ON par.id = p.parent_plan_id AND par.deleted_at IS NULL \
           WHERE p.deleted_at IS NULL"
     )
 }
@@ -238,6 +244,7 @@ fn read_plan_row(row: &Row) -> DbResult<PlanRow> {
         plan_year: row.get_typed("plan_year")?,
         plan_month: row.get_typed("plan_month")?,
         parent_plan_id: row.get_typed("parent_plan_id")?,
+        parent_plan_no: row.get_typed("parent_plan_no")?,
         dept_id: row.get_typed("dept_id")?,
         dept_name: row.get_typed("dept_name")?,
         planner_id: row.get_typed("planner_id")?,
@@ -376,6 +383,494 @@ pub async fn recalc_totals(ex: &impl SqlExecutor, plan_id: Uuid) -> DbResult<boo
 /// `Option<Uuid>` → `?::text::uuid` 参数（None = 空串 → NULL，与采购申请单同口径）。
 pub fn uuid_text(value: Option<Uuid>) -> Value {
     Value::Text(value.map(|id| id.to_string()).unwrap_or_default())
+}
+
+// ==================== 写：建单 / 改单 / 删单 / 状态流转（M4-02） ====================
+//
+// 单头三个 `total_*` 是派生列：建单 / 改明细后一律由 [`recalc_totals`] 重算，
+// 请求体里的同名值**不读**（见 `purchase_plan_dto` 的模块文档 ②）。
+
+/// 分页锚点（SCOPE-EXEMPT，理由见模块文档「数据权限」）。
+pub const PLAN_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(PLAN_TABLE);
+
+/// 建单入参（单头）。
+#[derive(Debug, Clone)]
+pub struct NewPlanHead {
+    /// 计划名称。
+    pub plan_name: String,
+    /// ANNUAL / MONTHLY。
+    pub plan_type: String,
+    /// 年度。
+    pub plan_year: i32,
+    /// 月份（年度计划为 None）。
+    pub plan_month: Option<i32>,
+    /// 父年度计划。
+    pub parent_plan_id: Option<Uuid>,
+    /// 编制部门。
+    pub dept_id: Option<Uuid>,
+    /// 编制部门名快照。
+    pub dept_name: Option<String>,
+    /// 编制人。
+    pub planner_id: Option<Uuid>,
+    /// 编制人名快照。
+    pub planner_name: Option<String>,
+    /// 备注。
+    pub remark: Option<String>,
+}
+
+/// 建单入参（明细行；`unit_id` 由物料带出，`planned_amount` 由服务端算）。
+#[derive(Debug, Clone)]
+pub struct NewPlanItem {
+    /// 物料。
+    pub material_id: Uuid,
+    /// 仓库。
+    pub warehouse_id: Uuid,
+    /// 计量单位（物料基础单位）。
+    pub unit_id: Uuid,
+    /// 计划量（> 0）。
+    pub planned_qty: Decimal,
+    /// 预估不含税单价（≥ 0）。
+    pub planned_price: Decimal,
+    /// 行备注。
+    pub remark: Option<String>,
+}
+
+impl NewPlanItem {
+    /// 行金额（4 位舍入）：`planned_qty × planned_price`。
+    pub fn planned_amount(&self) -> Decimal {
+        (self.planned_qty * self.planned_price).round_dp(4)
+    }
+}
+
+/// 单头 update 列（改单用；`None` 不是「不改」，而是「改成 NULL」——
+/// 改单是**整单替换**，见 `purchase_plan_handler::update_plan`）。
+fn head_columns(head: &NewPlanHead) -> Vec<Value> {
+    vec![
+        Value::Text(head.plan_name.clone()),
+        Value::Text(head.plan_type.clone()),
+        Value::I32(head.plan_year),
+        match head.plan_month {
+            Some(month) => Value::I32(month),
+            None => Value::Text(String::new()),
+        },
+        uuid_text(head.parent_plan_id),
+        uuid_text(head.dept_id),
+        optional_text(head.dept_name.as_deref()),
+        uuid_text(head.planner_id),
+        optional_text(head.planner_name.as_deref()),
+        optional_text(head.remark.as_deref()),
+    ]
+}
+
+/// 建单（单头 + 明细 + 合计重算，同一事务），返回计划 id。
+pub async fn create_plan(
+    head: &NewPlanHead,
+    items: &[NewPlanItem],
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Uuid> {
+    let tx = db().begin().await?;
+    let result = async {
+        let plan_no = next_plan_no(&tx, now).await?;
+        let id = Uuid::now_v7();
+        let mut params = vec![Value::from(&id), Value::Text(plan_no)];
+        params.extend(head_columns(head));
+        params.push(Value::from(now));
+        params.push(Value::from(now));
+        params.push(uuid_text(operator));
+        params.push(uuid_text(operator));
+        tx.exec_sql(
+            format!(
+                "INSERT INTO {PLAN_TABLE} \
+                    (id, plan_no, plan_name, plan_type, plan_year, plan_month, parent_plan_id, \
+                     dept_id, dept_name, planner_id, planner_name, remark, \
+                     status, created_at, updated_at, create_by, update_by) \
+                 VALUES (?, ?, ?, ?, ?, NULLIF(?::text,'')::int, NULLIF(?::text,'')::uuid, \
+                     NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+                     NULLIF(?::text,'')::uuid, NULLIF(?::text,''), NULLIF(?::text,''), \
+                     'DRAFT', ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+            ),
+            params,
+        )
+        .await?;
+        insert_items(&tx, id, items).await?;
+        recalc_totals(&tx, id).await?;
+        Ok::<Uuid, DbError>(id)
+    }
+    .await;
+    match result {
+        Ok(id) => {
+            tx.commit().await?;
+            Ok(id)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 插入明细（建单 / 改单共用；行号 1 起，金额由服务端算）。
+async fn insert_items(ex: &impl SqlExecutor, plan_id: Uuid, items: &[NewPlanItem]) -> DbResult<()> {
+    for (index, item) in items.iter().enumerate() {
+        let line_no = i32::try_from(index + 1).unwrap_or(i32::MAX);
+        ex.exec_sql(
+            format!(
+                "INSERT INTO {ITEM_TABLE} \
+                    (id, plan_id, line_no, material_id, warehouse_id, unit_id, \
+                     planned_qty, executed_qty, planned_price, planned_amount, remark) \
+                 VALUES (?, ?::uuid, ?, ?::uuid, ?::uuid, ?::uuid, \
+                     ?::text::numeric, 0, ?::text::numeric, ?::text::numeric, NULLIF(?::text,''))"
+            ),
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&plan_id),
+                Value::I32(line_no),
+                Value::from(&item.material_id),
+                Value::from(&item.warehouse_id),
+                Value::from(&item.unit_id),
+                Value::Text(item.planned_qty.to_string()),
+                Value::Text(item.planned_price.to_string()),
+                Value::Text(item.planned_amount().to_string()),
+                optional_text(item.remark.as_deref()),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// 锁单头并读状态（提交 / 改单事务的第一句；不带 JOIN，`FOR UPDATE` 才能用）。
+pub async fn lock_plan(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<(String, Option<Uuid>)>> {
+    // SCOPE-EXEMPT: 按主键取单行状态并加行锁，不涉及数据范围。
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT status, approval_instance_id FROM {PLAN_TABLE} \
+                  WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some((row.get_typed("status")?, row.get_typed("approval_instance_id")?))),
+    }
+}
+
+/// 改单（整单替换：单头 + 全量明细 + 合计重算，同一事务由调用方持有）。
+///
+/// CAS 口径：`WHERE status = 'DRAFT'`；返回 0 行说明单据已不是草稿（并发提交 / 已被批）
+/// → 调用方 409。**只有草稿能改**：审批中的单改了会让审批人看的和落库的不是一张。
+pub async fn replace_plan(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    head: &NewPlanHead,
+    items: &[NewPlanItem],
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let mut params = head_columns(head);
+    params.push(Value::from(now));
+    params.push(uuid_text(operator));
+    params.push(Value::from(&id));
+    let affected = ex
+        .exec_sql(
+            format!(
+                "UPDATE {PLAN_TABLE} \
+                    SET plan_name = ?, plan_type = ?, plan_year = ?, \
+                        plan_month = NULLIF(?::text,'')::int, \
+                        parent_plan_id = NULLIF(?::text,'')::uuid, \
+                        dept_id = NULLIF(?::text,'')::uuid, dept_name = NULLIF(?::text,''), \
+                        planner_id = NULLIF(?::text,'')::uuid, planner_name = NULLIF(?::text,''), \
+                        remark = NULLIF(?::text,''), \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
+            ),
+            params,
+        )
+        .await?;
+    if affected == 0 {
+        return Ok(0);
+    }
+    ex.exec_sql(
+        format!("DELETE FROM {ITEM_TABLE} WHERE plan_id = ?::uuid"),
+        vec![Value::from(&id)],
+    )
+    .await?;
+    insert_items(ex, id, items).await?;
+    recalc_totals(ex, id).await?;
+    Ok(affected)
+}
+
+/// 删单（软删；只有草稿能删）。返回 0 行 = 不是草稿 / 不存在。
+///
+/// 为什么不物理删：明细带 `executed_qty`（执行量可能已被 M4-03 引用），
+/// 物理删会让「这张计划到底有没有过」查不出来；软删保住审计线索。
+pub async fn soft_delete_plan(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {PLAN_TABLE} \
+                SET deleted_at = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::from(now),
+            Value::from(now),
+            uuid_text(operator),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 提交审批：`DRAFT → SUBMITTED` + 审批实例 id（同一事务由调用方持有）。
+pub async fn mark_submitted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    instance_id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &Transition {
+            from: STATUS_DRAFT,
+            to: STATUS_SUBMITTED,
+            instance: Some(instance_id),
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 审批结论回写：`SUBMITTED → APPROVED`（通过）。
+pub async fn mark_approved(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &Transition {
+            from: STATUS_SUBMITTED,
+            to: STATUS_APPROVED,
+            instance: None,
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 审批结论回写：`SUBMITTED → DRAFT`（驳回 / 撤回打回草稿，清实例）。
+pub async fn mark_back_to_draft(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &Transition {
+            from: STATUS_SUBMITTED,
+            to: STATUS_DRAFT,
+            instance: None,
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 显式跳过审批：`DRAFT → APPROVED`（**没有**审批实例）。
+///
+/// 只有「没配已发布的 `pp_approve` 流程」且操作人持 `business:erp:skip-approval`
+/// 且理由 ≥10 字时才走这条路（判据在 `approval_gate::authorize_missing_flow`）；
+/// 理由随状态流转写进备注，审计据此追溯「为什么这次没有复核」。
+pub async fn mark_skipped_approval(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &Transition {
+            from: STATUS_DRAFT,
+            to: STATUS_APPROVED,
+            instance: None,
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 一次状态流转的参数（把 8 个参数收成 6 个：clippy 的上限是 7）。
+struct Transition<'a> {
+    /// 期望的当前状态（CAS 条件）。
+    from: &'a str,
+    /// 目标状态。
+    to: &'a str,
+    /// 审批实例：`Some` 写入、`None` 清空。
+    instance: Option<Uuid>,
+    /// 追加到备注的说明。
+    reason: Option<&'a str>,
+}
+
+/// 状态流转（CAS：`from` → `to`；`instance` 有值则写、无值则清空）。
+async fn apply_status_with_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    transition: &Transition<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let Transition {
+        from,
+        to,
+        instance,
+        reason,
+    } = *transition;
+    let set_instance = match instance {
+        Some(_) => "approval_instance_id = NULLIF(?::text,'')::uuid,",
+        None => "approval_instance_id = NULL,",
+    };
+    let mut params = vec![Value::Text(to.to_string())];
+    if instance.is_some() {
+        params.push(uuid_text(instance));
+    }
+    params.extend([
+        optional_text(reason),
+        optional_text(reason),
+        optional_text(reason),
+        Value::from(now),
+        uuid_text(operator),
+        Value::from(&id),
+        Value::Text(from.to_string()),
+    ]);
+    ex.exec_sql(
+        format!(
+            "UPDATE {PLAN_TABLE} \
+                SET status = ?, {set_instance} \
+                    remark = CASE WHEN ?::text IS NULL OR btrim(?::text) = '' THEN remark \
+                                  ELSE COALESCE(NULLIF(remark, '') || E'\\n', '') || ?::text END, \
+                    updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+        ),
+        params,
+    )
+    .await
+}
+
+// ==================== 读：分页 / 父单事实 / 主数据 ====================
+
+/// 分页查询（关键字 / 状态 / 类型 / 年度 / 部门）。
+///
+/// 不吃执行器：`scope::paginate_unscoped` 走全局 `db()`（与采购申请分页同款）。
+pub async fn page_plans(
+    filter: &crate::business::erp::purchase::purchase_plan_dto::PlanFilter,
+) -> DbResult<(Vec<PlanRow>, u64)> {
+    let mut sql = plan_select_sql();
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(status) = filter.status.as_deref() {
+        sql.push_str(" AND p.status = ?");
+        params.push(Value::Text(status.to_string()));
+    }
+    if let Some(plan_type) = filter.plan_type.as_deref() {
+        sql.push_str(" AND p.plan_type = ?");
+        params.push(Value::Text(plan_type.to_string()));
+    }
+    if let Some(year) = filter.plan_year {
+        sql.push_str(" AND p.plan_year = ?");
+        params.push(Value::I32(year));
+    }
+    if let Some(dept_id) = filter.dept_id {
+        sql.push_str(" AND p.dept_id = ?::uuid");
+        params.push(Value::from(&dept_id));
+    }
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref()) {
+        let like = Value::Text(pattern);
+        sql.push_str(
+            " AND (p.plan_no LIKE ? OR p.plan_name LIKE ? OR COALESCE(p.remark, '') LIKE ? \
+                OR COALESCE(p.dept_name, '') LIKE ? \
+                OR EXISTS (SELECT 1 FROM sys_dept d \
+                            WHERE d.id = p.dept_id AND d.dept_name LIKE ?))",
+        );
+        for _ in 0..5 {
+            params.push(like.clone());
+        }
+    }
+    let page = scope::paginate_unscoped(
+        PLAN_TARGET,
+        &sql,
+        params,
+        Some("ORDER BY p.plan_year DESC, p.plan_month DESC NULLS LAST, p.plan_no DESC"),
+        filter.page,
+        filter.page_size,
+    )
+    .await?;
+    let rows = page.list.iter().map(read_plan_row).collect::<DbResult<Vec<_>>>()?;
+    Ok((rows, page.total))
+}
+
+/// 父单事实：`(plan_type, plan_year, plan_month)`（判 `parent_plan_id` 语义用）。
+pub async fn parent_facts(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<(String, i32, Option<i32>)>> {
+    // SCOPE-EXEMPT: 按主键取 1 行的类型/年度/月份，不做数据范围裁剪。
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT plan_type, plan_year, plan_month FROM {PLAN_TABLE} \
+                  WHERE id = ?::uuid AND deleted_at IS NULL"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some((
+            row.get_typed("plan_type")?,
+            row.get_typed("plan_year")?,
+            row.get_typed("plan_month")?,
+        ))),
+    }
+}
+
+/// 部门名（建单快照用；查不到 → `None`，调用方按 400 处理）。
+pub async fn dept_name_of(ex: &impl SqlExecutor, dept_id: Uuid) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: 按主键取 1 行名称。
+    let rows = ex
+        .query_sql(
+            "SELECT dept_name FROM sys_dept WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
+            vec![Value::from(&dept_id)],
+        )
+        .await?;
+    rows.first().map(|row| row.get_typed("dept_name")).transpose()
+}
+
+/// 可选文本（`None` / 空串 → `NULLIF(?::text,'')` 折成 NULL）。
+pub fn optional_text(value: Option<&str>) -> Value {
+    Value::Text(value.unwrap_or_default().to_string())
 }
 
 // ==================== 单测（纯逻辑，不连库） ====================
