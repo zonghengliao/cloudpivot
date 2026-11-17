@@ -1,0 +1,23 @@
+== 迁移副本 /root/.hermes/profiles/backend-developer/cache/scratch/o13/mig_no442
+== 临时 profile /opt/cloudpivot/backend/config/config-o13tmp.toml
+# 临时 profile（卡 t_0fd37353 造全量库用，跑完删除；.gitignore 覆盖 config-*.toml）
+[database]
+name = "cloudpivot_test_o13c"
+
+[database.migration]
+enabled = true
+path = "/root/.hermes/profiles/backend-developer/cache/scratch/o13/mig_no442"
+auto_migrate = true
+NOTICE:  database "cloudpivot_test_o13c" does not exist, skipping
+== 已建空库 cloudpivot_test_o13c
+== 启动 pid=3259577 日志=/root/.hermes/profiles/backend-developer/cache/scratch/o13/run_cloudpivot_test_o13c.log
+== admin 就绪=1
+ERROR:  aggregate functions are not allowed in GROUP BY
+LINE 1: select 'mig '||kind||' '||count(*) from schema_migrations gr...
+                                  ^
+menus 540
+orders/purch/vouchers 0/0/0
+== 已停实例
+== 临时 profile 已删除
+0
+== 日志里没有 V0442 ✓

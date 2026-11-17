@@ -760,6 +760,40 @@ async fn o12_super_admin_passes_every_route() {
 
 // ==================== O13 写接口必须受权限保护 ====================
 
+/// 「POST 但语义是查询」的**精确路径白名单**（`(method, path, 依据)`，逐字比对，不猜）。
+///
+/// 为什么不用后缀/子串猜：子串规则**放得比想放的宽**。`route.path.contains("/check")`
+/// 会把未来的 `POST /business/xxx/checkout`（真落库）一起豁免，而 `contains("/export")`
+/// 会连带 `…/export-job`。登记的路径越具体，以后误放行的概率越低。
+///
+/// 收录条件（三条都满足才许加）：
+/// 1. 路径里**没有** `preview / export / search / statistics` 这样的「读语义段名」
+///    （有的话走段名规则就够了，登记在这里是多余条目 —— 本用例会判红逼着删）；
+/// 2. 权限码是读码（`:list` / `:detail`）—— 一旦改成写码，这条豁免自动失效，本用例判红；
+/// 3. 第三条元素写清「**为什么它不写库**」，并且指到能证明这一点的用例名
+///    （只有「代码看起来不像写」不算依据：handler 里一次 `UPDATE` 就推翻它）。
+const QUERY_BY_POST_EXACT: &[(&str, &str, &str)] = &[(
+    "POST",
+    "/business/erp/report/cash-flow/worksheet/check",
+    "现金流底稿勾稽校验（M1-14）：把草稿叠加到已存底稿上算「期初 + 流入 − 流出 = 期末」，\
+     全程只读 —— handler 里唯一的两条 SQL 是 load_config_items / load_rows，返回的是\
+     `CheckRes`（校验结果），没有任何 INSERT / UPDATE / DELETE，也没有事务。\
+     证据：`business::erp::cashflow_worksheet::tests::draft_check_writes_nothing`\
+     真库断言「校验后 load_rows 回读仍为 0 行」；同时它也验了不平 400 + 66087。\
+     复用读码的授权理由见 migrations/business/V0415__cashflow_worksheet_perm.up.sql\
+     「为什么校验接口复用读码」一节：能看底稿的人当然能校验底稿，另开一个码只会逼管理员\
+     为「点一下校验」再授一次，而 540 条菜单已顶 menu_invariants ⑤ 的上界 540。",
+)];
+
+/// 路径里是否有「读语义」的**段名**（`preview` / `export` / `search` / `statistics`）。
+///
+/// 判「段名相等」而不是「路径含该词」：`/preview` 是语义，`/preview-job` / `/checkout`
+/// 不是。早先的 `contains` 写法是这条闸门的漏点（O13 修 o13 现金流底稿存量红时收窄）。
+fn is_read_query_path(path: &str) -> bool {
+    const READ_QUERY_SEGMENTS: [&str; 4] = ["preview", "export", "search", "statistics"];
+    path.split('/').any(|seg| READ_QUERY_SEGMENTS.contains(&seg))
+}
+
 /// O13：**每个写接口都必须有权限注解**（漏一个就是「谁都能改」的后门）。
 ///
 /// 这条是「越权」的根防线：如果 `PATCH /system/user/{id}` 忘了写权限注解，中间件
@@ -798,19 +832,24 @@ async fn o13_every_write_route_requires_permission() {
 
     // 写接口的权限码不能是读权限（读权限给了导出/查看，绝不能连带写）。
     //
-    // 例外：语义是「读」但用 POST 传查询体的接口（preview / export / search 这类），
-    // 它们只回显不落库，要求 `:list` 是合理的。当前全库只有 1 条：
-    // `POST /business/notice/template/{id}/preview → business:notice:template:list`
-    // （已作为观察项记入 docs/test-report-system.md，P3）。
+    // 例外只有两类，**每一类都必须能逐条指认**，不许「路径里出现某个词就放行」：
+    //
+    //  ① 语义是「读」但用 POST 传查询体的接口：路径**段名**就是 preview / export /
+    //     search / statistics（如 `POST …/preview`）。它们只回显不落库，要求 `:list`
+    //     是合理的。判据是「段名相等」，不是「路径含该词」——子串会顺手放行未来的
+    //     `/checkout`、`/export-job` 这类真写接口。
+    //  ② `QUERY_BY_POST_EXACT` 里逐条登记的精确路径（段名取不到那四个词、但确实不写库）。
+    //     当前 1 条：`POST /business/erp/report/cash-flow/worksheet/check → :list`
+    //     （现金流底稿勾稽校验，证据见该常量的注释与 docs/test-report-system.md BUG-SYS-07）。
     let mut read_only_write: Vec<String> = Vec::new();
     let mut query_by_post: Vec<String> = Vec::new();
     for route in &write_routes {
         if route.permission.ends_with(":list") || route.permission.ends_with(":detail") {
-            let semantic_read = ["/preview", "/export", "/search", "/statistics"]
-                .iter()
-                .any(|suffix| route.path.contains(suffix));
             let entry = format!("{} {} → {}", route.method, route.path, route.permission);
-            if semantic_read {
+            let exact_listed = QUERY_BY_POST_EXACT
+                .iter()
+                .any(|(method, path, _)| *method == route.method && *path == route.path);
+            if is_read_query_path(&route.path) || exact_listed {
                 query_by_post.push(entry);
             } else {
                 read_only_write.push(entry);
@@ -819,9 +858,46 @@ async fn o13_every_write_route_requires_permission() {
     }
     assert!(
         read_only_write.is_empty(),
-        "写接口只要求了读权限（有权查看即可改数据）：\n{}",
+        "写接口只要求了读权限（有权查看即可改数据）：\n{}\n\
+         （若确实「只回显不落库」，要么把路径段名改成 preview/export/search/statistics，\
+         要么在 QUERY_BY_POST_EXACT 里登记并写清不落库的依据）",
         read_only_write.join("\n")
     );
+
+    // 白名单条目必须**都对得上一张真存在、且真的只要求读码**的写路由。
+    // 四条「失效」判据都会判红，因为留着的豁免等于给闸门开了个说不清的后门：
+    //   · 扫不到这条路由 —— 接口删了/改路径了，条目过期；
+    //   · 权限码已不是读码 —— 豁免已无意义（写码本来就该有）；
+    //   · 依据为空 —— 没有依据的豁免 = 惯例性放过；
+    //   · 段名规则已覆盖 —— 多余条目，会掩盖「到底哪类例外在生效」。
+    let mut stale: Vec<String> = Vec::new();
+    for (method, path, why) in QUERY_BY_POST_EXACT {
+        let hit = write_routes.iter().find(|r| r.method == *method && r.path == *path);
+        match hit {
+            None => stale.push(format!("{method} {path}：扫描不到这条写路由（条目已过期，删掉它）")),
+            Some(route) if !route.permission.ends_with(":list") && !route.permission.ends_with(":detail") => {
+                stale.push(format!(
+                    "{method} {path}：当前权限码是 {}，已不是读码 → 这条豁免失效，删掉它",
+                    route.permission
+                ));
+            }
+            Some(_) if is_read_query_path(path) => stale.push(format!(
+                "{method} {path}：段名规则（preview/export/search/statistics）已覆盖，\
+                 条目多余 —— 删掉它，否则以后看不出是哪类例外在生效"
+            )),
+            Some(_) if why.trim().len() < 20 => stale.push(format!(
+                "{method} {path}：没写「为什么不落库」的依据（现有 {} 字），补上证明用例名",
+                why.trim().len()
+            )),
+            Some(_) => {}
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "QUERY_BY_POST_EXACT 有失效/多余条目（豁免不许无声堆积）：\n{}",
+        stale.join("\n")
+    );
+
     if !query_by_post.is_empty() {
         println!("[O13] 例外（POST 但语义是查询，要求读权限）：{query_by_post:?}");
     }
@@ -829,6 +905,40 @@ async fn o13_every_write_route_requires_permission() {
         "[O13] {} 个写接口全部有独立写权限码，无公开写接口 ✓",
         write_routes.len()
     );
+}
+
+/// O13 配套：`is_read_query_path` 的判据是**段名相等**，不是子串包含。
+///
+/// 这条纯逻辑用例把上面闸门的「宽松边」钉住：早先 `path.contains("/check")` 会连带放行
+/// `…/checkout`，`contains("/export")` 会放行 `…/export-job` —— 都是真落库的写接口。
+/// 判据退化成 contains 时，本用例立刻红（不需要动真库）。
+#[test]
+fn o13_read_query_path_matches_whole_segment_only() {
+    // 真·读语义（写法与仓内现有 3 条 preview 接口同形：末段 / 中间段都算）
+    for ok in [
+        "/business/notice/template/{id}/preview",
+        "/business/flow/linkage/preview",
+        "/business/erp/report-item/preview",
+        "/business/erp/ledger/export",
+        "/business/erp/voucher/search/{period}",
+        "/business/erp/report/statistics",
+    ] {
+        assert!(is_read_query_path(ok), "「{ok}」是真读接口，必须命中");
+    }
+    // 长得像但不是 —— 逐字比对才拦得住
+    for bad in [
+        "/business/erp/report/cash-flow/worksheet/check",
+        "/business/erp/quotation/{id}/checkout",
+        "/business/erp/voucher/export-job",
+        "/business/erp/report/statistics-recalc",
+        "/business/erp/ledger/previews",
+        "/business/erp/report/search-rebuild",
+    ] {
+        assert!(
+            !is_read_query_path(bad),
+            "「{bad}」不是读语义路径（子串/前缀都不算），判据退化成 contains 了"
+        );
+    }
 }
 
 // ==================== O14 权限码格式 ====================

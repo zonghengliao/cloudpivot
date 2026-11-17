@@ -135,10 +135,19 @@ name = title = business:erp:voucher:list   path=/business/erp/voucher
 
 ---
 
-### 🟢 BUG-SYS-07（严重度 **P4**，记录在案）1 个 POST 接口只要求读权限
+### 🟢 BUG-SYS-07（严重度 **P4**，记录在案）3 个 POST 接口只要求读权限
 
 `POST /business/notice/template/{id}/preview → business:notice:template:list`。
 语义是「只回显不落库」的预览，要求读权限可接受；已作为 `o13` 的显式例外记录，避免以后被当成漏配。
+
+**2026-11-17 补记（卡 t_0fd37353）**：现全库共 3 条「POST 但语义是查询」的读码接口 ——
+上述 preview 之外还有 `POST /business/flow/linkage/preview → business:flow:linkage:list`、
+`POST /business/erp/report-item/preview → business:erp:report-item:list`（同属 `/preview` 段名规则），
+以及 `POST /business/erp/report/cash-flow/worksheet/check → business:erp:cashflow-worksheet:list`
+（现金流底稿勾稽校验，不落库；段名不是那四个词，故在 `o13` 的 `QUERY_BY_POST_EXACT` 里**逐条登记**
+并附证明用例 `draft_check_writes_nothing`）。同时把段名判据从 `path.contains("…")` 收紧为
+「路径段名相等」，`…/checkout`、`…/export-job` 这类真写接口不再被顺手放行，并有纯逻辑用例
+`o13_read_query_path_matches_whole_segment_only` 钉住。
 
 ---
 

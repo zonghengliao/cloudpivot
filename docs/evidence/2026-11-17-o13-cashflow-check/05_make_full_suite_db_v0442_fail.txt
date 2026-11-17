@@ -1,0 +1,51 @@
+==> 仓根 /opt/cloudpivot
+==> 二进制 /opt/cloudpivot/backend/target/debug/cloudpivot（migrations 编译期内嵌，必须是被测树自己编的）
+==> 库 cloudpivot_test_o13 表属主 cloudpivot
+==> 已建空库 cloudpivot_test_o13（owner=cloudpivot）
+==> 启动 pid=3251060 端口=18242 日志=/root/.hermes/profiles/backend-developer/cache/scratch/o13/mkdb.log（migrations + bootstrap + 演示组织）
+==> 实例已停（日志尾部）
+    [2m2026-11-17T08:38:03.882800Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: ROLLBACK
+    [2m2026-11-17T08:38:03.883280Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: query failed: : db error
+    FATAL: 服务启动失败: 配置错误: 数据库迁移失败: query failed: : db error
+                             JOIN sys_role r ON r.id = rm.role_id AND r.deleted_at IS NULL
+                            WHERE m.auth_code = w.btn_code AND m.deleted_at IS NULL)
+               AND NOT EXISTS (
+                    -- 凡持有按钮码的角色，父页码也必须持有（否则就是 c) 要抓的孤儿）
+                    SELECT 1
+                      FROM sys_menu m
+                      JOIN sys_role_menu rm ON rm.menu_id = m.id
+                      JOIN sys_role r ON r.id = rm.role_id AND r.deleted_at IS NULL
+                      JOIN sys_menu p ON p.id = m.parent_id AND p.deleted_at IS NULL
+                      JOIN sys_role_menu pr ON pr.role_id = r.id
+                      JOIN sys_menu pm ON pm.id = pr.menu_id AND pm.deleted_at IS NULL
+                     WHERE m.auth_code = w.btn_code
+                       AND m.deleted_at IS NULL
+                       AND coalesce(p.auth_code, '') <> ''
+                       AND pm.auth_code = p.auth_code
+                   );
+            IF n_bad <> 0 THEN
+                RAISE EXCEPTION 'V0442 自检失败：% 个「有按钮码、无父页码」的组合没被补上（补授规则漏了角色）', n_bad;
+            END IF;
+        END IF;
+    
+        -- ===== f) 本迁移不新增菜单行 =====
+        SELECT count(*) INTO n
+          FROM sys_menu
+         WHERE auth_code = 'business:notice:mine'
+           AND deleted_at IS NULL;
+        IF n <> 2 THEN
+            RAISE EXCEPTION 'V0442 自检失败：business:notice:mine 的承载行应为 2（1 页面 + 1 按钮），实得 %', n;
+        END IF;
+    
+        RAISE NOTICE 'V0442 自检通过：notice:mine 按钮归位「消息中心」+ 账龄/互斥两对孤儿补授父页码 + N20 六码已授（目标角色 % 个）',
+            n_roles;
+    END $$;
+    
+    [2m2026-11-17T08:38:03.881401Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: ROLLBACK
+    [2m2026-11-17T08:38:03.881912Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s7: SELECT pg_advisory_unlock($1)
+    [2m2026-11-17T08:38:03.882343Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s7 with parameters: [Int(7956008334390686208)]
+    [2m2026-11-17T08:38:03.882800Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: ROLLBACK
+    [2m2026-11-17T08:38:03.883280Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: query failed: : db error
+    FATAL: 服务启动失败: 配置错误: 数据库迁移失败: query failed: : db error
+!! bootstrap 没跑完（库里没有 admin+SUPER_ADMIN），见 /root/.hermes/profiles/backend-developer/cache/scratch/o13/mkdb.log
+EXIT=1

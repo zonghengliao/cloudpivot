@@ -1,0 +1,37 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 15 tests
+test system::authz_tests::o01_readonly_cannot_create_user ... ok
+test system::authz_tests::o04_warehouse_cannot_read_finance_report ... ok
+test system::authz_tests::o03_readonly_cannot_create_stock_in ... ok
+test system::authz_tests::o05_finance_cannot_see_other_dept_rows ... ok
+test system::authz_tests::o08_token_version_invalidation ... ok
+test system::authz_tests::o09_forged_claims_do_not_grant_db_side_privileges ... ok
+test system::authz_tests::o10_privilege_cap_blocks_cross_user_escalation ... ok
+test system::authz_tests::o11_cross_dept_write_rejected ... ok
+test system::authz_tests::o02_readonly_cannot_delete_role ... ok
+test system::authz_tests::o06_employee_cannot_read_flow_definition ... ok
+test system::authz_tests::o07_public_route_whitelist_is_closed ... ok
+test system::authz_tests::o15_wildcard_claims_must_be_backed_by_db_role ... ok
+test system::authz_tests::o13_every_write_route_requires_permission ... FAILED
+test system::authz_tests::o12_super_admin_passes_every_route ... ok
+test system::authz_tests::o14_permission_code_format ... ok
+
+failures:
+
+---- system::authz_tests::o13_every_write_route_requires_permission stdout ----
+
+thread 'system::authz_tests::o13_every_write_route_requires_permission' (3248837) panicked at app/src/system/authz_tests.rs:820:5:
+写接口只要求了读权限（有权查看即可改数据）：
+POST /business/erp/report/cash-flow/worksheet/check → business:erp:cashflow-worksheet:list
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    system::authz_tests::o13_every_write_route_requires_permission
+
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 6100 filtered out; finished in 0.99s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+EXIT=101

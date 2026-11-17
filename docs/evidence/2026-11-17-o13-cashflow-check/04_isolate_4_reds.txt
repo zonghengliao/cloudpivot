@@ -1,0 +1,35 @@
+menus 540
+orders/purch/vouchers 0/0/0
+== 已停实例
+== 临时 profile 已删除
+0
+== 日志里没有 V0442 ✓
+== 手工应用 V0442 + 记账
+psql:/opt/cloudpivot/backend/app/migrations/business/V0442__perm_gate_orphans_and_n20.up.sql:538: NOTICE:  V0442 自检通过：notice:mine 按钮归位「消息中心」+ 账龄/互斥两对孤儿补授父页码 + N20 六码已授（目标角色 5 个）
+DO
+test business::erp::fx_ledger::tests::fx_ledger_closing_matches_fx_balance ... ok
+test business::erp::fx_ledger::tests::fx_ledger_rejects_base_currency_and_malformed_params ... ok
+test business::erp::fx_ledger::tests::fx_ledger_reports_rows_accounts_and_running_balance ... ok
+test business::erp::fx_ledger::tests::fx_ledger_running_balance_stays_continuous_across_pages ... ok
+test business::erp::fx_ledger::tests::fx_ledger_warns_about_unmarked_accounts ... ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::threshold_from_config_and_query_override ... ok
+test business::erp::ledger::tests::p2d1_ledger_excludes_draft ... FAILED
+
+failures:
+
+---- business::erp::ledger::tests::p2d1_ledger_excludes_draft stdout ----
+
+thread 'business::erp::ledger::tests::p2d1_ledger_excludes_draft' (3259667) panicked at app/src/business/erp/ledger.rs:1198:9:
+assertion `left == right` failed: DRAFT 只应 1 张（列表口径看得见）
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::ledger::tests::p2d1_ledger_excludes_draft
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 6108 filtered out; finished in 0.32s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+EXIT=101

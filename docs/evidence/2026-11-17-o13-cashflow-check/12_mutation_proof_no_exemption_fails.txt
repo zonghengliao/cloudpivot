@@ -1,0 +1,20 @@
+test system::authz_tests::o13_read_query_path_matches_whole_segment_only ... ok
+test system::authz_tests::o13_every_write_route_requires_permission ... FAILED
+
+failures:
+
+---- system::authz_tests::o13_every_write_route_requires_permission stdout ----
+
+thread 'system::authz_tests::o13_every_write_route_requires_permission' (3260649) panicked at app/src/system/authz_tests.rs:859:5:
+写接口只要求了读权限（有权查看即可改数据）：
+POST /business/erp/report/cash-flow/worksheet/check → business:erp:cashflow-worksheet:list
+（若确实「只回显不落库」，要么把路径段名改成 preview/export/search/statistics，要么在 QUERY_BY_POST_EXACT 里登记并写清不落库的依据）
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    system::authz_tests::o13_every_write_route_requires_permission
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 6114 filtered out; finished in 0.33s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

@@ -1,0 +1,9 @@
+psql:/opt/cloudpivot/backend/app/migrations/business/V0442__perm_gate_orphans_and_n20.up.sql:182: NOTICE:  V0442: 前置接点齐备（消息中心 / 应收台账 / 角色互斥页 + 两个祖先目录 + 六个 N20 码）
+DO
+UPDATE 1
+INSERT 0 1
+INSERT 0 0
+INSERT 0 14
+INSERT 0 1
+psql:/opt/cloudpivot/backend/app/migrations/business/V0442__perm_gate_orphans_and_n20.up.sql:538: NOTICE:  V0442 自检通过：notice:mine 按钮归位「消息中心」+ 账龄/互斥两对孤儿补授父页码 + N20 六码已授（目标角色 5 个）
+DO

@@ -1234,6 +1234,14 @@ pub async fn worksheet_put_api(
 }
 
 /// 勾稽校验（不落库）：把草稿叠加到已存底稿上算「期初 + 流入 − 流出 = 期末」。
+///
+/// 权限码用 `:list`（读码）而不是单独的 `:check`：本接口一行都不写库（只读
+/// `biz_cashflow_worksheet` 与项目配置，返回校验结果），能看底稿的人当然能校验底稿；
+/// 单独开码只会逼管理员为「点一下校验」再授一次。这一条已在越权闸
+/// `system::authz_tests::o13_every_write_route_requires_permission` 的
+/// `QUERY_BY_POST_EXACT` 里**逐条登记**（不落库的依据 + 证明用例
+/// `draft_check_writes_nothing` 都写在那里）；授权理由见
+/// `V0415__cashflow_worksheet_perm.up.sql` 的「为什么校验接口复用读码」。
 #[nik::permission(
     path = "/business/erp/report/cash-flow/worksheet/check",
     method = "POST",
