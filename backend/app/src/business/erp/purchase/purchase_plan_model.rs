@@ -1,24 +1,27 @@
-//! 采购计划数据层（M4-01 · 表结构）。
+//! 采购计划数据层（M4-01 表结构 · M4-02 CRUD + 审批）。
 //!
-//! 表结构唯一依据：`backend/app/migrations/business/V0446__purchase_plan.up.sql`。
+//! 表结构唯一依据：`backend/app/migrations/business/V0446__purchase_plan.up.sql`；
+//! 审批流程 / 菜单 / 授权见 `V0447__purchase_plan_crud.up.sql`。
 //!
 //! | 表 | 行数级 | 关键不变量 |
 //! |----|--------|------------|
 //! | `biz_purchase_plan` | 每期每部门 1 张，年几十张 | 单号存活唯一；`ANNUAL ⇒ plan_month IS NULL`、`MONTHLY ⇒ 1..12`；「类型 + 年度 + 月 + 编制部门」存活唯一；`SUBMITTED` 必有审批实例 |
 //! | `biz_purchase_plan_item` | 一单几十~几千行 | `(plan_id, material_id, warehouse_id)` 唯一（**卡面的粒度**）；`planned_qty > 0`；`executed_qty >= 0`（刻意不拦超计划） |
 //!
-//! # 本卡交付到哪（M4-01 = 表结构）
+//! # 本文件到哪（M4-01 表结构 → M4-02 写入口）
 //!
 //! ```text
-//! 有：表名 / 列清单 / 行结构 / 取号（biz_seq PPL）/ 两个读入口 / 合计重算
-//! 没有：建单 · 改单 · 删单 · 提交审批 · 转采购申请 · 执行率接口 · 权限码 · 路由 · 菜单 · 前端
-//!       —— 建单/改单/删单/提交属 M4-02，转申请属 M4-03，执行率属 M4-04，页面属 M4-06
+//! 有：表名 / 列清单 / 行结构 / 取号（biz_seq PPL）/ 读入口 / 合计重算
+//!     + 建单 create_plan / 整单替换 replace_plan / 软删 soft_delete_plan
+//!     + 状态流转 mark_submitted / mark_approved / mark_back_to_draft / mark_skipped_approval
+//!     + 分页 page_plans / 父单事实 parent_facts
+//! 没有：转采购申请（M4-03）· 执行率报表（M4-04）· 前端页面（M4-06）
 //! ```
 //!
-//! 换句话说：本文件把「表长什么样」钉死在类型上（M4-02 不用再猜列名、不用自己拼
-//! `COALESCE(NULLIF(...))` 那套），但**不提供任何写单据的业务入口**。
-//! 唯一的写入口是 [`recalc_totals`]（把明细汇总回写单头）与 [`next_plan_no`]（取号）——
-//! 两者都是「表结构的配套设施」：合计列不给重算函数就是死列，取号行不给取号函数就是死规则。
+//! 写入口的三条硬口径（M4-01 交接注释逐条落地）：
+//! ① 单头三个 `total_*` 是派生列，一律 [`recalc_totals`] 重算，请求体里的同名值不读；
+//! ② 状态流转全部 CAS（`WHERE status = ?`），0 行 = 并发/状态已变 → 调用方 409；
+//! ③ `executed_qty` 只兜 ≥ 0，**刻意允许超计划**（执行率 >100% 是 M4-04 的报表话题）。
 //!
 //! # 数据权限
 //!
