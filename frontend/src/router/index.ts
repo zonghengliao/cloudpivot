@@ -643,6 +643,20 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '采购计划', permission: 'business:erp:purchase-plan:page' },
       },
       {
+        // ==================== ERP 框架协议（M4 · 协议台账 + 执行量） ====================
+        // `sys_menu`（V0452 种子 …4480）path = `/business/erp/framework-agreement`、
+        // component `business/erp/framework-agreement/index`，页面显形码
+        // `business:erp:framework-agreement:page`（AGENTS 约定 14：页面码只给前端判显隐，
+        // 后端零引用）。**路由手工注册**（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        // 只有 2 条只读接口（`…:execution`）：协议的新建/编辑/提交后端无实现、无权限码，
+        // 所以页面上不摆那些按钮（点了必然 404）。
+        path: 'business/erp/framework-agreement',
+        name: 'BusinessErpFrameworkAgreement',
+        component: () => import('@/views/business/erp/framework-agreement/index.vue'),
+        meta: { title: '框架协议', permission: 'business:erp:framework-agreement:page' },
+      },
+      {
         // ==================== ERP 采购退货（P2-03 · 退货 → 审批 → 红字应付 → 库存回冲 → 凭证） ====================
         // `sys_menu`（V0332 种子 …3341）path = `/business/erp/purchase-return`，
         // component `business/erp/purchase-return/index`。**路由手工注册**（没有 views 自动扫描），

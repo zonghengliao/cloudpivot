@@ -1,0 +1,15 @@
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+
+Running 7 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5191（回环 + 隔离端口 5191）
+  ✓  1 [chromium] › e2e/m411-framework-agreement.spec.ts:113:3 › 框架协议（M4-11）：协议台账 + 执行量 › ① 页面能开：两个 Tab 都在，台账 6 份协议，接口全 200 (1.7s)
+  ✓  2 [chromium] › e2e/m411-framework-agreement.spec.ts:142:3 › 框架协议（M4-11）：协议台账 + 执行量 › ② 台账口径：不限量写「不限」、过期写天数、拟稿不因日期而「生效中」 (939ms)
+  ✓  3 [chromium] › e2e/m411-framework-agreement.spec.ts:166:3 › 框架协议（M4-11）：协议台账 + 执行量 › ③ 执行量口径：超限显示「超 5」+ 103.33%，不限量显示「不限」+ 不限量 (1.1s)
+  ✓  4 [chromium] › e2e/m411-framework-agreement.spec.ts:191:3 › 框架协议（M4-11）：协议台账 + 执行量 › ④ 「只看超限」筛选：入参真的带 over_only=true，列表只剩 1 份 (1.1s)
+  ✓  5 [chromium] › e2e/m411-framework-agreement.spec.ts:218:3 › 框架协议（M4-11）：协议台账 + 执行量 › ⑤ 下钻抽屉：KPI「超 5」、逐行「超 10」、来源里看得见那张作废单 (1.3s)
+  ✓  6 [chromium] › e2e/m411-framework-agreement.spec.ts:252:3 › 框架协议（M4-11）：协议台账 + 执行量 › ⑥ 空物料范围的协议：抽屉给空态文案（200 + items=[]，不是 404） (1.1s)
+  ✓  7 [chromium] › e2e/m411-framework-agreement.spec.ts:267:3 › 框架协议（M4-11）：协议台账 + 执行量 › ⑦ 取证截图（台账 / 执行量 / 下钻抽屉），给卡内汇报留现场 (2.9s)
+
+  7 passed (10.9s)
