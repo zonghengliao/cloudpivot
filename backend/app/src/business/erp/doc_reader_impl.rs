@@ -523,6 +523,34 @@ impl ErpDoc {
         }
     }
 
+    /// 审批点「同意」前的业务前置闸（M3-11：客户信用额度）。
+    ///
+    /// 18 条审批线里**只有销售订单**在 `APPROVED` 时刻占用客户信用额度（`ARCH-7 §15.5.2`），
+    /// 所以只有它覆盖；其余显式列出并放行 —— 新增一条 `ErpDoc` 变体时 `match` 不全会编译失败，
+    /// 逼着人想一遍「这条审批线通过时会不会动硬额度」。
+    pub async fn guard_approve(self, task_id: Uuid) -> std::result::Result<(), ApiError> {
+        match self {
+            ErpDoc::SoApprove => sales_approval_bridge::guard_credit_on_approve(task_id).await,
+            ErpDoc::PurchaseOrder
+            | ErpDoc::StockInPost
+            | ErpDoc::StockInCancel
+            | ErpDoc::StockTakePost
+            | ErpDoc::PayablePay
+            | ErpDoc::PayableCancel
+            | ErpDoc::VoucherReverse
+            | ErpDoc::ContractApprove
+            | ErpDoc::BudgetApprove
+            | ErpDoc::AssetDisposal
+            | ErpDoc::Expense
+            | ErpDoc::PrApprove
+            | ErpDoc::PrtApprove
+            | ErpDoc::CostSettle
+            | ErpDoc::ReceiptRefund
+            | ErpDoc::StockTransfer
+            | ErpDoc::QuotationApprove => Ok(()),
+        }
+    }
+
     /// 内控用制单人：委派给该桥现有的 `internal_control_creator`。
     ///
     /// `PAYABLE_CANCEL` 走 `_of_payable` 变体：作废审批的 `biz_id` 是**应付单** id，
@@ -595,6 +623,11 @@ impl DocReader for ErpDocReader {
 
     async fn guard_self_approval(&self, task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
         self.doc.guard(task_id, operator).await
+    }
+
+    /// M3-11：审批点「同意」前的业务前置闸（只有销售订单覆盖，其余 `Ok(())`）。
+    async fn guard_approve(&self, task_id: Uuid) -> std::result::Result<(), ApiError> {
+        self.doc.guard_approve(task_id).await
     }
 }
 

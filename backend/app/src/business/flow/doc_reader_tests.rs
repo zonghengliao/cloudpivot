@@ -51,6 +51,10 @@ struct FakeReader {
     deny_guard: bool,
     /// `guard_self_approval` 被调了几次（P2-34 的 task 级分派要断言「每个实现都过一遍」）。
     guard_calls: Arc<Mutex<usize>>,
+    /// `guard_approve` 是否拒绝（M3-11：信用闸分派）。
+    deny_approve: bool,
+    /// `guard_approve` 被调了几次。
+    approve_calls: Arc<Mutex<usize>>,
 }
 
 impl FakeReader {
@@ -62,6 +66,8 @@ impl FakeReader {
             settle_calls: Arc::new(Mutex::new(Vec::new())),
             deny_guard: false,
             guard_calls: Arc::new(Mutex::new(0)),
+            deny_approve: false,
+            approve_calls: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -102,6 +108,21 @@ impl DocReader for FakeReader {
                 403,
                 error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
                 "测试：制单人不可审批自己制单的单据",
+            ));
+        }
+        Ok(())
+    }
+
+    /// M3-11：业务前置闸默认放行，只有 `deny_approve` 的假实现会拒绝。
+    async fn guard_approve(&self, _task_id: Uuid) -> std::result::Result<(), ApiError> {
+        if let Ok(mut calls) = self.approve_calls.lock() {
+            *calls += 1;
+        }
+        if self.deny_approve {
+            return Err(ApiError::new(
+                409,
+                error_code::RESOURCE_CONFLICT,
+                "测试：客户信用额度不足",
             ));
         }
         Ok(())
@@ -668,6 +689,42 @@ async fn guard_self_approval_for_task_walks_every_reader_and_propagates_the_deni
         .expect_err("应被拦下");
     assert_eq!(error.status, 403);
     assert_eq!(error.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+}
+
+/// M3-11：审批点「同意」前的业务前置闸走同一条注册表扇出 ——
+/// 未注册放行、每个实现都被调到、第一个拒绝原样透传（409 + 业务码）。
+#[tokio::test]
+async fn guard_approve_for_task_walks_every_reader_and_propagates_the_denial() {
+    let _guard = GLOBAL_LOCK.lock().await;
+    doc_reader::reset_for_tests();
+
+    let task_id = Uuid::now_v7();
+
+    // ① 空注册表 → 放行（「没有这条闸」= 不锁死任何审批线）
+    doc_reader::guard_approve_for_task(task_id)
+        .await
+        .expect("空注册表必须放行");
+
+    // ② 两个实现都放行 → 两次都被调到（默认实现 = 该审批线没有额度闸）
+    let allow_a = Arc::new(FakeReader::new(FlowBizType::PoApprove, None));
+    let allow_b = Arc::new(FakeReader::new(FlowBizType::ContractApprove, None));
+    doc_reader::register(allow_a.clone()).expect("注册应成功");
+    doc_reader::register(allow_b.clone()).expect("注册应成功");
+    doc_reader::guard_approve_for_task(task_id).await.expect("都放行应 Ok");
+    assert_eq!(*allow_a.approve_calls.lock().expect("锁"), 1, "第一个实现必须被调到");
+    assert_eq!(
+        *allow_b.approve_calls.lock().expect("锁"),
+        1,
+        "第二个实现也必须被调到（只问第一个 = 销售那关永远不响）"
+    );
+
+    // ③ 有一个拒绝 → HTTP 状态 + 业务码原样透传（调用点的 `?` 直接变 409）
+    let mut deny = FakeReader::new(FlowBizType::SoApprove, None);
+    deny.deny_approve = true;
+    doc_reader::register(Arc::new(deny)).expect("注册应成功");
+    let error = doc_reader::guard_approve_for_task(task_id).await.expect_err("应被拦下");
+    assert_eq!(error.status, 409);
+    assert_eq!(error.code, error_code::RESOURCE_CONFLICT);
 }
 
 /// 受控码表 `flow::internal_control::GOVERNED_CODES` 的自检（**不改表就改这条**）。

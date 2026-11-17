@@ -3,11 +3,12 @@
 //! 与 `purchase_bridge`（采购订单审批）、`stockin_bridge`（收货）、`payable_bridge`（付款）并列的
 //! 一类业务回调：审批单落终态之后，把结论翻译成销售订单的状态。
 //!
-//! # 四个入口
+//! # 五个入口
 //!
 //! | 函数 | 谁调 | 干什么 |
 //! |------|------|--------|
 //! | [`on_so_settled`] | `flow::handler::{approve_task, reject_task, withdraw_instance}`（**审批事务已提交之后**） | `APPROVED` → `SUBMITTED → APPROVED`；`REJECTED` / `WITHDRAWN` / `CANCELLED` → `SUBMITTED → DRAFT`（打回，意见写 `remark`） |
+//! | [`guard_credit_on_approve`] | `flow::handler::approve_task`（**事务之前**，经 `flow::doc_reader` 注册表分派，M3-11） | 客户信用超限且策略 `BLOCK` → 409，待办与单据都不动；`WARN` / `PASS` 放行 |
 //! | [`cancel_approval_of`] | 销售订单作废（`SUBMITTED → CANCELLED`）等「其它路径」 | 把在跑的审批**终止**（`biz_flow_task` / 节点 / 主表一起翻 `CANCELLED`） |
 //! | [`guard_self_approval`] | `flow::handler::approve_task`（**事务之前**） | 制单人 / 发起人不能批自己那一票 → 403 |
 //! | [`internal_control_creator`] | `flow::internal_control`（**生成待办之前**） | 把制单人从审批人列表里排除（落 `SKIPPED` 留痕） |
@@ -39,6 +40,7 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::credit;
 use crate::business::erp::sales::sales_order_model::{self as model, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
@@ -175,8 +177,20 @@ pub fn so_verdict(instance_status: &str) -> Option<SoVerdict> {
 /// | 实例状态 | 销售订单 | 说明 |
 /// |---|---|---|
 /// | `APPROVED` | `SUBMITTED → APPROVED` | 之后才可以出库 |
+/// | `APPROVED` + 信用超限 + 策略 `BLOCK` | `SUBMITTED → DRAFT` | **M3-11 拦截**：见下 |
 /// | `REJECTED` / `WITHDRAWN` / `CANCELLED` | `SUBMITTED → DRAFT` | 打回草稿，审批意见追加到 `remark` |
 /// | 其它（`PENDING` / 空） | 不动 | 还在跑 |
+///
+/// # M3-11：为什么这里还要判一次信用（`guard_credit_on_approve` 已经判过）
+///
+/// 审批通过是**额度真正被占用**的那一步（`ARCH-7 §15.5.2`）。审批点「同意」的前置闸
+/// 到这一步之间有毫秒级窗口，而「占钱」这件事必须由**写状态的那一次**自己兜住 ——
+/// 否则并发 / 回调重放 / 别的入口直接调本回调时，额度会被悄悄占超。
+///
+/// 拦下时**不落 `APPROVED`，改为打回 `DRAFT`** 并把原因写进 `remark`：
+/// 审批单已经 `APPROVED` 且不可回滚，单据若停在 `SUBMITTED` 就是死单（没有待办、没有
+/// 接口能推它，只能改库）—— 这是 `AGENTS.md` 约定 11 明令禁止的形态。
+/// 打回草稿后用户能继续：收款 / 调额 / 改策略后重新提交审批。
 ///
 /// 返回受影响的销售订单 id（没推进 / 不该推进 → `None`）。**不返回错误**：审批已落库，
 /// 业务侧失败只记日志（与 `purchase_bridge::on_po_settled` 同口径）。
@@ -228,7 +242,38 @@ async fn settle(instance_id: Uuid, verdict: SoVerdict) -> DbResult<Option<Uuid>>
     let approver = latest_completed_assignee(instance_id).await?;
     // ④ 审批意见（驳回时写进 remark，让人一眼看到为什么被打回）
     let comment = latest_reject_comment(instance_id).await?;
+    // ⑤ M3-11：审批通过 = 额度占用时刻 —— 用同一份 `credit::decide` 再判一次。
+    //    评估失败（库故障）按「放行」处理：额度判定不该把审批回调打死（回调失败只会留死单），
+    //    真出问题由每日重算 + 不变量巡检兜（与其它桥「失败只记日志」同口径）。
+    let credit = match verdict {
+        SoVerdict::Approve => match credit::assess_order(db(), order_id).await {
+            Ok(found) => found,
+            Err(error) => {
+                tracing::warn!(
+                    %order_id,
+                    %error,
+                    "审批通过前读取客户信用额度失败，本次按放行处理（额度以每日重算为准）"
+                );
+                None
+            }
+        },
+        SoVerdict::BackToDraft => None,
+    };
+    // 超限 + `BLOCK`：不落 APPROVED，改成打回草稿（约定 11：审批单已 APPROVED，单据不许死在 SUBMITTED）
+    let credit_blocked = credit.as_ref().is_some_and(|assessed| !assessed.allows());
     let (to_status, reason) = match verdict {
+        SoVerdict::Approve if credit_blocked => {
+            let assessed = credit.as_ref().expect("credit_blocked 成立时必有评估结果");
+            tracing::warn!(
+                %order_id,
+                order_no = %row.so_no,
+                customer_code = %assessed.customer_code,
+                total = %assessed.snapshot().map(|snap| snap.total()).unwrap_or_default(),
+                over = %assessed.snapshot().map(|snap| snap.over()).unwrap_or_default(),
+                "审批通过时客户信用额度不足（策略 BLOCK）：单据打回草稿（补偿，不留死单）"
+            );
+            (STATUS_DRAFT, assessed.compensation_reason())
+        }
         SoVerdict::Approve => (STATUS_APPROVED, "销售订单审批通过".to_string()),
         SoVerdict::BackToDraft => (
             STATUS_DRAFT,
@@ -302,6 +347,24 @@ async fn settle(instance_id: Uuid, verdict: SoVerdict) -> DbResult<Option<Uuid>>
     match outcome {
         Ok(()) => {
             tx.commit().await?;
+            // M3-11：`WARN` 策略的超限单真落 `APPROVED` 之后才写警示台账（幂等：提交时
+            // 已为同一张单写过则写入 0 行）。放这里而不是审批点之前，是为了不让「被打回 /
+            // 被驳回的单」留下一条「已放行」的假记录。
+            if to_status == STATUS_APPROVED
+                && let Some(assessed) = credit.as_ref()
+                && assessed.is_warning()
+            {
+                if let Some(snapshot) = assessed.snapshot()
+                    && let Err(error) = credit::note_over_limit(db(), row.customer_id, &row.so_no, snapshot).await
+                {
+                    tracing::warn!(
+                        order_no = %row.so_no,
+                        %error,
+                        "超限警示台账写入失败（单据已审批通过，不影响状态）"
+                    );
+                }
+                tracing::warn!(order_no = %row.so_no, message = %assessed.warn_message(), "超限单已按 WARN 策略通过审批");
+            }
             Ok(Some(order_id))
         }
         Err(error) => {
@@ -398,6 +461,92 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::
         ));
     }
     Ok(())
+}
+
+/// 审批点「同意」之前的**信用闸**（M3-11：超信用拦截，按配置策略执行）。
+///
+/// # 为什么闸放在「审批通过之前」
+///
+/// 客户信用额度的唯一占用时刻是 `APPROVED`（`ARCH-7 §15.5.2`）。提交守卫（M3-09）把的是
+/// 「进门」，而审批往往隔了几小时 / 几天，这段时间里额度会被别的单占掉、被财务调低、
+/// 策略可能被改成 `BLOCK`。所以在**真正放行占用的那一票**之前，必须用同一份
+/// [`credit::decide`] 再判一次。
+///
+/// # 处置（与提交守卫同一套策略语义）
+///
+/// | 判定 | 本函数 | 审批人看到 |
+/// |------|--------|-----------|
+/// | `Uncontrolled` / `Within` | `Ok(())` | 照常通过 |
+/// | `Warn` | `Ok(())`（**不在这里写台账**） | 照常通过；台账在 [`settle`] 落 `APPROVED` 之后写 —— 在这里写会让「被驳回的单」留下一条「已放行」的假记录 |
+/// | `Pass` | `Ok(())` | 照常通过，不留痕（显式例外） |
+/// | `Block` | `Err(409 + 10003)` | 一句完整的拒绝文案：五个数与三条出路，**待办和单据都不动**（可再点、可驳回、可先调额） |
+///
+/// # 为什么返回 409 而不是 403
+///
+/// 不是「你没权限」，是「这单现在过不去」：额度数据变了 / 策略是拦截。
+/// 与提交守卫 `ensure_submittable` 的 `conflict(...)` 同码同语义，前端可以用同一套提示。
+///
+/// 与本业务无关的待办（其它 `biz_type`）、待办 / 实例不存在、单据已删 → 一律 `Ok(())`，
+/// 交给后面的流程逻辑报它自己的 404 —— 本函数只回答「信用这一关」。
+pub async fn guard_credit_on_approve(task_id: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
+    else {
+        return Ok(());
+    };
+    let Some(instance) = flow_model::find_instance(task.instance_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
+    else {
+        return Ok(());
+    };
+    if instance.biz_type != BIZ_TYPE {
+        return Ok(());
+    }
+    let Some(order_id) = instance.biz_id else {
+        return Ok(());
+    };
+    let assessed = credit::assess_order(db(), order_id).await.map_err(|error| {
+        ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!("审批前读取客户信用额度失败：{error}"),
+        )
+    })?;
+    let Some(assessed) = assessed else {
+        return Ok(());
+    };
+    match &assessed.verdict {
+        credit::CreditVerdict::Block(_) => Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            assessed.block_message(),
+        )),
+        credit::CreditVerdict::Warn(snapshot) => {
+            tracing::warn!(
+                order_no = %assessed.doc_no,
+                customer_code = %assessed.customer_code,
+                limit = %assessed.limit,
+                used = %assessed.used,
+                pending = %assessed.pending,
+                amount = %assessed.amount,
+                total = %snapshot.total(),
+                over = %snapshot.over(),
+                "审批点同意：客户超信用额度，按策略 WARN 放行（台账在落 APPROVED 之后写）"
+            );
+            Ok(())
+        }
+        credit::CreditVerdict::Pass(_) => {
+            tracing::info!(
+                order_no = %assessed.doc_no,
+                customer_code = %assessed.customer_code,
+                "审批点同意：客户超信用额度，按策略 PASS 放行（不留痕、不提示）"
+            );
+            Ok(())
+        }
+        credit::CreditVerdict::Uncontrolled | credit::CreditVerdict::Within => Ok(()),
+    }
 }
 
 // ==================== 反向：终止在跑的审批 ====================
@@ -629,7 +778,7 @@ mod db_tests {
         Some(guard)
     }
 
-    /// 清场：审批单（待办 / 节点 / 主表）→ 状态日志 → 单据（明细 CASCADE）→ 夹具客户 / 用户。
+    /// 清场：审批单（待办 / 节点 / 主表）→ 状态日志 → 信用台账 → 单据（明细 CASCADE）→ 夹具客户 / 用户。
     async fn cleanup() {
         let statements = [
             "DELETE FROM biz_flow_task WHERE instance_id IN ( \
@@ -640,6 +789,9 @@ mod db_tests {
             "DELETE FROM biz_status_log WHERE entity_type = 'SALE_ORDER' AND entity_id IN ( \
                  SELECT o.id FROM biz_sales_order o JOIN biz_customer c ON c.id = o.customer_id \
                   WHERE c.code = 'SO6HT-CUST')",
+            // M3-11：审批通过的超限警示台账（`OVER_LIMIT_WARN`）挂在夹具客户上，先删
+            "DELETE FROM biz_credit_log WHERE customer_id IN \
+                 (SELECT id FROM biz_customer WHERE code = 'SO6HT-CUST')",
             "DELETE FROM biz_sales_order WHERE customer_id IN \
                  (SELECT id FROM biz_customer WHERE code = 'SO6HT-CUST')",
             "DELETE FROM biz_customer WHERE code = 'SO6HT-CUST'",
@@ -924,5 +1076,244 @@ mod db_tests {
         let (status, instance_id) = status_of(order_id).await;
         assert_eq!(status, STATUS_DRAFT, "被拒的提交不能把单据推成 SUBMITTED");
         assert!(instance_id.is_none());
+    }
+
+    // ==================== M3-11：超信用拦截（审批通过前闸 + 过审兜底） ====================
+
+    /// 改夹具客户的额度与策略（模拟「审批期间财务调额 / 改策略」）。
+    async fn set_credit(limit: &str, policy: &str) {
+        db().execute_with_params(
+            "UPDATE biz_customer SET credit_limit = ?::text::numeric, credit_policy = ? WHERE code = ?",
+            vec![Value::from(limit), Value::from(policy), Value::from(CUST_CODE)],
+        )
+        .await
+        .expect("改夹具客户额度 / 策略");
+    }
+
+    /// 当前缓存列 `credit_used`（占用口径）。
+    async fn credit_used() -> String {
+        db().scalar_with_params::<String>(
+            "SELECT credit_used::text FROM biz_customer WHERE code = ?",
+            vec![Value::from(CUST_CODE)],
+        )
+        .await
+        .expect("读 credit_used")
+    }
+
+    /// 夹具客户的超限警示台账行数。
+    async fn warn_ledger_count(doc_no: &str) -> i64 {
+        let text: String = db()
+            .scalar_with_params::<String>(
+                "SELECT count(*)::text FROM biz_credit_log l \
+                   JOIN biz_customer c ON c.id = l.customer_id \
+                  WHERE c.code = ? AND l.cause = 'OVER_LIMIT_WARN' AND l.ref_no = ?",
+                vec![Value::from(CUST_CODE), Value::from(doc_no)],
+            )
+            .await
+            .expect("数警示台账");
+        text.parse().expect("计数可解析")
+    }
+
+    /// 提交一张 5000 的单（额度先设成够用），返回 `(order_id, so_no, instance_id, task_id)`。
+    async fn submitted_order(limit: &str, policy: &str) -> (Uuid, String, Uuid, Uuid) {
+        let order_id = fixture_order("5000.0000").await;
+        set_credit(limit, policy).await;
+        sales_order_handler::submit_approval(Some(maker()), &order_id.to_string(), &ApprovalGate::none())
+            .await
+            .expect("提交审批成功");
+        let (status, instance_id) = status_of(order_id).await;
+        assert_eq!(status, STATUS_SUBMITTED);
+        let instance_id = instance_id.expect("提交后必须挂审批实例");
+        let tasks = pending_tasks(instance_id).await;
+        let (task_id, _, _) = tasks.first().cloned().expect("第一跳待办");
+        let so_no: String = db()
+            .scalar_with_params(
+                "SELECT so_no FROM biz_sales_order WHERE id = ?::uuid",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .expect("读单据号");
+        (order_id, so_no, instance_id, task_id)
+    }
+
+    /// ★ M3-11 ①：审批点「同意」前闸 —— `BLOCK` 策略超限 409，**待办与单据都不动**。
+    ///
+    /// 覆盖「提交时额度够、审批时额度被调低」这条真实路径（提交守（M3-09）看不到）。
+    #[tokio::test]
+    async fn guard_credit_blocks_approval_and_keeps_task_pending() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let (order_id, so_no, instance_id, task_id) = submitted_order("10000", "BLOCK").await;
+
+        // 额度够 → 闸放行（不写台账、不动单据）
+        guard_credit_on_approve(task_id).await.expect("额度内必须放行");
+
+        // 财务把额度调到 100（或别的单把额度占满）→ 闸拒绝
+        set_credit("100", "BLOCK").await;
+        let err = guard_credit_on_approve(task_id)
+            .await
+            .expect_err("超限 + BLOCK 必须拒绝审批");
+        assert_eq!(err.status, 409, "信用拦截是 409（与提交守卫同码）");
+        assert_eq!(err.code, error_code::RESOURCE_CONFLICT);
+        assert!(
+            err.msg.contains("信用额度不足（超限策略 BLOCK）"),
+            "报文要点明是那条策略拦的：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains(&so_no) && err.msg.contains("5000"),
+            "报文要给出本单单号与金额（否则审批人不知道是哪张单超了多少）：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("本次操作未生效，待办仍在"),
+            "报文要告诉审批人「还能重试」：{}",
+            err.msg
+        );
+        // 关键：待办与单据都没动（用户可先收款 / 调额 / 改策略，再点同意或驳回）
+        assert_eq!(status_of(order_id).await.0, STATUS_SUBMITTED);
+        assert!(
+            pending_tasks(instance_id).await.iter().any(|(id, _, _)| *id == task_id),
+            "被拦后待办必须还在（否则只能改库恢复）"
+        );
+        assert_eq!(credit_used().await, "0.0000", "拦下来的单不许占用额度");
+
+        // 调回额度 → 同一条待办可以继续批（不是一次性失败）
+        set_credit("10000", "BLOCK").await;
+        guard_credit_on_approve(task_id).await.expect("调额后必须放行");
+    }
+
+    /// ★ M3-11 ①：`WARN` 策略放行审批，**台账写在真落 APPROVED 之后**（一条，delta = 0）。
+    #[tokio::test]
+    async fn warn_policy_approves_and_writes_ledger_after_commit() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let (order_id, so_no, instance_id, task_id) = submitted_order("10000", "BLOCK").await;
+        // 审批期间：额度被调到 100 + 策略改成 WARN
+        set_credit("100", "WARN").await;
+        let tasks = pending_tasks(instance_id).await;
+        let (_, _, assignee) = tasks.first().cloned().expect("第一跳待办");
+        // 闸放行（WARN 不拦）
+        guard_credit_on_approve(task_id).await.expect("WARN 策略必须放行审批");
+        // 此时还没有台账：闸只放行不写（被驳回的单不许留下「已放行」的假记录）
+        assert_eq!(warn_ledger_count(&so_no).await, 0, "审批未落 APPROVED 之前不许写台账");
+
+        let instance_status = approve_task(task_id, assignee).await;
+        assert_eq!(instance_status, "APPROVED");
+        assert_eq!(status_of(order_id).await.0, STATUS_APPROVED, "WARN 放行后必须 APPROVED");
+        assert_eq!(credit_used().await, "5000.0000", "审批通过 = 占用 5000");
+        assert_eq!(warn_ledger_count(&so_no).await, 1, "放行的超限单必须留一条警示台账");
+        // delta = 0（警示不改变额度）
+        let delta: String = db()
+            .scalar_with_params::<String>(
+                "SELECT l.delta::text FROM biz_credit_log l JOIN biz_customer c ON c.id = l.customer_id \
+                  WHERE c.code = ? AND l.cause = 'OVER_LIMIT_WARN' AND l.ref_no = ?",
+                vec![Value::from(CUST_CODE), Value::from(so_no.clone())],
+            )
+            .await
+            .expect("读警示 delta");
+        assert_eq!(delta, "0.0000", "警示台账不得改变额度");
+    }
+
+    /// ★ M3-11 ①：`PASS` 策略静默放行（无台账、无提示）。
+    #[tokio::test]
+    async fn pass_policy_approves_silently() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let (order_id, so_no, instance_id, task_id) = submitted_order("10000", "BLOCK").await;
+        set_credit("100", "PASS").await;
+        let tasks = pending_tasks(instance_id).await;
+        let (_, _, assignee) = tasks.first().cloned().expect("第一跳待办");
+        guard_credit_on_approve(task_id).await.expect("PASS 策略必须放行审批");
+        assert_eq!(approve_task(task_id, assignee).await, "APPROVED");
+        assert_eq!(status_of(order_id).await.0, STATUS_APPROVED);
+        assert_eq!(
+            warn_ledger_count(&so_no).await,
+            0,
+            "PASS 是显式例外：不留痕（留了反而误导对账）"
+        );
+    }
+
+    /// ★ M3-11 ③：**占用真正发生的那一步自己兜住** —— 绕过前置闸（模拟并发 / 重放）时，
+    /// 审批单照样落 `APPROVED`，但单据**打回 DRAFT** 而不是停在 SUBMITTED（约定 11：不留死单），
+    /// 且打回后能改额重提（用户不需要工程师改库）。
+    #[tokio::test]
+    async fn settle_returns_order_to_draft_when_credit_short_at_approval() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let (order_id, so_no, instance_id, _task_id) = submitted_order("10000", "BLOCK").await;
+        // 直接走 engine + settle（不经 HTTP 前闸）= 模拟「前闸放行后、落状态前额度被占满」
+        set_credit("100", "BLOCK").await;
+        let tasks = pending_tasks(instance_id).await;
+        let (task_id, _, assignee) = tasks.first().cloned().expect("第一跳待办");
+
+        let instance_status = approve_task(task_id, assignee).await;
+        assert_eq!(
+            instance_status, "APPROVED",
+            "审批单本身仍会落 APPROVED（审批已提交，不可回滚）"
+        );
+        let (order_status, instance) = status_of(order_id).await;
+        assert_eq!(
+            order_status, STATUS_DRAFT,
+            "额度不够时不许落 APPROVED，也不许停在 SUBMITTED（死单），必须打回草稿"
+        );
+        assert!(
+            instance.is_none(),
+            "打回草稿要清 approval_instance_id（否则下次提交撞 uk_biz_flow_instance_biz_active）"
+        );
+        let remark: Option<String> = db()
+            .scalar_with_params(
+                "SELECT remark FROM biz_sales_order WHERE id = ?::uuid",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .expect("查备注");
+        let remark = remark.unwrap_or_default();
+        assert!(
+            remark.contains("信用额度不足") && remark.contains("已退回草稿"),
+            "打回原因必须写进 remark（实际：{remark}）"
+        );
+        assert_eq!(credit_used().await, "0.0000", "打回草稿的单不许占用额度");
+        assert_eq!(
+            warn_ledger_count(&so_no).await,
+            0,
+            "BLOCK 拦截不留警示台账（拦下的单没有「已放行」这回事）"
+        );
+
+        // 可恢复：调回额度后重新提交审批（不需要改库）
+        set_credit("10000", "BLOCK").await;
+        let res = sales_order_handler::submit_approval(Some(maker()), &order_id.to_string(), &ApprovalGate::none())
+            .await
+            .expect("打回草稿后必须能重新提交审批");
+        assert_eq!(res.status, STATUS_SUBMITTED);
+    }
+
+    /// ★ M3-11：与本业务无关的待办（待办不存在 / 别的 `biz_type`）一律放行，零影响。
+    #[tokio::test]
+    async fn guard_credit_ignores_unknown_task() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        guard_credit_on_approve(Uuid::now_v7())
+            .await
+            .expect("待办不存在时必须放行（交给流程逻辑报 404）");
+
+        // 注册表分派（`ErpDoc::guard_approve`）：18 条审批线里只有销售订单走额度闸，
+        // 其余 17 条**必须原样放行** —— 多拦一条就是改变生产行为。
+        use crate::business::erp::doc_reader_impl::ErpDoc;
+        for doc in ErpDoc::ALL.iter().filter(|doc| **doc != ErpDoc::SoApprove) {
+            doc.guard_approve(Uuid::now_v7())
+                .await
+                .unwrap_or_else(|error| panic!("{} 不该有额度闸：{}", doc.biz_type().as_str(), error.msg));
+        }
+        // 销售订单这条线走的就是本闸（待办不存在 → 放行）
+        ErpDoc::SoApprove
+            .guard_approve(Uuid::now_v7())
+            .await
+            .expect("销售订单线的闸在待办不存在时放行");
     }
 }

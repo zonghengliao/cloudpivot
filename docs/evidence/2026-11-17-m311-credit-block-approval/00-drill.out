@@ -1,0 +1,40 @@
+== M3-11 超信用拦截（按配置策略执行）· 演练（PG 172.18.10.145:5432 / 库 cp_m311_credit_block_3145869）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m311_credit_block_3145869
+== 1) 补齐业务迁移 V0405…V0437（幂等，逐条 ON_ERROR_STOP；本卡**不加迁移**）
+  [32mPASS[0m 33 条业务迁移全部应用成功
+  [32mPASS[0m biz_customer 的 credit_policy / credit_used 都在（M3-09 + SO-38 的列）（=2）
+  [32mPASS[0m 本卡未新增迁移（下一个可用号 V0438 未被本卡占用）
+== 2) 静态断言：审批闸接线（handler → doc_reader → ERP 桥）+ 不许直连 erp
+  [32mPASS[0m approve_task 调注册表闸一次（重复调 = 同一张单判两遍）（=1）
+  [32mPASS[0m flow/handler 不直连 ERP 桥（架构门禁：flow→erp 直连基线 0）（=0）
+  [32mPASS[0m doc_reader 提供 guard_approve_for_task 扇出（=1）
+  [32mPASS[0m trait 的 guard_approve 有默认放行实现（其余 17 条审批线不写噪音）（=1）
+  [32mPASS[0m 18 条审批线里只有销售订单接额度闸（多接一条 = 改变生产行为）（=1）
+  [32mPASS[0m ERP 桥提供审批点同意前闸（=1）
+  [32mPASS[0m credit::assess_order 是审批闸与过审兜底的唯一取数口（=1）
+  [32mPASS[0m 审批前闸 + 过审兜底各判一次（判定同一份 decide，取数同一口）（=2）
+  [32mPASS[0m BLOCK 时的补偿路径只走 compensation_reason（打回草稿，不留死单）（=1）
+== 3) perm_menu_gate.py（注解码 − 菜单码 必须为 0）
+  [32mPASS[0m 死权限码闸通过（65 行输出，见日志）
+== 4) 真库用例（--test-threads=1）
+  [32mPASS[0m 信用域（assess_order 取数口径 + 三态策略 + 不控额度 + 查不到）：business::erp::credit 全绿（30 条）（=30）
+  [32mPASS[0m 信用域（assess_order 取数口径 + 三态策略 + 不控额度 + 查不到）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 审批桥（前闸 409·待办不动 / WARN 台账 / PASS 静默 / 过审兜底打回草稿·可重提）：business::erp::sales::sales_approval_bridge 全绿（14 条）（=14）
+  [32mPASS[0m 审批桥（前闸 409·待办不动 / WARN 台账 / PASS 静默 / 过审兜底打回草稿·可重提）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 销售域整组（订单提交守卫 + 报价单 / 退货 / 审批桥不被打破）：business::erp::sales 全绿（211 条）（=211）
+  [32mPASS[0m 销售域整组（订单提交守卫 + 报价单 / 退货 / 审批桥不被打破）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 流程域整组（含架构门禁 flow→erp=0 + guard_approve_for_task 扇出）：business::flow 全绿（433 条）（=433）
+  [32mPASS[0m 流程域整组（含架构门禁 flow→erp=0 + guard_approve_for_task 扇出）：本组 SKIP=0（真库用例没被打成假绿）
+== 5) 夹具清场（不允许把本卡夹具带出演练库）
+  ---- 清尾前残留：SO6HT-CUST=1 · CR38-=0（用例 cleanup-at-start 的已知形态）
+  [32mPASS[0m biz_customer 无 CR38- 夹具客户（credit 域）（=0）
+  [32mPASS[0m biz_customer 无 SO6HT-CUST 审批夹具客户（=0）
+  [32mPASS[0m biz_sales_order 无夹具订单（=0）
+  [32mPASS[0m biz_flow_instance 无 SO_APPROVE 夹具实例（=0）
+  [32mPASS[0m 信用台账无夹具客户残留行（=0）
+  [32mPASS[0m 演练库不留「审批中」死单（=0）
+
+== 汇总：PASS=29 FAIL=0 ==
+ALL PASS

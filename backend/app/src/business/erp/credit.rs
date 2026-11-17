@@ -33,6 +33,18 @@
 //! | [`POLICY_WARN`] | 放行提交，响应带 `credit_warning` 文案 | `biz_credit_log` cause = `OVER_LIMIT_WARN`（delta = 0）+ WARN 日志 |
 //! | [`POLICY_PASS`] | 静默放行 | 无 |
 //!
+//! ## 三个执行点（同一份 [`decide`]，别在别处再写比较）
+//!
+//! | 执行点 | 入口 | `BLOCK` 时 | `WARN` 时 |
+//! |--------|------|-----------|-----------|
+//! | ① 提交（进 `SUBMITTED` / 免审直过 `APPROVED`） | `sales_order_handler::ensure_submittable`（M3-09） | 409，单据留 DRAFT | 放行 + 响应文案 + 台账 |
+//! | ② 审批点「同意」之前 | `sales_approval_bridge::guard_credit_on_approve`（M3-11） | 409，**待办与单据都不动** | 放行（留痕在 ③，避免审批被驳回时留下「已放行」的假台账） |
+//! | ③ 审批结论回写单据（占用真正发生） | `sales_approval_bridge::settle`（M3-11） | 不落 `APPROVED`，**打回 DRAFT** + 原因写 `remark`（约定 11，不留死单） | 落 `APPROVED` + 台账 + WARN 日志 |
+//!
+//! ② 存在的理由：额度的唯一占用时刻是 `APPROVED`，提交与审批之间隔着整个审批周期
+//! （别人的单被批了 / 额度被调低 / 策略被改成 `BLOCK`），③ 存在的理由：② 到 ③ 之间
+//! 仍有毫秒级窗口，且「占钱」这件事必须由写状态的那一步自己兜住。
+//!
 //! * **`credit_limit = 0`（不控额度）时策略不生效**（[`CreditVerdict::Uncontrolled`]）；
 //! * **边界 `已占 + 在审 + 本单 = 额度` 算通过**（与 M3-09 之前的 `after > limit` 一致）；
 //! * **未知策略值 fail-closed 到 `BLOCK`**（[`normalize_policy`]）—— 手改库 / 回滚迁移
@@ -715,6 +727,223 @@ pub async fn snapshot_of(
         pending,
         open_receivable: open,
         amount,
+    }))
+}
+
+// ==================== 单据级评估：审批通过前 / 过审回调（M3-11） ====================
+//
+// 卡面：「客户信用：超信用拦截，按配置策略执行」。
+//
+// # 为什么光有提交守卫不够
+//
+// 额度的**唯一占用时机是 `APPROVED`**（`ARCH-7 §15.5.2`）。提交守卫（M3-09）拦的是
+// 「进门那一脚」，而真正占钱的是**审批通过那一脚**，两者之间隔着整个审批周期：
+//
+// | 提交后到审批前发生了什么 | 提交守卫当时看到 | 审批通过时真实情况 |
+// |---|---|---|
+// | 同客户另一张单被审批通过（`credit_used` 涨了） | 不含它的占用 | 已占额度更大 |
+// | 财务把该客户额度调低 | 旧额度 | 新额度 |
+// | 管理员把策略从 `WARN` 改成 `BLOCK` | WARN 已放行 | 该拦 |
+//
+// 所以本节的 [`assess_order`] 是**同一个 [`decide`] 的第二次取数**（判定仍只有一份），
+// 供两个调用点共用：
+//
+// 1. `sales_approval_bridge::guard_credit_on_approve` —— 审批点「同意」之前（事务之前），
+//    `BLOCK` 直接 409，待办与单据都不动（用户可继续：收款 / 调额 / 改策略后再批，或驳回）；
+// 2. `sales_approval_bridge::settle` —— 审批结论回写单据时（**占用真正发生的时刻**），
+//    `BLOCK` 不再落 `APPROVED`，改为**打回草稿 + 写清原因**（约定 11：不留死单）。
+//
+// # 取数口径（与提交守卫逐条一致，别换）
+//
+// * `used` 读**缓存列** `biz_customer.credit_used`：守卫必须在事务里当场判定，
+//   不能为了一次判定去等三个聚合查询。缓存列漂移由每日重算修（`CAUSE_RECOMPUTE`）。
+// * `pending` 是其它 `SUBMITTED` 单的价税合计（**排除本单**，否则自己算两遍）。
+// * `limit = 0`（不控额度）→ [`CreditVerdict::Uncontrolled`]，且连 `used` / `pending`
+//   两条查询都省掉。
+//
+// # 为什么不需要对客户行加锁（并发两单同时审批）
+//
+// 审批通过时「本单」从 `pending` 集合（`SUBMITTED`）搬进 `used`（`APPROVED`），
+// **金额不变**。所以 A、B 两单并发审批时：
+//
+// ```text
+// A 的评估：used(已提交部分) + pending(含 B) + A 的金额
+// B 的评估：used(已提交部分) + pending(含 A) + B 的金额
+// ```
+//
+// 两个合计**完全相等**，谁先提交都不改变和 —— 不存在「都以为没超」的窗口。
+// 只有在「同一条单从在审变已占时金额会变小」的场景才需要行锁，而审批通过不改金额。
+
+/// 单据级信用评估（[`assess_order`] 的返回）：一次取数 + 一次判定，两个调用点共用。
+///
+/// 与 [`CreditSnapshot`] 的区别：那个是**客户级**「还能下多少」（`used` 现算、带未清应收
+/// 对照口径、给前端画胶囊）；这个是**单据级**「这一单能不能过」（`used` 读缓存列、
+/// 只回答放不放行，给拦截点用）。两个口径都从 [`decide`] 出结论，不会互相矛盾。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderCredit {
+    /// 单据号（销售订单 `so_no`，报文与台账里要指名是哪张单）。
+    pub doc_no: String,
+    /// 客户主键。
+    pub customer_id: Uuid,
+    /// 客户编码。
+    pub customer_code: String,
+    /// 客户名称。
+    pub customer_name: String,
+    /// 客户状态（`ACTIVE` / `FROZEN`）—— 冻结是比额度更硬的闸，由提交守 / 客户档案负责，
+    /// 本结构只**如实带出**，不在额度判定里重复拦（否则同一件事两处报错、文案还会打架）。
+    pub customer_status: String,
+    /// 信用额度（`0` = 不控额度）。
+    pub limit: Decimal,
+    /// 超限策略（库里原值，判定走 [`normalize_policy`]）。
+    pub policy: String,
+    /// 已占额度（缓存列）。
+    pub used: Decimal,
+    /// 其它在审单占用（`SUBMITTED`，**已排除本单**）。
+    pub pending: Decimal,
+    /// 本单价税合计。
+    pub amount: Decimal,
+    /// 判定结果（[`decide`]）。
+    pub verdict: CreditVerdict,
+}
+
+impl OrderCredit {
+    /// 超限快照（未超限 / 不控额度 → `None`）。
+    pub fn snapshot(&self) -> Option<&OverCredit> {
+        self.verdict.over()
+    }
+
+    /// 是否允许继续（`BLOCK` 唯一不放行）。
+    pub fn allows(&self) -> bool {
+        self.verdict.is_allowed()
+    }
+
+    /// 是否需要「放行 + 留痕 + 提示」（`WARN` 策略超限）。
+    pub fn is_warning(&self) -> bool {
+        matches!(self.verdict, CreditVerdict::Warn(_))
+    }
+
+    /// 审批点「同意」时给审批人看的 409 文案（`BLOCK` 策略超限）。
+    ///
+    /// 文案要给全五个数 + 三条出路：只写「超额」会让人继续点「同意」试第二次。
+    pub fn block_message(&self) -> String {
+        let snapshot = self.snapshot();
+        let (total, over) = snapshot
+            .map(|snap| (snap.total(), snap.over()))
+            .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+        format!(
+            "客户 `{}`（{}）信用额度不足（超限策略 BLOCK），本次审批不能通过：额度 {}，已占 {}，\
+             其它在审 {}，本单 {} 价税合计 {}，合计 {total} 超出 {over}；\
+             请先收款 / 关闭旧单 / 退货释放额度，或由管理员调高额度\
+             （也可把该客户的超限策略改为 WARN / PASS）后再点同意；本次操作未生效，待办仍在",
+            self.customer_code, self.customer_name, self.limit, self.used, self.pending, self.doc_no, self.amount
+        )
+    }
+
+    /// 过审回调发现超限时写进单据 `remark` 的补偿原因（打回草稿用）。
+    ///
+    /// 这是约定 11 的落地：审批单已 `APPROVED` 且不可回滚，单据**不许**停在 `SUBMITTED`
+    /// （那是死单：没有待办、没有接口能推它），必须打回 `DRAFT` 并写清为什么。
+    pub fn compensation_reason(&self) -> String {
+        let snapshot = self.snapshot();
+        let (total, over) = snapshot
+            .map(|snap| (snap.total(), snap.over()))
+            .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+        format!(
+            "审批通过时客户 `{}`（{}）信用额度不足（超限策略 BLOCK，超 {over}）：额度 {}，已占 {}，\
+             其它在审 {}，本单 {} 价税合计 {}，合计 {total}；已退回草稿 —— \
+             收款 / 调额 / 改策略后重新提交审批",
+            self.customer_code, self.customer_name, self.limit, self.used, self.pending, self.doc_no, self.amount
+        )
+    }
+
+    /// 审批通过后给调用方留痕 / 提示用的 `WARN` 文案。
+    pub fn warn_message(&self) -> String {
+        let snapshot = self.snapshot();
+        let (total, over) = snapshot
+            .map(|snap| (snap.total(), snap.over()))
+            .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+        format!(
+            "客户 `{}`（{}）信用超限但按策略 WARN 放行审批：额度 {}，已占 {}，其它在审 {}，\
+             本单 {} 价税合计 {}，合计 {total} 超出 {over}；已写信用台账，请跟进收款或调高额度",
+            self.customer_code, self.customer_name, self.limit, self.used, self.pending, self.doc_no, self.amount
+        )
+    }
+}
+
+/// 按**销售订单 id** 取单据级信用评估：`None` = 单据不存在 / 已软删 / 客户已删。
+///
+/// 三个「查不到」都返回 `None` 而不是报错：调用方（审批通过前闸 / 过审回调）遇到查不到时
+/// 要把决定权交回原有逻辑（待办不存在 → 后续 404；单据没了 → 跳过回调），不能因为
+/// 额度评估把一个不存在的单据变成 500。
+pub async fn assess_order(ex: &impl SqlExecutor, order_id: Uuid) -> DbResult<Option<OrderCredit>> {
+    // SCOPE-EXEMPT: 销售订单 / 客户都是 ERP 单据与主数据，按主键取 1 行（可见性由权限码控制）。
+    let rows = ex
+        .query_sql(
+            "SELECT so_no, customer_id::text AS customer_id, total_with_tax::text AS taxed \
+               FROM biz_sales_order WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let doc_no: String = row.get_typed("so_no").unwrap_or_default();
+    let customer_id = row
+        .get_typed::<String>("customer_id")
+        .ok()
+        .and_then(|text| Uuid::parse_str(text.trim()).ok());
+    let Some(customer_id) = customer_id else {
+        return Ok(None);
+    };
+    let amount = row
+        .get_typed::<String>("taxed")
+        .ok()
+        .and_then(|text| text.trim().parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO)
+        .round_dp(2);
+
+    // SCOPE-EXEMPT: 客户主数据无归属列（见模块文档的 SCOPE-EXEMPT 说明）。
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT code, name, status, credit_limit::text AS lim, credit_policy \
+                   FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
+            ),
+            vec![Value::from(&customer_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let limit = row
+        .get_typed::<String>("lim")
+        .ok()
+        .and_then(|text| text.trim().parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO);
+    let policy: String = row.get_typed("credit_policy").unwrap_or_default();
+
+    // 不控额度：省掉两条聚合查询（与提交守卫同口径，见模块文档）
+    let (used, pending) = if limit <= Decimal::ZERO {
+        (Decimal::ZERO, Decimal::ZERO)
+    } else {
+        let used = stored(ex, customer_id).await?.unwrap_or(Decimal::ZERO);
+        let pending = pending_credit(ex, customer_id, Some(order_id)).await?;
+        (used, pending)
+    };
+    let verdict = decide(&policy, limit, used, pending, amount);
+    Ok(Some(OrderCredit {
+        doc_no,
+        customer_id,
+        customer_code: row.get_typed("code").unwrap_or_default(),
+        customer_name: row.get_typed("name").unwrap_or_default(),
+        customer_status: row.get_typed("status").unwrap_or_default(),
+        limit,
+        policy,
+        used,
+        pending,
+        amount,
+        verdict,
     }))
 }
 
@@ -1712,6 +1941,112 @@ mod tests {
             Some(Decimal::ZERO),
             "放行超限单不会写 credit_used（占用是 APPROVED 时刻的事）"
         );
+
+        teardown(customer).await;
+    }
+
+    // ==================== M3-11：单据级评估（审批通过前闸 / 过审兜底共用） ====================
+
+    /// 场景七：`assess_order` 与提交守卫**同口径**（`used` 读缓存列、`pending` 排除本单），
+    /// 且三态策略 + 不控额度 + 单据不存在 / 客户已删都如实返回。
+    #[tokio::test]
+    async fn scenario_assess_order_matches_submit_guard_reads() {
+        if !ensure_db().await {
+            return;
+        }
+        let _guard = DB_LOCK.lock().await;
+        let customer = fixture_customer("CR38-ASSESS").await;
+        exec(
+            "UPDATE biz_customer SET credit_limit = 1000 WHERE id = ?::uuid",
+            vec![Value::from(&customer)],
+        )
+        .await
+        .expect("收窄额度到 1000");
+
+        // 已占 400（APPROVED 并经 sync 写进缓存列）+ 本单 300（在审）
+        fixture_order(customer, "APPROVED", "400").await;
+        sync(db(), customer, CAUSE_ORDER_OCCUPY, "SO38-A1")
+            .await
+            .expect("写占用");
+        let target = fixture_order(customer, "SUBMITTED", "300").await;
+
+        let assessed = assess_order(db(), target).await.expect("评估").expect("单据存在");
+        assert_eq!(assessed.limit, dec("1000"));
+        assert_eq!(assessed.used, dec("400"), "used 读缓存列（守卫口径）");
+        assert_eq!(assessed.pending, Decimal::ZERO, "在审合计必须排除本单");
+        assert_eq!(assessed.amount, dec("300"), "本单金额取 total_with_tax");
+        assert_eq!(assessed.verdict, CreditVerdict::Within, "400 + 300 = 700 ≤ 1000");
+        assert!(assessed.allows());
+        assert!(assessed.snapshot().is_none());
+
+        // 同客户再来一张 400 的在审单 → 管道占用 400 → 400 + 400 + 300 = 1100 超限
+        fixture_order(customer, "SUBMITTED", "400").await;
+        let blocked = assess_order(db(), target).await.expect("再评估").expect("单据存在");
+        assert_eq!(blocked.pending, dec("400"), "其它在审单要算进管道占用");
+        assert!(matches!(blocked.verdict, CreditVerdict::Block(_)));
+        assert!(!blocked.allows());
+        let snapshot = blocked.snapshot().expect("超限必有快照");
+        assert_eq!(snapshot.total(), dec("1100"));
+        assert_eq!(snapshot.over(), dec("100"));
+        // 报文要给全：客户、单号、五个数、三条出路
+        let message = blocked.block_message();
+        for needle in [
+            "信用额度不足（超限策略 BLOCK）",
+            "1000",
+            "400",
+            "1100",
+            "100",
+            "CR38-ASSESS",
+        ] {
+            assert!(message.contains(needle), "拒绝文案缺 `{needle}`：{message}");
+        }
+        assert!(
+            blocked.compensation_reason().contains("已退回草稿"),
+            "过审兜底的原因必须写明去处：{}",
+            blocked.compensation_reason()
+        );
+
+        // 策略 WARN / PASS：同一组数、结论不同（判定只有 `decide` 一份）
+        for (policy, expect_warn) in [(POLICY_WARN, true), (POLICY_PASS, false)] {
+            exec(
+                "UPDATE biz_customer SET credit_policy = ? WHERE id = ?::uuid",
+                vec![Value::Text(policy.to_string()), Value::from(&customer)],
+            )
+            .await
+            .expect("改策略");
+            let verdict = assess_order(db(), target)
+                .await
+                .expect("评估")
+                .expect("单据存在")
+                .verdict;
+            assert!(verdict.is_allowed(), "`{policy}` 必须放行审批");
+            assert_eq!(verdict.policy(), Some(policy));
+            assert_eq!(matches!(verdict, CreditVerdict::Warn(_)), expect_warn);
+        }
+
+        // 额度调回 0 = 不控额度：任何策略都不生效，且不再算 used / pending
+        exec(
+            "UPDATE biz_customer SET credit_limit = 0 WHERE id = ?::uuid",
+            vec![Value::from(&customer)],
+        )
+        .await
+        .expect("额度清零");
+        let uncontrolled = assess_order(db(), target).await.expect("评估").expect("单据存在");
+        assert_eq!(uncontrolled.verdict, CreditVerdict::Uncontrolled);
+        assert_eq!(uncontrolled.used, Decimal::ZERO);
+        assert_eq!(uncontrolled.pending, Decimal::ZERO);
+        assert!(uncontrolled.allows(), "不控额度时超多少都放行");
+
+        // 单据不存在 → None（调用方交给后续 404）
+        assert!(assess_order(db(), Uuid::now_v7()).await.expect("评估不报错").is_none());
+        // 客户软删 → None（不因一个查不到的客户把审批变成 500）
+        exec(
+            "UPDATE biz_customer SET deleted_at = now() WHERE id = ?::uuid",
+            vec![Value::from(&customer)],
+        )
+        .await
+        .expect("软删客户");
+        assert!(assess_order(db(), target).await.expect("评估不报错").is_none());
 
         teardown(customer).await;
     }

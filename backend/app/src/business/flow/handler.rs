@@ -1913,7 +1913,8 @@ pub async fn terminate_instance(
 ///
 /// - 403 + `65028`：这条待办不是你的；
 /// - 404 + `65003`：待办不存在；
-/// - 409 + `65024`：审批单已结束。
+/// - 409 + `65024`：审批单已结束；
+/// - 409 + `10003`：销售订单客户信用额度不足且策略为 `BLOCK`（M3-11，事务之前拦，待办不动）。
 #[nik::permission(
     path = "/business/flow/task/{id}/approve",
     method = "POST",
@@ -1938,6 +1939,11 @@ pub async fn approve_task(
     crate::business::hr::leave_bridge::guard_self_approval(task_id, operator).await?;
     // HR-39：薪资单 —— 发起人不能批自己提交的工资单（设计 §4.3 第 2 条）
     crate::business::hr::salary_bridge::guard_self_approval(task_id, operator).await?;
+    // ★ M3-11：审批通过 = 客户信用额度**占用时刻** —— 超限按客户策略拦截（409 + 10003，与提交守卫同码）。
+    //   位置与上面两把闸同款：**事务之前**拦，待办与单据都不动（可调额后重批 / 驳回改单）。
+    //   走注册表（`doc_reader::guard_approve_for_task`）：`flow` 不许直连 `erp`（架构门禁
+    //   `flow_erp_reference_budget_is_not_exceeded`，基线 0），判据与文案都在 ERP 侧的实现里。
+    doc_reader::guard_approve_for_task(task_id).await?;
     let mut out = db()
         .transaction(|tx| async move { engine::approve(&tx, task_id, operator, comment.as_deref()).await })
         .await

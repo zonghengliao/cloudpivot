@@ -185,6 +185,23 @@ pub trait DocReader: Send + Sync {
     /// 所以本方法没有默认实现（见模块注释「为什么 `on_settled` / `guard_self_approval`
     /// 不给默认实现」）。
     async fn guard_self_approval(&self, task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError>;
+
+    /// 审批点「同意」**之前**的业务前置闸（**事务之前**调；M3-11 起用于客户信用额度）。
+    ///
+    /// # 与 [`Self::guard_self_approval`] 的区别（为什么这个给默认实现）
+    ///
+    /// - `guard_self_approval` 是**内控**：漏实现的后果是「能自审」，必须逼着每条线表态，
+    ///   所以没有默认实现；
+    /// - 本方法是**业务前置条件**（例：销售订单 `APPROVED` 即占客户信用额度，超限要拦）。
+    ///   绝大多数审批线**根本没有这门生意**，默认 `Ok(())` = 「本审批线没有这一关」，
+    ///   与「不实现」语义完全相同；逼着 17 条线各写一行 `Ok(())` 只会制造噪音。
+    ///
+    /// 实现方约定：判据必须**同源于业务侧唯一真相**（例：`credit::decide`），
+    /// 拒绝时返回 409 + 业务码并在报文里写清「本次未生效、待办仍在」；
+    /// 查不到单据 / 与本 `biz_type` 无关时返回 `Ok(())`，不要抢流程自己的 404。
+    async fn guard_approve(&self, _task_id: Uuid) -> std::result::Result<(), ApiError> {
+        Ok(())
+    }
 }
 
 /// `biz_type` → [`DocReader`] 的注册表（**实例**版，可单测；进程级单例见 [`registry`]）。
@@ -423,6 +440,24 @@ pub async fn guard_self_approval_for_task(task_id: Uuid, operator: Uuid) -> std:
     };
     for reader in &readers {
         reader.guard_self_approval(task_id, operator).await?;
+    }
+    Ok(())
+}
+
+/// 审批点「同意」前的**业务前置闸**：手里只有 `task_id`，把所有已注册实现过一遍。
+///
+/// 与 [`guard_self_approval_for_task`] 同形（每个实现自己查待办 → 实例 → 判
+/// `biz_type` 是不是我的）：
+///
+/// - 未注册 / 没覆盖 [`DocReader::guard_approve`] 的实现 → 默认 `Ok(())`（放行）；
+/// - 第一个 `Err` 立刻返回（同一个实例只可能命中一个实现）。
+pub async fn guard_approve_for_task(task_id: Uuid) -> std::result::Result<(), ApiError> {
+    let readers: Vec<Arc<dyn DocReader>> = {
+        let registry = read_registry();
+        registry.readers.values().cloned().collect()
+    };
+    for reader in &readers {
+        reader.guard_approve(task_id).await?;
     }
     Ok(())
 }
