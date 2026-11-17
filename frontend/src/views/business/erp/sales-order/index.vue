@@ -154,6 +154,17 @@
                   data-testid="so-form-customer"
                   @change="handleFormCustomerChange"
                 />
+                <!-- M3-10：下单前的可用额度胶囊（不阻断编辑，只让销售「早知道」） -->
+                <div
+                  v-if="creditCapsuleView"
+                  class="credit-capsule"
+                  :class="`credit-capsule--${creditCapsuleView.theme}`"
+                  :title="creditSnapshot?.basis"
+                  data-testid="so-credit-capsule"
+                >
+                  <span class="credit-capsule__label">{{ creditCapsuleView.label }}</span>
+                  <span v-if="creditCapsuleView.hint" class="credit-capsule__hint">{{ creditCapsuleView.hint }}</span>
+                </div>
               </t-form-item>
             </t-col>
             <t-col :span="6">
@@ -620,7 +631,7 @@
  * 表单里的金额是 {@link computeLine} 的**预览**，提交只发 `qty` / `price` / `tax_rate`；
  * 列表 / 详情的金额一律是服务端返回值（`formatMoney` 只做显示格式）。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
@@ -675,6 +686,7 @@ import {
   clearManualPrice,
   computeLine,
   computeTotals,
+  creditCapsule,
   emptyListText,
   emptySalesOrderFilter,
   emptySalesOrderForm,
@@ -696,6 +708,7 @@ import {
   type SalesOrderLineDraft,
 } from './sales-order-query';
 import { resolvePrice, type PriceResolveRes } from '@/api/business/erp/customer-price';
+import { fetchCreditSnapshot, type CreditSnapshot } from '@/api/business/erp/credit';
 
 /** 本页权限码（与 `V0265__sales_order_permissions.up.sql` 的 auth_code 逐字一致） */
 const PERM = {
@@ -1051,6 +1064,87 @@ const formTotals = computed(() =>
     form.items.map((line) => ({ qty: line.qty, price: line.price, tax_rate: line.tax_rate })),
   ),
 );
+
+// ==================== 信用可用额度（M3-10） ====================
+
+/**
+ * 客户信用实时快照（下单前那张「可用额度」胶囊）。
+ *
+ * 取数口径全在后端 `GET /api/business/erp/credit/{customer_id}`：本项目
+ * **不在前端重算「超没超」**（额度 / 已占 / 在审 / 未清应收四个分量在
+ * `erp::credit::snapshot_of` 里现算），前端只负责把 `available` / `over` /
+ * `verdict` 摆成一句话 —— 两份比较迟早分叉，这正是本卡消灭的东西。
+ *
+ * 失败一律「不显示胶囊」：这是**辅助信息**，不能因为它挡了开单。
+ */
+const creditSnapshot = ref<CreditSnapshot | null>(null);
+/** 请求序号：慢的响应回来时若已换客户 / 换金额，直接丢弃（同取价那套防乱序） */
+let creditSeq = 0;
+/** 金额改动的防抖定时器（每敲一个数字都发请求太吵） */
+let creditTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 胶囊（`null` = 没选客户 / 没取到，不渲染） */
+const creditCapsuleView = computed(() => creditCapsule(creditSnapshot.value));
+
+/** 按「当前客户 + 当前表单价税合计」拉一次快照 */
+async function refreshCredit(): Promise<void> {
+  const customerId = form.customer_id;
+  if (!customerId) {
+    creditSnapshot.value = null;
+    return;
+  }
+  const token = ++creditSeq;
+  try {
+    const snapshot = await fetchCreditSnapshot(customerId, {
+      // 本单金额用表单预览合计；后端把它加到「合计」里算超限
+      amount: formTotals.value.with_tax,
+      // 编辑态把本单从「在审」里排除（草稿本就不在在审里，这里是双保险）
+      exclude_order_id: editingId.value || null,
+    });
+    if (token !== creditSeq) {
+      return; // 过期响应：客户或金额已经变了
+    }
+    creditSnapshot.value = snapshot;
+  } catch {
+    if (token === creditSeq) {
+      creditSnapshot.value = null; // 取不到就不显示，别挡开单
+    }
+  }
+}
+
+/** 金额变动后 400ms 再拉（连续敲数字只发最后一次） */
+function scheduleCreditRefresh(): void {
+  if (creditTimer) {
+    clearTimeout(creditTimer);
+  }
+  creditTimer = setTimeout(() => {
+    creditTimer = null;
+    void refreshCredit();
+  }, 400);
+}
+
+// 换客户（含「选合同自动带出客户」那条路径）立刻刷新
+watch(
+  () => form.customer_id,
+  () => {
+    void refreshCredit();
+  },
+);
+// 明细金额变了（加行 / 改数量 / 改单价 / 改税率）防抖刷新
+watch(
+  () => formTotals.value.with_tax,
+  () => {
+    if (formVisible.value) {
+      scheduleCreditRefresh();
+    }
+  },
+);
+onBeforeUnmount(() => {
+  if (creditTimer) {
+    clearTimeout(creditTimer);
+    creditTimer = null;
+  }
+});
 
 function openCreate(): void {
   editingId.value = null;
@@ -1508,6 +1602,44 @@ onMounted(async () => {
 
 .form-alert {
   margin-top: 4px;
+}
+
+// M3-10：下单前的可用额度胶囊（不阻断编辑，只提示「还能下多少 / 本单会超多少」）
+.credit-capsule {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  border-left: 3px solid var(--td-component-stroke);
+
+  &__label {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__hint {
+    color: var(--td-text-color-secondary);
+    white-space: normal;
+  }
+
+  &--success {
+    border-left-color: var(--td-success-color);
+    background: var(--td-success-color-light);
+  }
+
+  &--warning {
+    border-left-color: var(--td-warning-color);
+    background: var(--td-warning-color-light);
+  }
+
+  &--danger {
+    border-left-color: var(--td-error-color);
+    background: var(--td-error-color-light);
+  }
 }
 
 // SO-42：币种汇率只读展示（汇率本身没有输入框 —— 锁定后不可改）

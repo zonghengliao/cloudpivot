@@ -136,6 +136,8 @@ pub mod commission;
 pub mod contract;
 pub mod cost;
 pub mod credit;
+/// 客户信用「实时占用 / 可用额度」只读接口（M3-10）：下单前那张可用额度胶囊的数据源。
+pub mod credit_handler;
 pub mod currency;
 pub mod currency_admin_handler;
 pub mod currency_admin_model;

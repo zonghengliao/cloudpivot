@@ -508,6 +508,216 @@ pub async fn pending_credit(ex: &impl SqlExecutor, customer_id: Uuid, exclude: O
     sum_of(&rows, "pending")
 }
 
+// ==================== 实时快照：下单时的「可用额度」（M3-10） ====================
+//
+// 卡面：「客户信用：下单时实时占用（未清应收 + 本次订单）计算可用额度」。
+//
+// # 与提交守卫的关系（一份判定，两个时点）
+//
+// * **提交守卫**（`sales_order_handler::ensure_submittable`）在事务里按缓存列 `credit_used`
+//   + 在审合计做判定 —— 单子必须「当场」被拦或放行，不能为了一个聚合查询去等。
+// * **本节的快照**（`GET /business/erp/credit/{customer_id}`）是**下单前**给销售看的
+//   「还能下多少」：`used` 一律**现算**（[`usage_of`]，三张表现算，不读缓存列），所以
+//   缓存列万一漂移（S9 报红那种），这里看到的仍是**真账**。
+//
+// 两者**共用** [`decide`] 判定，不写第二份「超没超」的比较：额度、在审、本单三个数
+// 一样时结论必然一样。缓存列与现算值的差异会作为 `cache_drift` 显式返回 ——
+// 那是「每日重算该修而没修」的信号，不能悄悄抹平。
+//
+// # 三个占用分量（别混口径）
+//
+// | 分量 | 取数 | 含义 |
+// |------|------|------|
+// | `used`（已占） | [`usage_of`]：有效订单含税 − 已核销应收 − 已过账退货，下限 0 | **已生效**订单占的钱 |
+// | `pending`（在审） | [`pending_credit`]：`SUBMITTED` 订单价税合计 | 「连开多张草稿一起提交」的管道占用 |
+// | `open_receivable`（未清应收） | 本节 [`open_receivable`]：`OPEN/PARTIAL` 应收的 `unsettled_amount` | **口径对照**（见下） |
+//
+// `open_receivable` **不进** [`CreditSnapshot::total`]：它与 `used` 的「已发货未收款」
+// 部分**重叠**（一张已出库未收款的订单，既在有效订单里、也在未结应收里），
+// 再加一遍就是 `PRD 4.7.2 ③` 明令禁止的双算。它单独返回，只做两件事：
+// ① 前端能展示「这客户还欠我们多少」（未清应收正是卡面「未清应收 + 本次订单」里那半边）；
+// ② 与 `used` 对拍 —— 健康库里 `used ≥ 未清应收`（差额 = 未发货订单占用 − 已过账退货），
+//    对不上说明应收没由订单生成（手工应收）或退款没回写，是排障的第一条线索。
+//
+// # 本次订单（`amount`）
+//
+// 下单那一刻这张单还是 `DRAFT`（两个计数器都不含它），所以「本单金额」由调用方显式传入，
+// 快照把它加到 [`CreditSnapshot::total`] 里，得出的就是「本单也占上之后」的可用额度与
+// 超限额。不传 = 只看当前口径（前端打开表单时先拉一次的情况）。
+
+/// 未清应收的状态集合（`OPEN` 未收 / `PARTIAL` 部分收）。
+///
+/// `SETTLED`（收清）不再占额度；`WRITTEN_OFF`（坏账）在本仓仍按「钱没回来」保守占用
+/// （与 [`usage_of`] 的已知边界一致 —— 坏账释放属坏账卡）；`CANCELLED` 单据已废，不计。
+pub const OPEN_RECEIVABLE_STATUSES: [&str; 2] = ["OPEN", "PARTIAL"];
+
+/// 未清应收：`OPEN` / `PARTIAL` 应收的未结金额合计（**只读对照口径**，不进占用合计）。
+///
+/// 为什么用 `unsettled_amount` 而不是 `amount - received_amount`：库里有
+/// `ck_biz_ar_unsettled`（`unsettled_amount = amount - received_amount`）兜着，
+/// 两者恒等；读现成列能让这条查询走 `idx_biz_ar_customer` 的覆盖列，少一次全行读。
+// SCOPE-EXEMPT: 应收台账无归属列（客户是全局主数据），可见性由 business:erp:customer:* 控制。
+pub async fn open_receivable(ex: &impl SqlExecutor, customer_id: Uuid) -> DbResult<Decimal> {
+    let placeholders = vec!["?"; OPEN_RECEIVABLE_STATUSES.len()].join(", ");
+    let mut params: Vec<Value> = vec![Value::from(&customer_id)];
+    params.extend(
+        OPEN_RECEIVABLE_STATUSES
+            .iter()
+            .map(|status| Value::Text((*status).to_string())),
+    );
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT COALESCE(SUM(unsettled_amount), 0)::text AS open_amount \
+                   FROM biz_receivable \
+                  WHERE customer_id = ?::uuid AND deleted_at IS NULL \
+                    AND status IN ({placeholders})"
+            ),
+            params,
+        )
+        .await?;
+    sum_of(&rows, "open_amount")
+}
+
+/// 可用额度：`额度 − 占用`，**下限 0**；`额度 = 0`（不控额度）→ `None`。
+///
+/// 下限 0 与 `CustomerRes::credit_available` 同口径（客户档案上显示的就是它）：
+/// 「已经超额 5 万」在界面上是「可用 0」，超额本身由 [`CreditSnapshot::over`] 表达 ——
+/// 一个字段只讲一件事，前端不必猜负数是不是异常。
+pub fn available_of(limit: Decimal, occupied: Decimal) -> Option<Decimal> {
+    if limit <= Decimal::ZERO {
+        return None;
+    }
+    let rest = (limit - occupied).round_dp(2);
+    Some(if rest < Decimal::ZERO { Decimal::ZERO } else { rest })
+}
+
+/// 某一时刻的信用快照（下单前的「可用额度」/「本单将超额多少」都从它算）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreditSnapshot {
+    /// 客户编码（报文里要指名是哪个客户）。
+    pub code: String,
+    /// 客户名称。
+    pub name: String,
+    /// 客户状态：`ACTIVE` 正常 / `FROZEN` 冻结（冻结客户**根本不许下单**，与额度无关）。
+    pub status: String,
+    /// 信用额度（`0` = 不控额度）。
+    pub limit: Decimal,
+    /// 超限策略（库里原值，判定时走 [`normalize_policy`]）。
+    pub policy: String,
+    /// 已占额度（**现算**，[`usage_of`] 的结果，不读缓存列）。
+    pub used: Decimal,
+    /// 缓存列 `biz_customer.credit_used`（对拍用；与 `used` 差超过容差 → 漂移）。
+    pub stored_used: Decimal,
+    /// 在审占用（`SUBMITTED` 合计，不含本单）。
+    pub pending: Decimal,
+    /// 未清应收（**对照口径**，不进占用合计 —— 理由见本节文档）。
+    pub open_receivable: Decimal,
+    /// 本次订单的价税合计（没传 = 0 = 只看当前口径）。
+    pub amount: Decimal,
+}
+
+impl CreditSnapshot {
+    /// 已占 + 在审（**不含本单**）= 此刻已经被别人占掉的钱。
+    pub fn occupied(&self) -> Decimal {
+        (self.used + self.pending).round_dp(2)
+    }
+
+    /// 占用合计（含本次订单）= 「本单也占上之后」的口径。
+    pub fn total(&self) -> Decimal {
+        (self.occupied() + self.amount).round_dp(2)
+    }
+
+    /// 此刻还能下多少（不含本单；下限 0；不控额度 → `None`）。
+    pub fn available(&self) -> Option<Decimal> {
+        available_of(self.limit, self.occupied())
+    }
+
+    /// 本单占完之后还能下多少（下限 0；不控额度 → `None`）。
+    pub fn available_after(&self) -> Option<Decimal> {
+        available_of(self.limit, self.total())
+    }
+
+    /// 本单导致的超出额（未超 / 不控额度 = 0）。
+    pub fn over(&self) -> Decimal {
+        if self.limit <= Decimal::ZERO {
+            return Decimal::ZERO;
+        }
+        let over = self.total() - self.limit;
+        if over <= Decimal::ZERO {
+            Decimal::ZERO
+        } else {
+            over.round_dp(2)
+        }
+    }
+
+    /// 缓存列是否已漂移（`used` 现算 vs `stored_used`）。
+    ///
+    /// 容差 0.01：与 [`is_same`] / S9 同一把尺子。`true` 是**运维信号**（每日重算会修），
+    /// 不是本接口的错误 —— 本接口照旧返回真账。
+    pub fn cache_drift(&self) -> bool {
+        !is_same(self.used, self.stored_used)
+    }
+
+    /// 判定（与提交守卫同一个 [`decide`]）。
+    pub fn verdict(&self) -> CreditVerdict {
+        decide(&self.policy, self.limit, self.used, self.pending, self.amount)
+    }
+}
+
+/// 读某客户的实时信用快照：`None` = 客户不存在 / 已软删。
+///
+/// `amount` = 本次订单价税合计（试算用）；`exclude` = 编辑态把本单从「在审」里排除
+/// （草稿不在在审里，正常用不上；带上是为了「已提交单被回调重算」这类场景不双算）。
+pub async fn snapshot_of(
+    ex: &impl SqlExecutor,
+    customer_id: Uuid,
+    amount: Option<Decimal>,
+    exclude: Option<Uuid>,
+) -> DbResult<Option<CreditSnapshot>> {
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT code, name, status, credit_limit::text AS lim, credit_policy, \
+                        credit_used::text AS cached \
+                   FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
+            ),
+            vec![Value::from(&customer_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let limit: Decimal = row
+        .get_typed::<String>("lim")
+        .ok()
+        .and_then(|text| text.trim().parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO);
+    let policy: String = row.get_typed("credit_policy").unwrap_or_default();
+    let stored_used: Decimal = row
+        .get_typed::<String>("cached")
+        .ok()
+        .and_then(|text| text.trim().parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO);
+
+    let usage = usage_of(ex, customer_id).await?;
+    let pending = pending_credit(ex, customer_id, exclude).await?;
+    let open = open_receivable(ex, customer_id).await?;
+    let amount = amount.unwrap_or(Decimal::ZERO).round_dp(2);
+    Ok(Some(CreditSnapshot {
+        code: row.get_typed("code").unwrap_or_default(),
+        name: row.get_typed("name").unwrap_or_default(),
+        status: row.get_typed("status").unwrap_or_default(),
+        limit,
+        policy,
+        used: usage.used,
+        stored_used,
+        pending,
+        open_receivable: open,
+        amount,
+    }))
+}
+
 // ==================== 写：占用 / 释放 / 重算 ====================
 
 /// 一次同步的结果。

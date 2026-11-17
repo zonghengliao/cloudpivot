@@ -16,6 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PriceResolveRes } from '@/api/business/erp/customer-price';
 import type { SalesOrder } from '@/api/business/erp';
+import type { CreditSnapshot } from '@/api/business/erp/credit';
 import {
   SALES_ORDER_MAX_LINES,
   SALES_ORDER_PAGE_SIZE,
@@ -33,6 +34,7 @@ import {
   canWithdraw,
   computeLine,
   computeTotals,
+  creditCapsule,
   emptyListText,
   emptySalesOrderFilter,
   emptySalesOrderForm,
@@ -579,4 +581,97 @@ test('税额闭环：不含税 106.1947 × 13% 与含税价 120 对得上（±0.
   assert.equal(amounts.amount, 106.1947);
   assert.equal(amounts.tax_amount, 13.8053);
   assert.ok(Math.abs(amounts.with_tax - 120) < 0.001, `含税合计应≈120，实际 ${amounts.with_tax}`);
+});
+
+// ==================== 信用可用额度胶囊（M3-10） ====================
+
+/** 一份真形态的快照（字段逐字照后端 `CreditSnapshotRes`） */
+function snapshot(overrides: Partial<CreditSnapshot> = {}): CreditSnapshot {
+  return {
+    customer_id: 'd5050000-0000-4000-8000-00000000c001',
+    customer_code: 'CUS-0001',
+    customer_name: '北京示例科技有限公司',
+    customer_status: 'ACTIVE',
+    // 金额一律是**字符串**（后端 NUMERIC 出 JSON 就是字符串）
+    credit_limit: '100000.0000',
+    credit_policy: 'BLOCK',
+    used: '40000.0000',
+    cached_used: '40000.0000',
+    cache_drift: false,
+    pending: '10000.0000',
+    open_receivable: '30000.0000',
+    occupied: '50000.0000',
+    order_amount: '20000.0000',
+    total: '70000.0000',
+    available: '50000.0000',
+    available_after: '30000.0000',
+    over: '0',
+    is_over: false,
+    verdict: 'WITHIN',
+    allowed: true,
+    basis: '已占 = 有效订单价税合计 − 已核销应收 − 已过账退货（下限 0）',
+    ...overrides,
+  };
+}
+
+test('信用胶囊：未选客户 / 没取到快照 → 不显示', () => {
+  assert.equal(creditCapsule(null), null);
+  assert.equal(creditCapsule(undefined), null);
+});
+
+test('信用胶囊：未超限 → success，主文案带可用额度与额度', () => {
+  const capsule = creditCapsule(snapshot());
+  assert.ok(capsule);
+  assert.equal(capsule.theme, 'success');
+  assert.equal(capsule.label, '可用额度 50,000.00 / 额度 100,000.00');
+  assert.equal(capsule.hint, '本单占完还剩 30,000.00');
+  assert.equal(capsule.blocked, false, '未超限当然不 block');
+});
+
+test('信用胶囊：额度 0 = 不控额度 → 默认态，不显示可用额度（后端给 null）', () => {
+  const capsule = creditCapsule(
+    snapshot({ credit_limit: '0', available: null, available_after: null, verdict: 'UNCONTROLLED' }),
+  );
+  assert.ok(capsule);
+  assert.equal(capsule.theme, 'default');
+  assert.equal(capsule.label, '不控额度（信用额度 0 = 不做额度校验）');
+  assert.equal(capsule.hint, '');
+  assert.equal(capsule.blocked, false);
+});
+
+test('信用胶囊：超限三策略的文案与阻断口径', () => {
+  // BLOCK：红 + 会被拒
+  const block = creditCapsule(
+    snapshot({
+      verdict: 'BLOCK',
+      is_over: true,
+      over: '60000.0000',
+      available: '0',
+      available_after: '0',
+    }),
+  );
+  assert.ok(block);
+  assert.equal(block.theme, 'danger');
+  assert.match(block.hint, /本单将超额 60,000\.00/);
+  assert.match(block.hint, /提交会被拒/);
+  assert.equal(block.blocked, true);
+
+  // WARN / PASS：黄 + 可以提交（差别只在留痕）
+  for (const verdict of ['WARN', 'PASS'] as const) {
+    const capsule = creditCapsule(
+      snapshot({ verdict, is_over: true, over: '60000.0000', available: '0' }),
+    );
+    assert.ok(capsule);
+    assert.equal(capsule.theme, 'warning', `${verdict} 是「能提交但要提示」`);
+    assert.equal(capsule.blocked, false, `${verdict} 不该阻断`);
+    assert.match(capsule.hint, /本单将超额 60,000\.00/);
+  }
+});
+
+test('信用胶囊：客户冻结 → 红线提示（与额度无关，额度够也不许提交）', () => {
+  const capsule = creditCapsule(snapshot({ customer_status: 'FROZEN' }));
+  assert.ok(capsule);
+  assert.equal(capsule.theme, 'danger');
+  assert.match(capsule.hint, /客户已冻结/);
+  assert.equal(capsule.blocked, true);
 });

@@ -40,6 +40,8 @@ import type {
   UpdateSalesOrderReq,
 } from '@/api/business/erp';
 import type { PriceResolveRes, PriceSource } from '@/api/business/erp/customer-price';
+import type { CreditSnapshot } from '@/api/business/erp/credit';
+import { formatMoney, toNumber } from '@/views/business/erp/shared/money';
 import { priceSourceLabel, priceSourceTheme } from '@/views/business/erp/shared/price-source';
 
 /** 每页条数（与采购 / 收货列表同口径；后端上限 200、`0` → 20） */
@@ -781,4 +783,92 @@ export function emptyListText(filter: SalesOrderFilter): string {
   return isSalesOrderFiltered(filter)
     ? '当前筛选条件下没有销售订单，试试放宽条件或重置'
     : '还没有销售订单，点右上角「新建销售订单」开单';
+}
+
+// ==================== 信用可用额度胶囊（M3-10） ====================
+
+/**
+ * 下单前的信用胶囊（表单客户选择下方那一行）。
+ *
+ * `theme` 只影响颜色，`blocked` 只用来**提前警告**「这单提交会被拒」——
+ * 两者都**不阻止编辑**：额度可以协商，销售需要把超额的单填完再去找财务
+ * （PRD §3.1.3 / §5.5 明确写了这是刻意的妥协）。
+ */
+export interface CreditCapsule {
+  /** 胶囊主题 */
+  theme: 'default' | 'success' | 'warning' | 'danger';
+  /** 主文案：`可用额度 20,000.00 / 额度 100,000.00` */
+  label: string;
+  /** 次文案（超限 / 冻结提示；没有要说的话就是空串） */
+  hint: string;
+  /** 后端判定「提交会被拒」（`BLOCK` 或客户冻结） */
+  blocked: boolean;
+}
+
+/**
+ * 把快照拼成胶囊文案（纯函数，单测直接调）。
+ *
+ * 取数口径全在快照里（`available` / `over` / `verdict` / `allowed`），这里**不重算**
+ * 「超没超」—— 前端算一遍、后端算一遍，两份口径迟早分叉，这正是本卡要消灭的东西。
+ *
+ * @param snapshot 后端快照；`null` / `undefined`（没取到 / 没选客户）→ 不显示胶囊
+ */
+export function creditCapsule(
+  snapshot: CreditSnapshot | null | undefined,
+): CreditCapsule | null {
+  if (!snapshot) {
+    return null;
+  }
+  const limit = toNumber(snapshot.credit_limit);
+  if (limit <= 0) {
+    // 0 = 不控额度（与客户档案 `credit_available = null` 同口径）
+    return {
+      theme: 'default',
+      label: '不控额度（信用额度 0 = 不做额度校验）',
+      hint: '',
+      blocked: false,
+    };
+  }
+  const label = `可用额度 ${formatMoney(snapshot.available)} / 额度 ${formatMoney(limit)}`;
+
+  if (snapshot.customer_status === 'FROZEN') {
+    return {
+      theme: 'danger',
+      label,
+      hint: '客户已冻结：提交会被拒绝（与额度无关，先解冻再下单）',
+      blocked: true,
+    };
+  }
+  if (snapshot.is_over) {
+    const over = `本单将超额 ${formatMoney(snapshot.over)}`;
+    switch (snapshot.verdict) {
+      case 'BLOCK':
+        return {
+          theme: 'danger',
+          label,
+          hint: `${over}（提交会被拒：先收款 / 关闭旧单，或由管理员调高额度）`,
+          blocked: true,
+        };
+      case 'WARN':
+        return {
+          theme: 'warning',
+          label,
+          hint: `${over}（该客户策略为「警告」：可以提交，提交时会提示并记信用台账）`,
+          blocked: false,
+        };
+      default:
+        return {
+          theme: 'warning',
+          label,
+          hint: `${over}（该客户策略为「放行」：可以提交，不留痕）`,
+          blocked: false,
+        };
+    }
+  }
+  return {
+    theme: 'success',
+    label,
+    hint: `本单占完还剩 ${formatMoney(snapshot.available_after)}`,
+    blocked: false,
+  };
 }

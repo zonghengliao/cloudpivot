@@ -1,0 +1,5 @@
+== cargo fmt --check（只云 pivot 包，未格式化 vendor）==
+0 差异
+
+== cargo clippy --lib -- -D warnings ==
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s

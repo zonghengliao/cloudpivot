@@ -1,0 +1,33 @@
+== M3-10 客户信用实时占用 / 可用额度 · 演练（PG 172.18.10.145:5432 / 库 cp_m310_credit_drill_3135787）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m310_credit_drill_3135787
+== 1) 补齐业务迁移 V0405…V0437（幂等，逐条 ON_ERROR_STOP；本卡**不加迁移**）
+  [32mPASS[0m 33 条业务迁移全部应用成功
+  [32mPASS[0m biz_customer 的 credit_policy / credit_used 都在（M3-09 + SO-38 的列）（=2）
+== 2) 静态断言：新路由 + 复用读码（不造新码 = 不给权限树添哑弹）
+  [32mPASS[0m credit_handler.rs 存在
+  [32mPASS[0m permission 宏里的路由路径只有一处（重复定义 = 启动期路由冲突）（=1）
+  [32mPASS[0m get 宏里的路由路径与 permission 宏逐字一致（写错一处 = 断言漂移）（=1）
+  [32mPASS[0m 路由声明的权限码 = 客户读码（与 customer_handler::PERM_LIST 逐字一致，单测也钉住）（=1）
+  [32mPASS[0m 复用的读码在 sys_menu 有承载行（授得出去）（=1）
+== 3) perm_menu_gate.py（注解码 − 菜单码 必须为 0）
+  [32mPASS[0m 死权限码闸通过（65 行输出，见日志）
+== 4) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡快照域（实时占用 / 可用额度 / 入参闸 / 策略三态）：business::erp::credit_handler 全绿（9 条）（=9）
+  [32mPASS[0m 本卡快照域（实时占用 / 可用额度 / 入参闸 / 策略三态）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 信用域（占用·释放·重算 + 策略判定不被打破）：business::erp::credit 全绿（29 条）（=29）
+  [32mPASS[0m 信用域（占用·释放·重算 + 策略判定不被打破）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 客户档案域（CRUD 不被打破）：business::erp::customer 全绿（20 条）（=20）
+  [32mPASS[0m 客户档案域（CRUD 不被打破）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 销售域整组（订单提交守卫 + 报价单 / 退货 / 审批桥）：business::erp::sales 全绿（206 条）（=206）
+  [32mPASS[0m 销售域整组（订单提交守卫 + 报价单 / 退货 / 审批桥）：本组 SKIP=0（真库用例没被打成假绿）
+== 5) 夹具清场（不允许把本卡夹具带出演练库）
+  [32mPASS[0m biz_customer 无 CR10- 夹具客户（本卡）（=0）
+  [32mPASS[0m biz_sales_order 无 SO10- 夹具订单（本卡）（=0）
+  [32mPASS[0m biz_receivable 无 AR-SO10- 夹具应收（本卡）（=0）
+  [32mPASS[0m biz_customer 无 CR38- 夹具客户（credit 域）（=0）
+  [32mPASS[0m 警示台账无夹具客户残留行（=0）
+
+== 汇总：PASS=23 FAIL=0 ==
+ALL PASS
