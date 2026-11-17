@@ -1,0 +1,158 @@
+                                                                                                          Table "public.biz_purchase_plan"
+        Column        |           Type           | Collation | Nullable |          Default           | Storage  | Compression | Stats target |                                             Description                                              
+----------------------+--------------------------+-----------+----------+----------------------------+----------+-------------+--------------+------------------------------------------------------------------------------------------------------
+ id                   | uuid                     |           | not null | gen_random_uuid()          | plain    |             |              | 
+ plan_no              | character varying(32)    |           | not null |                            | extended |             |              | 计划单号：PPL-yyyyMMdd-000001（biz_seq.seq_type=PPL，按北京时间天滚动）
+ plan_name            | character varying(128)   |           | not null |                            | extended |             |              | 
+ plan_type            | character varying(16)    |           | not null |                            | extended |             |              | 
+ plan_year            | integer                  |           | not null |                            | plain    |             |              | 
+ plan_month           | integer                  |           |          |                            | plain    |             |              | 月度计划 1–12；年度计划必须为 NULL（ck_biz_pp_period 把类型与月份绑死）
+ parent_plan_id       | uuid                     |           |          |                            | plain    |             |              | 月度计划挂到的年度计划（年度→月度分解）；库层只拦自指，「父必须是年度且年月落在父年内」由 handler 判
+ dept_id              | uuid                     |           |          |                            | plain    |             |              | 
+ dept_name            | character varying(128)   |           |          |                            | extended |             |              | 
+ planner_id           | uuid                     |           |          |                            | plain    |             |              | 
+ planner_name         | character varying(64)    |           |          |                            | extended |             |              | 
+ status               | character varying(16)    |           | not null | 'DRAFT'::character varying | extended |             |              | DRAFT 编制中 / SUBMITTED 审批中（必有审批实例）/ APPROVED 批准（可转采购申请，M4-03）
+ approval_instance_id | uuid                     |           |          |                            | plain    |             |              | 
+ total_planned_qty    | numeric(18,4)            |           | not null | 0                          | main     |             |              | 计划量合计 = Σ明细 planned_qty（服务端在写明细的同一事务里重算，客户端不许传）
+ total_executed_qty   | numeric(18,4)            |           | not null | 0                          | main     |             |              | 已执行量合计 = Σ明细 executed_qty（执行回写属 M4-03/M4-04）
+ total_planned_amount | numeric(18,4)            |           | not null | 0                          | main     |             |              | 
+ remark               | text                     |           |          |                            | extended |             |              | 
+ created_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP          | plain    |             |              | 
+ updated_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP          | plain    |             |              | 
+ create_by            | uuid                     |           |          |                            | plain    |             |              | 
+ update_by            | uuid                     |           |          |                            | plain    |             |              | 
+ deleted_at           | timestamp with time zone |           |          |                            | plain    |             |              | 
+Indexes:
+    "biz_purchase_plan_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_purchase_plan_parent" btree (parent_plan_id) WHERE parent_plan_id IS NOT NULL
+    "idx_biz_purchase_plan_period" btree (plan_year DESC, plan_month DESC) WHERE deleted_at IS NULL
+    "idx_biz_purchase_plan_status" btree (status, plan_year DESC) WHERE deleted_at IS NULL
+    "uk_biz_purchase_plan_no" UNIQUE, btree (plan_no) WHERE deleted_at IS NULL
+    "uk_biz_purchase_plan_period" UNIQUE, btree (plan_type, plan_year, COALESCE(plan_month, 0), COALESCE(dept_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_pp_instance" CHECK (status::text <> 'SUBMITTED'::text OR approval_instance_id IS NOT NULL)
+    "ck_biz_pp_name" CHECK (btrim(plan_name::text) <> ''::text)
+    "ck_biz_pp_no_fmt" CHECK (plan_no::text ~ '^PPL-[0-9]{8}-[0-9]{6}$'::text)
+    "ck_biz_pp_parent" CHECK (parent_plan_id IS NULL OR parent_plan_id <> id)
+    "ck_biz_pp_period" CHECK (plan_type::text = 'ANNUAL'::text AND plan_month IS NULL OR plan_type::text = 'MONTHLY'::text AND plan_month IS NOT NULL AND plan_month >= 1 AND plan_month <= 12)
+    "ck_biz_pp_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying, 'APPROVED'::character varying]::text[]))
+    "ck_biz_pp_totals" CHECK (total_planned_qty >= 0::numeric AND total_executed_qty >= 0::numeric AND total_planned_amount >= 0::numeric)
+    "ck_biz_pp_type" CHECK (plan_type::text = ANY (ARRAY['ANNUAL'::character varying, 'MONTHLY'::character varying]::text[]))
+    "ck_biz_pp_year" CHECK (plan_year >= 1990 AND plan_year <= 2200)
+Referenced by:
+    TABLE "biz_purchase_plan_item" CONSTRAINT "fk_biz_ppi_plan" FOREIGN KEY (plan_id) REFERENCES biz_purchase_plan(id) ON DELETE CASCADE
+Not-null constraints:
+    "biz_purchase_plan_id_not_null" NOT NULL "id"
+    "biz_purchase_plan_plan_no_not_null" NOT NULL "plan_no"
+    "biz_purchase_plan_plan_name_not_null" NOT NULL "plan_name"
+    "biz_purchase_plan_plan_type_not_null" NOT NULL "plan_type"
+    "biz_purchase_plan_plan_year_not_null" NOT NULL "plan_year"
+    "biz_purchase_plan_status_not_null" NOT NULL "status"
+    "biz_purchase_plan_total_planned_qty_not_null" NOT NULL "total_planned_qty"
+    "biz_purchase_plan_total_executed_qty_not_null" NOT NULL "total_executed_qty"
+    "biz_purchase_plan_total_planned_amount_not_null" NOT NULL "total_planned_amount"
+    "biz_purchase_plan_created_at_not_null" NOT NULL "created_at"
+    "biz_purchase_plan_updated_at_not_null" NOT NULL "updated_at"
+Access method: heap
+
+                                                                                        Table "public.biz_purchase_plan_item"
+     Column     |           Type           | Collation | Nullable |      Default      | Storage  | Compression | Stats target |                                     Description                                      
+----------------+--------------------------+-----------+----------+-------------------+----------+-------------+--------------+--------------------------------------------------------------------------------------
+ id             | uuid                     |           | not null | gen_random_uuid() | plain    |             |              | 
+ plan_id        | uuid                     |           | not null |                   | plain    |             |              | 
+ line_no        | integer                  |           | not null |                   | plain    |             |              | 
+ material_id    | uuid                     |           | not null |                   | plain    |             |              | 
+ warehouse_id   | uuid                     |           | not null |                   | plain    |             |              | 仓库 —— 与 material_id 一起构成计划粒度（uk_biz_pp_item_cell）
+ unit_id        | uuid                     |           | not null |                   | plain    |             |              | 
+ planned_qty    | numeric(18,4)            |           | not null |                   | main     |             |              | 计划量（> 0）：ck_biz_ppi_qty 拒 0 与负数
+ executed_qty   | numeric(18,4)            |           | not null | 0                 | main     |             |              | 已执行量（>= 0）：已转采购申请 / 下单的数量，由 M4-03/M4-04 回写；刻意不拦「超计划」
+ planned_price  | numeric(18,6)            |           | not null | 0                 | main     |             |              | 
+ planned_amount | numeric(18,4)            |           | not null | 0                 | main     |             |              | 计划金额（不含税）= planned_qty × planned_price，服务端算，客户端传了也覆盖
+ remark         | text                     |           |          |                   | extended |             |              | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP | plain    |             |              | 
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP | plain    |             |              | 
+Indexes:
+    "biz_purchase_plan_item_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_pp_item_material" btree (material_id, warehouse_id)
+    "uk_biz_pp_item_cell" UNIQUE, btree (plan_id, material_id, warehouse_id)
+    "uk_biz_pp_item_line" UNIQUE, btree (plan_id, line_no)
+Check constraints:
+    "ck_biz_ppi_exec" CHECK (executed_qty >= 0::numeric)
+    "ck_biz_ppi_line" CHECK (line_no > 0)
+    "ck_biz_ppi_price" CHECK (planned_price >= 0::numeric AND planned_amount >= 0::numeric)
+    "ck_biz_ppi_qty" CHECK (planned_qty > 0::numeric)
+Foreign-key constraints:
+    "fk_biz_ppi_plan" FOREIGN KEY (plan_id) REFERENCES biz_purchase_plan(id) ON DELETE CASCADE
+Not-null constraints:
+    "biz_purchase_plan_item_id_not_null" NOT NULL "id"
+    "biz_purchase_plan_item_plan_id_not_null" NOT NULL "plan_id"
+    "biz_purchase_plan_item_line_no_not_null" NOT NULL "line_no"
+    "biz_purchase_plan_item_material_id_not_null" NOT NULL "material_id"
+    "biz_purchase_plan_item_warehouse_id_not_null" NOT NULL "warehouse_id"
+    "biz_purchase_plan_item_unit_id_not_null" NOT NULL "unit_id"
+    "biz_purchase_plan_item_planned_qty_not_null" NOT NULL "planned_qty"
+    "biz_purchase_plan_item_executed_qty_not_null" NOT NULL "executed_qty"
+    "biz_purchase_plan_item_planned_price_not_null" NOT NULL "planned_price"
+    "biz_purchase_plan_item_planned_amount_not_null" NOT NULL "planned_amount"
+    "biz_purchase_plan_item_created_at_not_null" NOT NULL "created_at"
+    "biz_purchase_plan_item_updated_at_not_null" NOT NULL "updated_at"
+Access method: heap
+
+          indexname           |                                                                                                              indexdef                                                                                                               
+------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_purchase_plan_item_pkey  | CREATE UNIQUE INDEX biz_purchase_plan_item_pkey ON public.biz_purchase_plan_item USING btree (id)
+ biz_purchase_plan_pkey       | CREATE UNIQUE INDEX biz_purchase_plan_pkey ON public.biz_purchase_plan USING btree (id)
+ idx_biz_pp_item_material     | CREATE INDEX idx_biz_pp_item_material ON public.biz_purchase_plan_item USING btree (material_id, warehouse_id)
+ idx_biz_purchase_plan_parent | CREATE INDEX idx_biz_purchase_plan_parent ON public.biz_purchase_plan USING btree (parent_plan_id) WHERE (parent_plan_id IS NOT NULL)
+ idx_biz_purchase_plan_period | CREATE INDEX idx_biz_purchase_plan_period ON public.biz_purchase_plan USING btree (plan_year DESC, plan_month DESC) WHERE (deleted_at IS NULL)
+ idx_biz_purchase_plan_status | CREATE INDEX idx_biz_purchase_plan_status ON public.biz_purchase_plan USING btree (status, plan_year DESC) WHERE (deleted_at IS NULL)
+ uk_biz_pp_item_cell          | CREATE UNIQUE INDEX uk_biz_pp_item_cell ON public.biz_purchase_plan_item USING btree (plan_id, material_id, warehouse_id)
+ uk_biz_pp_item_line          | CREATE UNIQUE INDEX uk_biz_pp_item_line ON public.biz_purchase_plan_item USING btree (plan_id, line_no)
+ uk_biz_purchase_plan_no      | CREATE UNIQUE INDEX uk_biz_purchase_plan_no ON public.biz_purchase_plan USING btree (plan_no) WHERE (deleted_at IS NULL)
+ uk_biz_purchase_plan_period  | CREATE UNIQUE INDEX uk_biz_purchase_plan_period ON public.biz_purchase_plan USING btree (plan_type, plan_year, COALESCE(plan_month, 0), COALESCE(dept_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE (deleted_at IS NULL)
+(10 rows)
+
+                     conname                     |                                                                                       pg_get_constraintdef                                                                                       
+-------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_purchase_plan_created_at_not_null           | NOT NULL created_at
+ biz_purchase_plan_id_not_null                   | NOT NULL id
+ biz_purchase_plan_item_created_at_not_null      | NOT NULL created_at
+ biz_purchase_plan_item_executed_qty_not_null    | NOT NULL executed_qty
+ biz_purchase_plan_item_id_not_null              | NOT NULL id
+ biz_purchase_plan_item_line_no_not_null         | NOT NULL line_no
+ biz_purchase_plan_item_material_id_not_null     | NOT NULL material_id
+ biz_purchase_plan_item_pkey                     | PRIMARY KEY (id)
+ biz_purchase_plan_item_plan_id_not_null         | NOT NULL plan_id
+ biz_purchase_plan_item_planned_amount_not_null  | NOT NULL planned_amount
+ biz_purchase_plan_item_planned_price_not_null   | NOT NULL planned_price
+ biz_purchase_plan_item_planned_qty_not_null     | NOT NULL planned_qty
+ biz_purchase_plan_item_unit_id_not_null         | NOT NULL unit_id
+ biz_purchase_plan_item_updated_at_not_null      | NOT NULL updated_at
+ biz_purchase_plan_item_warehouse_id_not_null    | NOT NULL warehouse_id
+ biz_purchase_plan_pkey                          | PRIMARY KEY (id)
+ biz_purchase_plan_plan_name_not_null            | NOT NULL plan_name
+ biz_purchase_plan_plan_no_not_null              | NOT NULL plan_no
+ biz_purchase_plan_plan_type_not_null            | NOT NULL plan_type
+ biz_purchase_plan_plan_year_not_null            | NOT NULL plan_year
+ biz_purchase_plan_status_not_null               | NOT NULL status
+ biz_purchase_plan_total_executed_qty_not_null   | NOT NULL total_executed_qty
+ biz_purchase_plan_total_planned_amount_not_null | NOT NULL total_planned_amount
+ biz_purchase_plan_total_planned_qty_not_null    | NOT NULL total_planned_qty
+ biz_purchase_plan_updated_at_not_null           | NOT NULL updated_at
+ ck_biz_pp_instance                              | CHECK ((((status)::text <> 'SUBMITTED'::text) OR (approval_instance_id IS NOT NULL)))
+ ck_biz_pp_name                                  | CHECK ((btrim((plan_name)::text) <> ''::text))
+ ck_biz_pp_no_fmt                                | CHECK (((plan_no)::text ~ '^PPL-[0-9]{8}-[0-9]{6}$'::text))
+ ck_biz_pp_parent                                | CHECK (((parent_plan_id IS NULL) OR (parent_plan_id <> id)))
+ ck_biz_pp_period                                | CHECK (((((plan_type)::text = 'ANNUAL'::text) AND (plan_month IS NULL)) OR (((plan_type)::text = 'MONTHLY'::text) AND (plan_month IS NOT NULL) AND ((plan_month >= 1) AND (plan_month <= 12)))))
+ ck_biz_pp_status                                | CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying, 'APPROVED'::character varying])::text[])))
+ ck_biz_pp_totals                                | CHECK (((total_planned_qty >= (0)::numeric) AND (total_executed_qty >= (0)::numeric) AND (total_planned_amount >= (0)::numeric)))
+ ck_biz_pp_type                                  | CHECK (((plan_type)::text = ANY ((ARRAY['ANNUAL'::character varying, 'MONTHLY'::character varying])::text[])))
+ ck_biz_pp_year                                  | CHECK (((plan_year >= 1990) AND (plan_year <= 2200)))
+ ck_biz_ppi_exec                                 | CHECK ((executed_qty >= (0)::numeric))
+ ck_biz_ppi_line                                 | CHECK ((line_no > 0))
+ ck_biz_ppi_price                                | CHECK (((planned_price >= (0)::numeric) AND (planned_amount >= (0)::numeric)))
+ ck_biz_ppi_qty                                  | CHECK ((planned_qty > (0)::numeric))
+ fk_biz_ppi_plan                                 | FOREIGN KEY (plan_id) REFERENCES biz_purchase_plan(id) ON DELETE CASCADE
+(39 rows)
+

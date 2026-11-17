@@ -1,0 +1,14 @@
+# M4-01 门禁原始输出（2026-11-17T22:38:53+08:00）
+
+## cargo fmt -- --check
+FMT OK（rc=0，无 diff）
+
+## cargo clippy --lib -- -D warnings（先 touch 本卡两个文件，确保真的重新检查）
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.21s
+
+## cargo clippy --lib --tests -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 35s
+
+## 前端：本卡零改动，未跑 pnpm（frontend/ 未被本卡编辑，见 04 号证据第 5 条）

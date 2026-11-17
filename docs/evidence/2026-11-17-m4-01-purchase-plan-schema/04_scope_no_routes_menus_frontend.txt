@@ -1,0 +1,40 @@
+# M4-01 范围证据（本卡只做表结构，不夹带路由 / 权限码 / 菜单 / 前端）
+
+## 1) 本卡改动的文件
+ M backend/app/src/business/erp/purchase/mod.rs
+?? backend/app/migrations/business/V0446__purchase_plan.down.sql
+?? backend/app/migrations/business/V0446__purchase_plan.up.sql
+?? backend/app/src/business/erp/purchase/purchase_plan_db_tests.rs
+?? backend/app/src/business/erp/purchase/purchase_plan_model.rs
+?? scripts/verify/m401_purchase_plan_schema_drill.sh
+
+## 2) 新增源码里的路由宏（应为 0：本卡没有 handler，也就没有路由）
+backend/app/src/business/erp/purchase/purchase_plan_model.rs:0
+backend/app/src/business/erp/purchase/purchase_plan_db_tests.rs:0
+
+## 3) 新增源码里的权限码声明（应为 0）
+0
+
+## 4) 迁移里动菜单表的语句（应为 0；注释里提到 sys_menu 不算）
+backend/app/migrations/business/V0446__purchase_plan.up.sql:0
+backend/app/migrations/business/V0446__purchase_plan.down.sql:0
+
+## 5) 本卡是否编辑过 frontend/（应为 0）
+0
+（注：上面统计已排除他人未提交的 frontend 改动；本卡未编辑任何 frontend/ 文件）
+
+## 6) 迁移号段全局唯一性（V0446 只应命中 2 个文件 = up/down）
+2
+
+## 7) 全局最大迁移号（确认 V0446 是最后一条）
+V0444
+V0445
+V0446
+
+## 8) 本卡迁移里 biz_seq 的取号行（PPL）
+6:--   ③ biz_seq：PPL（PPL-yyyyMMdd-000001，按 CST 天滚动）
+17:--   biz_seq 已用 seq_type 里没有 PPL；biz_seq 行 id 取 …4461（与既有 …3335 / …3180 段不交叠）。
+64:    plan_no              VARCHAR(32)   NOT NULL,                              -- 计划单号：PPL-yyyyMMdd-000001（biz_seq 取号，存活行唯一）
+87:        CHECK (plan_no ~ '^PPL-[0-9]{8}-[0-9]{6}$'),
+115:COMMENT ON COLUMN biz_purchase_plan.plan_no IS '计划单号：PPL-yyyyMMdd-000001（biz_seq.seq_type=PPL，按北京时间天滚动）';
+183:-- ---------- ③ 取号规则 PPL ----------
