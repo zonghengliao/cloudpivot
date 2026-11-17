@@ -1,0 +1,58 @@
+                        Table "public.biz_sales_rebate_policy"
+     Column     |           Type           | Collation | Nullable |      Default      
+----------------+--------------------------+-----------+----------+-------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ policy_no      | character varying(40)    |           | not null | 
+ policy_name    | character varying(200)   |           | not null | 
+ customer_id    | uuid                     |           | not null | 
+ rule_type      | character varying(16)    |           | not null | 
+ rate_unit      | character varying(16)    |           | not null | 
+ settle_period  | character varying(16)    |           | not null | 
+ effective_from | date                     |           | not null | 
+ effective_to   | date                     |           |          | 
+ status         | smallint                 |           | not null | 1
+ remark         | text                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at     | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+ deleted_at     | timestamp with time zone |           |          | 
+Indexes:
+    "biz_sales_rebate_policy_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_srbp_active" btree (customer_id, settle_period) WHERE deleted_at IS NULL AND status = 1
+    "idx_biz_srbp_customer" btree (customer_id, settle_period, effective_from) WHERE deleted_at IS NULL
+    "uk_biz_srbp_no" UNIQUE, btree (policy_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_srbp_period" CHECK (effective_to IS NULL OR effective_to >= effective_from)
+    "ck_biz_srbp_rate_unit" CHECK (rate_unit::text = ANY (ARRAY['PER_UNIT'::character varying, 'PERCENT'::character varying]::text[]))
+    "ck_biz_srbp_rule_type" CHECK (rule_type::text = ANY (ARRAY['BY_QTY'::character varying, 'BY_AMOUNT'::character varying, 'TIERED'::character varying]::text[]))
+    "ck_biz_srbp_settle_period" CHECK (settle_period::text = ANY (ARRAY['MONTH'::character varying, 'QUARTER'::character varying]::text[]))
+    "ck_biz_srbp_status" CHECK (status = ANY (ARRAY[0, 1]))
+    "ck_biz_srbp_unit_pair" CHECK (rule_type::text = 'BY_QTY'::text AND rate_unit::text = 'PER_UNIT'::text OR rule_type::text = 'BY_AMOUNT'::text AND rate_unit::text = 'PERCENT'::text OR rule_type::text = 'TIERED'::text)
+Referenced by:
+    TABLE "biz_sales_rebate_rule" CONSTRAINT "fk_biz_srbr_policy" FOREIGN KEY (policy_id) REFERENCES biz_sales_rebate_policy(id) ON DELETE CASCADE
+
+                       Table "public.biz_sales_rebate_rule"
+   Column   |           Type           | Collation | Nullable |      Default      
+------------+--------------------------+-----------+----------+-------------------
+ id         | uuid                     |           | not null | gen_random_uuid()
+ policy_id  | uuid                     |           | not null | 
+ seq        | smallint                 |           | not null | 
+ tier_from  | numeric(18,4)            |           | not null | 0
+ tier_to    | numeric(18,4)            |           |          | 
+ rate       | numeric(18,6)            |           | not null | 
+ remark     | text                     |           |          | 
+ created_at | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "biz_sales_rebate_rule_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_srbr_policy_tier" btree (policy_id, tier_from)
+    "uk_biz_srbr_policy_seq" UNIQUE, btree (policy_id, seq)
+Check constraints:
+    "ck_biz_srbr_rate" CHECK (rate > 0::numeric)
+    "ck_biz_srbr_seq" CHECK (seq >= 1)
+    "ck_biz_srbr_tier_from" CHECK (tier_from >= 0::numeric)
+    "ck_biz_srbr_tier_to" CHECK (tier_to IS NULL OR tier_to > tier_from)
+Foreign-key constraints:
+    "fk_biz_srbr_policy" FOREIGN KEY (policy_id) REFERENCES biz_sales_rebate_policy(id) ON DELETE CASCADE
+

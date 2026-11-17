@@ -22,3 +22,12 @@ pub mod quotation_handler;
 pub mod quotation_model;
 // ==================== 销售链：报价单 PDF（M3-07：复用 pdf 模块） ====================
 pub mod quotation_pdf;
+
+// ==================== 销售链：返利政策（M3-15：政策表 + 规则 按量/按额/阶梯） ====================
+pub mod rebate_dto;
+pub mod rebate_handler;
+pub mod rebate_model;
+
+/// 返利政策的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用串行锁）。
+#[cfg(test)]
+mod rebate_db_tests;

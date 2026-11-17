@@ -1,0 +1,41 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 34 tests
+test business::erp::sales::rebate_db_tests::active_policy_of_customer_respects_day_and_status ... ok
+test business::erp::sales::rebate_db_tests::bad_rule_shape_is_66089_and_writes_nothing ... ok
+test business::erp::sales::rebate_db_tests::concurrent_creates_only_one_wins ... ok
+test business::erp::sales::rebate_db_tests::create_by_amount_uses_percent ... ok
+test business::erp::sales::rebate_db_tests::create_by_qty_reads_back_with_rules_and_customer_name ... ok
+test business::erp::sales::rebate_db_tests::frozen_customer_and_missing_rows ... ok
+test business::erp::sales::rebate_db_tests::overlap_guard_blocks_same_customer_same_period ... ok
+test business::erp::sales::rebate_db_tests::soft_delete_hides_policy_but_keeps_rules ... ok
+test business::erp::sales::rebate_db_tests::tiered_rules_are_stored_sorted_and_pick_tiers ... ok
+test business::erp::sales::rebate_db_tests::update_allows_editing_itself ... ok
+test business::erp::sales::rebate_db_tests::update_conflicts_with_another_policy ... ok
+test business::erp::sales::rebate_db_tests::update_replaces_rules_wholesale ... ok
+test business::erp::sales::rebate_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::sales::rebate_dto::tests::by_amount_unit_is_pinned ... ok
+test business::erp::sales::rebate_dto::tests::by_qty_unit_is_pinned ... ok
+test business::erp::sales::rebate_dto::tests::domain_values_match_migration ... ok
+test business::erp::sales::rebate_dto::tests::enum_normalization_and_rejection ... ok
+test business::erp::sales::rebate_dto::tests::flat_rules_are_single_and_unbounded ... ok
+test business::erp::sales::rebate_dto::tests::missing_rate_names_the_tier ... ok
+test business::erp::sales::rebate_dto::tests::numeric_boundaries_are_rejected ... ok
+test business::erp::sales::rebate_dto::tests::percent_rate_is_capped_at_100 ... ok
+test business::erp::sales::rebate_dto::tests::pick_tier_is_half_open ... ok
+test business::erp::sales::rebate_dto::tests::tiered_requires_explicit_unit ... ok
+test business::erp::sales::rebate_dto::tests::tiered_rules_are_sorted_and_contiguous ... ok
+test business::erp::sales::rebate_handler::tests::default_unit_only_for_flat_types ... ok
+test business::erp::sales::rebate_handler::tests::header_validation ... ok
+test business::erp::sales::rebate_handler::tests::invalid_uuid_is_400_and_names_the_field ... ok
+test business::erp::sales::rebate_handler::tests::parse_date_is_strict ... ok
+test business::erp::sales::rebate_handler::tests::permission_codes_match_migration ... ok
+test business::erp::sales::rebate_handler::tests::three_rule_types_end_to_end ... ok
+test business::erp::sales::rebate_model::tests::active_on_boundaries ... ok
+test business::erp::sales::rebate_model::tests::page_order_is_total ... ok
+test business::erp::sales::rebate_model::tests::policy_no_roundtrip ... ok
+test business::erp::sales::rebate_model::tests::policy_target_is_unscoped ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 6008 filtered out; finished in 0.41s
+
