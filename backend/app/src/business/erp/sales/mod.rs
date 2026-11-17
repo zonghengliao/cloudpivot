@@ -65,3 +65,8 @@ mod sales_variance_db_tests;
 /// 销售预测偏差分析的**汇总口径**真库用例（M3-22：合计怎么加、档位怎么数、容差动哪一层）。
 #[cfg(test)]
 mod sales_variance_summary_db_tests;
+
+/// 销售缺口 E2E：报价单 → 销售订单 → 出库（M3-24：一张单从报价走到客户签收，
+/// 上游夹具全部走真实入口，审批逐节点真派真批）。
+#[cfg(test)]
+mod sales_chain_e2e_tests;

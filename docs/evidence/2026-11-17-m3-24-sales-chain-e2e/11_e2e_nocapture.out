@@ -1,0 +1,28 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test business::erp::sales::sales_chain_e2e_tests::quotation_to_order_to_outbound_full_chain ... [M3-24] ERP 审批回调实现已注册 18 个
+[M3-24] 步 1/9 建报价单（2 行 / 13% 税）
+[M3-24] 步 2/9 报价单提交审批（quotation_approve）
+[M3-24]   审批待办：节点 n_sales / 受派人 01a1b5c9-c3d2-7262-bcf5-43a81abcacd0
+[M3-24]   审批待办：节点 n_sales / 受派人 01a1bdda-2f62-75e4-8daa-d57ec6ad4ea0
+[M3-24]   审批待办：节点 n_sales / 受派人 9a337554-d641-80b9-80f9-c0600f352faf
+[M3-24] 步 3/9 反证：SENT 直接转单必须 409（只有 ACCEPTED 能转）
+[M3-24] 步 4/9 客户接受（SENT → ACCEPTED）
+[M3-24] 步 5/9 转销售订单（带行 / 回链 / 备注来源 / 轨迹 CONVERT）
+[M3-24] 步 6/9 反证：DRAFT 订单开发货单必须 409（审批是发货前置）
+[M3-24] 步 7/9 订单提交审批 → APPROVED
+[M3-24]   审批待办：节点 n_sales / 受派人 01a1b5c9-c3d2-7262-bcf5-43a81abcacd0
+[M3-24]   审批待办：节点 n_sales / 受派人 01a1bdda-2f62-75e4-8daa-d57ec6ad4ea0
+[M3-24]   审批待办：节点 n_sales / 受派人 9a337554-d641-80b9-80f9-c0600f352faf
+[M3-24] 步 8/9 建发货单 → 提交 → 过账（在途，不扣库存）
+[M3-24] 步 9/9 签收确认（出库过账：三本账 + 成本结转凭证 + 挂应收）
+[M3-24] 成本结转凭证分录：1405:0.0000/100.0000,1405:0.0000/50.0000,6401:100.0000/0.0000,6401:50.0000/0.0000
+[M3-24] 收口：幂等重放 / 终态不可重发 / 无 PENDING 实例 / 无孤儿日志
+[M3-24] 全链通过：QT-20261117-000004 → SO-20261117-000003 → SH-20261117-000003 → OUT-20261117-000003 → 应收 2260.00 / 成本凭证 150.00
+[M3-24] M324_KEEP_FIXTURES=1：保留夹具不清场（供 SQL 取证）
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6165 filtered out; finished in 0.62s
+

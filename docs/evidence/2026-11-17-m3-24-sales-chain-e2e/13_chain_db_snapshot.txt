@@ -1,0 +1,65 @@
+== ① 单据链（报价 → 订单 → 发货 → 出库）
+quote_no | quote_status | has_backlink | so_no | so_status | total_amount | total_tax | total_with_tax | ship_no | ship_status | ship_qty | out_no | out_status | source_type | out_type | out_qty | cost_amount | posted
+QT-20261117-000004 | ACCEPTED | t | SO-20261117-000003 | OUTBOUND | 2000.0000 | 260.0000 | 2260.0000 | SH-20261117-000003 | POSTED | 15.0000 | OUT-20261117-000003 | POSTED | SALES | OTHER | 15.0000 | 150.0000 | t
+(1 row)
+
+== ② 订单明细（delivered_qty 回写；金额 = 报价行整列搬）
+line_no | material_code | qty | price | tax_rate | amount | tax_amount | delivered_qty
+1 | M324-M1 | 10.0000 | 100.000000 | 13.0000 | 1000.0000 | 130.0000 | 10.0000
+2 | M324-M2 | 5.0000 | 200.000000 | 13.0000 | 1000.0000 | 130.0000 | 5.0000
+(2 rows)
+
+== ③ 三本账 / 在途（签收后：库存 100→90 / 95，在途归零）
+material_code | cost_qty | location_qty | transit_qty
+M324-M1 | 90.0000 | 90.0000 | 0.0000
+M324-M2 | 95.0000 | 95.0000 | 0.0000
+(2 rows)
+material_code | txn_type | biz_type | qty | before_qty | after_qty | doc_no
+M324-M1 | OUT | SALE_OUT | 10.0000 | 100.0000 | 90.0000 | OUT-20261117-000003
+M324-M2 | OUT | SALE_OUT | 5.0000 | 100.0000 | 95.0000 | OUT-20261117-000003
+(2 rows)
+
+== ④ 应收（SALES_OUT，金额 = 发货明细含税 2260）
+ar_no | source_type | source_no | amount | received_amount | unsettled_amount | status | period_code | due_date
+AR-20261117-000003 | SALES_OUT | OUT-20261117-000003 | 2260.0000 | 0.0000 | 2260.0000 | OPEN | 2026-11 | 2026-11-17
+(1 row)
+
+== ⑤ 成本结转凭证（借 6401 主营业务成本 / 贷 1405 库存商品，借贷各 150）
+voucher_no | period | source_type | source_no | total_debit | total_credit | entry_count | status
+PZ-20261117-000003 | 2026-11 | STOCK_OUT | OUT-20261117-000003 | 150.0000 | 150.0000 | 4 | POSTED
+(1 row)
+line_no | account_code | account_name | debit_amount | credit_amount | summary
+3 | 1405 | 库存商品 | 0.0000 | 100.0000 | 其他出库 OUT-20261117-000003 结转成本 150.0000 存货 物料 M324-M1（第 1 行）
+4 | 1405 | 库存商品 | 0.0000 | 50.0000 | 其他出库 OUT-20261117-000003 结转成本 150.0000 存货 物料 M324-M2（第 2 行）
+1 | 6401 | 主营业务成本 | 100.0000 | 0.0000 | 其他出库 OUT-20261117-000003 结转成本 150.0000 物料 M324-M1（第 1 行）
+2 | 6401 | 主营业务成本 | 50.0000 | 0.0000 | 其他出库 OUT-20261117-000003 结转成本 150.0000 物料 M324-M2（第 2 行）
+(4 rows)
+
+== ⑥ 审批实例（两条流程都 APPROVED，无 PENDING 死单）
+instance_no | biz_type | status | settled | doc
+FLW-20261117-4EAE819D | QUOTATION_APPROVE | APPROVED | t | QUOTATION
+FLW-20261117-6C70D3D1 | SO_APPROVE | APPROVED | t | SALE_ORDER
+(2 rows)
+
+== ⑦ 状态轨迹（本链四张单据，按时间序）
+entity_type | entity_no | from_status | to_status | action | reason
+QUOTATION | QT-20261117-000004 |  | DRAFT |  | (无)
+QUOTATION | QT-20261117-000004 | DRAFT | SENT |  | 审批通过（FLW-20261117-4EAE819D）自动发出
+QUOTATION | QT-20261117-000004 | SENT | ACCEPTED |  | (无)
+SALE_ORDER | SO-20261117-000003 |  | DRAFT |  | (无)
+QUOTATION | QT-20261117-000004 | ACCEPTED | ACCEPTED | CONVERT | 转销售订单 SO-20261117-000003
+SALE_ORDER | SO-20261117-000003 | DRAFT | SUBMITTED |  | 提交审批
+SALE_ORDER | SO-20261117-000003 | SUBMITTED | APPROVED |  | 销售订单审批通过
+SHIPMENT | SH-20261117-000003 |  | DRAFT |  | (无)
+SHIPMENT | SH-20261117-000003 | DRAFT | PENDING_POST |  | (无)
+SHIPMENT | SH-20261117-000003 | PENDING_POST | POSTED |  | (无)
+STOCK_OUT | OUT-20261117-000003 |  | DRAFT |  | (无)
+STOCK_OUT | OUT-20261117-000003 | DRAFT | PENDING_POST |  | 发货单 SH-20261117-000003 过账生成，待客户签收确认后过账出库
+SALE_ORDER | SO-20261117-000003 | APPROVED | OUTBOUND |  | (无)
+STOCK_OUT | OUT-20261117-000003 | PENDING_POST | POSTED |  | 客户签收确认 SH-20261117-000003
+(14 rows)
+
+== ⑧ 全链自洽（每格都必须 = 0）
+pending_instances | ar_amount_mismatch | voucher_unbalanced | open_transit | stock_out_bad | order_not_outbound | quote_bad | quotation_orphans
+0 | 0 | 0 | 0 | 0 | 0 | 0 | 0
+(1 row)

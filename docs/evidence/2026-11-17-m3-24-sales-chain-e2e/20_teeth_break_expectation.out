@@ -1,0 +1,74 @@
+== M3-24 销售缺口 E2E（报价单 → 订单 → 出库）演练（PG 172.18.10.145:5432 / 库 cp_m324_sales_chain_e2e_3418392）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m324_sales_chain_e2e_3418392
+== 1) 补齐业务迁移 V0405…V0445（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 41 条业务迁移全部应用成功
+== 2) 前置：本链依赖的表 / 流程 / 角色 / 状态机边
+  [32mPASS[0m 报价单头表存在（V0432）（=biz_quotation）
+  [32mPASS[0m 报价单明细表存在（V0432）（=biz_quotation_line）
+  [32mPASS[0m 在途账表存在（V0420）（=biz_inventory_in_transit）
+  [32mPASS[0m quotation_approve 已发布（V0435）（=1）
+  [32mPASS[0m so_approve 已发布（V0281）（=1）
+  [32mPASS[0m SALES_SUPERVISOR 角色在位（两条流程第一跳）（=1）
+  [32mPASS[0m 销售链四张单据没有被关掉的状态机边（=0）
+== 3) 真库用例（--test-threads=1）
+  [31mFAIL[0m 本卡（全链 1 条 + 收尾 1 条）：business::erp::sales::sales_chain_e2e_tests 有 1 条失败（见 /root/.hermes/profiles/backend-developer/cache/scratch/m324_3418392_business::erp::sales::sales_chain_e2e_tests.out）
+thread 'business::erp::sales::sales_chain_e2e_tests::quotation_to_order_to_outbound_full_chain' (3418472) panicked at app/src/business/erp/sales/sales_chain_e2e_tests.rs:860:5:
+assertion `left == right` failed: 应收金额 = 含税 2260，实际 AR-20261117-000001/2260.0000/OPEN/OUT-20261117-000001
+  left: "2260.0000"
+ right: "2261.0000"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  ---- 步骤轨迹（尾 10 行）：
+        [M3-24] 步 4/9 客户接受（SENT → ACCEPTED）
+        [M3-24] 步 5/9 转销售订单（带行 / 回链 / 备注来源 / 轨迹 CONVERT）
+        [M3-24] 步 6/9 反证：DRAFT 订单开发货单必须 409（审批是发货前置）
+        [M3-24] 步 7/9 订单提交审批 → APPROVED
+        [M3-24]   审批待办：节点 n_sales / 受派人 01a1b5c9-c3d2-7262-bcf5-43a81abcacd0
+        [M3-24]   审批待办：节点 n_sales / 受派人 01a1bdda-2f62-75e4-8daa-d57ec6ad4ea0
+        [M3-24]   审批待办：节点 n_sales / 受派人 9a337554-d641-80b9-80f9-c0600f352faf
+        [M3-24] 步 8/9 建发货单 → 提交 → 过账（在途，不扣库存）
+        [M3-24] 步 9/9 签收确认（出库过账：三本账 + 成本结转凭证 + 挂应收）
+        [M3-24] 成本结转凭证分录：1405:0.0000/100.0000,1405:0.0000/50.0000,6401:100.0000/0.0000,6401:50.0000/0.0000
+  [32mPASS[0m 本卡（全链 1 条 + 收尾 1 条）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m324_3418392_business::erp::sales::sales_chain_e2e_tests.out
+  [31mFAIL[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：business::erp::sales 有 1 条失败（见 /root/.hermes/profiles/backend-developer/cache/scratch/m324_3418392_business::erp::sales.out）
+thread 'business::erp::sales::sales_chain_e2e_tests::quotation_to_order_to_outbound_full_chain' (3418714) panicked at app/src/business/erp/sales/sales_chain_e2e_tests.rs:860:5:
+assertion `left == right` failed: 应收金额 = 含税 2260，实际 AR-20261117-000002/2260.0000/OPEN/OUT-20261117-000002
+  left: "2260.0000"
+ right: "2261.0000"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  ---- 步骤轨迹（尾 10 行）：
+        [M3-24] 步 4/9 客户接受（SENT → ACCEPTED）
+        [M3-24] 步 5/9 转销售订单（带行 / 回链 / 备注来源 / 轨迹 CONVERT）
+        [M3-24] 步 6/9 反证：DRAFT 订单开发货单必须 409（审批是发货前置）
+        [M3-24] 步 7/9 订单提交审批 → APPROVED
+        [M3-24]   审批待办：节点 n_sales / 受派人 01a1b5c9-c3d2-7262-bcf5-43a81abcacd0
+        [M3-24]   审批待办：节点 n_sales / 受派人 01a1bdda-2f62-75e4-8daa-d57ec6ad4ea0
+        [M3-24]   审批待办：节点 n_sales / 受派人 9a337554-d641-80b9-80f9-c0600f352faf
+        [M3-24] 步 8/9 建发货单 → 提交 → 过账（在途，不扣库存）
+        [M3-24] 步 9/9 签收确认（出库过账：三本账 + 成本结转凭证 + 挂应收）
+        [M3-24] 成本结转凭证分录：1405:0.0000/100.0000,1405:0.0000/50.0000,6401:100.0000/0.0000,6401:50.0000/0.0000
+  [32mPASS[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m324_3418392_business::erp::sales.out
+  [32mPASS[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：business::erp::shipment 全绿（49 条）
+  [32mPASS[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m324_3418392_business::erp::shipment.out
+== 4) 夹具清场（M324- 一律 0 残留）
+  [32mPASS[0m biz_customer 无 M324 夹具客户（=0）
+  [32mPASS[0m sys_user 无 M324 夹具账号（=0）
+  [32mPASS[0m biz_sales_order 无 M324 夹具订单（=0）
+  [32mPASS[0m biz_shipment 无 M324 夹具发货单（=0）
+  [32mPASS[0m biz_stock_out 无 M324 夹具出库单（=0）
+  [32mPASS[0m biz_flow_instance 无 M324 夹具审批实例（=0）
+  [32mPASS[0m biz_voucher 无 M324 夹具凭证（=0）
+  [32mPASS[0m biz_receivable 无 M324 夹具应收（=0）
+  [32mPASS[0m biz_inventory 无 M324 夹具库存（=0）
+  [32mPASS[0m biz_inventory_location 无 M324 夹具库位账（=0）
+  [32mPASS[0m biz_inventory_txn 无 M324 夹具流水（=0）
+  [32mPASS[0m biz_inventory_in_transit 无 M324 夹具在途行（=0）
+
+== 汇总：PASS=26 FAIL=2 ==
+有失败项，见上面的 FAIL 行

@@ -1,0 +1,11 @@
+== cargo fmt -p cloudpivot -- --check ==
+fmt_exit=0
+
+== cargo clippy -p cloudpivot --lib -- -D warnings ==
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Checking cloudpivot-doc v0.1.0 (/opt/cloudpivot/backend/crates/cloudpivot-doc)
+    Checking cloudpivot-kernel v0.1.0 (/opt/cloudpivot/backend/crates/cloudpivot-kernel)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.55s
+
+== cargo clippy -p cloudpivot --lib --tests（只看 sales_chain 相关） ==
+(空 = 无告警)

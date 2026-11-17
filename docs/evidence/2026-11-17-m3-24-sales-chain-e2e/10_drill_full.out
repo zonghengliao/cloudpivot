@@ -1,0 +1,40 @@
+== M3-24 销售缺口 E2E（报价单 → 订单 → 出库）演练（PG 172.18.10.145:5432 / 库 cp_m324_sales_chain_e2e_3419012）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m324_sales_chain_e2e_3419012
+== 1) 补齐业务迁移 V0405…V0445（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 41 条业务迁移全部应用成功
+== 2) 前置：本链依赖的表 / 流程 / 角色 / 状态机边
+  [32mPASS[0m 报价单头表存在（V0432）（=biz_quotation）
+  [32mPASS[0m 报价单明细表存在（V0432）（=biz_quotation_line）
+  [32mPASS[0m 在途账表存在（V0420）（=biz_inventory_in_transit）
+  [32mPASS[0m quotation_approve 已发布（V0435）（=1）
+  [32mPASS[0m so_approve 已发布（V0281）（=1）
+  [32mPASS[0m SALES_SUPERVISOR 角色在位（两条流程第一跳）（=1）
+  [32mPASS[0m 销售链四张单据没有被关掉的状态机边（=0）
+== 3) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡（全链 1 条 + 收尾 1 条）：business::erp::sales::sales_chain_e2e_tests 全绿（2 条）
+  [32mPASS[0m 本卡（全链 1 条 + 收尾 1 条）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m324_3419012_business::erp::sales::sales_chain_e2e_tests.out
+  [32mPASS[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：business::erp::sales 全绿（359 条）
+  [32mPASS[0m 销售域整组（订单 / 报价 / 退货 / 目标 / 预测未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m324_3419012_business::erp::sales.out
+  [32mPASS[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：business::erp::shipment 全绿（49 条）
+  [32mPASS[0m 发货域整组（过账 / 签收 / 在途未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m324_3419012_business::erp::shipment.out
+== 4) 夹具清场（M324- 一律 0 残留）
+  [32mPASS[0m biz_customer 无 M324 夹具客户（=0）
+  [32mPASS[0m sys_user 无 M324 夹具账号（=0）
+  [32mPASS[0m biz_sales_order 无 M324 夹具订单（=0）
+  [32mPASS[0m biz_shipment 无 M324 夹具发货单（=0）
+  [32mPASS[0m biz_stock_out 无 M324 夹具出库单（=0）
+  [32mPASS[0m biz_flow_instance 无 M324 夹具审批实例（=0）
+  [32mPASS[0m biz_voucher 无 M324 夹具凭证（=0）
+  [32mPASS[0m biz_receivable 无 M324 夹具应收（=0）
+  [32mPASS[0m biz_inventory 无 M324 夹具库存（=0）
+  [32mPASS[0m biz_inventory_location 无 M324 夹具库位账（=0）
+  [32mPASS[0m biz_inventory_txn 无 M324 夹具流水（=0）
+  [32mPASS[0m biz_inventory_in_transit 无 M324 夹具在途行（=0）
+
+== 汇总：PASS=28 FAIL=0 ==
+ALL PASS
