@@ -107,6 +107,7 @@ plan_all() {
         plan L0 "库存三本账唯一写入口（判据自检 + 扫描）" "python3 scripts/verify/inventory_write_gate.py [--self-test]"
         plan L0 "脚本/钩子/CI 写死的源码路径必须存在" "python3 scripts/lint/path_refs_gate.py [--self-test] [--root .]"
         plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
+        plan L0 "参数分类必须在 config_category 字典里" "python3 scripts/lint/config_category_gate.py（无库连接则跳过）"
         plan L0 "/metrics 端点存活 + cloudpivot_ 指标非空" "bash scripts/verify/metrics_gate.sh ${METRICS_GATE:-auto}（auto：有部署证据才真跑；SKIP_METRICS_CHECK=1 跳过）"
         plan L0 "kanban assignee 必须是真实 profile" "python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）"
         plan L0 "测试分域登记表自洽（域↔crate、前缀尾 ::）" "python3 scripts/test_domain.py check --manifest-only（完整性另跑 scripts/verify/test_domains_gate.sh）"
@@ -622,6 +623,13 @@ fi
 # 才被人工发现。这个检查能在提交阶段就拦住这类笔误。
 #
 # 145/144/CI 上没有 kanban DB → 脚本自己跳过，不会误伤。
+echo "==> 参数分类合法性（scripts/lint/config_category_gate.py）"
+if ! python3 "$ROOT/scripts/lint/config_category_gate.py"; then
+    echo "==> 门禁未通过：sys_config 里有分类不在 config_category 字典里（见上）。" >&2
+    echo "    新分类要么归并到已有分类，要么往字典补中文名 —— 且必须写成迁移。" >&2
+    exit 1
+fi
+
 echo "==> kanban assignee 有效性（scripts/lint/assignee_valid.py）"
 if ! python3 "$ROOT/scripts/lint/assignee_valid.py"; then
     echo "==> 门禁未通过：有卡的 assignee 不是舰队里真实存在的 profile（见上）。" >&2
