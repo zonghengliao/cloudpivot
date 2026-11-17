@@ -1,0 +1,6 @@
+# 后端检查链（backend/）
+$ cargo fmt -p cloudpivot -- --check   → rc=0
+$ cargo clippy --lib -- -D warnings   → rc=0（0 告警）
+$ cargo clippy --all-targets -- -D warnings → rc=0（pre-push 口径，含测试目标）
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 51s

@@ -1,0 +1,38 @@
+warning: variable does not need to be mutable
+   --> app/src/business/erp/purchase/purchase_plan_execution_db_tests.rs:360:9
+    |
+360 |     let mut body = ToPoReq {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cloudpivot` (lib test) generated 1 warning (run `cargo fix --lib -p cloudpivot --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 8 tests
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... ok
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6253 filtered out; finished in 1.06s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

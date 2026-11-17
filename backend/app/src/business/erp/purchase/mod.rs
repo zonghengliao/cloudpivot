@@ -33,8 +33,15 @@ pub mod purchase_plan_bridge;
 pub mod purchase_plan_convert_dto;
 pub mod purchase_plan_convert_handler;
 pub mod purchase_plan_dto;
+pub mod purchase_plan_execution_dto;
+pub mod purchase_plan_execution_handler;
+pub mod purchase_plan_execution_model;
 pub mod purchase_plan_handler;
 pub mod purchase_plan_model;
+
+/// 采购计划执行率跟踪的真库用例（M4-04；同一个串行锁）。
+#[cfg(test)]
+mod purchase_plan_execution_db_tests;
 
 /// 采购计划的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]

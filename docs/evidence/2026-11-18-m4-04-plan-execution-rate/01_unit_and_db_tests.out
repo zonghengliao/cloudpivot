@@ -1,0 +1,35 @@
+# 单卡单测 + 真库用例（ERP_DB_URL=postgres://…@172.18.10.145:5432/cp_m404_drill, --test-threads=1）
+# 命令：cargo test --lib business::erp::purchase::purchase_plan_execution -- --test-threads=1
+
+test business::erp::purchase::purchase_plan_execution_db_tests::cancelled_po_drops_out_of_ordered ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::converted_po_counts_as_ordered_and_rate_is_full ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::fresh_plan_has_zero_execution ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::head_view_matches_item_summary ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::merged_po_is_not_double_counted ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::over_plan_reports_over_state ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::overview_filters_and_hides_soft_deleted ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::partial_conversion_keeps_remaining_and_convertible ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::requisition_without_po_counts_as_requested_only ... ok
+test business::erp::purchase::purchase_plan_execution_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::empty_summary_has_no_rate ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::exec_rate_keeps_six_decimals_and_guards_zero ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::exec_state_boundaries ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::exec_state_set_is_closed ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::labels_fall_back_to_raw_values ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::page_query_normalizes_and_rejects ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::percent_is_two_decimals ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::permission_code_is_the_execution_code_only ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::remaining_keeps_negative ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::source_verdict_covers_every_branch ... ok
+test business::erp::purchase::purchase_plan_execution_dto::tests::summary_aggregates_rows_and_states ... ok
+test business::erp::purchase::purchase_plan_execution_handler::tests::done_line_is_not_over ... ok
+test business::erp::purchase::purchase_plan_execution_handler::tests::head_res_uses_shared_pure_functions ... ok
+test business::erp::purchase::purchase_plan_execution_handler::tests::item_res_marks_over_plan ... ok
+test business::erp::purchase::purchase_plan_execution_handler::tests::path_id_is_validated ... ok
+test business::erp::purchase::purchase_plan_execution_handler::tests::permission_constant_matches_menu ... ok
+test business::erp::purchase::purchase_plan_execution_model::tests::head_columns_cover_reader ... ok
+test business::erp::purchase::purchase_plan_execution_model::tests::item_columns_cover_reader ... ok
+test business::erp::purchase::purchase_plan_execution_model::tests::view_names_match_migration ... ok
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 6232 filtered out; finished in 1.59s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
