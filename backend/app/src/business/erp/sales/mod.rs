@@ -49,3 +49,7 @@ mod rebate_settle_db_tests;
 /// 返利红字发票的真库用例（同上）。
 #[cfg(test)]
 mod rebate_invoice_db_tests;
+
+/// 返利三种规则 × 边界的纯逻辑单测矩阵（M3-18：不连库，`cargo test --lib` 直接可跑）。
+#[cfg(test)]
+mod rebate_rule_matrix_tests;

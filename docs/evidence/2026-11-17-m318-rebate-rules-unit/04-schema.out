@@ -1,0 +1,10 @@
+# 真库回归环境：空库首启（不是克隆的模板库，避免 V0404 缺列）
+# 2026-11-17T15:19:06+08:00
+--- 迁移条数 / 表数 / 库名 ---
+373
+187
+cp_m318_rules|PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1) on aarch64-unknown-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit
+--- 返利三表存在 ---
+biz_sales_rebate_policy
+biz_sales_rebate_rule
+biz_sales_rebate_settlement

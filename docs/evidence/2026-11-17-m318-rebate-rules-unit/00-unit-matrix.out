@@ -1,0 +1,48 @@
+# M3-18 新增单测矩阵：三种规则 + 边界（纯逻辑，无库依赖）
+# 2026-11-17T15:18:43+08:00
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 13 tests
+test business::erp::sales::rebate_rule_matrix_tests::calc_matrix_over_boundary_bases ... [M3-18] 计价矩阵 14 例：三种规则 × 边界基数（0 / 边界 / 边界±ε / 100% / 不累进）✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::empty_negative_and_zero_net_bases ... [M3-18] 空期间 / 纯退货 / 净额恰好 0 / 三类型负基数：金额恒 0、提示条数各不相同 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::invariants_hold_across_base_grid ... [M3-18] 不变量网格：3 规则 × 12 个基数（负数/0/边界/边界±ε/超大）恒 ≥0、2 位、单调 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::max_tier_ladder_works_end_to_end ... [M3-18] 20 档上限：首档 0 / 中间档 10 / 末档 190 与超上限全部落对 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::numeric_column_limits_are_exact ... [M3-18] 数值上限：NUMERIC(18,4)/(18,6) 恰好 / 越界两侧、百分比 100 vs 101、负数全拒 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::percent_limit_checks_integer_part_only ... [M3-18] 百分比上限按整数部分判定：100.999999 通过、101 拒（现状留痕）✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::pick_tier_edges_are_half_open ... [M3-18] 落档边界 11 例：每个档位边界的 ±0.0001 三侧、负数 None、末档开口 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::pick_tier_uses_the_base_matching_the_unit ... [M3-18] 同一份档位：按量看销量落 1 档、按额看销售额落 2 档 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::rounding_strategy_is_bankers_half_even ... [M3-18] 分位 10 例：现状是银行家舍入（0.005→0.00 / 0.025→0.02 / 0.035→0.04），逐格钉死 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::settlement_period_boundaries ... [M3-18] 期间边界 7 例：月度/季度左闭右开、跨年、闰年 2 月、季末 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::shape_matrix_three_rules ... [M3-18] 形状矩阵 18 行：三种规则允许/禁止排布全部按 66089 收口 ✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::type_unit_pairing_matrix ... [M3-18] 类型×单位 6 组合：4 能算 + 2 拒（量纲不同不静默相乘）✓
+ok
+test business::erp::sales::rebate_rule_matrix_tests::wire_path_from_rule_req_to_amount ... [M3-18] 线上路径：三种规则各走一遍 DTO→checked_rules→calc_rebate，与 handler 同一组函数 ✓
+ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 6099 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+
