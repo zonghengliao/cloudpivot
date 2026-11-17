@@ -47,11 +47,15 @@ pub(crate) const ENTITY_TABLES: &[(&str, &str)] = &[
     // A2：合同状态流转也写 `biz_status_log`（`entity_type = 'CONTRACT'`），
     // 夹具清场不登记它就会在测试库里攒孤儿行（每跑一次多几条，永远收不走）。
     ("CONTRACT", "biz_contract"),
-    // 销售链（M3-05 补登记）：报价单 `state_machine::ENTITY_QUOTATION`、销售订单
+    // 销售链（M3-05 补登记，M3-08 更正词表）：报价单 `ENTITY_QUOTATION`、销售订单
     // `ENTITY_SALES_ORDER` 都写这张日志表，此前两家都没登记 ⇒ 它们的夹具清场只能
     // 「先删日志再删单据」手工兜着，一旦某个用例漏删就永远收不走。
+    //
+    // ⚠ 销售订单的落库值是 **`SALE_ORDER`**（`DocKind::SaleOrder.as_str()`），不是 `SALES_ORDER`：
+    // M3-05 当初写成 `SALES_ORDER`，于是这条登记从来没匹配到任何一行 —— `orphans()` 恒 0
+    // （假绿），真孤儿日志一直攒着。`biz_status_log` 没有外键，写错一个字母就永远收不走。
     ("QUOTATION", "biz_quotation"),
-    ("SALES_ORDER", "biz_sales_order"),
+    ("SALE_ORDER", "biz_sales_order"),
 ];
 
 /// `entity_type` 对应的单据表；未登记的实体直接 panic（别静默跳过 —— 那等于「断言永远绿」）。
@@ -106,11 +110,12 @@ pub(crate) async fn purge_orphans(entity_types: &[&str]) -> i64 {
 /// 本卡口径：凭证 / 应付两类（`t_7f47221c` 的验收对象）。
 pub(crate) const FINANCE: &[&str] = &["PAYABLE", "VOUCHER"];
 
-/// 销售链两类（M3-05）：报价单 + 销售订单。
+/// 销售链两类（M3-05 登记，M3-08 更正为落库值）：报价单 + 销售订单。
 ///
 /// 转单会**同时**写两条：`QUOTATION`（ACCEPTED→ACCEPTED + action=CONVERT）与
-/// 销售订单自己的建单轨迹，所以清孤儿必须两类一起看，否则转单用例漏删一半就查不出来。
-pub(crate) const SALES: &[&str] = &["QUOTATION", "SALES_ORDER"];
+/// 销售订单自己的建单轨迹（`SALE_ORDER`），所以清孤儿必须两类一起看，
+/// 否则转单用例漏删一半就查不出来。
+pub(crate) const SALES: &[&str] = &["QUOTATION", "SALE_ORDER"];
 
 /// 「付款 / 应付链路**种子行**」的总互斥锁（`#[cfg(test)]`）。
 ///
@@ -194,5 +199,5 @@ pub(crate) const ALL_TYPES: &[&str] = &[
     "ACCOUNTING_PERIOD",
     "CONTRACT",
     "QUOTATION",
-    "SALES_ORDER",
+    "SALE_ORDER",
 ];

@@ -380,8 +380,10 @@ async fn cleanup() {
         ),
         (
             format!(
+                // ⚠ 销售订单轨迹的 entity_type 是 `SALE_ORDER`（`DocKind::SaleOrder.as_str()`），
+                // 不是 `SALES_ORDER` —— 写错等于这段清理永远删 0 行，日志全变孤儿（M3-08 实测抓到）
                 "DELETE FROM biz_status_log \
-                  WHERE entity_type = 'SALES_ORDER' AND entity_id IN ( \
+                  WHERE entity_type = 'SALE_ORDER' AND entity_id IN ( \
                         SELECT id FROM biz_sales_order WHERE customer_id IN ({by_customer}))"
             ),
             vec![Value::from(CUSTOMER_CODE)],

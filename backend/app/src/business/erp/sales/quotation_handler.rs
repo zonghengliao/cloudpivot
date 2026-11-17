@@ -51,7 +51,19 @@
 //! | 事务 | 建订单 + 回填报价单 + 写轨迹 **同一个事务**；任一步失败整笔回滚（约定 11：不留孤订单、不留只回链一半的单） |
 //! | 并发 | 转单前 `SELECT … FOR UPDATE` 锁报价单行 —— 两个并发请求只有一个能建单 |
 //! | 币种 | 报价单没有币种列 ⇒ 按账套本位币记（`exchange_rate = 1`）；外币报价要转外币单是另一个决定（报价单先补币种列） |
+//! | 部分转单 | **不支持**：请求体带 `line_nos` / `lines` / `items` / … 一律 **400 + 专用文案**（理由见下） |
 //! | 客户 | 必须存在、未软删、`ACTIVE`（冻结客户 → 409）；已接受但**今天已过期**仍可转（接受发生在有效期内，过期约束的是「接受时」） |
+//!
+//! ## 为什么「部分转单」是拒绝而不是漏做
+//!
+//! V0432 的回链是**单值**（`biz_quotation.converted_so_id` + `converted_at`），
+//! `uk_biz_quotation_converted_so` 再钉死「一张销售订单只被一张报价单认领」
+//! ⇒ 一张报价单只能换出**一张**订单，换完即用尽（再点走幂等回原单）。
+//! 客户只接受部分明细时：**新开一张报价单只保留客户接受的行**再转，或整单转换后
+//! 在还是 `DRAFT` 的销售订单里删行（有审计）。若把 `line_nos` 这类参数静默忽略，
+//! 调用方以为只转了 2 行、库里却是含全部明细的订单 —— 那张单要占信用、要出库、要开票，
+//! 界面上也看不出多转了几行。真要「一张报价单分批转多张订单」得改表结构
+//! （行级已转数量 + 转换多对多），不是给接口加个参数。
 //!
 //! 新订单状态 = `DRAFT`：转单只把「成交价」搬过去，提交审批 / 占信用 / 出库仍走订单自己的流程。
 //!
@@ -289,8 +301,15 @@ pub struct QuotationSubmitReq {
     pub approval: approval_gate::SkipApprovalReq,
 }
 
-/// 转销售订单请求（**可以完全不带 body**：`Option<Json<…>>`，`{}` 与无 body 都当默认值）。
+/// 转销售订单请求（**可以完全不带 body**；`{}` 与无 body 都当默认值）。
+///
+/// 四个参数全是「这张订单怎么来的」的可选项，**没有「转哪几行」** ——
+/// 本接口只做**整单转单**（见 [`PARTIAL_CONVERT_KEYS`] 的注释）。
+/// `deny_unknown_fields` 是刻意的：多写一个键（拼错的 `order_dtae`、或者调用方以为
+/// 能传 `line_nos` 做部分转单）必须 **400 报出来**，不能被 serde 静默丢掉 ——
+/// 静默丢参数会让「用户以为交期设上了 / 只转了两行」，而库里是另一回事。
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConvertQuotationReq {
     /// 下单日期（`yyyy-MM-dd`，留空 = 今天 CST）。**默认今天，不是报价日期** ——
     /// 订单日期是「客户下单那天」，报价可能是两周前发的。
@@ -1505,11 +1524,33 @@ fn plan_order_items(
     Ok((items, totals))
 }
 
+/// 「部分转单」的入参键名 —— 出现任一即 **400**，绝不静默当成整单转单。
+///
+/// # 为什么本接口只能整单转（而不是漏做了部分转单）
+///
+/// V0432 的回链是**单值**的（`biz_quotation.converted_so_id` + `converted_at`），
+/// 并且 `uk_biz_quotation_converted_so` 钉死「一张销售订单只被一张报价单认领」——
+/// 一张报价单只能换出**一张**订单，换完就「用尽」（再点走幂等回原单）。
+/// 客户只接受部分明细时，正确做法是**新开一张报价单只保留客户接受的行**再转，
+/// 或先整单转换、再在销售订单里删掉没成交的行（订单此时还是 `DRAFT`，改单有审计）。
+///
+/// 反过来，若把这些键静默忽略：调用方以为只转了 2 行，库里却多出一张含全部明细的订单
+/// —— 那张单要占信用、要出库、要开票，而且**没有任何界面能看出它比客户认的多转了几行**。
+/// 如果哪天要做真正的「一张报价单分批转多张订单」，那是改表结构（行级已转数量 +
+/// 转换多对多），不是给这个接口加个参数 —— 到那时这里的键名会被正式接上。
+const PARTIAL_CONVERT_KEYS: [&str; 6] = ["line_nos", "line_no", "lines", "items", "line_ids", "convert_lines"];
+
 /// 转单请求体解析（纯逻辑，单测直接调）。
 ///
 /// 空 body（含纯空白）= 全默认参数（前端「一键转单」不必先拼 `{}`）；
-/// 有 body 必须是合法 JSON 对象 —— 非法 JSON 一律 **400**，绝不静默当没传
-/// （静默吞掉 `delivery_date` 会让用户以为交期设上了）。
+/// 有 body 必须是**合法 JSON 对象**，且只认四个键
+/// （`order_date` / `delivery_date` / `salesperson_id` / `remark`）：
+///
+/// | 请求体 | 结果 | 为什么 |
+/// |--------|------|--------|
+/// | 非法 JSON / 非 UTF-8 / 不是对象（`[1,2,3]`） | **400** | 静默当没传会让用户以为交期设上了 |
+/// | 部分转单的键（`line_nos` / `lines` / `items` / …） | **400**（专门文案） | 见 [`PARTIAL_CONVERT_KEYS`]：否则会静默转出整张订单 |
+/// | 其它未知键（拼错、旧版本前端多传） | **400**（`deny_unknown_fields`） | 参数被丢掉 = 用户看到的行为和参数不符 |
 fn parse_convert_body(body: &[u8]) -> std::result::Result<ConvertQuotationReq, ApiError> {
     let text = std::str::from_utf8(body)
         .map_err(|_| bad_request("转单请求体必须是 UTF-8 编码的 JSON"))?
@@ -1517,7 +1558,20 @@ fn parse_convert_body(body: &[u8]) -> std::result::Result<ConvertQuotationReq, A
     if text.is_empty() {
         return Ok(ConvertQuotationReq::default());
     }
-    serde_json::from_str(text).map_err(|error| bad_request(format!("转单请求体不是合法的 JSON 参数：{error}")))
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|error| bad_request(format!("转单请求体不是合法的 JSON 参数：{error}")))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| bad_request("转单请求体必须是 JSON 对象（例：{\"order_date\":\"2026-11-17\"}）"))?;
+    if let Some(key) = PARTIAL_CONVERT_KEYS.iter().find(|key| object.contains_key(**key)) {
+        return Err(bad_request(format!(
+            "本接口只做整单转单，不支持部分转单（请求体里的 `{key}` 已拒绝）：\
+             客户只接受部分明细时，请新建一张报价单只保留客户接受的行再转，\
+             或先整单转换、再到订单里删掉未成交的行 —— \
+             静默忽略这个参数会转出一张含全部明细的订单（要占信用、要出库、要开票）"
+        )));
+    }
+    serde_json::from_value(value).map_err(|error| bad_request(format!("转单请求体参数不认识：{error}")))
 }
 
 /// 订单备注：**永远带来源**（`由报价单 QT-… 转换`）。
@@ -2367,6 +2421,16 @@ pub fn all_permissions() -> Vec<&'static str> {
 #[cfg(test)]
 #[path = "quotation_state_tests.rs"]
 mod quotation_state_tests;
+
+// ==================== 单测（M3-08：报价单 → 销售订单，含部分转单） ====================
+//
+// 同样挂在 handler 里：要够到 `parse_convert_body` / `plan_order_items` /
+// `compose_order_remark` / `ensure_convertible` 这些**私有**转单件，以及 `CONVERT_ACTION`。
+// 与 M3-05 那份的分工写在文件头（那边钉状态机与审批闸，这里只钉转单这一条链路）。
+
+#[cfg(test)]
+#[path = "quotation_convert_tests.rs"]
+mod quotation_convert_tests;
 
 // ==================== 单测（纯逻辑） ====================
 
