@@ -733,6 +733,13 @@ pub struct ReceiptDetailRes {
     pub voucher_no: Option<String>,
     /// 核销明细。
     pub allocations: Vec<AllocationRes>,
+    /// **本次核销释放的信用额度**（M3-12）。
+    ///
+    /// 只有 `POST /receipt/{id}/allocate` 的响应会带值，且只在「真的动了额度」时才有
+    /// （增量 0 / 重放同一笔核销 → `None`，与 `biz_credit_log` 的记账口径一致）；
+    /// 详情与其它动作接口恒为 `None` —— 它是「这次动作的结果」，不是单据属性。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credit_release: Option<credit::CreditRelease>,
 }
 
 /// 收款单详情（客户名 / 凭证号 / 核销明细一次取全）。
@@ -769,6 +776,8 @@ pub async fn detail_with(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result
         receipt: ReceiptRes::from_row(&receipt, &customer_name),
         voucher_no,
         allocations,
+        // 详情不携带「本次释放」：那是动作回执，由 `allocate` 在事务内回填。
+        credit_release: None,
     })
 }
 
@@ -1175,6 +1184,8 @@ pub async fn allocate(
         .await
         .map_err(|error| utils::db_error(error, "开启核销事务"))?;
     let result = async {
+        // M3-12：本次核销的额度释放回执（只有真的动了缓存列才有值，见 `CreditRelease`）。
+        let mut release: Option<credit::CreditRelease> = None;
         let receipt = lock_by_id(&tx, id)
             .await
             .map_err(|error| utils::db_error(error, "锁定收款单"))?
@@ -1359,10 +1370,14 @@ pub async fn allocate(
         // ⑤ SO-38 / ARCH-7 §15.5.2 ②：**应收核销 = 信用额度释放的主出口**。
         // 与核销同事务 —— 钱收到了，额度必须当场还回去，不能等每日兜底重算。
         // 一张收款单只允许核销同一客户的应收（上面已校验），所以这里同步一个客户即可。
+        //
+        // M3-12：把同步结果留成**回执**（`credit_release`）随本次核销响应返回 ——
+        // 「核销即释放」当场可见，且与台账 / 缓存列三者同真同假（增量 0 → 回执为 None）。
         if !planned.is_empty() {
-            credit::sync(&tx, receipt.customer_id, credit::CAUSE_AR_SETTLED, &receipt.receipt_no)
+            let synced = credit::sync(&tx, receipt.customer_id, credit::CAUSE_AR_SETTLED, &receipt.receipt_no)
                 .await
                 .map_err(|error| utils::db_error(error, "同步客户信用额度（收款核销）"))?;
+            release = credit::CreditRelease::from_sync(&synced, credit::CAUSE_AR_SETTLED, &receipt.receipt_no);
         }
 
         // ⑥ 回写收款头：allocated_amount 以**库里的明细合计**为准
@@ -1385,7 +1400,11 @@ pub async fn allocate(
         .await
         .map_err(|error| write_error(error, "回写收款单已核销金额"))?;
 
-        detail_with(&tx, receipt.id).await
+        let mut detail = detail_with(&tx, receipt.id).await?;
+        // 回执只在本次调用里存在（详情接口读出来恒为 None）—— 那是「动作的结果」，
+        // 不是单据的持久属性，存库反而会变成一份会过期的假数据。
+        detail.credit_release = release;
+        Ok(detail)
     }
     .await;
     match result {

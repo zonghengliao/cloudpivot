@@ -298,3 +298,8 @@ mod doc_reader_impl_tests;
 /// R-P1-2 的真库单测（业务提醒任务包：幂等 / 收件人 / 真机扫描）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod reminder_tests;
+
+/// M3-12「核销即释放」真库单测（收款核销 / 退款核销 → 额度释放 / 占回 + 回执 + 台账）。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod credit_release_tests;

@@ -1,0 +1,40 @@
+== M3-12 占用释放（收款核销后）· 演练（PG 172.18.10.145:5432 / 库 cp_m312_credit_release_drill_3156433）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m312_credit_release_drill_3156433
+== 1) 补齐业务迁移 V0405…V0437（幂等，逐条 ON_ERROR_STOP；本卡**不加迁移**）
+  [32mPASS[0m 33 条业务迁移全部应用成功
+  [32mPASS[0m biz_customer 的 credit_policy / credit_used 都在（M3-09 + SO-38 的列）（=2）
+  [32mPASS[0m 本卡未新增迁移（下一个可用号 V0438 未被本卡占用）
+== 2) 静态断言：核销 → 释放的接线
+  [32mPASS[0m 收款核销只在一处同步额度（多一处 = 同一笔核销释放两遍）（=1）
+  [32mPASS[0m 退款核销只在一处同步额度（反向边）（=1）
+  [32mPASS[0m 全仓只有核销这一处改 received_amount（第三条写点 = 绕过释放）（=1）
+  [32mPASS[0m 退款冲减是第二条、也是最后一条改 received_amount 的路（=1）
+  [32mPASS[0m 收款核销 + 退款核销各回执一次（动作接口带 credit_release）（=2）
+  [32mPASS[0m 收款详情不带动作回执（回执不是单据属性）（=1）
+  [32mPASS[0m 退款详情不带动作回执（=1）
+  [32mPASS[0m 同步轮数是常量（改重试次数只有一处）（=1）
+  [32mPASS[0m 轮数耗尽时打 WARN（不许静默丢释放）（=1）
+  [32mPASS[0m 审批桥不自己释放额度（只有单据动作能释放）（=0）
+== 3) perm_menu_gate.py（注解码 − 菜单码 必须为 0）
+  [32mPASS[0m 死权限码闸通过（65 行输出）
+== 4) 真库用例（--test-threads=1）
+  [32mPASS[0m 核销即释放（本卡：部分 / 收清 / 调大 / 调小 / 重放 / 失败回滚 / 退款占回 / 报文契约）：business::erp::credit_release_tests 全绿（7 条）（=7）
+  [32mPASS[0m 核销即释放（本卡：部分 / 收清 / 调大 / 调小 / 重放 / 失败回滚 / 退款占回 / 报文契约）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 信用域整组（三释放出口 + 策略三态 + 实时快照 + 审批评估）：business::erp::credit 全绿（37 条）（=37）
+  [32mPASS[0m 信用域整组（三释放出口 + 策略三态 + 实时快照 + 审批评估）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 收款域整组（登记 / 核销 / 状态机 / 回调）：business::erp::receipt 全绿（35 条）（=35）
+  [32mPASS[0m 收款域整组（登记 / 核销 / 状态机 / 回调）：本组 SKIP=0（真库用例没被打成假绿）
+  [32mPASS[0m 退款域整组（冲减 / 反向边）：business::erp::receipt_refund 全绿（24 条）（=24）
+  [32mPASS[0m 退款域整组（冲减 / 反向边）：本组 SKIP=0（真库用例没被打成假绿）
+== 5) 收尾：夹具 0 残留 + S9 对拍 0 漂移
+  [32mPASS[0m biz_sales_order 无 M312 夹具订单（=0）
+  [32mPASS[0m biz_receivable 无 M312 夹具应收（=0）
+  [32mPASS[0m biz_receipt 无 M312 夹具收款（=0）
+  [32mPASS[0m biz_receipt_refund 无 M312 夹具退款（=0）
+  [32mPASS[0m 信用台账无 M312 夹具行（=0）
+  [32mPASS[0m S9 对拍：M312 客户 credit_used 与公式无漂移（容差 0.01）（=0）
+
+== 汇总：PASS=30 FAIL=0 ==
+ALL PASS

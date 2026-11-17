@@ -62,6 +62,41 @@
 //! 收款退款单（`receipt_refund::allocate`，received_amount 减少）同样触发 [`sync`]
 //! （cause = `AR_REVERSED`）—— 钱退了，敞口又回来了，这条出口是「② 的反向边」。
 //!
+//! # 核销即释放（M3-12）：回执、口径与边界
+//!
+//! 「核销即释放」是卡面唯一要求：**钱一到账就还额度，不许等每日兜底重算**。实现落在
+//! `receipt::allocate` / `receipt_refund::allocate` 的**同一个事务**里 —— 核销写不回
+//! 去，额度也不许动（一起回滚）。
+//!
+//! | 动作 | 释放量 | 台账 `cause` | 回执 |
+//! |------|--------|--------------|------|
+//! | 收款核销（写 `received_amount`） | = 本次核销**增量** | `AR_SETTLED` | `ReceiptDetailRes.credit_release` |
+//! | 收款核销**改小**（同一张单的同一条明细调小） | 负数（敞口**占回**） | `AR_SETTLED` | 同上（`released < 0`） |
+//! | 收款退款核销（`received_amount` 减少） | 负数（占回） | `AR_REVERSED` | `RefundDetailRes.credit_release` |
+//! | 重放同一笔核销（增量 0） | 0 ⇒ **无回执、无台账** | — | `None` |
+//!
+//! 三个「不许」：
+//!
+//! 1. **不许释放别的客户的额度**：`allocate` 先校验「应收客户 == 收款客户」，
+//!    跨客户核销在写 `received_amount` 之前就 400；
+//! 2. **不许在核销失败时留下释放**：`sync` 与核销同事务，任何一步 Err 都整体回滚
+//!    （回执是事务内算出来的，事务回滚就没有回执可返回）；
+//! 3. **不许「假释放」**：增量 0（重放 / 金额没变）时不写库、不记台账、不回执 ——
+//!    「有回执 ⇔ 有台账行 ⇔ 缓存列真的变了」三件事同真同假（[`CreditRelease`] 文档）。
+//!
+//! 并发口径：同客户的额度同步是「读缓存列 → 现算 → CAS 写」的重试循环
+//! （[`SYNC_ATTEMPTS`] 轮）；轮数用完**不静默**，打 WARN 并交给下一个事件 / 每日重算
+//! 收口。核销路径本身已经用 `FOR UPDATE` 锁住了该客户名下的应收行，所以同一张应收的
+//! 并发收款先在这里串行化，轮到额度同步时几乎不会真的撞满轮数。
+//!
+//! 已知边界（**不是**漏了）：
+//!
+//! * 核销**不改**订单状态，所以「核销释放」只体现为 `credit_used` 下降 + 台账一行，
+//!   订单侧不会出现「已释放」字段（订单的敞口按客户整体计算，不按单核销）；
+//! * 一张收款可以核销同一客户的**多张**应收，但只触发**一次** `sync`（客户级重算），
+//!   台账因此只有一行 —— `delta` 是这几张应收增量之和，不是每张一行；
+//! * 预收（收款未核销）**不释放**：钱没挂到任何应收上，公式里 `received_amount` 没变。
+//!
 //! # 为什么「事件 = 重算」而不是「事件 = 计数器 += / -=」
 //!
 //! 卡面写的是 `credit_used += 金额` / `-= 金额`。实现上**故意做成「触发即重算」**：
@@ -99,6 +134,7 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
+use serde::Serialize;
 
 /// 客户主数据表。
 pub const CUSTOMER_TABLE: &str = "biz_customer";
@@ -981,6 +1017,64 @@ impl CreditSync {
     }
 }
 
+/// 「这一次动作放了多少额度」的**回执**（M3-12：核销即释放的当场回执）。
+///
+/// 谁需要它：
+///
+/// * **收款核销 / 收款退款核销的响应**（[`crate::business::erp::receipt::ReceiptDetailRes`]
+///   的 `credit_release`）—— 财务点完「核销」就能看到「本次释放 400，客户可用额度
+///   600 → 1000」，不必再去客户档案页对一遍数；
+/// * **M3-14 客户信用页 / M3-25 信用 E2E** —— 直接断言回执与台账、与缓存列三者一致。
+///
+/// 只在**真的动了**缓存列时才有值（[`CreditSync::repaired`]）：
+/// 重放同一笔核销、或核销金额与既有明细一致（增量 0）时返回 `None` —— 与台账口径
+/// 完全一致（`biz_credit_log` 也只在有变化时记一行），所以「有回执 ⇔ 有台账行 ⇔
+/// `credit_used` 变了」这三件事永远同真同假。
+///
+/// `released` 取**正数表示释放**（钱收到了、敞口降了），负数表示**占回**
+/// （核销金额被调小 / 退款核销冲回了已收款）。它就是 `before_used − after_used`，
+/// 与台账的 `delta`（`after_used − before_used`）互为相反数 —— 一正一负是为了让两边
+/// 读起来都符合各自语境（「释放了 400」/「占用增加 −400」），换算只有一次减法。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CreditRelease {
+    /// 客户（报文里给字符串，避免前端拿 Uuid 类型猜）。
+    pub customer_id: String,
+    /// 变动原因（`AR_SETTLED` / `AR_REVERSED` …），与 `biz_credit_log.cause` 逐字一致。
+    pub cause: String,
+    /// 触发单据号（收款单号 / 退款单号），与 `biz_credit_log.ref_no` 逐字一致。
+    pub ref_no: String,
+    /// 动作前的已占额度（缓存列）。
+    pub before_used: Decimal,
+    /// 动作后的已占额度（公式结果）。
+    pub after_used: Decimal,
+    /// 释放额（正 = 释放，负 = 占回）= `before_used − after_used`。
+    pub released: Decimal,
+}
+
+impl CreditRelease {
+    /// 由一次 [`CreditSync`] 造回执；**没真动额度就返回 `None`**（理由见类型文档）。
+    pub fn from_sync(synced: &CreditSync, cause: &str, ref_no: &str) -> Option<Self> {
+        if !synced.repaired {
+            return None;
+        }
+        Some(Self {
+            customer_id: synced.customer_id.to_string(),
+            cause: cause.to_string(),
+            ref_no: ref_no.to_string(),
+            before_used: synced.before.round_dp(2),
+            after_used: synced.after.round_dp(2),
+            released: (synced.before - synced.after).round_dp(2),
+        })
+    }
+}
+
+/// 一次同步的 CAS 重试轮数。
+///
+/// 每一轮都是「读缓存列 → 现算公式 → 仅当缓存列仍等于读到的值才写」。轮数用完说明
+/// 同一个客户在毫秒级被 ≥ 4 个会话同时改额度（同一客户的多张收款被同时核销），
+/// 此时**不静默**：打 WARN 并交给下一个事件 / 每日 02:10 的重算收口（见 `sync` 尾部）。
+pub const SYNC_ATTEMPTS: usize = 5;
+
 /// **把某客户的 `credit_used` 同步到公式结果**（占用 / 释放 / 重算共用这一个写入口）。
 ///
 /// * `cause`：变动原因（[`CAUSE_ORDER_OCCUPY`] 等），落 `biz_credit_log`；
@@ -990,7 +1084,7 @@ impl CreditSync {
 /// 客户不存在 / 已软删 → 原样返回 0，不报错（单据可能指向已删客户，那不该 500）。
 pub async fn sync(ex: &impl SqlExecutor, customer_id: Uuid, cause: &str, ref_no: &str) -> DbResult<CreditSync> {
     // 并发重试：CAS 失配说明另一个会话刚改过同一客户（收款与退货并行），重读再算即可。
-    for _ in 0..3 {
+    for _ in 0..SYNC_ATTEMPTS {
         let Some(before) = stored(ex, customer_id).await? else {
             return Ok(CreditSync {
                 customer_id,
@@ -1046,9 +1140,22 @@ pub async fn sync(ex: &impl SqlExecutor, customer_id: Uuid, cause: &str, ref_no:
             repaired: true,
         });
     }
-    // 三轮都被并发抢先：公式结果没变（同一个库），下一轮事件 / 每日重算会收口。
+    // 轮数用完都被并发抢先：公式结果没变（同一个库），下一轮事件 / 每日重算会收口。
+    // **不静默**：这是「有人可能看到旧额度」的信号（S9 会红），必须留在日志里。
     let before = stored(ex, customer_id).await?.unwrap_or(Decimal::ZERO);
     let usage = usage_of(ex, customer_id).await?;
+    if !is_same(before, usage.used) {
+        tracing::warn!(
+            customer_id = %customer_id,
+            before = %before.round_dp(2),
+            expected = %usage.used.round_dp(2),
+            cause,
+            ref_no,
+            attempts = SYNC_ATTEMPTS,
+            "客户信用额度同步连续 CAS 失配（同客户并发改动过多）：本次未落库，\
+             缓存列暂时与公式不一致，等下一个事件或每日 02:10 的 erp_credit_recompute 收口"
+        );
+    }
     Ok(CreditSync {
         customer_id,
         before,

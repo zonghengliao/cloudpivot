@@ -1233,6 +1233,12 @@ pub struct RefundDetailRes {
     pub allocations: Vec<RefundAllocationRes>,
     /// 最近一条审批实例（从没提交过审批 → `None`）。
     pub approval: Option<RefundApprovalRes>,
+    /// **本次冲减把额度占回了多少**（M3-12）。
+    ///
+    /// 只有 `POST /receipt-refund/{id}/allocate` 的响应会带值；`released` 在这里是
+    /// **负数**（钱退了、敞口回来），与台账 `cause = AR_REVERSED` 的 `delta > 0` 相反数。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credit_release: Option<credit::CreditRelease>,
 }
 
 /// 详情（只读，`GET /business/erp/receipt-refund/{id}`）。
@@ -1279,6 +1285,8 @@ pub async fn detail_with(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result
         voucher_no,
         allocations: allocations.iter().map(RefundAllocationRes::from_row).collect(),
         approval: approval.as_ref().map(RefundApprovalRes::from_brief),
+        // 详情不带动作回执（由 `allocate` 在事务内回填）。
+        credit_release: None,
     })
 }
 
@@ -1461,6 +1469,8 @@ pub async fn allocate(
         .await
         .map_err(|error| utils::db_error(error, "开启退款核销事务"))?;
     let result = async {
+        // M3-12：本次退款核销的额度回执（`released` 为负 = 敞口占回）。
+        let mut release: Option<credit::CreditRelease> = None;
         let refund = lock_by_id(&tx, id)
             .await
             .map_err(|error| utils::db_error(error, "锁定退款单"))?
@@ -1650,10 +1660,14 @@ pub async fn allocate(
 
         // ⑥ SO-38：退款核销 = 额度释放出口 ② 的反向边（钱退了，敞口又回来了）。
         // 与冲减同事务；一张退款单同样只冲同一客户的应收。
+        //
+        // M3-12：回执（`credit_release`）随本次冲减响应返回；这里 `released` 是**负数**
+        // （占回），与台账 `AR_REVERSED` 的 `delta > 0` 互为相反数。
         if !planned.is_empty() {
-            credit::sync(&tx, refund.customer_id, credit::CAUSE_AR_REVERSED, &refund.refund_no)
+            let synced = credit::sync(&tx, refund.customer_id, credit::CAUSE_AR_REVERSED, &refund.refund_no)
                 .await
                 .map_err(|error| utils::db_error(error, "同步客户信用额度（收款退款）"))?;
+            release = credit::CreditRelease::from_sync(&synced, credit::CAUSE_AR_REVERSED, &refund.refund_no);
         }
 
         // ⑦ 回写退款头：allocated_amount 以**库里的明细合计**为准
@@ -1676,7 +1690,10 @@ pub async fn allocate(
         .await
         .map_err(|error| write_error(error, "回写退款单已冲减金额"))?;
 
-        detail_with(&tx, refund.id).await
+        let mut detail = detail_with(&tx, refund.id).await?;
+        // 回执只在本次调用里存在（详情接口恒为 None）：动作结果不落库，否则会变成假数据。
+        detail.credit_release = release;
+        Ok(detail)
     }
     .await;
     match result {
