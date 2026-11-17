@@ -511,11 +511,27 @@ pub async fn update_policy_of(
 
 /// 软删返利政策。
 ///
-/// 物理行与规则行都留着（审计）：列表 / 详情查不到，M3-16 的结算单会存政策快照，
-/// 因此删政策不会让已结算的返利「无从解释」。已被结算引用时的硬拦在 M3-16 实现
-/// （那时才有引用表可查）；本卡只保证「删了不再出现在政策列表里」。
+/// 物理行与规则行都留着（审计）：列表 / 详情查不到，结算单会在落库时存政策全量快照，
+/// 因此删政策不会让**已结算**的返利「无从解释」。
+///
+/// # 引用闸（M3-16 补）
+///
+/// 已被**未作废**的返利结算单引用的政策**不能软删**（409 + `10003`）：
+/// 结算单的快照能解释「当时按什么算」，但删掉政策之后「这份条款现在归谁维护、还有没有效」
+/// 就从系统里消失了 —— 老政策的正确退役方式是 **停用**（`status = 0`：结算跳过、列表还在、
+/// 历史照旧可查），不是删除。要删请先作废相关结算单（仅 `DRAFT` 可作废）。
 pub async fn delete_policy_of(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = parse_uuid(id_raw, "id")?;
+    let referenced = crate::business::erp::sales::rebate_settle_model::alive_count_by_policy(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "检查返利政策的结算引用"))?;
+    if referenced > 0 {
+        return Err(conflict(format!(
+            "该返利政策已被 {referenced} 张未作废的返利结算单引用，不能删除：\
+             政策要退役请改成「停用」（结算会跳过、政策仍可在列表里查到）；\
+             确实要删请先作废这些结算单（仅「已计算」状态可作废）"
+        )));
+    }
     let affected = model::soft_delete(id, operator)
         .await
         .map_err(|error| utils::db_error(error, "删除返利政策"))?;

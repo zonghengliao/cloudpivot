@@ -1,0 +1,92 @@
+=== \d biz_sales_rebate_settlement（cp_m316_e2e 空库首启后）
+                              Table "public.biz_sales_rebate_settlement"
+        Column         |           Type           | Collation | Nullable |          Default           
+-----------------------+--------------------------+-----------+----------+----------------------------
+ id                    | uuid                     |           | not null | gen_random_uuid()
+ settlement_no         | character varying(40)    |           | not null | 
+ customer_id           | uuid                     |           | not null | 
+ settle_period         | character varying(16)    |           | not null | 
+ period_code           | character varying(8)     |           | not null | 
+ period_from           | date                     |           | not null | 
+ period_to             | date                     |           | not null | 
+ policy_id             | uuid                     |           | not null | 
+ policy_no             | character varying(40)    |           | not null | 
+ policy_name           | character varying(200)   |           | not null | 
+ rule_type             | character varying(16)    |           | not null | 
+ rate_unit             | character varying(16)    |           | not null | 
+ policy_effective_from | date                     |           | not null | 
+ policy_effective_to   | date                     |           |          | 
+ policy_snapshot       | jsonb                    |           | not null | 
+ order_count           | integer                  |           | not null | 0
+ order_amount          | numeric(18,4)            |           | not null | 0
+ order_qty             | numeric(18,4)            |           | not null | 0
+ return_count          | integer                  |           | not null | 0
+ return_amount         | numeric(18,4)            |           | not null | 0
+ return_qty            | numeric(18,4)            |           | not null | 0
+ base_amount           | numeric(18,4)            |           | not null | 0
+ base_qty              | numeric(18,4)            |           | not null | 0
+ tier_seq              | smallint                 |           |          | 
+ tier_from             | numeric(18,4)            |           | not null | 0
+ tier_to               | numeric(18,4)            |           |          | 
+ rate                  | numeric(18,6)            |           | not null | 0
+ rebate_amount         | numeric(18,4)            |           | not null | 0
+ status                | character varying(16)    |           | not null | 'DRAFT'::character varying
+ remark                | text                     |           |          | 
+ created_at            | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at            | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by             | uuid                     |           |          | 
+ update_by             | uuid                     |           |          | 
+ deleted_at            | timestamp with time zone |           |          | 
+Indexes:
+    "biz_sales_rebate_settlement_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_srs_customer" btree (customer_id, period_code DESC)
+    "idx_biz_srs_period" btree (settle_period, period_code)
+    "idx_biz_srs_policy" btree (policy_id)
+    "idx_biz_srs_status" btree (status)
+    "uk_biz_srs_no" UNIQUE, btree (settlement_no) WHERE deleted_at IS NULL
+    "uk_biz_srs_period" UNIQUE, btree (customer_id, settle_period, period_code) WHERE deleted_at IS NULL AND status::text <> 'CANCELLED'::text
+Check constraints:
+    "ck_biz_srs_amounts" CHECK (order_amount >= 0::numeric AND order_qty >= 0::numeric AND return_amount >= 0::numeric AND return_qty >= 0::numeric AND rebate_amount >= 0::numeric AND rate >= 0::numeric AND tier_from >= 0::numeric)
+    "ck_biz_srs_counts" CHECK (order_count >= 0 AND return_count >= 0)
+    "ck_biz_srs_period_range" CHECK (period_to > period_from)
+    "ck_biz_srs_period_shape" CHECK (settle_period::text = 'MONTH'::text AND period_code::text ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'::text OR settle_period::text = 'QUARTER'::text AND period_code::text ~ '^[0-9]{4}-[Qq][1-4]$'::text)
+    "ck_biz_srs_rate_unit" CHECK (rate_unit::text = ANY (ARRAY['PER_UNIT'::character varying, 'PERCENT'::character varying]::text[]))
+    "ck_biz_srs_rule_type" CHECK (rule_type::text = ANY (ARRAY['BY_QTY'::character varying, 'BY_AMOUNT'::character varying, 'TIERED'::character varying]::text[]))
+    "ck_biz_srs_settle_period" CHECK (settle_period::text = ANY (ARRAY['MONTH'::character varying, 'QUARTER'::character varying]::text[]))
+    "ck_biz_srs_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'SETTLED'::character varying, 'CANCELLED'::character varying]::text[]))
+    "ck_biz_srs_tier" CHECK ((tier_seq IS NULL OR tier_seq >= 1) AND (tier_to IS NULL OR tier_to > tier_from))
+    "ck_biz_srs_unit_pair" CHECK (rule_type::text = 'BY_QTY'::text AND rate_unit::text = 'PER_UNIT'::text OR rule_type::text = 'BY_AMOUNT'::text AND rate_unit::text = 'PERCENT'::text OR rule_type::text = 'TIERED'::text)
+
+=== 索引
+            indexname             |                                                                                                 indexdef                                                                                                 
+----------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_sales_rebate_settlement_pkey | CREATE UNIQUE INDEX biz_sales_rebate_settlement_pkey ON public.biz_sales_rebate_settlement USING btree (id)
+ idx_biz_srs_customer             | CREATE INDEX idx_biz_srs_customer ON public.biz_sales_rebate_settlement USING btree (customer_id, period_code DESC)
+ idx_biz_srs_period               | CREATE INDEX idx_biz_srs_period ON public.biz_sales_rebate_settlement USING btree (settle_period, period_code)
+ idx_biz_srs_policy               | CREATE INDEX idx_biz_srs_policy ON public.biz_sales_rebate_settlement USING btree (policy_id)
+ idx_biz_srs_status               | CREATE INDEX idx_biz_srs_status ON public.biz_sales_rebate_settlement USING btree (status)
+ uk_biz_srs_no                    | CREATE UNIQUE INDEX uk_biz_srs_no ON public.biz_sales_rebate_settlement USING btree (settlement_no) WHERE (deleted_at IS NULL)
+ uk_biz_srs_period                | CREATE UNIQUE INDEX uk_biz_srs_period ON public.biz_sales_rebate_settlement USING btree (customer_id, settle_period, period_code) WHERE ((deleted_at IS NULL) AND ((status)::text <> 'CANCELLED'::text))
+(7 rows)
+
+=== 号段 + 菜单 3 行
+ seq_type | prefix | current_no 
+----------+--------+------------
+ RB       | RB     |          3
+(1 row)
+
+                  id                  |                 name                  | menu_type |               auth_code               | sort_order | title_len 
+--------------------------------------+---------------------------------------+-----------+---------------------------------------+------------+-----------
+ 20000000-0000-0000-0000-000000004390 | business:erp:rebate-settlement:list   |         3 | business:erp:rebate-settlement:list   |         40 |        40
+ 20000000-0000-0000-0000-000000004391 | business:erp:rebate-settlement:calc   |         3 | business:erp:rebate-settlement:calc   |         50 |        39
+ 20000000-0000-0000-0000-000000004392 | business:erp:rebate-settlement:delete |         3 | business:erp:rebate-settlement:delete |         60 |        33
+(3 rows)
+
+=== 迁移记录
+          name           | version | success 
+-------------------------+---------+---------
+ customer_credit_policy  | 437     | t
+ sales_rebate_policy     | 438     | t
+ sales_rebate_settlement | 439     | t
+(3 rows)
+

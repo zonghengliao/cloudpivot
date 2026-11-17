@@ -1,0 +1,16 @@
+== 基线（空库首启 + HTTP 冒烟之后）
+表 = biz_sales_rebate_settlement / 菜单 = 3 / 总数 = 539 / RB 号段行 = 1
+== ① 重放 V0439（第二次应用，必须幂等）
+rc=0（0 = 幂等重放通过）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0439__sales_rebate_settlement.up.sql:108: NOTICE:  V0439: 前置检查通过（9 张依赖表在、返利政策页面节点在、三个码当前 3 个承载节点）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0439__sales_rebate_settlement.up.sql:444: NOTICE:  V0439 自检通过：35 列 / 3 索引 / 10 CHECK / 4 条拒绝探针 + 1 条重开探针 / RB 号段 / 3 个按钮行
+表 = biz_sales_rebate_settlement / 菜单 = 3 / 总数 = 539 / RB 号段行 = 1
+== ② down（回滚：表 / 菜单 / 号段都应清掉）
+rc=0（0 = 回滚成功）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0439__sales_rebate_settlement.down.sql:66: NOTICE:  V0439 down 完成：表 / 菜单 / 号段均已清理
+表 = NONE / 菜单 = 0 / 总数 = 536 / RB 号段行 = 0
+== ③ 再 up（恢复）
+rc=0（0 = 恢复成功）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0439__sales_rebate_settlement.up.sql:108: NOTICE:  V0439: 前置检查通过（9 张依赖表在、返利政策页面节点在、三个码当前 0 个承载节点）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0439__sales_rebate_settlement.up.sql:444: NOTICE:  V0439 自检通过：35 列 / 3 索引 / 10 CHECK / 4 条拒绝探针 + 1 条重开探针 / RB 号段 / 3 个按钮行
+表 = biz_sales_rebate_settlement / 菜单 = 3 / 总数 = 539 / RB 号段行 = 1

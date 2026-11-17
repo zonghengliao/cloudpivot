@@ -1,0 +1,22 @@
+=== 空库首启：迁移链（cp_m316_e2e，0 表 → 187 表）
+[2m2026-11-17T05:56:24.531873Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0437：biz_customer.credit_policy 就位（BLOCK/WARN/PASS，默认 BLOCK）✓
+[2m2026-11-17T05:56:24.534955Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0438: 前置检查通过（底座表在、销售管理目录在、四个码当前 0 个承载节点）
+[2m2026-11-17T05:56:24.544562Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0438: 探针执行成功（当前有效档 0 行 / 重叠对 0 组）
+[2m2026-11-17T05:56:24.544606Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0438: 自检通过（两张表 / 10 条 CHECK / 2 个唯一索引 / 号段 BR / 页面节点 + 3 按钮：新建返利政策（取号 BR-yyyyMMdd-000001；客户须 ACTIVE；按量/按额 1 档、阶梯 2~20 档首尾相接） / 编辑返利政策（政策头 + 规则整单替换；改类型不能留下旧口径的档位） / 删除返利政策（软删；已被结算引用的政策应先停用而不是删除））
+[2m2026-11-17T05:56:24.548134Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0439: 前置检查通过（9 张依赖表在、返利政策页面节点在、三个码当前 0 个承载节点）
+[2m2026-11-17T05:56:24.556698Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0439 自检通过：35 列 / 3 索引 / 10 CHECK / 4 条拒绝探针 + 1 条重开探针 / RB 号段 / 3 个按钮行
+[2m2026-11-17T05:56:24.593982Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 371 个迁移
+
+=== 首启后实测
+ tables 
+--------
+    187
+(1 row)
+
+          name           | version | success | applied_via 
+-------------------------+---------+---------+-------------
+ customer_credit_policy  | 437     | t       | executed
+ sales_rebate_policy     | 438     | t       | executed
+ sales_rebate_settlement | 439     | t       | executed
+(3 rows)
+

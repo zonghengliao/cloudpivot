@@ -28,6 +28,15 @@ pub mod rebate_dto;
 pub mod rebate_handler;
 pub mod rebate_model;
 
+// ==================== 销售链：返利结算（M3-16：按月度/季度算应返金额） ====================
+pub mod rebate_settle_dto;
+pub mod rebate_settle_handler;
+pub mod rebate_settle_model;
+
 /// 返利政策的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用串行锁）。
 #[cfg(test)]
 mod rebate_db_tests;
+
+/// 返利结算的真库用例（同上）。
+#[cfg(test)]
+mod rebate_settle_db_tests;

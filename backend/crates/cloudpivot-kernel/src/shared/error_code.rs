@@ -2004,6 +2004,33 @@ pub const ERP_REBATE_RULE_INVALID: i32 = 66089;
 /// 让它提前失效；③ 确实要替换口径，就把旧政策软删后新建（历史结算单存政策快照，不受影响）。
 pub const ERP_REBATE_POLICY_OVERLAP: i32 = 66090;
 
+/// 返利结算的期间**没有可套用的政策**（HTTP 409，销售链 · M3-16 · `66091`）。
+///
+/// 两种情形共用一个码，因为对用户的动作是同一件事（去补政策 / 改有效期）：
+/// ① 该客户该结算粒度在期间首日**没有启用的政策**；
+/// ② 有政策，但**没有覆盖整个结算期间**（`effective_from > period_from`
+///    或 `effective_to < 期间末日`）—— 半期套一份政策会让「这半个月按什么返」无法解释，
+///    因此宁可拒绝结算并报出缺口日期，也不静默按部分期间算出一个有争议的数。
+///
+/// 为什么不用 [`PARAM_INVALID`]（`10001`）：报文里要带「缺哪一天 / 哪份政策差多少」，
+/// 前端要能把用户直接导到政策编辑页；与「customer_id 不是 UUID」共用 10001 就分不出来。
+///
+/// 合法出路：① 给该客户建一份覆盖整期的启用政策（`settle_period` 与本次一致）；
+/// ② 把现有政策的有效期改宽到覆盖整期；③ 期间码换成政策真正覆盖的那一期。
+pub const ERP_REBATE_SETTLEMENT_NO_POLICY: i32 = 66091;
+
+/// 同一客户 × 同一结算粒度 × 同一期间**已有未作废的返利结算单**（HTTP 409 · M3-16 · `66092`）。
+///
+/// 这条闸的意义是「重复返利 = 重复付钱」：一个结算周期只能有一张有效结算单。
+/// 与 [`ERP_REBATE_POLICY_OVERLAP`]（`66090`，政策维度的重叠）是**两道不同的闸**：
+/// 66090 防「同一期间按两份政策各算一次」，66092 防「同一期间算了很多次」。
+/// 库层还有 `uk_biz_srs_period` 兜底（`WHERE deleted_at IS NULL AND status <> 'CANCELLED'`）。
+///
+/// 合法出路：① 已有结算单要重算 → 调 `POST /rebate-settlement/{id}/recalc`（`DRAFT` 才可）；
+/// ② 确实要重来 → 先把旧单**作废**（`DELETE`，仅 `DRAFT`）再重新计算；
+/// ③ 已转应付/红字发票（`SETTLED`）的不能再算 —— 那是红冲/调账的业务，不是重算。
+pub const ERP_REBATE_SETTLEMENT_DUPLICATE: i32 = 66092;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -2344,6 +2371,11 @@ mod tests {
             (ERP_REBATE_RULE_INVALID, 66089),
             // 返利政策有效期重叠（66090；M3-15 —— 同客户同粒度两份启用政策 = 返利算两次）
             (ERP_REBATE_POLICY_OVERLAP, 66090),
+            // 返利结算期间无适用政策 / 政策未覆盖整期（66091；M3-16 —— 半期套一份政策
+            // 会让「这半个月按什么返」无法解释，宁可拒绝并报出缺口日期）
+            (ERP_REBATE_SETTLEMENT_NO_POLICY, 66091),
+            // 返利结算重复：同客户同粒度同期间已有未作废结算单（66092；M3-16 —— 重复返利 = 重复付钱）
+            (ERP_REBATE_SETTLEMENT_DUPLICATE, 66092),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");
