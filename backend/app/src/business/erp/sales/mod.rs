@@ -33,6 +33,11 @@ pub mod rebate_settle_dto;
 pub mod rebate_settle_handler;
 pub mod rebate_settle_model;
 
+// ==================== 销售链：返利红字发票（M3-17：结算单 → OUT_RED 票 + 红字凭证） ====================
+pub mod rebate_invoice_dto;
+pub mod rebate_invoice_handler;
+pub mod rebate_invoice_model;
+
 /// 返利政策的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用串行锁）。
 #[cfg(test)]
 mod rebate_db_tests;
@@ -40,3 +45,7 @@ mod rebate_db_tests;
 /// 返利结算的真库用例（同上）。
 #[cfg(test)]
 mod rebate_settle_db_tests;
+
+/// 返利红字发票的真库用例（同上）。
+#[cfg(test)]
+mod rebate_invoice_db_tests;

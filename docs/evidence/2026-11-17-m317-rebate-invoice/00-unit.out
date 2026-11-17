@@ -1,0 +1,196 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 91 tests
+test business::erp::sales::rebate_db_tests::active_policy_of_customer_respects_day_and_status ... [M3-15] 取政策口径：期内命中 / 未生效 / 粒度不符 / 停用 都取不到 ✓
+ok
+test business::erp::sales::rebate_db_tests::bad_rule_shape_is_66089_and_writes_nothing ... [M3-15] 规则形状错（阶梯一档 / 断档 / 按量多档）→ 400+66089，库里 0 行 ✓
+ok
+test business::erp::sales::rebate_db_tests::concurrent_creates_only_one_wins ... [M3-15] 并发建重叠政策：1 成功 + 1 个 66090，库里 1 份 ✓
+ok
+test business::erp::sales::rebate_db_tests::create_by_amount_uses_percent ... [M3-15] 按额：BR-20261117-000163 / PERCENT 2.5 / 长期有效 ✓
+ok
+test business::erp::sales::rebate_db_tests::create_by_qty_reads_back_with_rules_and_customer_name ... [M3-15] 按量：BR-20261117-000164 / 1 档 / 客户名 JOIN / 详情=列表 ✓
+ok
+test business::erp::sales::rebate_db_tests::frozen_customer_and_missing_rows ... [M3-15] 冻结客户 409；客户/政策不存在 404（详情/删除/编辑各一条）✓
+ok
+test business::erp::sales::rebate_db_tests::overlap_guard_blocks_same_customer_same_period ... [M3-15] 重叠闸：相交 409+66090（点名 BR-20261117-000166）/ 错开可建 / 季度并存 / 停用不参与 ✓
+ok
+test business::erp::sales::rebate_db_tests::soft_delete_hides_policy_but_keeps_rules ... [M3-15] 软删：列表/详情 0 条，规则行保留，重复删 404 ✓
+ok
+test business::erp::sales::rebate_db_tests::tiered_rules_are_stored_sorted_and_pick_tiers ... [M3-15] 阶梯：乱序入参 → seq 1..3；落档 [0,100)/[100,500)/[500,∞) ✓
+ok
+test business::erp::sales::rebate_db_tests::update_allows_editing_itself ... [M3-15] 改自己：有效期不变也不报 66090（exclude_id 生效）✓
+ok
+test business::erp::sales::rebate_db_tests::update_conflicts_with_another_policy ... [M3-15] 改后重叠：409 + 66090 点名 BR-20261117-000173，被拒后原值不变 ✓
+ok
+test business::erp::sales::rebate_db_tests::update_replaces_rules_wholesale ... [M3-15] 改政策：3 档 → 2 档，旧档不残留，单号不变 ✓
+ok
+test business::erp::sales::rebate_db_tests::zz_teardown_purges_fixtures ... [M3-15] 清场：M315- 客户的政策 0 条 ✓
+ok
+test business::erp::sales::rebate_dto::tests::by_amount_unit_is_pinned ... [M3-15] 按额 → 百分比（默认/显式），元/件与未知值 400 ✓
+ok
+test business::erp::sales::rebate_dto::tests::by_qty_unit_is_pinned ... [M3-15] 按量 → 元/件（默认/显式），给百分比 400 + 66089 ✓
+ok
+test business::erp::sales::rebate_dto::tests::domain_values_match_migration ... [M3-15] 域值：3 类型 / 2 单位 / 2 粒度 / 状态 1,0 / 档数 2~20 ✓
+ok
+test business::erp::sales::rebate_dto::tests::enum_normalization_and_rejection ... [M3-15] 归一化 trim+大写；域外值一律 400（不猜、不回落）✓
+ok
+test business::erp::sales::rebate_dto::tests::flat_rules_are_single_and_unbounded ... [M3-15] 按量/按额 = 单档平铺（多档/设区间 → 400 并指路 TIERED）✓
+ok
+test business::erp::sales::rebate_dto::tests::missing_rate_names_the_tier ... [M3-15] 缺 rate → 400 + 66089 且点名「第 3 档」✓
+ok
+test business::erp::sales::rebate_dto::tests::numeric_boundaries_are_rejected ... [M3-15] 0 元档 / 负数 / 小数位 / 档数上限 全部 400 ✓
+ok
+test business::erp::sales::rebate_dto::tests::percent_rate_is_capped_at_100 ... [M3-15] 百分比 ≤ 100，元/件不设上限 ✓
+ok
+test business::erp::sales::rebate_dto::tests::pick_tier_is_half_open ... [M3-15] 落档：[0,100) / [100,500) / [500,∞)，边界值 100/500 归下一档 ✓
+ok
+test business::erp::sales::rebate_dto::tests::tiered_requires_explicit_unit ... [M3-15] 阶梯单位必填（两者皆可）、未知类型 400 ✓
+ok
+test business::erp::sales::rebate_dto::tests::tiered_rules_are_sorted_and_contiguous ... [M3-15] 阶梯：乱序重排 / 首档 0 / 首尾相接 / 末档开口 / 下限唯一 / 至少 2 档 ✓
+ok
+test business::erp::sales::rebate_handler::tests::default_unit_only_for_flat_types ... [M3-15] 默认单位只给按量/按额；阶梯必须显式 ✓
+ok
+test business::erp::sales::rebate_handler::tests::header_validation ... [M3-15] 政策头：名称必填/≤200、生效日必填、失效日≥生效日、状态 1/0 ✓
+ok
+test business::erp::sales::rebate_handler::tests::invalid_uuid_is_400_and_names_the_field ... [M3-15] 非法/空 UUID → 400 + 10001 并点名字段；空白可选参数 = 不筛 ✓
+ok
+test business::erp::sales::rebate_handler::tests::parse_date_is_strict ... [M3-15] 日期只认 yyyy-MM-dd（4 种非法形状全拒）✓
+ok
+test business::erp::sales::rebate_handler::tests::permission_codes_match_migration ... [M3-15] 权限码 list/create/update/delete（四码互不相同、写码非读码）✓
+ok
+test business::erp::sales::rebate_handler::tests::three_rule_types_end_to_end ... [M3-15] 三种类型：按量/按额省单位即默认、阶梯省单位 400 + 66089 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::cancelled_settlement_is_66093 ... [M3-17] 作废单开票 409 + 66093，零票 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::closed_period_is_66095_then_open_month_works ... [M3-17] 已结账期间 409 + 66095 → 换 2032-06 开票成功 IV-20261117-000040 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::concurrent_issue_only_one_wins ... [M3-17] 并发开票：1 成功 / 1 冲突（409），库里 1 张票 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::draft_settlement_issues_red_invoice ... [M3-17] 结算单 → 红字票 IV-20261117-000042（−884.96 / −115.04 / −1000）+ 凭证 PZ-20261117-000042 + SETTLED ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::preview_matches_issued_invoice ... [M3-17] 试算 = 实开；SETTLED 后 can_generate=false 且回显 IV-20261117-000043 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::second_issue_is_66093 ... [M3-17] 重复开票 409 + 66093，库里仍只有 1 张票 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::tax_rate_override_splits_differently ... [M3-17] 6% 税率拆分 −943.40 / −56.60 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::zero_rebate_is_66094 ... [M3-17] 应返 0 → 409 + 66094；结算单仍 DRAFT ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::zz_teardown_purges_fixtures ... [M3-17] 清场：M317- 夹具全部删除 ✓
+ok
+test business::erp::sales::rebate_invoice_dto::tests::domain_values_match_schema ... [M3-17] 域值 OUT_RED / SALES_REBATE / INVOICE / 13% ✓
+ok
+test business::erp::sales::rebate_invoice_dto::tests::only_draft_is_invoiceable ... ok
+test business::erp::sales::rebate_invoice_dto::tests::remark_normalization ... ok
+test business::erp::sales::rebate_invoice_dto::tests::split_1000_at_13_percent ... [M3-17] 1000 @13% → -884.96 / -115.04 / -1000 ✓
+ok
+test business::erp::sales::rebate_invoice_dto::tests::split_is_always_balanced ... [M3-17] 10 金额 × 9 税率 = 90 组分位自洽 ✓
+ok
+test business::erp::sales::rebate_invoice_dto::tests::split_tiny_amount_keeps_sign ... ok
+test business::erp::sales::rebate_invoice_dto::tests::split_zero_tax_rate ... ok
+test business::erp::sales::rebate_invoice_dto::tests::tax_rate_bounds ... ok
+test business::erp::sales::rebate_invoice_dto::tests::zero_or_negative_rebate_is_66094 ... ok
+test business::erp::sales::rebate_invoice_handler::tests::account_codes ... [M3-17] 科目 5001 / 2221.02 / 2241.02 ✓
+ok
+test business::erp::sales::rebate_invoice_handler::tests::auto_remark_contains_traceability ... [M3-17] 自动备注含单号/期间/税率 ✓：销售返利 RB-20261117-000001 红冲（2026-11 期间净销售含税返利 1000，税率 13%）
+ok
+test business::erp::sales::rebate_invoice_handler::tests::period_code_shape ... [M3-17] 期间码 yyyy-MM ✓
+ok
+test business::erp::sales::rebate_invoice_handler::tests::permission_code_matches_migration ... [M3-17] 权限码 rebate-settlement:invoice ✓
+ok
+test business::erp::sales::rebate_invoice_model::tests::domain_constants ... [M3-17] 数据层域值一致 ✓
+ok
+test business::erp::sales::rebate_model::tests::active_on_boundaries ... [M3-15] 生效判定：起止日都含 / 长期 / 未开始 / 已失效 / 停用 ✓
+ok
+test business::erp::sales::rebate_model::tests::page_order_is_total ... [M3-15] 列表全序：生效日倒序 → 政策号 → id ✓
+ok
+test business::erp::sales::rebate_model::tests::policy_no_roundtrip ... [M3-15] 单号 BR-yyyyMMdd-NNNNNN 组装/解析互逆，7 种非法形状全拒 ✓
+ok
+test business::erp::sales::rebate_model::tests::policy_target_is_unscoped ... [M3-15] 分页锚点 biz_sales_rebate_policy 为 unscoped ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::by_amount_settlement_uses_percent ... [M3-16] 按额结算：净销售额 1000 × 2% = 20.00（销量不参与）✓
+ok
+test business::erp::sales::rebate_settle_db_tests::by_qty_settlement_end_to_end ... [M3-16] 按量结算：单据 2 张/100 件、退货 20 件 → 净 80 × 0.5 = 40.00，单号 RB-20261117-000106 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::cancel_allows_reopen_and_blocks_settled ... [M3-16] 作废：DRAFT→CANCELLED（行留着）、同期间可重开、SETTLED 不可作废 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::concurrent_settle_only_one_wins ... [M3-16] 并发结算同客户同期间：1 成功 + 1 个 409/66092，库里 1 行 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::draft_orders_and_cancelled_returns_are_excluded ... [M3-16] 基数白名单：DRAFT/CANCELLED 订单、PENDING_POST 退货全不计 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::duplicate_settlement_is_66092 ... [M3-16] 期间重复：第二张 409 + 66092、库里 1 行、试算回显已有单 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::policy_delete_blocked_when_referenced ... [M3-16] 政策引用闸：被结算引用 409（提示改停用）；作废结算后可删 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::policy_not_covering_period_is_66091 ... [M3-16] 缺政策 / 半期政策 → 结算 409 + 66091（点名缺口日期）；试算降级成提示 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::recalc_refreshes_base_and_amount ... [M3-16] 重算：基数/金额/政策快照一起刷新；SETTLED 后重算 409 ✓
+ok
+test business::erp::sales::rebate_settle_db_tests::run_settles_all_covering_customers_and_is_idempotent ... [M3-16] 跑批：2 客户 CREATED（合计 150.00），二次跑批全 EXISTS（幂等）✓
+ok
+test business::erp::sales::rebate_settle_db_tests::tiered_settlement_picks_hit_tier ... [M3-16] 阶梯（季度）：150 件落第 2 档 × 2 元/件 = 300.00（不累进）✓
+ok
+test business::erp::sales::rebate_settle_db_tests::zz_teardown_purges_fixtures ... [M3-16] 清场：M316 夹具结算单 / 政策均为 0 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::by_amount_uses_percent ... [M3-16] 按额：1130 × 2.5% = 28.25 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::by_qty_multiplies_net_qty ... [M3-16] 按量：净销量 100 × 0.5 = 50 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::empty_period_is_zero_with_warning ... [M3-16] 空期间：应返 0 + 提示（不报错）✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::mismatched_unit_and_uncovered_base_are_rejected ... [M3-16] 不配对/无档位/档位不覆盖 三种脏政策 → 400 + 66089 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::negative_base_clamps_to_zero_and_warns ... [M3-16] 负基数：落档按 0、应返 0、报文提示走红冲 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::period_resolve_shape_and_bounds ... [M3-16] 期间：月度/季度形状互钉、区间左闭右开、跨年季度正确 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::policy_snapshot_roundtrip ... [M3-16] 政策快照 JSONB 序列化/反序列化互逆（末档 tier_to=null）✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::rebate_amount_keeps_two_decimals ... [M3-16] 应返金额 2 位小数（3 × 10% = 0.30）✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::remark_is_trimmed_and_bounded ... [M3-16] 备注：去空白 / 空串转 None / 超 500 字 400 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::statuses_match_migration ... [M3-16] 状态 / 退货状态 / 订单白名单与常量对齐 ✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::tiered_per_unit_picks_one_tier ... [M3-16] 阶梯按量：左闭右开落档、按该档比率全额乘（不累进）✓
+ok
+test business::erp::sales::rebate_settle_dto::tests::tiered_percent_picks_by_amount ... [M3-16] 阶梯按额：按销售额落档，12000 × 3% = 360 ✓
+ok
+test business::erp::sales::rebate_settle_handler::tests::error_codes_are_bound ... [M3-16] 66091 无政策 / 66092 期间重复（均 409，码不混用）✓
+ok
+test business::erp::sales::rebate_settle_handler::tests::invalid_uuid_is_400_and_names_the_field ... [M3-16] 非法/空 UUID → 400 + 10001 并点名字段 ✓
+ok
+test business::erp::sales::rebate_settle_handler::tests::period_code_filter_normalises ... [M3-16] 期间码筛选归一化（月度/季度；非法形状 400）✓
+ok
+test business::erp::sales::rebate_settle_handler::tests::permission_codes_match_migration ... [M3-16] 权限码 list/calc/delete（三码互不相同、写码非读码）✓
+ok
+test business::erp::sales::rebate_settle_handler::tests::status_filter_is_strict ... [M3-16] 状态筛选只认 DRAFT/SETTLED/CANCELLED（域外 400）✓
+ok
+test business::erp::sales::rebate_settle_model::tests::only_draft_is_editable ... [M3-16] 只有 DRAFT 可重算/可作废 ✓
+ok
+test business::erp::sales::rebate_settle_model::tests::page_order_is_total ... [M3-16] 列表全序：期间倒序 → 粒度 → 客户编码 → id ✓
+ok
+test business::erp::sales::rebate_settle_model::tests::settle_target_is_unscoped ... [M3-16] 分页锚点 biz_sales_rebate_settlement 为 unscoped ✓
+ok
+test business::erp::sales::rebate_settle_model::tests::settlement_no_roundtrip ... [M3-16] 单号 RB-yyyyMMdd-NNNNNN 组装/解析互逆，7 种非法形状全拒 ✓
+ok
+test business::erp::sales::rebate_settle_model::tests::status_whitelists_come_from_constants ... [M3-16] 订单白名单 4 状态 / 退货折本位币表达式均来自常量 ✓
+ok
+
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 6008 filtered out; finished in 1.68s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+
+rc=0

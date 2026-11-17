@@ -2031,6 +2031,36 @@ pub const ERP_REBATE_SETTLEMENT_NO_POLICY: i32 = 66091;
 /// ③ 已转应付/红字发票（`SETTLED`）的不能再算 —— 那是红冲/调账的业务，不是重算。
 pub const ERP_REBATE_SETTLEMENT_DUPLICATE: i32 = 66092;
 
+/// 返利结算单**当前状态不允许开红字发票**（HTTP 409，销售链 · M3-17 · `66093`）。
+///
+/// 开红字发票是 `DRAFT → SETTLED` 的**唯一**入口，因此这个码覆盖两种拒因
+/// （对用户的动作不同，报文分开写）：
+/// ① 已是 `SETTLED` —— 这单开过票了，再开一次就是**重复冲减收入与销项税**
+///    （`rebate_amount` 只够冲一次）。要调整走红冲 / 调账，不是重开票；
+/// ② 已是 `CANCELLED` —— 作废单不产生返利。确实要给这一期返利，请重新计算一张结算单。
+///
+/// 为什么不用 [`RESOURCE_CONFLICT`]（`10003`）：前端要分辨「刷新后重试」（并发）
+/// 与「这条路走不通、要换业务动作」（状态不可逆），一个通用冲突码分不出来。
+pub const ERP_REBATE_INVOICE_STATE: i32 = 66093;
+
+/// 返利结算单的**应返金额为 0（或负）**，没有可开红字发票的金额（HTTP 409 · M3-17 · `66094`）。
+///
+/// 0 元发票在税控口径下无业务含义，库层 `ck_biz_invoice_sign` 也要求
+/// `amount < 0`（严格小于）；负返利同理 —— 负返利的表达方式是**红冲一张已开的票**
+/// 或做调账，不是开一张金额为正的「红字票」。
+///
+/// 合法出路：① 该期间确实没返利 → 把结算单作废（`DELETE`，仅 `DRAFT`）；
+/// ② 基数/政策错了 → 用「重算」修正确后金额 > 0 再来开票。
+pub const ERP_REBATE_INVOICE_AMOUNT: i32 = 66094;
+
+/// 返利开票日所属**会计期间已结账**（HTTP 409 · M3-17 · `66095`）。
+///
+/// 红字发票要生成红字凭证，而凭证写进已关账期间会让报表口径被事后改写。
+/// 与 [`ERP_ASSET_PERIOD_CLOSED`]（`66038`）/ [`ERP_EXPENSE_PERIOD_CLOSED`]（`66043`）
+/// 同因不同模块：那个码的出路是「下个月再提折旧 / 报销」，本码的出路是
+/// **改开票日期**或**先反结账**（返利本身可以晚开票，但日期不能编）。
+pub const ERP_REBATE_INVOICE_PERIOD_CLOSED: i32 = 66095;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -2376,6 +2406,11 @@ mod tests {
             (ERP_REBATE_SETTLEMENT_NO_POLICY, 66091),
             // 返利结算重复：同客户同粒度同期间已有未作废结算单（66092；M3-16 —— 重复返利 = 重复付钱）
             (ERP_REBATE_SETTLEMENT_DUPLICATE, 66092),
+            // 返利开红字发票：状态不可开票 / 应返金额为 0 / 期间已结账（66093–66095；M3-17 ——
+            // 三条各指一条不同的修改路径：换业务动作 / 作废或重算 / 改开票日期或反结账）
+            (ERP_REBATE_INVOICE_STATE, 66093),
+            (ERP_REBATE_INVOICE_AMOUNT, 66094),
+            (ERP_REBATE_INVOICE_PERIOD_CLOSED, 66095),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

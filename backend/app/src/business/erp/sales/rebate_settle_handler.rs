@@ -338,6 +338,9 @@ fn to_res(row: &SettlementRow) -> dto::RebateSettleRes {
         remark: row.remark.clone(),
         created_at: row.created_at,
         updated_at: row.updated_at,
+        invoice_id: row.invoice_id.map(|value| value.to_string()),
+        invoice_no: row.invoice_no.clone(),
+        settled_at: row.settled_at,
     }
 }
 

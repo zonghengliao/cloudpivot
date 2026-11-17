@@ -610,9 +610,13 @@ async fn recalc_refreshes_base_and_amount() {
     assert_eq!(repriced.rate, dec("0.8"), "快照换成新比率");
     assert_eq!(repriced.rebate_amount, dec("80.00"), "100 × 0.8");
 
-    // 转应付（M3-17 的动作，这里直接改库模拟）后不能重算
+    // 已开红字发票（M3-17 的终态；这里直接改库模拟）后不能重算
+    // V0440 的 ck_biz_srs_settled_link 要求 SETTLED 必须有票有票号有转结时间 —— 三列一起给
     exec(
-        "UPDATE biz_sales_rebate_settlement SET status = 'SETTLED' WHERE id = ?::uuid",
+        "UPDATE biz_sales_rebate_settlement \
+            SET status = 'SETTLED', invoice_id = gen_random_uuid(), \
+                invoice_no = 'IV-20990101-000001', settled_at = CURRENT_TIMESTAMP \
+          WHERE id = ?::uuid",
         vec![Value::from(Uuid::parse_str(&first.id).expect("结算单 id 是 UUID"))],
     )
     .await;
@@ -620,7 +624,7 @@ async fn recalc_refreshes_base_and_amount() {
         .await
         .expect_err("SETTLED 不能重算");
     assert_eq!(error.status, 409);
-    assert!(error.msg.contains("已转应付"), "{}", error.msg);
+    assert!(error.msg.contains("已开红字发票"), "{}", error.msg);
     println!("[M3-16] 重算：基数/金额/政策快照一起刷新；SETTLED 后重算 409 ✓");
 }
 
@@ -671,9 +675,12 @@ async fn cancel_allows_reopen_and_blocks_settled() {
         .expect_err("已作废不能再作废");
     assert_eq!(again.status, 409);
 
-    // 转应付后不能作废
+    // 已开红字发票后不能作废（V0440 的 ck_biz_srs_settled_link：SETTLED 必须有票）
     exec(
-        "UPDATE biz_sales_rebate_settlement SET status = 'SETTLED' WHERE id = ?::uuid",
+        "UPDATE biz_sales_rebate_settlement \
+            SET status = 'SETTLED', invoice_id = gen_random_uuid(), \
+                invoice_no = 'IV-20990101-000002', settled_at = CURRENT_TIMESTAMP \
+          WHERE id = ?::uuid",
         vec![Value::from(Uuid::parse_str(&second.id).expect("结算单 id 是 UUID"))],
     )
     .await;

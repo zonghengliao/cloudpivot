@@ -287,11 +287,12 @@ pub fn money2(value: Decimal) -> Decimal {
 
 // ==================== 域值标签 ====================
 
-/// 结算状态 → 中文。
+/// 状态中文（`SETTLED` 是「已开红字发票」：M3-17 定的终态口径 —— 卡面「生成应付或红字发票
+/// 二选一」选了红字发票那一支，`SETTLED` 的含义就是「票已开、收入与销项税已冲」）。
 pub fn status_label(status: &str) -> &'static str {
     match status {
         STATUS_DRAFT => "已计算",
-        STATUS_SETTLED => "已转应付",
+        STATUS_SETTLED => "已开红字发票",
         STATUS_CANCELLED => "已作废",
         _ => "未知状态",
     }
@@ -450,6 +451,12 @@ pub struct RebateSettleRes {
     pub created_at: DateTime<Utc>,
     /// 更新时间。
     pub updated_at: DateTime<Utc>,
+    /// 红字发票 id（M3-17；未开票为 `null`）。
+    pub invoice_id: Option<String>,
+    /// 红字发票号（M3-17；已开票后列表直接显示，免二次请求）。
+    pub invoice_no: Option<String>,
+    /// 转结时间（M3-17；置 `SETTLED` 的时刻）。
+    pub settled_at: Option<DateTime<Utc>>,
 }
 
 /// 结算单摘要（试算里回显「这期已经算过」用）。
@@ -692,7 +699,8 @@ mod tests {
         // 订单白名单复用销售目标那份，不另抄
         assert_eq!(ORDER_STATUSES, ["APPROVED", "PARTIAL_OUT", "OUTBOUND", "CLOSED"]);
         assert_eq!(status_label("DRAFT"), "已计算");
-        assert_eq!(status_label("SETTLED"), "已转应付");
+        // M3-17 定稿：SETTLED 的终态语义 = 已开红字发票（卡面「生成应付或红字发票」二选一取了红字票）
+        assert_eq!(status_label("SETTLED"), "已开红字发票");
         assert_eq!(status_label("CANCELLED"), "已作废");
         println!("[M3-16] 状态 / 退货状态 / 订单白名单与常量对齐 ✓");
     }

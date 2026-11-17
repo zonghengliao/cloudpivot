@@ -1,0 +1,12 @@
+-- up（第 2 次，幂等重放）
+psql:backend/app/migrations/business/V0440__sales_rebate_invoice.up.sql:148: NOTICE:  relation "uk_biz_srs_invoice" already exists, skipping
+psql:backend/app/migrations/business/V0440__sales_rebate_invoice.up.sql:153: NOTICE:  relation "idx_biz_srs_invoice" already exists, skipping
+psql:backend/app/migrations/business/V0440__sales_rebate_invoice.up.sql:396: NOTICE:  V0440 自检通过：40 列 / 2 索引 / ck_biz_srs_settled_link / 来源白名单含 SALES_REBATE / 科目 2241.02 / 按钮行（sort 70）/ 4 条行为探针
+rc=0
+-- down
+psql:backend/app/migrations/business/V0440__sales_rebate_invoice.down.sql:119: NOTICE:  V0440 down 完成：结算单回落 35 列、按钮行/两个索引/约束已消失
+rc=0
+-- up（回滚后再上）
+psql:backend/app/migrations/business/V0440__sales_rebate_invoice.up.sql:127: NOTICE:  V0440: 前置检查通过（8 张依赖表在、返利政策页面节点在、开票码当前 0 个承载节点、SETTLED 存量 0 行）
+psql:backend/app/migrations/business/V0440__sales_rebate_invoice.up.sql:396: NOTICE:  V0440 自检通过：40 列 / 2 索引 / ck_biz_srs_settled_link / 来源白名单含 SALES_REBATE / 科目 2241.02 / 按钮行（sort 70）/ 4 条行为探针
+rc=0

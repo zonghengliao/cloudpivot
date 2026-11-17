@@ -66,7 +66,8 @@ const SETTLE_SELECT: &str = "SELECT s.id, s.settlement_no, s.customer_id, \
      s.policy_effective_from, s.policy_effective_to, s.policy_snapshot::text AS policy_snapshot_text, \
      s.order_count, s.order_amount, s.order_qty, s.return_count, s.return_amount, s.return_qty, \
      s.base_amount, s.base_qty, s.tier_seq, s.tier_from, s.tier_to, s.rate, s.rebate_amount, \
-     s.status, s.remark, s.created_at, s.updated_at \
+     s.status, s.remark, s.created_at, s.updated_at, \
+     s.invoice_id, s.invoice_no, s.voucher_id, s.settled_at, s.settled_by \
      FROM biz_sales_rebate_settlement s \
      LEFT JOIN biz_customer c ON c.id = s.customer_id";
 
@@ -135,6 +136,16 @@ pub struct SettlementRow {
     pub created_at: DateTime<Utc>,
     /// 更新时间。
     pub updated_at: DateTime<Utc>,
+    /// 红字发票 id（M3-17；未开票为 `None`）。
+    pub invoice_id: Option<Uuid>,
+    /// 红字发票号快照（M3-17）。
+    pub invoice_no: Option<String>,
+    /// 红字凭证 id（M3-17）。
+    pub voucher_id: Option<Uuid>,
+    /// 转结时间（M3-17）。
+    pub settled_at: Option<DateTime<Utc>>,
+    /// 转结人（M3-17；审计口径，不 join 实时人名）。
+    pub settled_by: Option<Uuid>,
 }
 
 impl SettlementRow {
@@ -181,6 +192,11 @@ impl SettlementRow {
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
+            invoice_id: row.get_typed("invoice_id")?,
+            invoice_no: row.get_typed("invoice_no")?,
+            voucher_id: row.get_typed("voucher_id")?,
+            settled_at: row.get_typed("settled_at")?,
+            settled_by: row.get_typed("settled_by")?,
         })
     }
 
@@ -961,6 +977,11 @@ mod tests {
             remark: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            invoice_id: None,
+            invoice_no: None,
+            voucher_id: None,
+            settled_at: None,
+            settled_by: None,
         };
         assert!(row.is_draft());
         row.status = STATUS_CANCELLED.to_string();
