@@ -111,6 +111,13 @@ pub struct CreatePurchaseOrderReq {
     pub purchase_type: Option<String>,
     /// 合同（`CONTRACT` 必填 / `SPOT` 必须为空）。
     pub contract_id: Option<String>,
+    /// 框架协议（M4-08；可空 = 本单不挂协议，不校验价格 / 不占额度）。
+    ///
+    /// 只在零星采购（`SPOT`）上允许：合同采购已经有合同定价，再挂一份框架协议
+    /// 就是两个价格上限，超限时说不清以哪份为准（`prepare()` 直接 400）。
+    /// 协议行（`framework_agreement_item_id`）**不接受客户端传** —— 服务端按
+    /// `(协议, 物料)` 现查，见 `V0451` 头注释。
+    pub framework_agreement_id: Option<String>,
     /// 所属项目（P2-8；可空 = 不归集项目）。只校验「存在且未软删」，不校验状态。
     pub project_id: Option<String>,
     /// 下单日期（缺省 = 今天，北京时间）。
@@ -217,6 +224,11 @@ pub struct PreparedOrder {
     pub purchase_type: String,
     /// 合同 id 原文（`CONTRACT` 必有 / `SPOT` 必为 `None`）。
     pub contract_id_raw: Option<String>,
+    /// 框架协议 id 原文（M4-08；`None` = 不挂协议）。
+    ///
+    /// 只在这里归一化原文，「存不存在 / 能不能用 / 价与量超不超」全部走
+    /// `framework_agreement_ref::resolve`（要连库 + 加锁，纯函数做不了）。
+    pub framework_agreement_id_raw: Option<String>,
     /// 所属项目 id 原文（可空；handler 解析 UUID 并校验存在/未软删，P2-8）。
     pub project_id_raw: Option<String>,
     /// 下单日期。
@@ -301,6 +313,13 @@ impl CreatePurchaseOrderReq {
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(str::to_string);
+        // 框架协议（M4-08）：只归一化原文；可用性 / 价格 / 数量校验在 handler 的事务里做
+        let framework_agreement_id_raw = self
+            .framework_agreement_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
         // 所属项目（P2-8）：只归一化原文；「存不存在 / 是否已软删」要走 select，纯函数查不了库
         let project_id_raw = self
             .project_id
@@ -332,6 +351,14 @@ impl CreatePurchaseOrderReq {
             return Err(bad_request(
                 "supplier_id 必填（SPOT 零星采购必须手选供应商；CONTRACT 合同采购可省略，\
                  由合同乙方带出）",
+            ));
+        }
+        // 框架协议只在零星采购上允许（见 `framework_agreement_id` 的字段注释）
+        if purchase_type == PURCHASE_TYPE_CONTRACT && framework_agreement_id_raw.is_some() {
+            return Err(bad_request(
+                "合同采购（CONTRACT）不能同时挂框架协议：这单已经有合同定价，\
+                 再挂一份协议就是两个价格上限，超限时说不清以哪份为准。\
+                 按框架协议下单请用零星采购（purchase_type = SPOT）并留空 contract_id",
             ));
         }
 
@@ -391,6 +418,7 @@ impl CreatePurchaseOrderReq {
             warehouse_id_raw,
             purchase_type,
             contract_id_raw,
+            framework_agreement_id_raw,
             project_id_raw,
             order_date,
             expect_date: self.expect_date,
@@ -547,12 +575,20 @@ pub struct PurchaseOrderDetailRes {
     pub items: Vec<PurchaseOrderLineRes>,
     /// 附属信息（新口径）：审批实例号 / 实例状态。
     pub meta: crate::business::erp::doc_shape::DocMeta,
+    /// 框架协议引用（M4-08；`None` = 本单没挂协议）。
+    ///
+    /// 现查现显（名称 / 状态 / 条款会变）：协议号优先取协议现值，协议被软删时回落到
+    /// 单头快照 `framework_agreement_no_snapshot`，引用记录不丢。
+    pub framework_agreement: Option<FrameworkAgreementRefRes>,
     /// **已废弃（兼容期保留）**：请改读 `header`。
     pub order: PurchaseOrderRes,
 }
 
 impl PurchaseOrderDetailRes {
     /// 唯一构造函数：`header` 与旧字段 `order` 在这里一次 clone 出来。
+    ///
+    /// `framework_agreement` 由 [`PurchaseOrderDetailRes::with_framework_agreement`] 后置填入
+    /// （详情组装才查协议，单测 / 列表场景不必为了填 `None` 多写一个参数）。
     #[must_use]
     pub fn new(
         header: PurchaseOrderRes,
@@ -563,7 +599,60 @@ impl PurchaseOrderDetailRes {
             header: header.clone(),
             items,
             meta,
+            framework_agreement: None,
             order: header,
+        }
+    }
+
+    /// 填入框架协议引用（M4-08）。
+    #[must_use]
+    pub fn with_framework_agreement(mut self, reference: Option<FrameworkAgreementRefRes>) -> Self {
+        self.framework_agreement = reference;
+        self
+    }
+}
+
+/// 采购单引用的框架协议（详情出参 · M4-08）。
+///
+/// 协议被软删 / 查不到时，`status` / `agreement_name` 等为 `None`，但 `agreement_id` 与
+/// `agreement_no`（快照兜底）仍在 —— 「这张单挂过哪份协议」是历史事实，不许因为协议被删就消失。
+#[derive(Debug, Clone, Serialize)]
+pub struct FrameworkAgreementRefRes {
+    /// 协议主键。
+    pub agreement_id: String,
+    /// 协议号（协议现值优先，软删后回落到单头快照）。
+    pub agreement_no: String,
+    /// 协议名（协议已软删 → `None`）。
+    pub agreement_name: Option<String>,
+    /// 协议状态（协议已软删 → `None`）。
+    pub status: Option<String>,
+    /// 有效期起。
+    pub start_date: Option<NaiveDate>,
+    /// 有效期止。
+    pub end_date: Option<NaiveDate>,
+    /// 定价方式（`FIXED` / `FLOATING`）。
+    pub price_mode: Option<String>,
+    /// 协议价是否含税。
+    pub price_includes_tax: Option<bool>,
+    /// 协议价币种。
+    pub price_currency: Option<String>,
+    /// 容许上浮比例（0–1 分数）。
+    pub price_tolerance: Option<Decimal>,
+}
+
+impl From<&crate::business::erp::purchase::framework_agreement_ref::AgreementRefRow> for FrameworkAgreementRefRes {
+    fn from(row: &crate::business::erp::purchase::framework_agreement_ref::AgreementRefRow) -> Self {
+        Self {
+            agreement_id: row.id.to_string(),
+            agreement_no: row.agreement_no.clone(),
+            agreement_name: row.agreement_name.clone(),
+            status: row.status.clone(),
+            start_date: row.start_date,
+            end_date: row.end_date,
+            price_mode: row.price_mode.clone(),
+            price_includes_tax: row.price_includes_tax,
+            price_currency: row.price_currency.clone(),
+            price_tolerance: row.price_tolerance,
         }
     }
 }

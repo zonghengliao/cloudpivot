@@ -1,0 +1,29 @@
+== M4-08 范围守卫：路由 / 权限码 / 菜单 / 前端（本卡不夹带）==
+
+-- 1) 新增文件里有没有路由宏（#\[nik:: 宏）--
+（0 条：本卡不加接口）
+
+-- 2) 后端源码里有没有 framework-agreement 权限码 / page 码 --
+（0 处：权限码属 M4-11）
+
+-- 3) 前端有没有碰（framework_agreement）--
+（0 个文件：页面属 M4-11）
+
+-- 4) 本卡改动的文件清单（git status）--
+ M backend/app/src/business/erp/price/price_inquiry_handler.rs
+ M backend/app/src/business/erp/purchase/mod.rs
+ M backend/app/src/business/erp/purchase/purchase_dto.rs
+ M backend/app/src/business/erp/purchase/purchase_handler.rs
+ M backend/app/src/business/erp/purchase/purchase_model.rs
+ M backend/app/src/business/erp/purchase/purchase_requisition_handler.rs
+ M backend/crates/cloudpivot-kernel/src/shared/error_code.rs
+?? backend/app/migrations/business/V0451__framework_agreement_order_ref.down.sql
+?? backend/app/migrations/business/V0451__framework_agreement_order_ref.up.sql
+?? backend/app/src/business/erp/purchase/framework_agreement_ref.rs
+?? backend/app/src/business/erp/purchase/framework_agreement_ref_db_tests.rs
+?? scripts/verify/m408_framework_agreement_order_ref_drill.sh
+
+-- 5) 迁移号段：本卡占用 V0451，全局最大号核对 --
+V0449
+V0450
+V0451

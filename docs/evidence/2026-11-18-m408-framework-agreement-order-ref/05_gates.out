@@ -1,0 +1,19 @@
+== M4-08 门禁（fmt / clippy / 真库用例）==
+--- git rev-parse HEAD（提交前基线）---
+6019e4e5165b418734c58cb7f71f7942e0c41364
+
+--- cargo fmt -p cloudpivot -- --check ---
+rc=0（格式干净）
+
+--- cargo clippy -p cloudpivot --lib -- -D warnings ---
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+
+--- cargo clippy -p cloudpivot --lib --tests -- -D warnings ---
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+--- 错误码段自检（66xxx 稳定 + 不重复）---
+test shared::error_code::tests::erp_error_codes_are_stable ... ok
+test shared::error_code::tests::flow_error_codes_are_stable ... ok
+test shared::error_code::tests::project_error_codes_are_stable ... ok
+test shared::error_code::tests::task_error_codes_are_stable ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 230 filtered out; finished in 0.00s

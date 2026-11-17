@@ -82,6 +82,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::model::{
     PurchaseOrderItemRow, PurchaseOrderRow, purchase_order_find_by_id, purchase_order_items,
 };
+use crate::business::erp::purchase::framework_agreement_ref;
 use crate::business::erp::serial_model::period_key_of;
 use cloudpivot_kernel::business::shared::state_machine;
 
@@ -269,6 +270,13 @@ pub struct NewPurchaseOrder<'a> {
     pub contract_id: Option<Uuid>,
     /// 合同号快照（`CONTRACT` 必填，`SPOT` 必为 `None`）。
     pub contract_no_snapshot: Option<&'a str>,
+    /// 框架协议（M4-08；弱引用，`None` = 本单不挂协议）。
+    ///
+    /// handler 已在校验通过后拿到（`framework_agreement_ref::resolve` 里锁过协议行），
+    /// 这里只负责落库，**不再校验**。
+    pub framework_agreement_id: Option<Uuid>,
+    /// 协议号快照（挂协议时必填；历史单显示「当时按哪份协议下的单」不依赖协议表）。
+    pub framework_agreement_no_snapshot: Option<&'a str>,
     /// 供应商名称快照（业务发生那一刻；拿不到主档名时可为 `None`）。
     pub supplier_name_snapshot: Option<&'a str>,
     /// 收货仓库名称快照（P2-9 / DC-23：建单 / 改单那一刻的仓库名，`None` = 查不到）。
@@ -308,6 +316,11 @@ pub struct NewItem {
     pub tax_rate: Decimal,
     /// 行金额（已按口径算好）。
     pub amounts: LineAmounts,
+    /// 引用的框架协议物料行（M4-08；`None` = 本单不挂协议）。
+    ///
+    /// 由 `framework_agreement_ref::resolve` 按 `(协议, 物料)` 现查给出 —— 客户端不传，
+    /// 也不允许传（V0451 头注释：协议行是价格判据与执行量回写的落点）。
+    pub framework_agreement_item_id: Option<Uuid>,
     /// 行备注。
     pub remark: Option<String>,
 }
@@ -439,12 +452,12 @@ async fn insert_items(
             format!(
                 "INSERT INTO {ITEM_TABLE} \
                     (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, \
-                     tax_rate, amount, tax_amount, with_tax_amount, remark) \
+                     tax_rate, amount, tax_amount, with_tax_amount, remark, framework_agreement_item_id) \
                  VALUES (?, ?::uuid, ?, ?::uuid, ?::uuid, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,''))"
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,''), NULLIF(?::text,'')::uuid)"
             ),
             vec![
                 Value::from(Uuid::now_v7()),
@@ -460,6 +473,11 @@ async fn insert_items(
                 Value::Text(item.amounts.tax_amount.to_string()),
                 Value::Text(item.amounts.with_tax_amount.to_string()),
                 Value::Text(item.remark.clone().unwrap_or_default()),
+                Value::Text(
+                    item.framework_agreement_item_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                ),
             ],
         )
         .await?;
@@ -487,13 +505,15 @@ pub async fn create(
                  price_mode, total_qty, total_amount, total_tax, total_with_tax, credit_days, \
                  remark, created_at, updated_at, create_by, update_by, \
                  purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
-                 warehouse_name_snapshot, project_id) \
+                 warehouse_name_snapshot, project_id, framework_agreement_id, \
+                 framework_agreement_no_snapshot) \
              VALUES (?, ?, ?::uuid, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, \
                  ?::uuid, 'DRAFT', ?, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
                  ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), NULLIF(?::text,''), \
-                 NULLIF(?::text,''), NULLIF(?::text,'')::uuid)"
+                 NULLIF(?::text,''), NULLIF(?::text,'')::uuid, \
+                 NULLIF(?::text,'')::uuid, NULLIF(?::text,''))"
         ),
         vec![
             Value::from(&id),
@@ -519,6 +539,12 @@ pub async fn create(
             Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
             Value::Text(new.warehouse_name_snapshot.unwrap_or_default().to_string()),
             Value::Text(new.project_id.map(|value| value.to_string()).unwrap_or_default()),
+            Value::Text(
+                new.framework_agreement_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ),
+            Value::Text(new.framework_agreement_no_snapshot.unwrap_or_default().to_string()),
         ],
     )
     .await?;
@@ -566,7 +592,9 @@ pub async fn update(
                         contract_no_snapshot = NULLIF(?::text,''), \
                         supplier_name_snapshot = NULLIF(?::text,''), \
                         warehouse_name_snapshot = NULLIF(?::text,''), \
-                        project_id = NULLIF(?::text,'')::uuid \
+                        project_id = NULLIF(?::text,'')::uuid, \
+                        framework_agreement_id = NULLIF(?::text,'')::uuid, \
+                        framework_agreement_no_snapshot = NULLIF(?::text,'') \
                   WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
             ),
             vec![
@@ -589,6 +617,12 @@ pub async fn update(
                 Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
                 Value::Text(new.warehouse_name_snapshot.unwrap_or_default().to_string()),
                 Value::Text(new.project_id.map(|value| value.to_string()).unwrap_or_default()),
+                Value::Text(
+                    new.framework_agreement_id
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::Text(new.framework_agreement_no_snapshot.unwrap_or_default().to_string()),
                 Value::from(&id),
             ],
         )
@@ -815,6 +849,14 @@ pub async fn apply_status_with_instance(
     // LNK-02：【CAS 成功才跑联动】状态没变（affected = 0）说明目标态 = 当前态，
     // 或者单据被别人先推走了 —— 此时推一条「已变更为 X」的通知是假的。
     if affected > 0 {
+        // M4-08：作废就把框架协议额度还回去。作废单不该继续吃协议上限，
+        // 而「还回去」不是手工减法 —— 按单据链**重算**协议行的已执行量（现算口径下
+        // 本单已被 `status <> 'CANCELLED'` 排除，重算即释放），见
+        // `framework_agreement_ref::release_order`。
+        // 同一事务内做：作废成功但额度没放出来，比作废失败更糟（重试也修不回来）。
+        if to == STATUS_CANCELLED {
+            framework_agreement_ref::release_order(ex, id).await?;
+        }
         purchase_linkage::run_in_tx(ex, id, to, operator, outbox).await?;
     }
     Ok(affected)

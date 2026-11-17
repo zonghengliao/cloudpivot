@@ -859,6 +859,8 @@ pub async fn to_purchase_order(
         warehouse_id: Some(warehouse_id.to_string()),
         purchase_type: None, // 缺省 SPOT（零星采购），与「部门提需求」的定位一致
         contract_id: None,
+        // M4-08：申请转采购单不自动挂框架协议（选哪份协议是采购员的决定，不是申请人的）
+        framework_agreement_id: None,
         project_id: None,
         order_date: Some(order_date),
         expect_date,

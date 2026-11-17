@@ -48,6 +48,7 @@ use crate::business::erp::contract::contract_model;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model::PurchaseOrderRow;
+use crate::business::erp::purchase::framework_agreement_ref;
 use crate::business::erp::purchase::purchase_bridge;
 use crate::business::erp::purchase::purchase_credit;
 use crate::business::erp::purchase::purchase_dto::{
@@ -517,11 +518,15 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
     // FIX-2 ①：预算尚未生效的提示（草稿 / 审批中 / 未到生效日），只提示不阻断
     order.budget_warnings = budget_warnings_of(&row).await;
     let meta = approval_meta_of(&order).await;
-    Ok(PurchaseOrderDetailRes::new(
-        order,
-        items.iter().map(PurchaseOrderLineRes::from).collect(),
-        meta,
-    ))
+    // M4-08：这张单挂的是哪份框架协议（现查现显；协议被软删时回落单头快照）
+    let agreement_ref = framework_agreement_ref::ref_of_order(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询框架协议引用"))?
+        .map(|reference| crate::business::erp::purchase::purchase_dto::FrameworkAgreementRefRes::from(&reference));
+    Ok(
+        PurchaseOrderDetailRes::new(order, items.iter().map(PurchaseOrderLineRes::from).collect(), meta)
+            .with_framework_agreement(agreement_ref),
+    )
 }
 
 /// 出参 `meta` 段（E2E01-FIX-4）：实例号直接取单头已回填的字段，`flow_status` 现查实例。
@@ -656,22 +661,12 @@ pub async fn create_purchase_order(
     let project_id = resolve_project(&prepared).await?;
     let head = resolve_head(&prepared).await?;
 
-    let items = prepare_items(&prepared).await?;
+    let mut items = prepare_items(&prepared).await?;
     let totals = Totals::of(&items);
-    let new = NewPurchaseOrder {
-        supplier_id: head.supplier_id,
-        warehouse_id,
-        purchase_type: &prepared.purchase_type,
-        contract_id: head.contract.as_ref().map(|contract| contract.id),
-        contract_no_snapshot: head.contract.as_ref().map(|contract| contract.contract_no.as_str()),
-        supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
-        warehouse_name_snapshot: Some(warehouse_name.as_str()),
-        project_id,
-        order_date: prepared.order_date,
-        expect_date: prepared.expect_date,
-        price_mode: &prepared.price_mode,
-        remark: prepared.remark.as_deref(),
-        credit_days: prepared.credit_days,
+    // 框架协议（M4-08）：只在这里解析 UUID；可用性 / 价格 / 数量校验在事务里（要锁协议行）
+    let agreement_id = match prepared.framework_agreement_id_raw.as_deref() {
+        None => None,
+        Some(raw) => Some(parse_uuid(raw, "framework_agreement_id")?),
     };
 
     let now = Utc::now();
@@ -686,8 +681,63 @@ pub async fn create_purchase_order(
         let _ = tx.rollback().await;
         return Err(error);
     }
+    // 框架协议引用守卫（M4-08）：锁协议行 → 判可用性 → 判单价 → 判累计量/额。
+    // ⚠️ 锁顺序固定「合同行 → 协议行」（与改单同序），单向不交叉，不会互相死锁。
+    let reference = match agreement_id {
+        None => None,
+        Some(id) => {
+            let lines = ref_lines_of(&items);
+            let request = framework_agreement_ref::RefRequest {
+                agreement_id: id,
+                supplier_id: head.supplier_id,
+                order_date: prepared.order_date,
+                currency_code: framework_agreement_ref::ORDER_CURRENCY,
+                lines: &lines,
+            };
+            match framework_agreement_ref::resolve(&tx, &request, None).await {
+                Ok(resolved) => Some(resolved),
+                Err(error) => {
+                    let _ = tx.rollback().await;
+                    return Err(error);
+                }
+            }
+        }
+    };
+    // 逐行落协议行 id（服务端按「协议 + 物料」现查出来的，客户端不传）
+    if let Some(resolved) = reference.as_ref() {
+        for (item, item_id) in items.iter_mut().zip(resolved.item_ids.iter()) {
+            item.framework_agreement_item_id = Some(*item_id);
+        }
+    }
+    let new = NewPurchaseOrder {
+        supplier_id: head.supplier_id,
+        warehouse_id,
+        purchase_type: &prepared.purchase_type,
+        contract_id: head.contract.as_ref().map(|contract| contract.id),
+        contract_no_snapshot: head.contract.as_ref().map(|contract| contract.contract_no.as_str()),
+        framework_agreement_id: agreement_id,
+        framework_agreement_no_snapshot: reference.as_ref().map(|resolved| resolved.agreement_no.as_str()),
+        supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
+        warehouse_name_snapshot: Some(warehouse_name.as_str()),
+        project_id,
+        order_date: prepared.order_date,
+        expect_date: prepared.expect_date,
+        price_mode: &prepared.price_mode,
+        remark: prepared.remark.as_deref(),
+        credit_days: prepared.credit_days,
+    };
+
     match purchase_model::create(&tx, &new, &items, &totals, op, now).await {
         Ok(id) => {
+            // 执行量回写（M4-08）：单据已落库，按单据链把协议行的已执行量**重算**成
+            // 绝对值（幂等，不是 +=）。失败就整单回滚 —— 留一张「下了单但没占额度」的
+            // 采购单，比让用户重填一遍更糟（AGENTS 约定 11）。
+            if let Some(resolved) = reference.as_ref()
+                && let Err(error) = framework_agreement_ref::refresh_executed(&tx, &resolved.item_ids).await
+            {
+                let _ = tx.rollback().await;
+                return Err(utils::db_error(error, "回写框架协议已执行量"));
+            }
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交建单事务"))?;
@@ -698,6 +748,22 @@ pub async fn create_purchase_order(
             Err(write_error(error, "创建采购订单"))
         }
     }
+}
+
+/// 把待落库的明细映射成框架协议校验用的行（行号 = 数组下标 + 1，与 `line_no` 一致）。
+fn ref_lines_of(items: &[NewItem]) -> Vec<framework_agreement_ref::RefLine> {
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| framework_agreement_ref::RefLine {
+            line_no: i32::try_from(index + 1).unwrap_or(i32::MAX),
+            material_id: item.material_id,
+            qty: item.qty,
+            price_excl: item.price,
+            amount: item.amounts.amount,
+            with_tax_amount: item.amounts.with_tax_amount,
+        })
+        .collect()
 }
 
 /// 所属项目（P2-8）：`None` = 不归集项目；给了就必须「存在且未软删」。
@@ -745,6 +811,9 @@ async fn prepare_items(
             price_incl: line.price_incl,
             tax_rate: line.tax_rate,
             amounts: line.amounts,
+            // M4-08：协议行由 `create_purchase_order` / `update_purchase_order` 在事务里
+            // 按「协议 + 物料」现查后回填，这里只留空
+            framework_agreement_item_id: None,
             remark: line.remark.clone(),
         });
     }
@@ -926,12 +995,71 @@ pub async fn update_purchase_order(
 
     let items = prepare_items(&prepared).await?;
     let totals = Totals::of(&items);
+    // 框架协议（M4-08）：解析 UUID；校验在事务里（锁协议行）
+    let agreement_id = match prepared.framework_agreement_id_raw.as_deref() {
+        None => None,
+        Some(raw) => Some(parse_uuid(raw, "framework_agreement_id")?),
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启改单事务"))?;
+
+    // 旧引用的协议行（改单会把明细整单重建，旧行没了 → 旧协议行的已执行量要重算）
+    let old_items = match framework_agreement_ref::referenced_items_of_order(&tx, id).await {
+        Ok(ids) => ids,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "查询本单原有的框架协议引用"));
+        }
+    };
+
+    // 合同额度守卫：排除本单（`exclude = Some(id)`），否则自己会被算两遍
+    if let Some(contract) = head.contract.as_ref()
+        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, Some(id)).await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
+    // 框架协议守卫（M4-08）：同样排除本单 —— 本单的旧明细还在库里，不排就被算两遍。
+    // ⚠️ 锁顺序「合同行 → 协议行」，与建单同序。
+    let mut items = items;
+    let reference = match agreement_id {
+        None => None,
+        Some(agreement) => {
+            let lines = ref_lines_of(&items);
+            let request = framework_agreement_ref::RefRequest {
+                agreement_id: agreement,
+                supplier_id: head.supplier_id,
+                order_date: prepared.order_date,
+                currency_code: framework_agreement_ref::ORDER_CURRENCY,
+                lines: &lines,
+            };
+            match framework_agreement_ref::resolve(&tx, &request, Some(id)).await {
+                Ok(resolved) => Some(resolved),
+                Err(error) => {
+                    let _ = tx.rollback().await;
+                    return Err(error);
+                }
+            }
+        }
+    };
+    if let Some(resolved) = reference.as_ref() {
+        for (item, item_id) in items.iter_mut().zip(resolved.item_ids.iter()) {
+            item.framework_agreement_item_id = Some(*item_id);
+        }
+    }
+
     let new = NewPurchaseOrder {
         supplier_id: head.supplier_id,
         warehouse_id,
         purchase_type: &prepared.purchase_type,
         contract_id: head.contract.as_ref().map(|contract| contract.id),
         contract_no_snapshot: head.contract.as_ref().map(|contract| contract.contract_no.as_str()),
+        framework_agreement_id: agreement_id,
+        framework_agreement_no_snapshot: reference.as_ref().map(|resolved| resolved.agreement_no.as_str()),
         supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
         warehouse_name_snapshot: Some(warehouse_name.as_str()),
         project_id,
@@ -942,18 +1070,6 @@ pub async fn update_purchase_order(
         credit_days: prepared.credit_days,
     };
 
-    let now = Utc::now();
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| utils::db_error(error, "开启改单事务"))?;
-    // 合同额度守卫：排除本单（`exclude = Some(id)`），否则自己会被算两遍
-    if let Some(contract) = head.contract.as_ref()
-        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, Some(id)).await
-    {
-        let _ = tx.rollback().await;
-        return Err(error);
-    }
     match purchase_model::update(&tx, id, &new, &items, &totals, operator, now).await {
         Ok(0) => {
             let _ = tx.rollback().await;
@@ -963,6 +1079,16 @@ pub async fn update_purchase_order(
             ))
         }
         Ok(_) => {
+            // 执行量重算（M4-08）：旧引用 + 新引用一起算 —— 旧协议行可能因为本单改挂
+            // 而回落，新协议行可能本单是第一条。重算幂等，重复算不会偏。
+            let mut touched = old_items;
+            if let Some(resolved) = reference.as_ref() {
+                touched.extend(resolved.item_ids.iter().copied());
+            }
+            if let Err(error) = framework_agreement_ref::refresh_executed(&tx, &touched).await {
+                let _ = tx.rollback().await;
+                return Err(utils::db_error(error, "回写框架协议已执行量"));
+            }
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交改单事务"))?;
@@ -1787,6 +1913,10 @@ pub async fn delete_purchase_order(id: Uuid, operator: Option<Uuid>) -> std::res
         if affected == 0 {
             return Err(not_found("采购订单"));
         }
+        // M4-08：删掉的单不该继续占框架协议额度 —— 按单据链重算（单已软删，现算自然回落）
+        framework_agreement_ref::release_order(&tx, id)
+            .await
+            .map_err(|error| utils::db_error(error, "释放框架协议已执行量"))?;
         Ok(())
     }
     .await;

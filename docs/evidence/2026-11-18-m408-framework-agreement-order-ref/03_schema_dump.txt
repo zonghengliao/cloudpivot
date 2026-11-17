@@ -1,0 +1,36 @@
+== M4-08 结构实测（库 cp_m408_drill = 模板 cloudpivot_test + V0405…V0451）==
+-- 三个引用列 --
+       table_name        |           column_name           |     data_type     | character_maximum_length | is_nullable 
+-------------------------+---------------------------------+-------------------+--------------------------+-------------
+ biz_purchase_order      | framework_agreement_id          | uuid              |                          | YES
+ biz_purchase_order      | framework_agreement_no_snapshot | character varying |                       32 | YES
+ biz_purchase_order_item | framework_agreement_item_id     | uuid              |                          | YES
+(3 rows)
+
+-- 两个部分索引 --
+      indexname       |                                                                           indexdef                                                                            
+----------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ idx_biz_po_fwa       | CREATE INDEX idx_biz_po_fwa ON public.biz_purchase_order USING btree (framework_agreement_id) WHERE (framework_agreement_id IS NOT NULL)
+ idx_biz_poi_fwa_item | CREATE INDEX idx_biz_poi_fwa_item ON public.biz_purchase_order_item USING btree (framework_agreement_item_id) WHERE (framework_agreement_item_id IS NOT NULL)
+(2 rows)
+
+-- 引用列上的外键（必须 0 行：弱引用）--
+ constraint_name | table_name | column_name 
+-----------------+------------+-------------
+(0 rows)
+
+-- 菜单 / 权限码（本卡零新增）--
+ fwa_menus 
+-----------
+         0
+(1 row)
+
+-- 迁移登记（V0451）--
+ERROR:  column "description" does not exist
+LINE 1: select version, description, success from schema_migrations ...
+                        ^
+-- 迁移登记（V0450 / V0451）--
+ kind | name | version | checksum | applied_via | applied_at | applied_seq | execution_ms | success | source 
+------+------+---------+----------+-------------+------------+-------------+--------------+---------+--------
+(0 rows)
+
