@@ -1,0 +1,22 @@
+# M3-26 四域相关迁移（按版本号；**只追加**，已应用的一条未改）
+
+模板库 `cloudpivot_test` 落在 V0404；演练脚本会把 V0405 之后的 41 条全部补上（幂等），
+其中与「报价 / 信用 / 返利 / 预测」四域直接相关的 12 条如下。
+
+| 迁移 | 卡 | 落地内容 |
+|:--|:--|:--|
+| `V0432__sales_quotation.up.sql` | M3-01 (`bd5ae28f`) | `biz_quotation` + `biz_quotation_line`（弱引用客户/物料，报价单号 `QT-yyyyMMdd-NNNNNN`） |
+| `V0433__quotation_permissions.up.sql` | M3-02 (`a6cbf9c2`) | 报价单 5 个权限码 + 菜单承载（新建/编辑/删除/状态/转单） |
+| `V0434__quotation_convert_permission.up.sql` | M3-03 (`ec2955ee`) | 报价单 → 销售订单的 `quotation:convert` 码 |
+| `V0435__quotation_approval_flow.up.sql` | M3-04 (`8e6e8f32`) | `quotation_approve` 审批流（「发出」前置走 flow） |
+| `V0436__quotation_page_menu.up.sql` | M3-06 (`967c7a90`) | 报价单页面行 `/business/erp/quotation`（menu_type=2） |
+| `V0437__customer_credit_policy.up.sql` | M3-09 (`ef88231a`) | 客户 `credit_limit / credit_used / credit_days / credit_policy` + `ck_biz_customer_credit_policy`（BLOCK/WARN/PASS） |
+| `V0438__sales_rebate_policy.up.sql` | M3-15 (`76aa69bd`) | `biz_sales_rebate_policy` + `biz_sales_rebate_rule`（按量/按额/阶梯 + 重叠闸） |
+| `V0439__sales_rebate_settlement.up.sql` | M3-16 (`ce2d1a93`) | `biz_sales_rebate_settlement`（月度/季度结算 + 政策快照） |
+| `V0440__sales_rebate_invoice.up.sql` | M3-17 (`a5f4ef14`) | 返利红字发票（结算单 DRAFT→SETTLED + `OUT_RED` 票 + 红字凭证） |
+| `V0443__sales_rebate_menu_page.up.sql` | M3-19 (`b255d1b2`) | 返利页 `/business/erp/rebate-policy` 的 path/component/is_visible 补齐（sort 85） |
+| `V0444__sales_forecast_qty_version.up.sql` | M3-20 (`d16f2d57`) | `forecast_qty` + 版本链 `revised_from_id` + 物料维度索引 + `v_biz_sales_forecast_current` 视图 |
+| `V0445__sales_rebate_payable_account.up.sql` | t_627d2a4b (`de60a7ca`) | 返利红字凭证贷方科目 `2241.05 其他应付款-销售返利`（从佣金占用的 2241.02 分出） |
+
+> 另外两条同期但不属四域的迁移（同批补进演练库，不影响本卡结论）：
+> `V0441__config_category_merge_m1m2`（配置分类归并）、`V0442__perm_gate_orphans_and_n20`（权限闸孤儿按钮收口）。

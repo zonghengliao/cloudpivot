@@ -1,0 +1,149 @@
+== M3-26 销售缺口收口演练（报价 + 信用 + 返利 + 预测）· PG 172.18.10.145:5432 / 库 cp_m326_sales_gap_e2e_3438521 ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m326_sales_gap_e2e_3438521
+== 1) 补齐业务迁移 V0405 之后全部（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 41 条业务迁移全部应用成功
+== 2) 前置：四域（报价 / 信用 / 返利 / 预测）的表与列
+  [32mPASS[0m 报价单表存在（V0432 / M3-01）（=biz_quotation）
+  [32mPASS[0m 报价单明细表存在（V0432 / M3-01）（=biz_quotation_line）
+  [32mPASS[0m 返利政策表存在（V0438 / M3-15）（=biz_sales_rebate_policy）
+  [32mPASS[0m 返利规则档位表存在（V0438 / M3-15）（=biz_sales_rebate_rule）
+  [32mPASS[0m 返利结算表存在（V0439 / M3-16）（=biz_sales_rebate_settlement）
+  [32mPASS[0m 销售预测表存在（V0318 + V0444 / M3-20）（=biz_sales_forecast）
+  [32mPASS[0m 预测「当前版本」视图存在（V0444 / M3-20）（=v_biz_sales_forecast_current）
+  [32mPASS[0m 预测表有 forecast_qty 列（V0444 / M3-20）（=forecast_qty）
+  [32mPASS[0m 预测表有版本链 revised_from_id 列（V0444 / M3-20）（=revised_from_id）
+  [32mPASS[0m 客户表 credit_policy 白名单 CHECK 在位（V0437 / M3-09）（=1）
+  [32mPASS[0m 客户表有 credit_used 缓存列（M3-10）（=credit_used）
+  [32mPASS[0m so_approve 审批流已发布（信用 / 报价转单依赖）（=1）
+  [32mPASS[0m quotation_approve 审批流已发布（M3-04）（=1）
+== 3) 权限码 ↔ sys_menu（源码解析，不手抄）
+  [32mPASS[0m 四域源码声明的权限码数量（=23）
+  [32mPASS[0m 23 个四域权限码在 sys_menu 各命中 1 行（无孤儿码 / 无重码）
+== 3b) 菜单行：四域页面 + 按钮（一行都不能少）
+  [32mPASS[0m 报价单页面行在位（M3-06 / V0436）（=1）
+  [32mPASS[0m 报价单按钮行 5 条（=5）
+  [32mPASS[0m 返利页面行在位（M3-19 / V0443）（=1）
+  [32mPASS[0m 返利政策按钮行 3 条（=3）
+  [32mPASS[0m 返利结算按钮行 4 条（=4）
+  [32mPASS[0m 销售预测按钮行 4 条（M3-20）（=4）
+  [32mPASS[0m 报价单按钮不悬空（parent 非空）（=0）
+  [32mPASS[0m 目录 / 页面 title 长度 ≤ 12（约定 12）（=0）
+  [32mPASS[0m 同父页面 sort_order 唯一（约定 12）（=0）
+== 3c) 路由条数（源码宏声明，逐域钉死）
+  [32mPASS[0m 报价单路由 9 条（M3-02…M3-08，含 PDF / 状态流转 / 删除）（=9）
+  [32mPASS[0m 返利政策路由 5 条（M3-15）（=5）
+  [32mPASS[0m 返利结算 + 红字发票路由 9 条（M3-16/17）（=9）
+  [32mPASS[0m 销售预测路由 5 条（M3-20/21，含 variance）（=5）
+  [32mPASS[0m 客户信用快照路由 1 条（M3-10）（=1）
+== 4) 菜单结构门禁 menu_invariants.sh（8 条断言）
+  [32mPASS[0m menu_invariants.sh 8 条断言全绿（输出尾：结果: 全绿 ✅）
+  ---- 菜单总数：540（门禁区间 400-540）
+== 4b) 四域菜单与表清单落盘
+  [32mPASS[0m 四域菜单 / 表清单已落盘：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_menu_inventory.txt
+== 4c) 夹具基线快照（用来区分「本卡新增残留」与「上游用例自带残留」）
+  ---- 基线：cust=0 order=0 quote=0 fc=0 settle=0 policy=0 inst=0 log=0
+== 5) 真库用例（--test-threads=1 --nocapture）
+  [32mPASS[0m 报价域（状态机 / 转单 / PDF / 审批桥 / model / handler）：business::erp::sales::quotation 全绿（83 条）
+  [32mPASS[0m 报价域（状态机 / 转单 / PDF / 审批桥 / model / handler）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  ---- 报价域（状态机 / 转单 / PDF / 审批桥 / model / handler）：夹具净增量非 0（跑前 cust=0 order=0 quote=0 fc=0 settle=0 policy=0 inst=0 log=0 → 跑后 cust=2 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）—— 上游直插夹具用例自带残留，只报告
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::sales::quotation.out
+  [32mPASS[0m 返利域（政策 / 规则矩阵 / 结算 / 红字发票）：business::erp::sales::rebate 全绿（104 条）
+  [32mPASS[0m 返利域（政策 / 规则矩阵 / 结算 / 红字发票）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  ---- 返利域（政策 / 规则矩阵 / 结算 / 红字发票）：夹具净增量非 0（跑前 cust=2 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0 → 跑后 cust=36 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）—— 上游直插夹具用例自带残留，只报告
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::sales::rebate.out
+  [32mPASS[0m 预测域：表结构 / 版本链 / 当前版本视图（M3-20）：business::erp::sales::sales_forecast_db_tests 全绿（11 条）
+  [32mPASS[0m 预测域：表结构 / 版本链 / 当前版本视图（M3-20）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  ---- 预测域：表结构 / 版本链 / 当前版本视图（M3-20）：夹具净增量非 0（跑前 cust=36 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0 → 跑后 cust=47 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）—— 上游直插夹具用例自带残留，只报告
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::sales::sales_forecast_db_tests.out
+  [32mPASS[0m 预测域：预测 vs 实际（偏差 + 汇总口径，M3-21/22）：business::erp::sales::sales_variance 全绿（13 条）
+  [32mPASS[0m 预测域：预测 vs 实际（偏差 + 汇总口径，M3-21/22）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  ---- 预测域：预测 vs 实际（偏差 + 汇总口径，M3-21/22）：夹具净增量非 0（跑前 cust=47 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0 → 跑后 cust=54 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）—— 上游直插夹具用例自带残留，只报告
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::sales::sales_variance.out
+  [32mPASS[0m 信用域（占用 / 拦截 / 释放 / 并发 / 快照）：business::erp::credit 全绿（44 条）
+  [32mPASS[0m 信用域（占用 / 拦截 / 释放 / 并发 / 快照）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  ---- 信用域（占用 / 拦截 / 释放 / 并发 / 快照）：夹具净增量非 0（跑前 cust=54 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0 → 跑后 cust=56 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）—— 上游直插夹具用例自带残留，只报告
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::credit.out
+  [32mPASS[0m E2E：报价单 → 订单 → 出库（M3-24）：business::erp::sales::sales_chain_e2e_tests 全绿（2 条）
+  [32mPASS[0m E2E：报价单 → 订单 → 出库（M3-24）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  [32mPASS[0m E2E：报价单 → 订单 → 出库（M3-24）：正向标记在位（[M3-24]）
+  [32mPASS[0m E2E：报价单 → 订单 → 出库（M3-24）：夹具净增量为 0（cust=56 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::sales::sales_chain_e2e_tests.out
+  [32mPASS[0m E2E：信用控制超限全链（M3-25）：business::erp::sales::credit_control_e2e_tests 全绿（2 条）
+  [32mPASS[0m E2E：信用控制超限全链（M3-25）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  [32mPASS[0m E2E：信用控制超限全链（M3-25）：正向标记在位（[M3-25] 全链通过）
+  [32mPASS[0m E2E：信用控制超限全链（M3-25）：夹具净增量为 0（cust=56 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::sales::credit_control_e2e_tests.out
+  [32mPASS[0m 销售域整组回归（订单 / 报价 / 退货 / 目标 / 返利 / 预测未被收口动作打破）：business::erp::sales 全绿（361 条）
+  [32mPASS[0m 销售域整组回归（订单 / 报价 / 退货 / 目标 / 返利 / 预测未被收口动作打破）：本组 SKIP=0（真库用例没被「连不上」打成假绿）
+  [32mPASS[0m 销售域整组回归（订单 / 报价 / 退货 / 目标 / 返利 / 预测未被收口动作打破）：夹具净增量为 0（cust=56 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m326_3438521_business::erp::sales.out
+== 6) 夹具清场（E2E 全链判红；上游直插夹具只报告）
+  ---- 基线：cust=0 order=0 quote=0 fc=0 settle=0 policy=0 inst=0 log=0
+  ---- 收尾：cust=56 order=1 quote=4 fc=0 settle=0 policy=0 inst=0 log=0
+  ---- 整个演练净增量非 0 —— 见上面各组「夹具净增量」行，只有 E2E 组判红
+        M302-CUST | 1
+        M303-CUST | 1
+        M312-CUST | 1
+        M313-CUST | 1
+        M315-C1 | 1
+        M315-C10 | 1
+        M315-C11 | 1
+        M315-C12 | 1
+        M315-C2 | 1
+        M315-C3 | 1
+        M315-C4 | 1
+        M315-C5 | 1
+        M315-C6 | 1
+        M315-C7 | 1
+        M315-C8 | 1
+        M315-C9 | 1
+        M316-C01 | 1
+        M316-C02 | 1
+        M316-C03 | 1
+        M316-C04 | 1
+        M316-C05 | 1
+        M316-C06 | 1
+        M316-C07 | 1
+        M316-C08 | 1
+        M316-C09 | 1
+        M316-C10 | 1
+        M316-C11 | 1
+        M316-C12 | 1
+        M316-C13 | 1
+        M316-C14 | 1
+        M317-C01 | 1
+        M317-C02 | 1
+        M317-C03 | 1
+        M317-C04 | 1
+        M317-C05 | 1
+        M317-C06 | 1
+        M317-C07 | 1
+        M317-C08 | 1
+        M320-C1 | 1
+        M320-C2 | 1
+        M320-C3 | 1
+        M320-C4 | 1
+        M320-C5 | 1
+        M320-C6 | 1
+        M320-C6B | 1
+        M320-C7 | 1
+        M320-C8 | 1
+        M320-C9 | 1
+        M320-CA | 1
+        M321-CA | 1
+        M321-CB | 1
+        M321-CC | 1
+        M322-CA | 1
+        M322-CB | 1
+        M322-CC | 1
+        M322-CD | 1
+  [32mPASS[0m biz_customer 无 M324/M325 夹具客户（=0）
+  [32mPASS[0m biz_sales_order 无 M324/M325 夹具订单（=0）
+  [32mPASS[0m sys_user 无 M324/M325 夹具账号（=0）
+  [32mPASS[0m biz_credit_log 无 M325 夹具台账（=0）
+
+== 汇总：PASS=59 FAIL=0 ==
+ALL PASS
+RC=0

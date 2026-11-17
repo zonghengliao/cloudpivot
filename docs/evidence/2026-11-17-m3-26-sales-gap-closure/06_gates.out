@@ -1,0 +1,60 @@
+# M3-26 门禁原始输出（2026-11-17）
+
+== cargo fmt -- --check ==
+RC=0
+
+== cargo clippy --lib -- -D warnings ==
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+RC=0
+
+== cargo test --lib system::menu::permission_audit_tests ==
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 8 tests
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... ok
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6160 filtered out; finished in 0.86s
+
+
+== pnpm typecheck ==
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+RC=0
+
+== pnpm build ==
+dist//opt/cloudpivot/frontend/assets/templates-DjuUeDhb.js.gz                                              12.89kb / gzip: 4.74kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/demo-logicflow.html.gz                                         11.90kb / gzip: 4.97kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/index.html.gz                                                  15.89kb / gzip: 5.76kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/demo-vue-flow.html.gz                                          10.15kb / gzip: 4.24kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/demo-native.html.gz                                            12.47kb / gzip: 4.84kb
+dist//opt/cloudpivot/frontend/assets/detail-cxgGjuwM.js.gz                                                 53.49kb / gzip: 18.23kb
+dist//opt/cloudpivot/frontend/assets/index-3Lf7JcXm.js.gz                                                  53.47kb / gzip: 17.31kb
+dist//opt/cloudpivot/frontend/assets/index-0Er6w4-Q.js.gz                                                  66.22kb / gzip: 19.90kb
+dist//opt/cloudpivot/frontend/assets/index-B3aJuKsV.js.gz                                                  54.36kb / gzip: 16.98kb
+dist//opt/cloudpivot/frontend/assets/index-CTAh5RZA.js.gz                                                  50.47kb / gzip: 16.63kb
+dist//opt/cloudpivot/frontend/assets/index-DAwZc9j0.js.gz                                                  52.74kb / gzip: 17.75kb
+dist//opt/cloudpivot/frontend/assets/index-TVD4dZQZ.js.gz                                                  63.14kb / gzip: 19.37kb
+dist//opt/cloudpivot/frontend/assets/FlowCanvasVueFlow-K6xgPWqx.js.gz                                      226.00kb / gzip: 74.84kb
+dist//opt/cloudpivot/frontend/assets/tdesign-E5ATeBiM.css.gz                                               437.80kb / gzip: 49.58kb
+dist//opt/cloudpivot/frontend/assets/edit-CR5dOJ4b.js.gz                                                   199.71kb / gzip: 67.34kb
+dist//opt/cloudpivot/frontend/assets/index-DVxHNSUt.js.gz                                                  199.09kb / gzip: 72.25kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist//opt/cloudpivot/frontend/assets/pdf-CcZYcL52.js.gz                                                    356.56kb / gzip: 104.75kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist//opt/cloudpivot/frontend/assets/tdesign-B3swqWaX.js.gz                                                7998.25kb / gzip: 773.39kb
+
+
+RC=0

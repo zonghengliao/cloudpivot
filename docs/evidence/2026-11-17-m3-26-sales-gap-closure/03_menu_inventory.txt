@@ -1,0 +1,30 @@
+# M3-26 四域菜单实查（库 cp_m326_sales_gap_e2e_3438521，menu_invariants 之后）
+## 页面 / 按钮（type / path / name / title / auth_code / sort）
+2 | /business/erp/quotation | 报价单 | 报价单 | business:erp:quotation:list | 15
+2 | /business/erp/rebate-policy | 返利政策 | 销售返利 | business:erp:rebate-policy:list | 85
+3 | — | business:erp:rebate-policy:create | 新建返利政策（取号 BR-yyyyMMdd-000001；客户须 ACTIVE；按量/按额 1 档、阶梯 2~20 档首尾相接） | business:erp:rebate-policy:create | 10
+3 | — | business:erp:quotation:create | 新建报价单（取号 QT-yyyyMMdd-000001；客户须 ACTIVE、至少 1 行明细、有效期不早于报价日） | business:erp:quotation:create | 10
+3 | — | business:erp:rebate-policy:update | 编辑返利政策（政策头 + 规则整单替换；改类型不能留下旧口径的档位） | business:erp:rebate-policy:update | 20
+3 | — | business:erp:quotation:update | 编辑报价单（只有 DRAFT 能改；已发出的改价要开新单） | business:erp:quotation:update | 20
+3 | — | business:erp:quotation:delete | 删除报价单（软删，只有 DRAFT / CANCELLED 能删） | business:erp:quotation:delete | 30
+3 | — | business:erp:rebate-policy:delete | 删除返利政策（软删；已被结算引用的政策应先停用而不是删除） | business:erp:rebate-policy:delete | 30
+3 | — | 销售预测查看 | 销售预测分页（同页签内） | business:erp:sales-forecast:list | 40
+3 | — | business:erp:quotation:status | 状态流转（只走 QUOTATION_EDGES 的 6 条边；客户拒绝与已发出后作废必须给原因） | business:erp:quotation:status | 40
+3 | — | business:erp:rebate-settlement:list | 查看返利结算（列表 + 详情：期间净销售额/净销量、命中档、应返金额、政策快照） | business:erp:rebate-settlement:list | 40
+3 | — | business:erp:rebate-settlement:calc | 返利试算 / 计算落库 / 重算 / 整期跑批（按期间净销售落档乘出应返金额） | business:erp:rebate-settlement:calc | 50
+3 | — | business:erp:quotation:convert | 转销售订单（只有「客户已接受」能转；明细整列搬、金额不重算；已转过再点回原订单；订单备注保留报价单号） | business:erp:quotation:convert | 50
+3 | — | 销售预测新建 | 新建销售预测（滚动预测：同维度同期间同版本只能一条） | business:erp:sales-forecast:create | 50
+3 | — | business:erp:rebate-settlement:delete | 作废返利结算（仅 DRAFT；已转应付/红字发票的结算单不可作废） | business:erp:rebate-settlement:delete | 60
+3 | — | 销售预测编辑 | 编辑销售预测（改金额 / 信心度 / 备注；换版本请新建） | business:erp:sales-forecast:update | 60
+3 | — | business:erp:rebate-settlement:invoice | 开红字发票（试算票面 + 生成 OUT_RED 票与红字凭证，结算单转「已开红字发票」） | business:erp:rebate-settlement:invoice | 70
+3 | — | 销售预测删除 | 软删销售预测（仅「录错了」用） | business:erp:sales-forecast:delete | 70
+
+## 菜单总数 / 四域权限码数
+menu_total=540
+domain_codes=18
+
+## 表 / 视图（四域）
+ERROR:  operator is not unique: "char" || unknown
+LINE 1: SELECT c.relkind || ' | ' || c.relname FROM pg_class c
+                         ^
+HINT:  Could not choose a best candidate operator. You might need to add explicit type casts.

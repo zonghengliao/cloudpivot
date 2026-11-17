@@ -1,0 +1,66 @@
+
+### 报价单（M3-02…M3-08） — backend/app/src/business/erp/sales/quotation_handler.rs（8 条）
+
+| 方法 | 路径（宏内，不含 /api） | 权限码 | handler | 源码行 |
+|:--|:--|:--|:--|--:|
+| POST | `/business/erp/quotation` | `business:erp:quotation:create` | `quotation_create` | 2294 |
+| GET | `/business/erp/quotation/page` | `business:erp:quotation:list` | `quotation_page` | 2272 |
+| DELETE | `/business/erp/quotation/{id}` | `business:erp:quotation:delete` | `quotation_delete` | 2341 |
+| GET | `/business/erp/quotation/{id}` | `business:erp:quotation:list` | `quotation_detail` | 2283 |
+| PUT | `/business/erp/quotation/{id}` | `business:erp:quotation:update` | `quotation_update` | 2309 |
+| POST | `/business/erp/quotation/{id}/convert` | `business:erp:quotation:convert` | `quotation_convert` | 2361 |
+| PATCH | `/business/erp/quotation/{id}/status` | `business:erp:quotation:status` | `quotation_change_status` | 2325 |
+| POST | `/business/erp/quotation/{id}/submit-approval` | `business:erp:quotation:status` | `quotation_submit_approval` | 2386 |
+
+### 报价单 PDF（M3-07） — backend/app/src/business/erp/sales/quotation_pdf.rs（1 条）
+
+| 方法 | 路径（宏内，不含 /api） | 权限码 | handler | 源码行 |
+|:--|:--|:--|:--|--:|
+| GET | `/business/erp/quotation/{id}/pdf` | `business:erp:quotation:list` | `quotation_pdf` | 373 |
+
+### 返利政策（M3-15/18） — backend/app/src/business/erp/sales/rebate_handler.rs（5 条）
+
+| 方法 | 路径（宏内，不含 /api） | 权限码 | handler | 源码行 |
+|:--|:--|:--|:--|--:|
+| POST | `/business/erp/rebate-policy` | `business:erp:rebate-policy:create` | `rebate_policy_create_api` | 571 |
+| GET | `/business/erp/rebate-policy/page` | `business:erp:rebate-policy:list` | `rebate_policy_page_api` | 547 |
+| DELETE | `/business/erp/rebate-policy/{id}` | `business:erp:rebate-policy:delete` | `rebate_policy_delete_api` | 602 |
+| GET | `/business/erp/rebate-policy/{id}` | `business:erp:rebate-policy:list` | `rebate_policy_detail_api` | 560 |
+| PUT | `/business/erp/rebate-policy/{id}` | `business:erp:rebate-policy:update` | `rebate_policy_update_api` | 586 |
+
+### 返利结算（M3-16） — backend/app/src/business/erp/sales/rebate_settle_handler.rs（7 条）
+
+| 方法 | 路径（宏内，不含 /api） | 权限码 | handler | 源码行 |
+|:--|:--|:--|:--|--:|
+| POST | `/business/erp/rebate-settlement` | `business:erp:rebate-settlement:calc` | `rebate_settle_create_api` | 899 |
+| GET | `/business/erp/rebate-settlement/page` | `business:erp:rebate-settlement:list` | `rebate_settle_page_api` | 945 |
+| POST | `/business/erp/rebate-settlement/preview` | `business:erp:rebate-settlement:calc` | `rebate_settle_preview_api` | 888 |
+| POST | `/business/erp/rebate-settlement/run` | `business:erp:rebate-settlement:calc` | `rebate_settle_run_api` | 914 |
+| DELETE | `/business/erp/rebate-settlement/{id}` | `business:erp:rebate-settlement:delete` | `rebate_settle_cancel_api` | 969 |
+| GET | `/business/erp/rebate-settlement/{id}` | `business:erp:rebate-settlement:list` | `rebate_settle_detail_api` | 958 |
+| POST | `/business/erp/rebate-settlement/{id}/recalc` | `business:erp:rebate-settlement:calc` | `rebate_settle_recalc_api` | 929 |
+
+### 返利红字发票（M3-17） — backend/app/src/business/erp/sales/rebate_invoice_handler.rs（2 条）
+
+| 方法 | 路径（宏内，不含 /api） | 权限码 | handler | 源码行 |
+|:--|:--|:--|:--|--:|
+| POST | `/business/erp/rebate-settlement/{id}/invoice` | `business:erp:rebate-settlement:invoice` | `rebate_invoice_create_api` | 711 |
+| POST | `/business/erp/rebate-settlement/{id}/invoice-preview` | `business:erp:rebate-settlement:invoice` | `rebate_invoice_preview_api` | 697 |
+
+### 销售预测（M3-20/21/23） — backend/app/src/business/erp/sales/sales_target_handler.rs（5 条）
+
+| 方法 | 路径（宏内，不含 /api） | 权限码 | handler | 源码行 |
+|:--|:--|:--|:--|--:|
+| POST | `/business/erp/sales-forecast` | `business:erp:sales-forecast:create` | `sales_forecast_create_api` | 1308 |
+| GET | `/business/erp/sales-forecast/page` | `business:erp:sales-forecast:list` | `sales_forecast_page_api` | 1297 |
+| GET | `/business/erp/sales-forecast/variance` | `business:erp:sales-forecast:list` | `sales_forecast_variance_api` | 1358 |
+| DELETE | `/business/erp/sales-forecast/{id}` | `business:erp:sales-forecast:delete` | `sales_forecast_delete_api` | 1339 |
+| PUT | `/business/erp/sales-forecast/{id}` | `business:erp:sales-forecast:update` | `sales_forecast_update_api` | 1323 |
+
+### 客户信用（M3-09…M3-14） — backend/app/src/business/erp/credit_handler.rs（1 条）
+
+| 方法 | 路径（宏内，不含 /api） | 权限码 | handler | 源码行 |
+|:--|:--|:--|:--|--:|
+| GET | `/business/erp/credit/{customer_id}` | `business:erp:customer:list` | `credit_snapshot_api` | 254 |
+
+合计：29 条宏路由（四域 + 信用读取口）
