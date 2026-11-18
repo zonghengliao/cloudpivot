@@ -1,0 +1,25 @@
+=== up #1 ===
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:89: NOTICE:  extension "btree_gist" already exists, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:176: NOTICE:  V0463: 已建 ex_biz_cost_std_active_window（同物料启用版本生效区间不许重叠）
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:326: NOTICE:  V0463 完成：生效行同日唯一（收窄版）+ 版本号唯一 + 区间定位索引 + 启用版本区间排除约束（btree_gist=t），探针 8 条已清场
+=== up #2（幂等）===
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:89: NOTICE:  extension "btree_gist" already exists, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:123: NOTICE:  index "uk_biz_cost_std" does not exist, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:129: NOTICE:  relation "uk_biz_cost_std_ver" already exists, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:138: NOTICE:  relation "idx_biz_cost_std_window" already exists, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:326: NOTICE:  V0463 完成：生效行同日唯一（收窄版）+ 版本号唯一 + 区间定位索引 + 启用版本区间排除约束（btree_gist=t），探针 8 条已清场
+=== down #1 ===
+DROP INDEX
+DROP INDEX
+DROP INDEX
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:59: NOTICE:  V0463 down 完成：本卡护栏已拆，V0374 的 uk_biz_cost_std 已恢复，表与数据未动
+=== down #2（幂等）===
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:24: NOTICE:  constraint "ex_biz_cost_std_active_window" of relation "biz_cost_standard" does not exist, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:27: NOTICE:  index "uk_biz_cost_std_active_start" does not exist, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:28: NOTICE:  index "uk_biz_cost_std_ver" does not exist, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:29: NOTICE:  index "idx_biz_cost_std_window" does not exist, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:59: NOTICE:  V0463 down 完成：本卡护栏已拆，V0374 的 uk_biz_cost_std 已恢复，表与数据未动
+=== up #3（回到可用态）===
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:89: NOTICE:  extension "btree_gist" already exists, skipping
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:176: NOTICE:  V0463: 已建 ex_biz_cost_std_active_window（同物料启用版本生效区间不许重叠）
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:326: NOTICE:  V0463 完成：生效行同日唯一（收窄版）+ 版本号唯一 + 区间定位索引 + 启用版本区间排除约束（btree_gist=t），探针 8 条已清场

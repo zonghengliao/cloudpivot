@@ -1,0 +1,3 @@
+=== cargo clippy --lib -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
+rc=0

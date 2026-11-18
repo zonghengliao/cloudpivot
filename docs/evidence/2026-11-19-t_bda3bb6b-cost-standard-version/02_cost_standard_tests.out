@@ -1,0 +1,60 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 36s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 40 tests
+test business::erp::cost::cost_standard_db_tests::db::create_version_computes_amounts_and_items ... ok
+test business::erp::cost::cost_standard_db_tests::db::db_exclusion_guard_blocks_overlapping_active_rows ... ok
+test business::erp::cost::cost_standard_db_tests::db::db_version_no_is_unique_per_material ... ok
+test business::erp::cost::cost_standard_db_tests::db::deactivate_frees_the_window_for_a_new_version ... ok
+test business::erp::cost::cost_standard_db_tests::db::delete_rules_protect_effective_history ... ok
+test business::erp::cost::cost_standard_db_tests::db::effective_reports_switch_inside_the_period ... ok
+test business::erp::cost::cost_standard_db_tests::db::effective_resolves_by_date_and_period ... ok
+test business::erp::cost::cost_standard_db_tests::db::effective_version_cannot_rewrite_cost_basis ... ok
+test business::erp::cost::cost_standard_db_tests::db::future_version_can_rewrite_items ... ok
+test business::erp::cost::cost_standard_db_tests::db::material_validation_rejects_missing_and_service ... ok
+test business::erp::cost::cost_standard_db_tests::db::overlap_is_rejected_while_adjacent_periods_pass ... ok
+test business::erp::cost::cost_standard_db_tests::db::page_filters_status_period_and_keyword ... ok
+test business::erp::cost::cost_standard_db_tests::db::period_sheet_lists_materials_with_switch_flag ... ok
+test business::erp::cost::cost_standard_dto::tests::amounts_follow_the_db_checks ... ok
+test business::erp::cost::cost_standard_dto::tests::create_accepts_period_code_and_rejects_contradiction ... ok
+test business::erp::cost::cost_standard_dto::tests::create_rejects_bad_inputs_with_line_numbers ... ok
+test business::erp::cost::cost_standard_dto::tests::error_codes_match_the_kernel_table ... ok
+test business::erp::cost::cost_standard_dto::tests::item_amount_rounds_half_away_from_zero ... ok
+test business::erp::cost::cost_standard_dto::tests::labor_hours_keep_column_scale_and_over_scale_is_rejected ... ok
+test business::erp::cost::cost_standard_dto::tests::overlap_ignores_other_materials_inactive_rows_and_self ... ok
+test business::erp::cost::cost_standard_dto::tests::period_window_is_inclusive_and_handles_month_ends ... ok
+test business::erp::cost::cost_standard_dto::tests::period_window_rejects_bad_shapes ... ok
+test business::erp::cost::cost_standard_dto::tests::rewritten_fields_only_counts_cost_basis ... ok
+test business::erp::cost::cost_standard_dto::tests::text_helpers_are_stable ... ok
+test business::erp::cost::cost_standard_dto::tests::update_merges_only_provided_fields_and_can_clear_end_date ... ok
+test business::erp::cost::cost_standard_dto::tests::windows_are_inclusive_and_touching_is_not_overlap ... ok
+test business::erp::cost::cost_standard_handler::tests::page_filter_normalizes_and_rejects_unknown ... ok
+test business::erp::cost::cost_standard_handler::tests::period_sheet_requires_period ... ok
+test business::erp::cost::cost_standard_handler::tests::permission_codes_are_reused_from_the_cost_method_menu ... ok
+test business::erp::cost::cost_standard_handler::tests::routes_are_paired_with_permissions ... ok
+test business::erp::cost::cost_standard_handler::tests::status_note_is_appended_only_with_reason ... ok
+test business::erp::cost::cost_standard_handler::tests::status_note_rejects_overlong_remark ... ok
+test business::erp::cost::cost_standard_handler::tests::today_is_cst_not_utc ... ok
+test business::erp::cost::cost_standard_model::tests::bind_counts_match_params ... ok
+test business::erp::cost::cost_standard_model::tests::material_label_falls_back_to_id ... ok
+test business::erp::cost::cost_standard_model::tests::next_version_no_is_max_plus_one ... ok
+test business::erp::cost::cost_standard_model::tests::nullable_columns_use_nullif_and_numeric_casts ... ok
+test business::erp::cost::cost_standard_model::tests::period_sheet_sql_placeholder_counts ... ok
+test business::erp::cost::cost_standard_model::tests::select_sql_prefixes_every_column_and_joins_material ... ok
+test business::erp::cost::cost_standard_model::tests::target_is_unscoped_and_ordered_stably ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 6721 filtered out; finished in 0.30s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

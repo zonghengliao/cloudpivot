@@ -1,0 +1,66 @@
+== schema_migrations：本卡 V0463 与依赖 V0374 ==
+   kind    | version |            name             | success | execution_ms 
+-----------+---------+-----------------------------+---------+--------------
+ versioned | 374     | cost_standard_tables        | t       |           11
+ versioned | 463     | cost_standard_version_guard | t       |            3
+(2 rows)
+
+== 全库迁移计数 / 最大版本 ==
+395|463
+
+== 卡头约束（含本卡新增的区间排除约束）==
+                   conname                    | contype |                                                                      pg_get_constraintdef                                                                       
+----------------------------------------------+---------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_cost_standard_created_at_not_null        | n       | NOT NULL created_at
+ biz_cost_standard_effective_from_not_null    | n       | NOT NULL effective_from
+ biz_cost_standard_id_not_null                | n       | NOT NULL id
+ biz_cost_standard_material_id_not_null       | n       | NOT NULL material_id
+ biz_cost_standard_pkey                       | p       | PRIMARY KEY (id)
+ biz_cost_standard_status_not_null            | n       | NOT NULL status
+ biz_cost_standard_std_labor_cost_not_null    | n       | NOT NULL std_labor_cost
+ biz_cost_standard_std_labor_hours_not_null   | n       | NOT NULL std_labor_hours
+ biz_cost_standard_std_labor_rate_not_null    | n       | NOT NULL std_labor_rate
+ biz_cost_standard_std_material_cost_not_null | n       | NOT NULL std_material_cost
+ biz_cost_standard_std_overhead_cost_not_null | n       | NOT NULL std_overhead_cost
+ biz_cost_standard_std_total_cost_not_null    | n       | NOT NULL std_total_cost
+ biz_cost_standard_updated_at_not_null        | n       | NOT NULL updated_at
+ biz_cost_standard_version_no_not_null        | n       | NOT NULL version_no
+ ck_biz_cost_std_dates                        | c       | CHECK (((effective_to IS NULL) OR (effective_to >= effective_from)))
+ ck_biz_cost_std_labor                        | c       | CHECK ((std_labor_cost = round((std_labor_hours * std_labor_rate), 6)))
+ ck_biz_cost_std_money                        | c       | CHECK (((std_material_cost >= (0)::numeric) AND (std_labor_cost >= (0)::numeric) AND (std_overhead_cost >= (0)::numeric) AND (std_total_cost >= (0)::numeric)))
+ ck_biz_cost_std_sum                          | c       | CHECK ((std_total_cost = ((std_material_cost + std_labor_cost) + std_overhead_cost)))
+ ck_biz_cost_std_ver                          | c       | CHECK ((version_no >= 1))
+ ex_biz_cost_std_active_window                | x       | EXCLUDE USING gist (material_id WITH =, daterange(effective_from, effective_to, '[]'::text) WITH &&) WHERE (((deleted_at IS NULL) AND (status = 1)))
+(20 rows)
+
+== 索引 ==
+           indexname           
+-------------------------------
+ biz_cost_standard_item_pkey
+ biz_cost_standard_pkey
+ ex_biz_cost_std_active_window
+ idx_biz_cost_std_window
+ uk_biz_cost_std
+ uk_biz_cost_std_item
+ uk_biz_cost_std_ver
+(7 rows)
+
+== 明细表列（V0374 建，本卡不改结构）==
+                            Table "public.biz_cost_standard_item"
+        Column         |           Type           | Collation | Nullable |      Default      
+-----------------------+--------------------------+-----------+----------+-------------------
+ id                    | uuid                     |           | not null | gen_random_uuid()
+ standard_id           | uuid                     |           | not null | 
+ line_no               | integer                  |           | not null | 
+ component_material_id | uuid                     |           | not null | 
+ std_qty               | numeric(18,6)            |           | not null | 
+ std_price             | numeric(18,6)            |           | not null | 
+ std_amount            | numeric(18,6)            |           | not null | 
+ created_at            | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "biz_cost_standard_item_pkey" PRIMARY KEY, btree (id)
+    "uk_biz_cost_std_item" UNIQUE, btree (standard_id, line_no)
+Check constraints:
+    "ck_biz_cost_std_item_cal" CHECK (std_amount = round(std_qty * std_price, 6))
+    "ck_biz_cost_std_item_num" CHECK (std_qty > 0::numeric AND std_price >= 0::numeric AND std_amount >= 0::numeric)
+Foreign-key constraints:

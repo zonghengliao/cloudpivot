@@ -1920,6 +1920,31 @@ pub const ERP_COST_BATCH_COLLECT_BLOCKED: i32 = 66106;
 /// 前端要禁的按钮与给的引导都不同。
 pub const ERP_COST_BATCH_FINISH_BLOCKED: i32 = 66107;
 
+/// 标准成本卡 · **同物料启用版本生效期重叠**（HTTP 409，M5-08 · `66108`）。
+///
+/// 「这一天这批按哪版标准算」必须唯一，否则差异分析的分母有两个值（M5-11…M5-16 全部错）。
+/// 三条出路写在报文里：收口旧版停止日 → 失效旧版 → 把新版生效日推到旧版之后。
+///
+/// 库层另有 `ex_biz_cost_std_active_window`（EXCLUDE，仅锁 `status = 1` 且未删的行）兜并发；
+/// 本码是**可读的解释**，不是唯一防线（库层冲突在 nik 层没有独立变体，见
+/// `cost_standard_handler::map_write_error` 的说明）。
+pub const ERP_COST_STANDARD_OVERLAP: i32 = 66108;
+
+/// 标准成本卡 · **改写已生效版本的口径**（HTTP 409，M5-08 · `66109`）。
+///
+/// 已生效过（`effective_from < 今天`）的版本只允许改停止日 / 状态 / 备注；
+/// 改物料 / 生效日 / 标准工时 / 标准工资率 / 制造费用 / 标准 BOM 都是在事后改写
+/// 「那段期间按什么标准算的」，历史差异会跟着变而没人知道。
+/// 要换口径就**新增一版**（生效日放今天或下期），旧版收口停止日。
+pub const ERP_COST_STANDARD_LOCKED_EFFECTIVE: i32 = 66109;
+
+/// 标准成本卡 · **删除已生效过的版本**（HTTP 409，M5-08 · `66110`）。
+///
+/// 版本行本身就是历史口径的凭据（差异报表按 `standard_id` 回指它），删掉等于让
+/// 历史差异失去依据。不再使用请走「失效」（`POST …/{id}/status`，
+/// 失效不占生效窗口，可以立刻启用新版覆盖同一期间）。
+pub const ERP_COST_STANDARD_DELETE_IN_USE: i32 = 66110;
+
 /// 科目「是否外币核算」标记非法（HTTP 400，M1-03 · V0408 · `66080`）。
 ///
 /// 只有**末级科目**才能标记外币核算（`ck_biz_account_fc_leaf`）。给非末级科目打标记的
@@ -2561,6 +2586,12 @@ mod tests {
             // 完工批次结转闸门（66107；M5-04 —— 作废 / 已随期间结算结转 / 还有在制 /
             // 无产出 / 无成本 / 卫生四条 / 期间锁定或冻结，「转出」这一动作的七类出路各不相同）
             (ERP_COST_BATCH_FINISH_BLOCKED, 66107),
+            // 标准成本卡版本护栏（66108–66110；M5-08 —— 生效期重叠 / 改已生效口径 /
+            // 删已生效版本，三条都是「这段期间按什么标准算」的历史口径，出路各不相同：
+            // 收口或失效 vs 新增一版 vs 改失效）
+            (ERP_COST_STANDARD_OVERLAP, 66108),
+            (ERP_COST_STANDARD_LOCKED_EFFECTIVE, 66109),
+            (ERP_COST_STANDARD_DELETE_IN_USE, 66110),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

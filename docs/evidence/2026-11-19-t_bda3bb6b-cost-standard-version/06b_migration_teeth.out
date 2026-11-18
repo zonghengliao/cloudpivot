@@ -1,0 +1,15 @@
+=== 反证 1：库里已有「同物料启用版本区间重叠」⇒ up 拒绝并给定位查询 ===
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:176: ERROR:  V0463 拒绝执行：biz_cost_standard 里已存在「同物料启用版本生效期重叠」的行。先按下述查询定位并处理（失效其一或收口旧版停止日），
+=== 正常 up（清脏后）===
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:326: NOTICE:  V0463 完成：生效行同日唯一（收窄版）+ 版本号唯一 + 区间定位索引 + 启用版本区间排除约束（btree_gist=t），探针 8 条已清场
+=== 反证 2（升级后）：直插同物料同生效日的第二条**启用**版本 ⇒ 库层拒绝 ===
+ERROR:  duplicate key value violates unique constraint "uk_biz_cost_std_active_start"
+DETAIL:  Key (material_id, effective_from)=(44444444-4444-4444-8444-444444444444, 2026-06-01) already exists.
+=== 反证 3（升级后）：同物料同生效日但一条**失效** ⇒ 允许（这就是「失效后同日重建」的正路）===
+INSERT 0 1
+=== 反证 4：同日一条启用一条失效（本卡放开的形态）⇒ down 拒绝恢复旧索引 ===
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:45: ERROR:  V0463 down 拒绝回滚：数据里有「同物料同生效日」的多行（含失效行），旧索引 uk_biz_cost_
+=== 清脏后 down 放行 ===
+psql:app/migrations/business/V0463__cost_standard_version_guard.down.sql:59: NOTICE:  V0463 down 完成：本卡护栏已拆，V0374 的 uk_biz_cost_std 已恢复，表与数据未动
+=== 再 up（回到可用态）===
+psql:app/migrations/business/V0463__cost_standard_version_guard.up.sql:326: NOTICE:  V0463 完成：生效行同日唯一（收窄版）+ 版本号唯一 + 区间定位索引 + 启用版本区间排除约束（btree_gist=t），探针 8 条已清场

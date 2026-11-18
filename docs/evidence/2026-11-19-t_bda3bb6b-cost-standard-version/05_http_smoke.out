@@ -1,0 +1,54 @@
+[PASS] erp.cost.enabled 已在库里为 true
+[PASS] 参数重载 200（模块开关立刻生效）  · code=0 msg=ok
+[PASS] 三个夹具物料已建（成品 + 两个耗用）  · {'FG': 'ecf3efee-c3de-4079-8018-6802639ec6af', 'RA': 'dc62491d-a466-41d7-8b8f-2054e1ecb491', 'RB': '438d7d41-d12c-4a43-90b3-1014e2aa5d29'}
+[PASS] ① 建版 200  · code=0 msg=ok
+[PASS] ① 版本号从 1 起  · 1
+[PASS] ① 料 = Σ明细（17.166666）  · 17.166666
+[PASS] ① 工 = round(工时×费率,6)（77.777778）  · 77.777778
+[PASS] ① 总 = 料+工+费（107.290122）  · 107.290122
+[PASS] ① 状态默认生效
+[PASS] ① 生效区间落整期  · 2026-12-01 ~ 2026-12-31
+[PASS] ① 明细 2 行且带耗用物料编码  · M508SM42219-RA
+[PASS] ① 物料编码/名称实时 join
+[PASS] ② 列表（物料 + 状态筛选）total=1  · code=0 msg=ok
+[PASS] ② 列表（期间筛选）命中 1 条  · code=0 msg=ok
+[PASS] ② 列表（关键字=物料编码）命中  · code=0 msg=ok
+[PASS] ② 列表（无关期间）0 条  · code=0 msg=ok
+[PASS] ③ 详情 200 且明细 2 行  · code=0 msg=ok
+[PASS] ③ 明细金额 = round(用量×单价,6)  · 16.500000
+[PASS] ④ 期间取数 200  · code=0 msg=ok
+[PASS] ④ 取期末口径  · 2026-12-31
+[PASS] ④ 命中刚建的版本
+[PASS] ④ 整期一个版本 ⇒ switch_in_period=false
+[PASS] ④ 按日取数（期初）命中
+[PASS] ④ 区间外 404  · 404 code=10002 msg=M508SM42219-FG（M508SM42219 夹具 FG） 在 2026-11-30 没有生效的标准成本版本。先建一版（POST /business/erp/cost-standard，可用 period_code=2026-11 
+[PASS] ④ 缺期间与日期 400/10001  · 400 code=10001 msg=period_code（yyyy-MM）或 on_date（yyyy-MM-dd）至少给一个：要查哪一天的标准成本
+[PASS] ⑤ 矩阵 200 且只命中本物料 1 行  · code=0 msg=ok
+[PASS] ⑤ 矩阵取期末生效版本（v1）
+[PASS] ⑤ 整期一版 ⇒ switch_in_period=false
+[PASS] ⑥ 同期间重叠建版 409 + 66108  · 409 code=66108 msg=M508SM42219-FG（M508SM42219 夹具 FG） 已有启用版本 v1（2026-12-01 ~ 2026-12-31）与本次 2026-12-11 ~ 2026-12-31 重叠：同一物料在同一段日期只能有一个生效版本，否
+[PASS] ⑥ 端点相接（下一期间）放行 200  · code=0 msg=ok
+[PASS] ⑥ 版本号递增到 2
+[PASS] ⑥ 矩阵在下一期间只出 v2
+[PASS] ⑦ 改未生效版本工时 200  · code=0 msg=ok
+[PASS] ⑦ 人工成本跟着重算（3×31.111111=93.333333）  · 93.333333
+[PASS] ⑦ 整表替换标准 BOM（料=15.000000）  · 15.000000
+[PASS] ⑧ 建一个已生效过的版本 200  · code=0 msg=ok
+[PASS] ⑧ 已生效版本改工资率 409 + 66109  · 409 code=66109 msg=M508SM42219-FG（M508SM42219 夹具 FG） v3 从 2026-10-01 起就已生效（今天 2026-11-19），本次试图改写 标准工资率 —— 已生效版本只允许改停止日 / 状态 / 备注，改了等于事后改写「那
+[PASS] ⑧ 已生效版本改停止日/备注放行 200  · code=0 msg=ok
+[PASS] ⑧ 已生效版本删除 409 + 66110  · 409 code=66110 msg=M508SM42219-FG（M508SM42219 夹具 FG） v3 从 2026-10-01 起就已生效（今天 2026-11-19），不能删：版本行是历史差异的依据（biz_cost_variance.standard_id 回指它
+[PASS] ⑨ 失效 200 且状态变失效  · code=0 msg=ok
+[PASS] ⑨ 失效给出后果警告  · 已发生过的历史差异若按本版（v1，2026-12-01 ~ 2026-12-31）计算，重算时将改用当时生效的其它版本；已落库的差异行（biz_cost_var
+[PASS] ⑨ 失效原因留痕进备注
+[PASS] ⑨ 失效后该期间没有生效版本（404）  · 404 code=10002 msg=M508SM42219-FG（M508SM42219 夹具 FG） 在 2026-12-31 没有生效的标准成本版本。先建一版（POST /business/erp/cost-standard，可用 period_code=2026-12 
+[PASS] ⑨ 重新启用 200  · code=0 msg=ok
+[PASS] ⑨ 窗口已被 v1 占回 ⇒ 同期新版 409  · 409 code=66108 msg=M508SM42219-FG（M508SM42219 夹具 FG） 已有启用版本 v1（2026-12-01 ~ 2026-12-31）与本次 2026-12-01 ~ 2026-12-31 重叠：同一物料在同一段日期只能有一个生效版本，否
+[PASS] ⑨ 失效释放窗口 ⇒ 同期新版 200（版本号 4）  · code=0 msg=ok
+[PASS] ⑨ 再启用旧版与新版重叠 ⇒ 409 + 66108  · 409 code=66108 msg=M508SM42219-FG（M508SM42219 夹具 FG） 已有启用版本 v4（2026-12-01 ~ 2026-12-31）与本次 2026-12-01 ~ 2026-12-31 重叠：同一物料在同一段日期只能有一个生效版本，否
+[PASS] ⑩ 未生效版本可删 200  · code=0 msg=ok
+[PASS] ⑩ 删后详情 404  · 404 code=10002 msg=标准成本版本不存在或已删除（01a1f0da-98cf-77a3-a21e-51e8dfc0da14）。请用 GET /business/erp/cost-standard?period_code=yyyy-MM 找到现有版本
+[PASS] ⑩ 不存在的 id 404  · 404
+[PASS] ⑩ 矩阵缺期间 400/10001  · 400 code=10001 msg=period_code（yyyy-MM）不能为空：期间矩阵按期间取数
+[PASS] 清场零残留（biz_cost_standard 按 remark 前缀）  · 0
+
+===== 52 PASS / 0 FAIL =====

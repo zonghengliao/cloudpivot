@@ -210,6 +210,19 @@ pub mod cost_settle_voucher;
 /// B3-5 的真库用例（`ERP_DB_URL` 开关）：三张凭证的借贷平衡 / 科目 / 金额与计算单一致 / 四道闸。
 #[cfg(test)]
 mod cost_settle_voucher_db_tests;
+/// M5-08 的真库用例（`ERP_DB_URL` 开关）：建版算数 / 生效期重叠 / 期间取数 / 换版提示 /
+/// 已生效锁改删 / 生效失效 / 库层区间护栏。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_standard_db_tests;
+/// 标准成本卡 **版本表（物料 × 期间）** 契约层（M5-08）：期间解析 / 三要素算数（与库层
+/// 四条 CHECK 同口径）/ 生效区间重叠与覆盖判定 / 已生效锁改判据 / 三个业务码。纯逻辑。
+pub mod cost_standard_dto;
+/// 标准成本卡 **接口层**（M5-08）：版本列表 / 详情 / 期间生效版本 / 期间矩阵 / 新建 / 修改 /
+/// 生效失效 / 软删（8 条路由，复用 `cost-method` 四个权限码：零新增死码）。
+pub mod cost_standard_handler;
+/// 标准成本卡 **取数层**（M5-08）：卡头 + 物料实时 join + 明细行数、标准 BOM、按物料/日期/期间
+/// 取版本、advisory lock、卡头与明细写入原语。
+pub mod cost_standard_model;
 /// 成本核算模块开关探针（ARCH-9 §7.4 灰度 · COST-B4-4）：`GET /business/erp/cost-switch`。
 pub mod cost_switch_handler;
 /// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。
