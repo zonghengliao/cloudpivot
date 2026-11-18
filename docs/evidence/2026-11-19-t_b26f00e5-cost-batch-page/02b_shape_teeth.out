@@ -1,0 +1,6 @@
+[teeth] totals 里没有 amounts —— 扁平形状确认： ['batch_count', 'labor', 'line_count', 'mat', 'oh', 'total']
+[teeth] 行里也没有 amounts —— 扁平形状确认： ['mat', 'labor', 'oh', 'total']
+[teeth] 按错契约取值 totals.amounts.mat = None
+[teeth] 按对契约取值 totals.mat       = 0.0000
+[teeth] 反证成立：按 DTO 字面写嵌套会拿到 None ⇒ 页脚合计恒 0，编译期无感；
+[teeth]          只有真跑 HTTP 才抓得到，故 cost-batch-kinds::SheetTotals 按扁平声明。

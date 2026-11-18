@@ -1,0 +1,71 @@
+# 迁移幂等验证（模板克隆库 cp_m507_drill = V0404 基线，手工应用 V0462 两次）
+# 生成时间：2026-11-19T05:59:41+08:00  库：cp_m507_drill@172.18.10.145
+
+## 第 1 次（首次应用：应 INSERT 1 页面 + 3 授权）
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:96: NOTICE:  V0462：挂载点为「成本核算」目录 50e28e43-1ccf-4c6a-a644-53937fc76625（sort 70）
+DO
+INSERT 0 1
+INSERT 0 3
+INSERT 0 0
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:221: NOTICE:  V0462 完成：批次成本页已挂到「成本核算」目录 sort 70（读码复用 cost-object:list，3 个角色已授）
+DO
+
+## 第 2 次（重放：应 0 行插入 —— 幂等）
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:96: NOTICE:  V0462：挂载点为「成本核算」目录 50e28e43-1ccf-4c6a-a644-53937fc76625（sort 70）
+DO
+INSERT 0 0
+INSERT 0 0
+INSERT 0 0
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:221: NOTICE:  V0462 完成：批次成本页已挂到「成本核算」目录 sort 70（读码复用 cost-object:list，3 个角色已授）
+DO
+
+## 反证 A：把 sort_order 改坏（66，撞「分摊规则」）后重放 → 自检拒绝
+UPDATE 1
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:221: ERROR:  V0462 自检失败：批次成本页面菜单形态不符（0 行命中期望）
+UPDATE 1
+
+## 反证 B：把 is_visible 改坏（FALSE，进不了侧栏）后重放 → 自检拒绝
+UPDATE 1
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:221: ERROR:  V0462 自检失败：批次成本页面菜单形态不符（0 行命中期望）
+UPDATE 1
+
+## 回滚（down：删 3 授权 + 1 页面）
+DO
+DELETE 3
+DELETE 1
+## 回滚后计数（页面行|授权行，应为 0|0）
+0|0
+
+## 再回滚一次（幂等，应 DELETE 0）
+DO
+DELETE 0
+DELETE 0
+
+## 重新应用（复原：供 menu_invariants 复跑）
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:96: NOTICE:  V0462：挂载点为「成本核算」目录 50e28e43-1ccf-4c6a-a644-53937fc76625（sort 70）
+DO
+INSERT 0 1
+INSERT 0 3
+INSERT 0 0
+psql:backend/app/migrations/business/V0462__cost_batch_menu.up.sql:221: NOTICE:  V0462 完成：批次成本页已挂到「成本核算」目录 sort 70（读码复用 cost-object:list，3 个角色已授）
+DO
+
+## 迁移授权段角色码闸（scripts/verify/role_code_gate.py）
+  … 另有 72 条，加 --json 看全量
+  授权段优先走 V0258 业务角色矩阵（改矩阵）而不是在新迁移里再写一份：空库上 sys_role 还没种出业务角色 ⇒ 写死的 role_code 只会静默 0 行；见 docs/architecture/P2-新装配库权限矩阵-决策.md
+✓ 无**新增/改动**的未知角色码（历史基线全部按指纹豁免）
+
+## menu_invariants（V0404 基线 + V0462 的克隆库）
+═══ 菜单结构不变量 ═══
+库: cp_m507_drill
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            502  ✅ (400-580)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 119 条，全部命中
+结果: 全绿 ✅

@@ -843,6 +843,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '成本核算', permission: 'business:erp:cost-period:list' },
       },
       {
+        // ==================== ERP 成本：批次成本（M5-07 / ARCH-9 分批法 M5-02…M5-06 的前端落点） ====================
+        // `sys_menu` 种子（V0462 …d201）path = `/business/erp/cost-batch`、component
+        // `business/erp/cost-batch/index`，auth_code `business:erp:cost-object:list`
+        // （**复用**读码：本页每一行都是一个成本对象，不多露一分；写动作仍走 `cost-period:calc`
+        // 由按钮级 `v-privilege` 判），挂在「成本核算」目录（`/business/erp/cost`，V0390 建）sort 70。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/cost-batch',
+        name: 'BusinessErpCostBatch',
+        component: () => import('@/views/business/erp/cost-batch/index.vue'),
+        meta: { title: '批次成本', permission: 'business:erp:cost-object:list' },
+      },
+      {
         // ==================== HR：员工档案（ARCH-9 §6.1 #1 / HR-18） ====================
         // `sys_menu` 种子（V0387 `…e001`）path = `/business/hr/employee`、component
         // `business/hr/employee/index`、页面码 `business:hr:employee:page`、

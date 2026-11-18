@@ -1,0 +1,132 @@
+=== SheetRes 顶层键 ===
+['list', 'page', 'page_size', 'period_code', 'total', 'totals']
+=== totals ===
+{
+  "mat": "0.0000",
+  "labor": "0.0000",
+  "oh": "0.0000",
+  "total": "0.0000",
+  "line_count": 0,
+  "batch_count": 0
+}
+=== 第一行 ===
+{
+  "object_id": "01a1f0a7-3d31-70cf-8a43-3626e33248ed",
+  "object_no": "CB-20261119-000002",
+  "object_type": "BATCH",
+  "source_doc_no": "SO-2026-018",
+  "lot_no": "LOT-M507",
+  "product_id": "d1370003-0000-4000-8000-000000000005",
+  "product_code": "M-W1A-005",
+  "product_name": "成品E（种子）",
+  "workshop_dept_id": "01a1f0a4-1ea3-779f-aa75-2698715d197c",
+  "workshop_dept_name": "演示事业部",
+  "plan_qty": "100.0000",
+  "completed_qty": "0.0000",
+  "wip_qty": "0.0000",
+  "completion_pct": "0.00",
+  "status": "OPEN",
+  "start_date": "2026-11-02",
+  "due_date": "2026-11-30",
+  "mat": "0.0000",
+  "labor": "0.0000",
+  "oh": "0.0000",
+  "total": "0.0000",
+  "line_count": 0,
+  "last_occur_date": null
+}
+=== WipBalance 顶层键 ===
+['list', 'page', 'page_size', 'period_code', 'total', 'totals']
+=== wip totals ===
+{
+  "collected": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "transferred": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "balance": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "period_in": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "period_out": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "batch_count": 2,
+  "wip_batch_count": 0,
+  "negative_batch_count": 0
+}
+=== wip 第一行 ===
+{
+  "object_id": "01a1f0a7-3d31-70cf-8a43-3626e33248ed",
+  "object_no": "CB-20261119-000002",
+  "object_type": "BATCH",
+  "source_doc_no": "SO-2026-018",
+  "lot_no": "LOT-M507",
+  "product_id": "d1370003-0000-4000-8000-000000000005",
+  "product_code": "M-W1A-005",
+  "product_name": "成品E（种子）",
+  "workshop_dept_id": "01a1f0a4-1ea3-779f-aa75-2698715d197c",
+  "workshop_dept_name": "演示事业部",
+  "plan_qty": "100.0000",
+  "completed_qty": "0.0000",
+  "wip_qty": "0.0000",
+  "completion_pct": "0.00",
+  "status": "OPEN",
+  "start_date": "2026-11-02",
+  "due_date": "2026-11-30",
+  "collected": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "transferred": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "balance": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "period_in": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "period_out": {
+    "material": "0.0000",
+    "labor": "0.0000",
+    "overhead": "0.0000",
+    "total": "0.0000"
+  },
+  "collect_lines": 0,
+  "transfer_times": 0,
+  "first_period": null,
+  "last_period": null,
+  "last_transfer_at": null,
+  "has_balance": false,
+  "warnings": []
+}
