@@ -63,6 +63,7 @@ SELECT count(*) FROM biz_flow_def WHERE flow_code='hr_leave';   -- 1（修前是
 | p16 全库对账全绿 | `cargo test -p cloudpivot --lib business::erp::stockin::stockin_handler::stockin_handler_tests_p16 -- --test-threads=1` | `17 passed; 0 failed`（含 `p16_graph_snapshot_selfcheck_is_clean`） | `06_p16_after_two_rounds.out` |
 | 同一库连跑两轮全量 | `cargo test -p cloudpivot --lib -- --test-threads=1` ×2 | 第一轮 `6460 passed; 2 failed`；第二轮 `6445 passed; 17 failed` —— **17 条全部与本卡无关**，见 §6 | `01_full_round1.out` / `02_full_round2.out` |
 | 收尾打印（证据） | `cargo test --lib zz_teardown_purges_fixtures -- --nocapture` | 两个模块各打一行「归还 V0393 正式种子：…hash=4fc6722a…」；HR-25 还有「真提交 + 清场后种子仍在」 | `04_teardown_nocapture.out` |
+| HR 数据一致性巡检 | `HR_DB_URL=… bash scripts/verify/hr_invariants.sh` | `PASS —— 8 条 BLOCKER 零违规`（含 A10「请假单状态必须与审批实例状态一致」） | `08_hr_invariants_after_two_rounds.out` |
 
 ### 假绿对照（证明新断言有牙，不是空转）
 
