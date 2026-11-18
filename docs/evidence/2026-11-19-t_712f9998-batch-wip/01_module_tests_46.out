@@ -1,0 +1,67 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 26s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 46 tests
+test business::erp::cost::cost_batch_wip_db_tests::db::v10_out_of_scope_is_404_and_absent_from_the_sheet ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v11_later_activity_is_reported ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v12_settled_item_is_attached_and_explained ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v13_totals_are_the_whole_table_not_the_page ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v1_cutoff_excludes_later_periods ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v2_balance_is_collected_minus_transferred ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v3_full_transfer_leaves_zero_balance ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v4_real_finish_transfer_zeroes_the_balance ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v5_ledger_rolls_across_periods ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v6_ledger_summary_equals_balance_sheet_row ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v7_partially_completed_batch_keeps_its_balance ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v8_finished_but_not_transferred_is_flagged ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::v9_voided_collect_after_transfer_turns_balance_negative ... ok
+test business::erp::cost::cost_batch_wip_db_tests::db::zz_teardown_leaves_zero_residue ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::amounts_res_total_is_the_sum_of_the_three ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::balance_subtracts_elementwise_without_clamping ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::closed_and_cancelled_with_balance_are_flagged_with_their_own_codes ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::finished_and_not_transferred_is_flagged ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::ledger_closing_at_cutoff_equals_cumulative_balance ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::ledger_rolls_forward_and_appends_the_cutoff_period_even_when_empty ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::ledger_truncates_oldest_periods_into_the_opening_balance ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::merge_flows_aligns_two_sources_on_the_same_period_axis ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::negative_balance_wins_and_names_the_elements ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::next_period_rolls_over_the_year_and_rejects_garbage ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::only_wip_defaults_to_false_and_status_all_normalizes_to_none ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::open_batch_still_in_progress_has_no_warning ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::order_by_sql_is_constant_and_never_echoes_input ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::period_is_required_and_shaped ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::permission_is_reused_from_cost_object_list ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::settled_note_explains_the_two_calibers ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::unknown_status_and_sort_are_400 ... ok
+test business::erp::cost::cost_batch_wip_dto::tests::wip_qty_without_cost_is_reported_as_a_gap ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::both_routes_are_get_and_none_is_post ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::invalid_period_is_400_before_touching_the_database ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::ledger_series_closing_matches_summary_balance ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::literal_segment_is_not_uuid_shaped ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::notes_name_the_cutoff_period ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::path_param_must_be_uuid_and_404_on_garbage ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::permission_is_reused_from_cost_object_list ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::route_macros_declare_the_same_permission_literal ... ok
+test business::erp::cost::cost_batch_wip_handler::tests::summary_totals_are_elementwise ... ok
+test business::erp::cost::cost_batch_wip_model::tests::bind_rejects_placeholder_mismatch ... ok
+test business::erp::cost::cost_batch_wip_model::tests::keyword_pattern_escapes_wildcards ... ok
+test business::erp::cost::cost_batch_wip_model::tests::list_sql_has_exactly_four_period_placeholders ... ok
+test business::erp::cost::cost_batch_wip_model::tests::only_wip_filter_uses_the_same_expression ... ok
+test business::erp::cost::cost_batch_wip_model::tests::order_by_balance_covers_the_same_six_columns_as_the_totals_expression ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 6663 filtered out; finished in 0.41s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+
+EXIT=0

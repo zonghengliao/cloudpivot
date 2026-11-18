@@ -1,0 +1,7 @@
+rustfmt --edition 2024 --check cost_batch_wip_{dto,model,handler,db_tests}.rs mod.rs => rc=0
+
+rustfmt rc=0
+    Blocking waiting for file lock on build directory
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 29s
+clippy rc=0

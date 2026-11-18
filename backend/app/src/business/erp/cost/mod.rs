@@ -45,6 +45,20 @@ pub mod cost_batch_finish_handler;
 /// 分批法「完工批次结转（完工转出）」**取数层**（M5-04）：累计归集（全期间）/ 已结转与
 /// 历史结转单 / 已结算计算单 / 成本对象行锁（**串行点**）。批次抬头与卫生四条复用既有实现。
 pub mod cost_batch_finish_model;
+/// M5-05 的真库用例（`ERP_DB_URL` 开关）：截止期间口径 / 跨期滚动 / 结转后余额归零 /
+/// 部分完工留余额 / 负余额警告 / 数据范围 404 / 列表与台账同数 / 清场零残留。
+#[cfg(test)]
+mod cost_batch_wip_db_tests;
+/// 分批法「在制批次余额」**契约层与纯逻辑**（M5-05）：余额 = 累计归集 − 累计结转（逐要素、
+/// 不夹零）/ 逐期滚动台账（期初 → 投入 → 转出 → 期末）/ 六类警告。零 DB 依赖，可纯单测。
+pub mod cost_batch_wip_dto;
+/// 分批法「在制批次余额」**接口层**（M5-05）：`GET …/cost-collect-sheet/wip-balance`
+/// （截至某期的一批一行余额表）+ `GET …/cost-collect-sheet/{id}/wip-ledger`（单批逐期台账）。
+/// 两条都是只读，复用 `cost-object:list`。
+pub mod cost_batch_wip_handler;
+/// 分批法「在制批次余额」**取数层**（M5-05）：四个派生表（累计归集 / 累计结转 / 本期投入 /
+/// 本期转出）+ 逐期流量 + 截止期后发生额 + 已结算计算单。批次抬头与数据范围探针复用 M5-02。
+pub mod cost_batch_wip_model;
 /// calc 第 5 段：分摊计算（ARCH-9 §4.4.3 · 四标准基数 + 最大余数法 + 守恒断言 + 整删重灌）。
 pub mod cost_calc_alloc;
 /// B2-10 的真库用例（`ERP_DB_URL` 开关）：四标准逐对象核数 / 尾差只落一行 / 池 0 与基数 0 边界 / 重算幂等。
