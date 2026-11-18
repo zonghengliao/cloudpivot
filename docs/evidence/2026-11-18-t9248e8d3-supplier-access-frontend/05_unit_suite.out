@@ -1,0 +1,18 @@
+（`pnpm test:unit` 的尾部摘要；原始完整输出 519 KB 未入库）
+# tests 2337
+# suites 0
+# pass 2337
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 7346.65956
+exit=0
+（同一份输出里 `^ok ` 行数 = 2337）
+
+修前对照（同一命令，本卡改动前）：
+# tests 2337
+# pass 2335
+# fail 2
+not ok 1096 - error_code.rs 里 66xxx（ERP 单据 / 主数据）每一条常量，前端表里都有
+not ok 1195 - 后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，27 个）

@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 14 tests
+test system::menu::tests::n01_tree_nested_structure_and_sort ... ok
+test system::menu::tests::n02_keyword_matches_name_and_auth_code ... ok
+test system::menu::tests::n03_invalid_menu_type_rejected ... ok
+test system::menu::tests::n04_create_with_missing_parent_404 ... ok
+test system::menu::tests::n05_update_self_as_parent_rejected ... ok
+test system::menu::tests::n06_delete_with_children_rejected ... ok
+test system::menu::tests::n07_delete_cascades_role_menu_binding ... ok
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... ok
+test system::menu::tests::n09_menu_icons_exist_in_tdesign ... ok
+test system::menu::tests::n10_annotated_permissions_have_menu_code ... ok
+test system::menu::tests::n11_user_menus_filtered_by_role ... ok
+test system::menu::tests::n12_detail_errors_and_cache_invalidation ... ok
+test system::menu::tests::n13_permission_change_invalidates_tokens_in_db ... ok
+test system::menu::tests::n14_writes_succeed_without_cache ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 6452 filtered out; finished in 1.21s
+

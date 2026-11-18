@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... 测试C 已连接验证库（cloudpivot_test）
+
+thread 'system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router' (3761183) panicked at app/src/system/menu/tests.rs:521:5:
+以下菜单前端未注册路由，点进去必然 404：
+supplier-access (/business/erp/supplier-access, component=Some("business/erp/supplier-access/index"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6465 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

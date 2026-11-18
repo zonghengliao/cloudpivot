@@ -657,6 +657,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '框架协议', permission: 'business:erp:framework-agreement:page' },
       },
       {
+        // ==================== ERP 供应商准入 / 黑名单（M4-14 后端 + 本卡前端） ====================
+        // `sys_menu`（V0455 页面行 …4484）path = `/business/erp/supplier-access`、
+        // component `business/erp/supplier-access/index`，页面显形码
+        // `business:erp:supplier-access:page`（AGENTS 约定 14：页面码只给前端判显隐，
+        // 后端零引用）。**路由手工注册**（没有 views 自动扫描），漏了 = 点菜单进 404 ——
+        // M4-14 先落菜单行、前端后补页面，两轮之间 `system::menu::tests::n08` 一直红（本卡修的就是它）。
+        // 4 个接口码：`…:list`（列表 + 详情）/ `…:create` / `…:update`（改 + 作废）/ `…:submit`。
+        path: 'business/erp/supplier-access',
+        name: 'BusinessErpSupplierAccess',
+        component: () => import('@/views/business/erp/supplier-access/index.vue'),
+        meta: { title: '供应商准入', permission: 'business:erp:supplier-access:page' },
+      },
+      {
         // ==================== ERP 采购退货（P2-03 · 退货 → 审批 → 红字应付 → 库存回冲 → 凭证） ====================
         // `sys_menu`（V0332 种子 …3341）path = `/business/erp/purchase-return`，
         // component `business/erp/purchase-return/index`。**路由手工注册**（没有 views 自动扫描），
