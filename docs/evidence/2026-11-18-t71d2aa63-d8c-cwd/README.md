@@ -40,10 +40,25 @@ rc=101
 | 验收项 | 结果 | 证据 |
 |:--|:--|:--|
 | 同一二进制在 `backend/` 与 `backend/app/` 都 ok | ✅ | `03_after_cargo_manifest_dir.out`（两段 rc=0） |
-| 全量 `check.sh` 的 L3 失败清单不再出现本用例 | ✅（另一条别名红仍红，归并行卡） | `05_L3_gate_after.out` |
+| 全量 `check.sh` 的 L3 失败清单不再出现本用例 | ✅ `d8c` 已不在失败清单（清单里只剩并行卡 `t_a5eca17f` 的 `contract_aliases_match_handler_permissions`，本卡不管） | `05_L3_gate_after.out`（提交后 HEAD `10d4b3f3` 真跑）、`07_check_sh_full.out`（全量档） |
 | 反证：挪走 wired 锚点仍必红 | ✅ rc=101 并点名 `sys_import_task` | `04_teeth_anchor_removed.out` |
-| `cargo fmt` / `cargo clippy --all-targets` 不受影响 | ✅ | `06_fmt_clippy.out` |
+| `cargo fmt` / `cargo clippy --all-targets` 不受影响 | ✅ fmt rc=0；clippy 0 warning / 0 error | `06_fmt_clippy.out` |
 | 不改判据强度（没删断言、没 `if files.is_empty() { return; }`） | ✅ | `git diff` 只换定位方式与文案；`files.is_empty()` 断言仍在 |
+
+### L3 真跑（提交后，HEAD `10d4b3f3`）
+
+```
+==> 干净检出闸：基线 HEAD (10d4b3f3)
+  ✓ 无私有配置（backend/config/config-dev.toml … ），模板齐全
+  test result: FAILED. 6561 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out
+  ✗ 干净检出任有 1 条单测失败：test kernel_axis_tests::contract_aliases_match_handler_permissions ... FAILED
+```
+
+改前（父卡落盘，HEAD `fb16fcd5`）是「6560 passed / 2 failed（d8c + contract_aliases）」——
+见 `docs/evidence/2026-11-18-t1d66ac6d-skip-manifest-38/08_check_sh_full_L3red.out:303`；
+现在是「6561 passed / 1 failed（只剩 contract_aliases）」——差的那一条正是本卡修的 d8c。
+L3 仍 rc=1 是**并行卡的账**（`t_a5eca17f`，不在本卡验收范围）。
+
 
 ## 文件
 

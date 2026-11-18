@@ -1,0 +1,12 @@
+### cargo fmt -p cloudpivot -- --check
+fmt rc=0
+
+### cargo clippy --all-targets（完整输出，取自 cache/scratch/d8c_clippy.out 同一次真跑）
+    Checking cloudpivot-doc v0.1.0 (/opt/cloudpivot/backend/crates/cloudpivot-doc)
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Checking cloudpivot-kernel v0.1.0 (/opt/cloudpivot/backend/crates/cloudpivot-kernel)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 21s
+
+### 统计
+warning 行数：0
+error 行数：0
