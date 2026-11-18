@@ -22,7 +22,7 @@
 // | `pair_grain_reports_unforecast_pairs` | 客户 × 物料粒度的漏预测行带**两维** id/名字，并进合计的实际额 |
 // | `grains_share_actual_total_but_isolate_forecast` | 同一批订单的四种切法：实际合计**相同**（不是四份不同的钱），预测合计**各不相同且绝不相加**（相加 = 双计） |
 // | `tolerance_only_moves_the_level_not_the_totals` | 容差只影响判档，不碰任何合计金额/偏差率（否则同一个月的账换个容差就变样） |
-// | `zz_teardown_purges_fixtures` | 清场：夹具预测与订单 0 残留 |
+// | `zz_teardown_purges_fixtures` | 清场：夹具预测与订单 0 残留，夹具客户行（`M321-`/`M322-`）也 0 残留 |
 //
 // # 跑法（真库用例必须串行，共用进程级 `db()` 池）
 //
@@ -40,8 +40,10 @@ use crate::business::erp::sales::sales_target_dto::{
 };
 use crate::business::erp::sales::sales_target_handler as handler;
 use crate::business::erp::sales::sales_variance_db_tests::{
-    MARK, PERIOD, SO_PREFIX, cleanup, customer, dec, forecast, material, query, row_named, sell, sell_line, setup,
+    CUS_PREFIXES, MARK, PERIOD, SO_PREFIX, cleanup, customer, dec, forecast, material, query, row_named, sell,
+    sell_line, setup,
 };
+use crate::test_seed;
 
 /// 某粒度的条数（`dimension_counts` 四种粒度都会回，缺了就是契约破了）。
 fn count_of(response: &ForecastVarianceRes, dimension: &str) -> u32 {
@@ -444,5 +446,10 @@ async fn zz_teardown_purges_fixtures() {
         .expect("统计订单残留");
     assert_eq!(order_rows, 0, "订单夹具必须清干");
 
-    println!("[M3-22] 清场：预测 0 行、订单 0 行 ✓");
+    for prefix in CUS_PREFIXES {
+        let customers = test_seed::customer_count(prefix).await;
+        assert_eq!(customers, 0, "{prefix} 夹具客户必须清干（残留会让演练净增量非 0）");
+    }
+
+    println!("[M3-22] 清场：预测 0 行、订单 0 行、夹具客户 0 行 ✓");
 }

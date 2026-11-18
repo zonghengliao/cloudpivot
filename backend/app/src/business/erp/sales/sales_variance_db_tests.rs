@@ -55,6 +55,9 @@ pub(crate) const SO_PREFIX: &str = "M321-SO-";
 pub(crate) const PERIOD: &str = "2032-07";
 /// 夹具预测备注（清场判据：只删本卡造的预测行）。
 pub(crate) const MARK: &str = "M3-21 对比夹具";
+/// 夹具客户命名空间（清场判据）：M3-21 用 `M321-`，M3-22 的汇总口径用例复用
+/// `M322-`（两批用例共用本文件的 `setup` / `cleanup`，所以两个前缀都要清）。
+pub(crate) const CUS_PREFIXES: &[&str] = &["M321-", "M322-"];
 
 pub(crate) fn dec(text: &str) -> Decimal {
     text.parse().expect("定点字面量")
@@ -68,7 +71,10 @@ pub(crate) async fn material(code: &str, name: &str) -> Uuid {
     test_seed::ensure_material(code, name).await
 }
 
-/// 清场：只删本卡造的预测行与订单（明细随订单 CASCADE；主数据复用，不删）。
+/// 清场：先删本卡造的预测行与订单（明细随订单 CASCADE），再把夹具命名空间的
+/// **客户行**删掉 —— `cleanup()` 只在用例开头跑，不删客户就是「最后一条用例的客户
+/// 永久残留」，演练脚本的净增量因此非 0（见 `test_seed::purge_customers`）。
+/// 物料等其它主数据仍由 `test_seed` 复用（确定性 id，不会增长）。
 pub(crate) async fn cleanup() {
     exec(
         "DELETE FROM biz_sales_forecast WHERE remark = ?",
@@ -80,6 +86,9 @@ pub(crate) async fn cleanup() {
         vec![],
     )
     .await;
+    for prefix in CUS_PREFIXES {
+        test_seed::purge_customers(prefix).await;
+    }
 }
 
 pub(crate) async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
@@ -428,7 +437,8 @@ async fn invalid_inputs_are_400_without_touching_db() {
     println!("[M3-21] 七种非法入参全部 400 ✓");
 }
 
-/// 清场断言：本卡夹具预测与订单 0 残留。
+/// 清场断言：本卡夹具预测与订单 0 残留，夹具客户行也 0 残留
+/// （客户行留在库里会把演练脚本的「整个演练净增量」顶成非 0）。
 #[tokio::test]
 async fn zz_teardown_purges_fixtures() {
     let Some(_guard) = setup().await else { return };
@@ -452,5 +462,10 @@ async fn zz_teardown_purges_fixtures() {
         .expect("统计订单残留");
     assert_eq!(order_rows, 0, "订单夹具必须清干");
 
-    println!("[M3-21] 清场：预测 0 行、订单 0 行 ✓");
+    for prefix in CUS_PREFIXES {
+        let customers = test_seed::customer_count(prefix).await;
+        assert_eq!(customers, 0, "{prefix} 夹具客户必须清干（残留会让演练净增量非 0）");
+    }
+
+    println!("[M3-21] 清场：预测 0 行、订单 0 行、夹具客户 0 行 ✓");
 }

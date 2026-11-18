@@ -176,7 +176,9 @@ async fn invoice_count(customer_id: Uuid) -> i64 {
         .unwrap_or(0)
 }
 
-/// 清场：物理删本模块造的结算单 / 政策 / 单据 / 发票 / 期间。
+/// 清场：物理删本模块造的结算单 / 政策 / 单据 / 发票 / 期间，最后把命名空间 `M317-` 的
+/// **客户行**一并删掉（`cleanup()` 只在用例开头跑 ⇒ 不删客户就是「最后一条用例的客户
+/// 永久残留」，演练脚本净增量因此非 0，见 `test_seed::purge_customers` 的文档）。
 async fn cleanup() {
     exec(
         &format!(
@@ -225,11 +227,8 @@ async fn cleanup() {
         vec![],
     )
     .await;
-    exec(
-        &format!("UPDATE biz_customer SET status = 'ACTIVE' WHERE code LIKE '{CUS_PREFIX}%'"),
-        vec![],
-    )
-    .await;
+    // 客户行最后删（业务行已先删完，此时不会撞 RESTRICT 子表）
+    test_seed::purge_customers(CUS_PREFIX).await;
 }
 
 async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
@@ -688,5 +687,7 @@ async fn zz_teardown_purges_fixtures() {
             .unwrap_or(0);
         assert_eq!(n, 0, "{label} 应有 0 条（清场失败）");
     }
-    println!("[M3-17] 清场：M317- 夹具全部删除 ✓");
+    let customers = test_seed::customer_count(CUS_PREFIX).await;
+    assert_eq!(customers, 0, "M317- 夹具客户应清零（残留会让演练净增量非 0）");
+    println!("[M3-17] 清场：M317- 夹具全部删除（含客户行）✓");
 }

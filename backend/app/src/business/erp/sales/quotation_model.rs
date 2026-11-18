@@ -1545,4 +1545,66 @@ mod tests {
         assert_eq!(rows[0].quote_no, nos[0]);
         assert!(!rows[0].expired_on(today));
     }
+
+    /// 收尾：夹具**一条不留**（报价单 / 状态日志 / 客户行），并且是「真的删得掉」而不是空转。
+    ///
+    /// 为什么必须有这条：`cleanup()` 只在每条用例**开头**跑（`setup()`），最后一条用例造的行
+    /// 会留在库里；演练脚本（`scripts/verify/m326_sales_gap_closure_drill.sh`）按
+    /// 「跑完 vs 基线」判净增量，夹具行不清就会让整条演练报非 0（M3-26 实测：本文件留下
+    /// `M302-CUST` 客户与它名下的报价单）。`zz_` 排序最后，正好收尾。
+    ///
+    /// 自证方式：**先造一张报价单再清场**，然后按单据 id（客户行删了也能查）断言 0 ——
+    /// 不这么写，「按客户 code 反查」在客户行已删之后永远是 0，断言就空转了。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup().await else { return };
+
+        // 1) 造一份真实夹具（走真实入口 `create_quotation`）
+        let customer = fixture_customer().await;
+        let lines = vec![line("1", "100", "13")];
+        let totals = Totals::of(&lines);
+        let tx = db().begin().await.expect("开事务");
+        let (id, _no) = create_quotation(
+            &tx,
+            &new_quotation(customer, "M3-02 收尾自证"),
+            &lines,
+            &totals,
+            state_machine::Operator::of(None),
+            Utc::now(),
+        )
+        .await
+        .expect("建单应成功");
+        tx.commit().await.expect("提交");
+
+        // 2) 清场：单据 + 客户行一起收
+        cleanup().await;
+
+        // 3) 按 id 断言（客户行已删，用 code 反查会空转）
+        let quote_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_quotation WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查报价单残留");
+        assert_eq!(quote_left, 0, "清场后报价单必须为 0");
+        let log_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'QUOTATION' AND entity_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查状态日志残留");
+        assert_eq!(log_left, 0, "清场后报价单的状态日志必须为 0（无外键，得先按 id 删）");
+        let customer_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_customer WHERE code = ?",
+                vec![Value::from(CUSTOMER_CODE)],
+            )
+            .await
+            .expect("查客户残留");
+        assert_eq!(customer_left, 0, "清场后夹具客户必须为 0（残留会让演练净增量非 0）");
+        println!("[M3-02] 清场：报价单 / 状态日志 / 夹具客户 0 残留 ✓");
+    }
 }

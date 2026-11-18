@@ -85,7 +85,10 @@ fn req(customer_id: Option<Uuid>, material_id: Option<Uuid>, amount: &str, qty: 
     }
 }
 
-/// 清场：只删本模块造的行（主数据由 `test_seed` 复用，不删）。
+/// 清场：先删本模块造的行（按 `M320-` 客户 / 夹具期间），再把命名空间 `M320-` 的
+/// **客户行**删掉 —— `cleanup()` 只在用例开头跑，不删客户就是「最后一条用例的客户
+/// 永久残留」，演练脚本的净增量因此非 0（见 `test_seed::purge_customers`）。
+/// 物料等其它主数据仍由 `test_seed` 复用（确定性 id，不会增长）。
 async fn cleanup() {
     exec(
         &format!(
@@ -96,6 +99,7 @@ async fn cleanup() {
         vec![],
     )
     .await;
+    test_seed::purge_customers(CUS_PREFIX).await;
 }
 
 async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
@@ -533,5 +537,7 @@ async fn zz_teardown_purges_fixtures() {
         .expect("读计数")
         .unwrap_or(0);
     assert_eq!(left, 0, "清场残留");
-    println!("[M3-20] 清场完成：0 行残留 ✓");
+    let customers = test_seed::customer_count(CUS_PREFIX).await;
+    assert_eq!(customers, 0, "M320- 夹具客户应清零（残留会让演练净增量非 0）");
+    println!("[M3-20] 清场完成：预测 0 行、夹具客户 0 行 ✓");
 }

@@ -102,11 +102,16 @@ async fn fixture_customer() -> Uuid {
     customer
 }
 
-/// 清掉本文件建过的所有 `M312-` 夹具（子 → 父：核销明细挂着应收是 RESTRICT）。
+/// 清掉本文件建过的所有 `M312-` **业务**夹具（子 → 父：核销明细挂着应收是 RESTRICT）。
 ///
-/// 也把客户 `credit_used` 归 0：清完订单与应收后公式结果就是 0，
-/// 于是「缓存列 == 公式」在收尾后**仍然成立** —— 演练脚本可以在跑完后直接跑 S9 对拍，
-/// 不会因为用例的收尾手段把库改成漂移态。
+/// 也把客户 `credit_used` 归 0：清完订单与应收后公式结果就是 0，于是「缓存列 == 公式」
+/// 在收尾后**仍然成立** —— 演练脚本可以在跑完后直接跑 S9 对拍，不会因为用例的收尾手段
+/// 把库改成漂移态。
+///
+/// ⚠ **本函数不删客户行**：它同时被用例中段（每轮重来）和单个用例收尾调用，客户行一删，
+/// 调用方手里那个 `customer` 主键就成了悬空 id（实测：`db_concurrent_submit_is_admission_only`
+/// 第 2 轮起全部 404「客户不存在」）。删客户行放在 [`purge_customer`]，只给 `setup()` /
+/// 收尾用例用。
 async fn purge_fixtures() {
     // 状态日志（无外键，但属于本前缀单据的证据行：先按 id 删，再删单据本身）。
     exec(
@@ -177,6 +182,20 @@ async fn purge_fixtures() {
     .expect("客户额度归零（清完单据后公式结果本来就是 0）");
 }
 
+/// 整段清场：业务夹具 + **客户行本身**（`setup()` 与收尾用例用）。
+///
+/// 客户行为什么必须删：`setup()` 的清场只在每条用例**开头**跑，留着客户就等于
+/// 「最后一条用例的客户永久留在库里」—— 演练脚本
+/// （`scripts/verify/m326_sales_gap_closure_drill.sh`）量的是「跑完与基线是否一致」，
+/// 客户行不清就会把「整个演练净增量」顶成非 0（M3-26 实测 56 个 `M3xx-` 客户）。
+/// 删掉不影响下一轮：`ensure_customer` 的 id 由 `customer:<code>` 派生（确定性），
+/// 重建还是同一行。
+async fn purge_customer() {
+    purge_fixtures().await;
+    // 客户行最后删（业务行已先删完，此时不会撞 `biz_customer_*` 的 RESTRICT 子表）
+    crate::test_seed::purge_customers(CUSTOMER_CODE).await;
+}
+
 /// 清场 + 建夹具（客户 / 期间 / 订单 / 应收），返回（客户, 应收 id）。
 ///
 /// 清场只动 `M312-` 前缀的行：与 `credit::tests`（`CR38-`）、`aging_partial_tests`（`AG22-`）
@@ -185,7 +204,7 @@ async fn setup() -> Option<(Uuid, Uuid)> {
     if !ensure_db().await {
         return None;
     }
-    purge_fixtures().await;
+    purge_customer().await;
 
     let customer = fixture_customer().await;
     // 期间必须存在且未结账（核销会过 `period::ensure_period_writable`）。
@@ -678,4 +697,49 @@ fn credit_release_wire_contract_is_stable() {
     assert_eq!(json["released"], "400", "released 是定点字符串（本仓金额统一口径）");
     assert_eq!(json["before_used"], "1000");
     assert_eq!(json["after_used"], "600");
+}
+
+/// 收尾：`M312-` 夹具一条不留（业务单据 / 应收 / 信用台账 / **客户行**）。
+///
+/// 为什么必须有这条：`setup()` 里的清场只在**开头**跑，最后一条用例的夹具会留在库里；
+/// 演练脚本（`scripts/verify/m326_sales_gap_closure_drill.sh`）按「跑完 vs 基线」判净增量，
+/// 客户行不清就会让整条演练报非 0（M3-26 实测 56 个 `M3xx-` 客户）。`zz_` 排序最后，正好收尾。
+///
+/// 业务行按自己的单号前缀判、信用台账按客户的**确定性 id**（`test_seed::fixture_uuid`）判 ——
+/// 客户行一删，用 `code` 反查就永远是 0（空转），所以这里不能用 `code`。
+#[tokio::test]
+async fn zz_teardown_purges_fixtures() {
+    if setup().await.is_none() {
+        return;
+    }
+    purge_customer().await;
+
+    let customer_id = crate::test_seed::fixture_uuid(&format!("customer:{CUSTOMER_CODE}"));
+    let checks: [(&str, String); 4] = [
+        (
+            "夹具客户",
+            format!("SELECT count(*) FROM biz_customer WHERE code = '{CUSTOMER_CODE}'"),
+        ),
+        (
+            "销售订单",
+            "SELECT count(*) FROM biz_sales_order WHERE so_no LIKE 'SO-M312-%'".to_string(),
+        ),
+        (
+            "应收",
+            "SELECT count(*) FROM biz_receivable WHERE ar_no LIKE 'AR-M312-%'".to_string(),
+        ),
+        (
+            "信用台账",
+            format!("SELECT count(*) FROM biz_credit_log WHERE customer_id = '{customer_id}'"),
+        ),
+    ];
+    for (label, sql) in checks {
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>(&sql, vec![])
+            .await
+            .unwrap_or_else(|error| panic!("统计{label}残留失败：{error}"))
+            .unwrap_or(0);
+        assert_eq!(left, 0, "{label} 必须零残留（残留会让演练净增量非 0）");
+    }
+    println!("[M3-13] 清场：M312- 夹具 0 残留（含客户行）✓");
 }

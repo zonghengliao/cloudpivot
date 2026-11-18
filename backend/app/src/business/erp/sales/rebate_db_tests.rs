@@ -88,7 +88,11 @@ fn by_qty_req(customer_id: Uuid, from: &str, to: Option<&str>, rate: &str) -> Re
     }
 }
 
-/// 清场：删本模块造的政策（规则随政策物理删级联走），客户主数据保留给 `test_seed` 复用。
+/// 清场：删本模块造的政策（规则随政策物理删级联走），再把本文件夹具命名空间
+/// `M315-` 的**客户行本身**也删掉 —— `cleanup()` 只在每条用例**开头**跑，
+/// 不删客户就等于「最后一条用例的客户永久留在库里」（演练脚本的净增量因此非 0，
+/// 见 `test_seed::purge_customers` 的文档）；`ensure_customer` 的 id 是确定性的，
+/// 下一轮重建还是同一行，断言不漂移。
 async fn cleanup() {
     exec(
         &format!(
@@ -98,11 +102,7 @@ async fn cleanup() {
         vec![],
     )
     .await;
-    exec(
-        &format!("UPDATE biz_customer SET status = 'ACTIVE' WHERE code LIKE '{CUS_PREFIX}%'"),
-        vec![],
-    )
-    .await;
+    test_seed::purge_customers(CUS_PREFIX).await;
 }
 
 async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
@@ -703,7 +703,8 @@ async fn concurrent_creates_only_one_wins() {
     println!("[M3-15] 并发建重叠政策：1 成功 + 1 个 66090，库里 1 份 ✓");
 }
 
-/// 清场：跑完不留 `M315-` 客户的政策（规则随政策级联删）。
+/// 清场：跑完不留 `M315-` 客户的政策（规则随政策级联删），客户行本身也不许留
+/// （`cleanup()` 只在用例开头跑 ⇒ 不在这里删就是「最后一条用例的客户永久残留」）。
 #[tokio::test]
 async fn zz_teardown_purges_fixtures() {
     let Some(_guard) = setup().await else { return };
@@ -725,5 +726,7 @@ async fn zz_teardown_purges_fixtures() {
         .expect("读")
         .unwrap_or(0);
     assert_eq!(n, 0, "清场后 M315- 客户的政策必须为 0");
-    println!("[M3-15] 清场：M315- 客户的政策 0 条 ✓");
+    let customers = test_seed::customer_count(CUS_PREFIX).await;
+    assert_eq!(customers, 0, "清场后 M315- 夹具客户必须为 0（残留会让演练净增量非 0）");
+    println!("[M3-15] 清场：M315- 客户的政策 0 条、客户行 0 条 ✓");
 }

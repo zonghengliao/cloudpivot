@@ -3051,4 +3051,66 @@ mod tests {
         assert_eq!(ok.header.status, so_model::STATUS_DRAFT);
         assert_eq!(order_count(customer).await, 1);
     }
+
+    /// 收尾：夹具**一条不留**（报价单 / 销售订单 / 状态日志 / 客户行），并且是「真的删得掉」。
+    ///
+    /// 为什么必须有这条：`cleanup()` 只在每条用例**开头**跑（`setup()`），最后一条用例造的行
+    /// 会留在库里；演练脚本（`scripts/verify/m326_sales_gap_closure_drill.sh`）按
+    /// 「跑完 vs 基线」判净增量，夹具行不清就会让整条演练报非 0（M3-26 实测：本文件留下
+    /// `M303-CUST` 客户 + 它名下的报价单与转单后的销售订单）。`zz_` 排序最后，正好收尾。
+    ///
+    /// 自证方式：**先造一张已接受报价单并真的转成订单**，再清场，然后按单据 **id**
+    /// 断言 0 —— 客户行删掉之后「按客户 code 反查」永远返回 0，那样断言就空转了。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup().await else { return };
+        let customer = fixture_customer().await;
+        let lines = vec![new_line("1", "10", "13")];
+        let quote = quotation_in_status(customer, model::STATUS_ACCEPTED, &lines).await;
+        let converted = convert_quotation(None, &quote.to_string(), ConvertQuotationReq::default())
+            .await
+            .expect("转单应成功");
+        let so_id = converted.header.so_id.clone();
+        // 出参里的 so_id 是**字符串**（DTO 口径）；按 uuid 列查要自己解析 ——
+        // 直接绑 `String` 会被驱动拒掉（`cannot bind parameter to column type uuid`）。
+        let so_uuid = Uuid::parse_str(&so_id).expect("订单 id 必须是 uuid");
+
+        cleanup().await;
+
+        let quote_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_quotation WHERE id = ?::uuid",
+                vec![Value::from(&quote)],
+            )
+            .await
+            .expect("查报价单残留");
+        assert_eq!(quote_left, 0, "清场后报价单必须为 0");
+        let order_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_sales_order WHERE id = ?::uuid",
+                vec![Value::from(&so_uuid)],
+            )
+            .await
+            .expect("查销售订单残留");
+        assert_eq!(order_left, 0, "清场后转单产生的销售订单必须为 0");
+        let log_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE (entity_type = 'QUOTATION' AND entity_id = ?::uuid) \
+                     OR (entity_type = 'SALE_ORDER' AND entity_id = ?::uuid)",
+                vec![Value::from(&quote), Value::from(&so_uuid)],
+            )
+            .await
+            .expect("查状态日志残留");
+        assert_eq!(log_left, 0, "清场后两类单据的状态日志必须为 0（无外键，得先按 id 删）");
+        let customer_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_customer WHERE code = ?",
+                vec![Value::from(CUSTOMER_CODE)],
+            )
+            .await
+            .expect("查客户残留");
+        assert_eq!(customer_left, 0, "清场后夹具客户必须为 0（残留会让演练净增量非 0）");
+        println!("[M3-03] 清场：报价单 / 销售订单 / 状态日志 / 夹具客户 0 残留 ✓");
+    }
 }

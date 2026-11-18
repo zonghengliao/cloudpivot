@@ -130,10 +130,14 @@ async fn fixture_customer() -> Uuid {
     customer
 }
 
-/// 清掉本文件建过的所有 `M313-` 夹具（子 → 父）。
+/// 清掉本文件建过的所有 `M313-` **业务**夹具（子 → 父），并把客户缓存列归 0。
 ///
 /// 收尾把 `credit_used` 归 0：清完订单与应收后公式结果就是 0，于是
 /// 「缓存列 == 公式」在收尾后**仍然成立** —— 演练脚本可以跑完直接对整库跑 S9。
+///
+/// ⚠ **本函数不删客户行**：它同时被用例**中段**调用（`db_concurrent_submit_is_admission_only`
+/// 每轮重来，见 `for round in 1..=3`），客户行一删，用例手里那个 `customer` 主键就悬空了
+/// （实测：第 2 轮起提交全部 404「客户不存在」）。删客户行放在 [`purge_customer`]。
 async fn purge_fixtures() {
     // 状态日志（无外键，但属于本前缀单据的证据行：先按 id 删）。
     exec_ok(
@@ -197,12 +201,25 @@ async fn purge_fixtures() {
     .await;
 }
 
+/// 整段清场：业务夹具 + **客户行本身**（`setup()` 与收尾用例用，用例中段不许调）。
+///
+/// 客户行为什么必须删：`setup()` 的清场只在每条用例**开头**跑，留着客户就等于
+/// 「最后一条用例的客户永久留在库里」—— 演练脚本
+/// （`scripts/verify/m326_sales_gap_closure_drill.sh`）量的是「跑完与基线是否一致」，
+/// 客户行不清就会把「整个演练净增量」顶成非 0。删掉不影响下一轮：
+/// `ensure_customer` 的 id 由 `customer:<code>` 派生（确定性），重建还是同一行。
+async fn purge_customer() {
+    purge_fixtures().await;
+    // 客户行最后删（业务行已先删完，此时不会撞 `biz_customer_*` 的 RESTRICT 子表）
+    crate::test_seed::purge_customers(CUSTOMER_CODE).await;
+}
+
 /// 清场 + 建客户 + 打开期间；返回客户主键（`None` = 没有 `ERP_DB_URL`，调用方 print SKIP）。
 async fn setup() -> Option<Uuid> {
     if !ensure_db().await {
         return None;
     }
-    purge_fixtures().await;
+    purge_customer().await;
     let customer = fixture_customer().await;
     // 核销要过「期间未结账」闸。
     crate::test_seed::ensure_accounting_period(2026, 11).await;
@@ -1095,4 +1112,55 @@ async fn db_concurrent_occupy_and_releases_converge() {
 /// 收尾：清掉本用例的全部夹具（口径同 [`purge_fixtures`]）。
 async fn teardown(_customer: Uuid) {
     purge_fixtures().await;
+}
+
+/// 收尾：`M313-` 夹具一条不留（订单 / 明细 / 应收 / 信用台账 / **客户行**）。
+///
+/// 为什么必须有这条：`setup()` 里的清场只在**开头**跑，最后一条用例的夹具会留在库里；
+/// 演练脚本（`scripts/verify/m326_sales_gap_closure_drill.sh`）按「跑完 vs 基线」判净增量，
+/// 客户行不清就会让整条演练报非 0。`zz_` 排序最后，正好收尾。
+///
+/// 台账 / 明细这类挂着「客户」的行按客户的**确定性 id**（`test_seed::fixture_uuid`）判：
+/// 客户行一删，用 `code` 反查永远是 0（空转）。
+#[tokio::test]
+async fn zz_teardown_purges_fixtures() {
+    if setup().await.is_none() {
+        return;
+    }
+    purge_customer().await;
+
+    let customer_id = crate::test_seed::fixture_uuid(&format!("customer:{CUSTOMER_CODE}"));
+    let checks: [(&str, String); 5] = [
+        (
+            "夹具客户",
+            format!("SELECT count(*) FROM biz_customer WHERE code = '{CUSTOMER_CODE}'"),
+        ),
+        (
+            "销售订单",
+            "SELECT count(*) FROM biz_sales_order WHERE so_no LIKE 'SO-M313-%'".to_string(),
+        ),
+        (
+            "订单明细",
+            "SELECT count(*) FROM biz_sales_order_item WHERE so_id IN \
+               (SELECT id FROM biz_sales_order WHERE so_no LIKE 'SO-M313-%')"
+                .to_string(),
+        ),
+        (
+            "应收",
+            "SELECT count(*) FROM biz_receivable WHERE ar_no LIKE 'AR-M313-%'".to_string(),
+        ),
+        (
+            "信用台账",
+            format!("SELECT count(*) FROM biz_credit_log WHERE customer_id = '{customer_id}'"),
+        ),
+    ];
+    for (label, sql) in checks {
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>(&sql, vec![])
+            .await
+            .unwrap_or_else(|error| panic!("统计{label}残留失败：{error}"))
+            .unwrap_or(0);
+        assert_eq!(left, 0, "{label} 必须零残留（残留会让演练净增量非 0）");
+    }
+    println!("[M3-13] 清场：M313- 夹具 0 残留（含客户行）✓");
 }

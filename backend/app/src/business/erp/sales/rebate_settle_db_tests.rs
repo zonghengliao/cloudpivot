@@ -183,7 +183,9 @@ fn policy_req(
     }
 }
 
-/// 清场：物理删本模块造的结算单 / 政策 / 单据（主数据留给 `test_seed` 复用）。
+/// 清场：物理删本模块造的结算单 / 政策 / 单据，最后把命名空间 `M316-` 的**客户行**
+/// 一并删掉（`cleanup()` 只在用例开头跑；不删客户 = 最后一条用例的客户永久残留，
+/// 演练脚本净增量因此非 0，见 `test_seed::purge_customers` 的文档）。
 async fn cleanup() {
     exec(
         &format!(
@@ -218,11 +220,8 @@ async fn cleanup() {
         vec![],
     )
     .await;
-    exec(
-        &format!("UPDATE biz_customer SET status = 'ACTIVE' WHERE code LIKE '{CUS_PREFIX}%'"),
-        vec![],
-    )
-    .await;
+    // 客户行最后删（业务行已先删完，此时不会撞 RESTRICT 子表）
+    test_seed::purge_customers(CUS_PREFIX).await;
 }
 
 async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
@@ -868,7 +867,8 @@ async fn concurrent_settle_only_one_wins() {
     println!("[M3-16] 并发结算同客户同期间：1 成功 + 1 个 409/66092，库里 1 行 ✓");
 }
 
-/// 清场：`M316-` 客户的结算单 / 政策 0 条（单据也清掉，避免污染别的用例）。
+/// 清场：`M316-` 客户的结算单 / 政策 0 条（单据也清掉，避免污染别的用例），
+/// **客户行也 0 条**（不清它，最后一条用例的客户就会留在演练库里、把净增量顶成非 0）。
 #[tokio::test]
 async fn zz_teardown_purges_fixtures() {
     let Some(_guard) = setup().await else { return };
@@ -890,5 +890,7 @@ async fn zz_teardown_purges_fixtures() {
     let n_policy: i64 = row.get_typed("n_policy").expect("policy 计数");
     assert_eq!(n_settle, 0, "M316 结算单应清零");
     assert_eq!(n_policy, 0, "M316 政策应清零");
-    println!("[M3-16] 清场：M316 夹具结算单 / 政策均为 0 ✓");
+    let customers = test_seed::customer_count(CUS_PREFIX).await;
+    assert_eq!(customers, 0, "M316 夹具客户应清零（残留会让演练净增量非 0）");
+    println!("[M3-16] 清场：M316 夹具结算单 / 政策 / 客户均为 0 ✓");
 }

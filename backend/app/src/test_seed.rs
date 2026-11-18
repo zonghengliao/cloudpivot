@@ -49,6 +49,7 @@
 //! | [`ensure_warehouse`] | 叶子仓 | `is_leaf=1`、`level=1`、`path=/<code>` |
 //! | [`ensure_account`] | 末级科目 | `is_leaf=1`、`level=2`、方向 `DEBIT`；类别由调用方给 |
 //! | [`ensure_supplier`] / [`ensure_customer`] | 供应商 / 客户 | 编码唯一、幂等 |
+//! | [`purge_customers`] / [`customer_count`] | 清客户夹具 | 按本文件命名空间 `code LIKE '<prefix>%'` 物理删（先清三张 RESTRICT 子表）；收尾用例断言 0 残留 |
 //! | [`sweep_once`] | 清场 | 同一 key **每进程只扫一次**（上轮崩溃残留），不是每个夹具一次 |
 //! | [`ensure_any_dept`] … [`ensure_approver_roles`] | 底座（`sys_*`） | 见 [`cloudpivot_kernel::shared::test_helpers`]，此处 re-export |
 //!
@@ -381,7 +382,8 @@ pub async fn ensure_supplier(code: &str, name: &str) -> Uuid {
     .await
 }
 
-/// 客户。
+/// 客户。客户行（`biz_customer`）**照 `ensure_customer` 的确定性 id 复用**，但清场必须真删，
+/// 见 [`purge_customers`]。
 ///
 /// ⚠ `biz_customer.status` 是 **VARCHAR + `ck_biz_customer_status CHECK (status IN ('ACTIVE','FROZEN'))`**
 /// （V0260），与其它主数据表的 `smallint 1/0` **不是一套**：写 `1` 会直接撞 CHECK 23514。
@@ -404,6 +406,68 @@ pub async fn ensure_customer(code: &str, name: &str) -> Uuid {
         &format!("客户 {code}"),
     )
     .await
+}
+
+/// 物理删「本文件夹具命名空间」下的客户行（`code LIKE '<prefix>%'`），返回删掉的**客户行**数。
+///
+/// # 为什么清场必须真删客户行
+///
+/// 域级单测的写法是「`setup()` 里 `cleanup()` 一次 → 每条用例自己 `ensure_customer`」。
+/// `cleanup()` 只在**开头**跑，所以**最后一条用例的客户会留在库里**；
+/// 演练脚本（`scripts/verify/m32*_*.sh`）量的是「跑完与基线是否一致」，于是这些客户行
+/// 会把「整个演练净增量」永久顶成非 0（M3-26 实测：同一张克隆库串行跑完四域单测后
+/// 客户表多出 56 个 `M3xx-` 客户），两个不同域塞进同一个共享库连跑时也会持续变脏。
+///
+/// 删掉不会让断言漂移：`ensure_customer` 的 id 由 `customer:<code>` 经 [`fixture_uuid`]
+/// 派生（确定性），下一轮重建还是**同一个 id**。
+///
+/// # 为什么先删三张子表
+///
+/// `biz_customer_contact` / `biz_customer_price` / `biz_price_tier` 对 `biz_customer`
+/// 是 `ON DELETE RESTRICT`（**不是** CASCADE）：不先清子行，删客户直接 23503。
+/// 这里只删「指向本命名空间客户」的子行，绝不整表清。
+///
+/// `prefix` 传文件自己的夹具命名空间（如 `"M315-"`）或完整编码（如 `"M312-CUST"`）；
+/// **不要**传空串（那等于整表删，函数会直接 panic）。
+pub async fn purge_customers(prefix: &str) -> u64 {
+    assert!(
+        !prefix.trim().is_empty(),
+        "purge_customers 的 prefix 不能为空（那等于整表删）"
+    );
+    let like = format!("{prefix}%");
+    let mut deleted = 0_u64;
+    let statements = [
+        "DELETE FROM biz_customer_contact WHERE customer_id IN \
+           (SELECT id FROM biz_customer WHERE code LIKE ?)",
+        "DELETE FROM biz_customer_price WHERE customer_id IN \
+           (SELECT id FROM biz_customer WHERE code LIKE ?)",
+        "DELETE FROM biz_price_tier WHERE customer_id IN \
+           (SELECT id FROM biz_customer WHERE code LIKE ?)",
+        "DELETE FROM biz_customer WHERE code LIKE ?",
+    ];
+    for sql in statements {
+        let rows = db()
+            .execute_with_params(sql, vec![Value::Text(like.clone())])
+            .await
+            .unwrap_or_else(|error| panic!("清除夹具客户失败（prefix={prefix}）：{error}\nSQL: {sql}"));
+        deleted += rows;
+    }
+    deleted
+}
+
+/// 本命名空间下还剩几个客户行（`code LIKE '<prefix>%'`）—— 收尾用例的残留断言。
+pub async fn customer_count(prefix: &str) -> i64 {
+    assert!(
+        !prefix.trim().is_empty(),
+        "customer_count 的 prefix 不能为空（那等于数整表）"
+    );
+    db().scalar_with_params::<Option<i64>>(
+        "SELECT count(*) FROM biz_customer WHERE code LIKE ?",
+        vec![Value::Text(format!("{prefix}%"))],
+    )
+    .await
+    .unwrap_or_else(|error| panic!("统计夹具客户失败（prefix={prefix}）：{error}"))
+    .unwrap_or(0)
 }
 
 /// 会计期间（`YYYY-MM` + 月初/月末）。状态固定 `OPEN`（需要别的状态用 UPDATE 改，
