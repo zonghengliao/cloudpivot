@@ -1,0 +1,25 @@
+before_sha256=1bfef5631d8d821e2bb3e6a7d33dd09e1ad3afae244f3ab4601368ed93ce1775
+mutate done
+== 变异后 sha256 ==
+99bd2ddc9651480d702d1cc94582e4f9059d7936e2bece8a29fe770ac118fb6a  /opt/cloudpivot/backend/app/src/business/erp/cost/cost_object_model.rs
+== 变异后跑新用例（期望 FAILED）==
+mutated_test_rc=101
+test business::erp::cost::cost_batch_method_tests::contract::t1_chain_uses_exactly_one_read_code_and_one_write_code ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t2_partial_completion_blocks_transfer_for_any_wip_left ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t3_transfer_is_the_difference_not_an_output_ratio ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t4_balance_identity_closes_on_partial_completion ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t5_element_literals_and_scales_are_single_sourced ... ok
+test business::erp::cost::cost_batch_method_tests::db::c1_partial_completion_holds_cost_in_wip_until_batch_finishes ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c2_two_batches_finished_and_partial_reconcile_at_the_totals ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c3_late_cost_after_finish_moves_only_the_delta ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c4_repeat_finish_and_reads_are_idempotent ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c5_sheet_period_in_matches_balance_and_detail_sums ... ok
+test business::erp::cost::cost_batch_method_tests::db::c6_collected_stock_out_unblocks_the_chain ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::zz_teardown_leaves_zero_residue ... ok
+test result: FAILED. 7 passed; 5 failed; 0 ignored; 0 measured; 6709 filtered out; finished in 0.41s
+== 逐字节还原 ==
+after_sha256=1bfef5631d8d821e2bb3e6a7d33dd09e1ad3afae244f3ab4601368ed93ce1775
+RESTORE_OK
+== 还原后跑新用例（期望 ok）==
+restored_test_rc=0
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 6709 filtered out; finished in 0.63s

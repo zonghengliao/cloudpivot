@@ -1,0 +1,3 @@
+FMT_CHECK=ok
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+CLIPPY_ALL_TARGETS_RC=0

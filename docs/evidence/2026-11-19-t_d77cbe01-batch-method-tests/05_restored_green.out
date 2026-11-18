@@ -1,0 +1,32 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 26s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 12 tests
+test business::erp::cost::cost_batch_method_tests::contract::t1_chain_uses_exactly_one_read_code_and_one_write_code ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t2_partial_completion_blocks_transfer_for_any_wip_left ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t3_transfer_is_the_difference_not_an_output_ratio ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t4_balance_identity_closes_on_partial_completion ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t5_element_literals_and_scales_are_single_sourced ... ok
+test business::erp::cost::cost_batch_method_tests::db::c1_partial_completion_holds_cost_in_wip_until_batch_finishes ... ok
+test business::erp::cost::cost_batch_method_tests::db::c2_two_batches_finished_and_partial_reconcile_at_the_totals ... ok
+test business::erp::cost::cost_batch_method_tests::db::c3_late_cost_after_finish_moves_only_the_delta ... ok
+test business::erp::cost::cost_batch_method_tests::db::c4_repeat_finish_and_reads_are_idempotent ... ok
+test business::erp::cost::cost_batch_method_tests::db::c5_sheet_period_in_matches_balance_and_detail_sums ... ok
+test business::erp::cost::cost_batch_method_tests::db::c6_collected_stock_out_unblocks_the_chain ... ok
+test business::erp::cost::cost_batch_method_tests::db::zz_teardown_leaves_zero_residue ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 6709 filtered out; finished in 0.63s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

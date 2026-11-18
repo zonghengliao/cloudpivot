@@ -253,7 +253,11 @@ mod db {
             id
         }
 
-        /// 造一张已过账、挂本批、**没有归集行**的领料单（成本还没进筐）。
+        /// 造一张已过账、挂本批、**没有归集行**的领料单（成本还没进筐）,返回**明细行 id**。
+        ///
+        /// 返回明细 id 而不是单头 id：归集行的 `source_id` 落的是明细行 id（写入侧幂等键），
+        /// 卫生闸也按明细行反查单头。夹具若拿单头 id 当 `source_id`，造出的是库里不存在的形状，
+        /// 断言就会「假放行 / 假拦截」（M5-06 修复）。
         async fn posted_stock_out(&self, object: Uuid) -> Uuid {
             let header = Uuid::now_v7();
             db().exec_sql(
@@ -274,7 +278,21 @@ mod db {
             )
             .await
             .expect("造领料单夹具");
-            header
+            let item = Uuid::now_v7();
+            db().exec_sql(
+                "INSERT INTO biz_stock_out_item (id, stock_out_id, line_no, material_id, unit_id, qty, \
+                                                  unit_cost, amount, remark, created_at, updated_at) \
+                 VALUES (?::uuid, ?::uuid, 1, ?::uuid, (SELECT id FROM biz_unit LIMIT 1), 1, 100, 100, 'M5-04 夹具', now(), now())"
+                    .to_string(),
+                vec![
+                    Value::from(&item),
+                    Value::from(&header),
+                    Value::from(&self.product),
+                ],
+            )
+            .await
+            .expect("造领料明细夹具");
+            item
         }
 
         /// 造一张成本核算批次（`SETTLED` / `CLOSED` 需要 `settled_at + finish_voucher_id`）。
@@ -436,6 +454,10 @@ mod db {
                     format!("DELETE FROM biz_cost_period_item WHERE cost_object_id IN ({objects_list})"),
                     format!("DELETE FROM biz_cost_collect WHERE cost_object_id IN ({objects_list})"),
                     format!("DELETE FROM biz_cost_labor WHERE cost_object_id IN ({objects_list})"),
+                    format!(
+                        "DELETE FROM biz_stock_out_item WHERE stock_out_id IN \
+                           (SELECT id FROM biz_stock_out WHERE cost_object_id IN ({objects_list}))"
+                    ),
                     format!("DELETE FROM biz_stock_out WHERE cost_object_id IN ({objects_list})"),
                 ] {
                     let _ = db().exec_sql(sql, vec![]).await;
@@ -736,7 +758,7 @@ mod db {
         let object = f.object("OPEN", "800", "0", "P8").await;
         f.collect(object, "MATERIAL", "15000").await;
         let labor = f.draft_labor(object).await;
-        let stock_out = f.posted_stock_out(object).await;
+        let stock_out_item = f.posted_stock_out(object).await;
 
         let res = preview(&f.super_principal(), &object.to_string(), f.query())
             .await
@@ -751,7 +773,7 @@ mod db {
         assert_eq!(error.code, 66107);
         assert_eq!(f.finish_rows(object).await, 0);
 
-        // 补上：工时确认 + 领料归集（手工补一条归集行指向该出库单）
+        // 补上：工时确认 + 领料归集（补一条归集行，`source_id` = 出库**明细**行 id）
         db().exec_sql(
             "UPDATE biz_cost_labor SET status = 'CONFIRMED' WHERE id = ?::uuid".to_string(),
             vec![Value::from(&labor)],
@@ -768,7 +790,7 @@ mod db {
             vec![
                 Value::from(&object),
                 Value::Text(f.period.clone()),
-                Value::from(&stock_out),
+                Value::from(&stock_out_item),
                 Value::Text(f.day.clone()),
                 Value::from(&f.product),
             ],

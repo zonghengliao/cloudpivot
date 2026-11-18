@@ -1,0 +1,21 @@
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+    probe     | count 
+--------------+-------
+ collect_rows |     1
+(1 row)
+
+    probe     | count 
+--------------+-------
+ by_header_id |     1
+(1 row)
+
+   probe    | count 
+------------+-------
+ by_item_id |     0
+(1 row)
+
+ROLLBACK

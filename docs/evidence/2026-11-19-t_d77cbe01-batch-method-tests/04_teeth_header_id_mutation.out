@@ -1,0 +1,57 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 32s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 12 tests
+test business::erp::cost::cost_batch_method_tests::contract::t1_chain_uses_exactly_one_read_code_and_one_write_code ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t2_partial_completion_blocks_transfer_for_any_wip_left ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t3_transfer_is_the_difference_not_an_output_ratio ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t4_balance_identity_closes_on_partial_completion ... ok
+test business::erp::cost::cost_batch_method_tests::contract::t5_element_literals_and_scales_are_single_sourced ... ok
+test business::erp::cost::cost_batch_method_tests::db::c1_partial_completion_holds_cost_in_wip_until_batch_finishes ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c2_two_batches_finished_and_partial_reconcile_at_the_totals ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c3_late_cost_after_finish_moves_only_the_delta ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c4_repeat_finish_and_reads_are_idempotent ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::c5_sheet_period_in_matches_balance_and_detail_sums ... ok
+test business::erp::cost::cost_batch_method_tests::db::c6_collected_stock_out_unblocks_the_chain ... FAILED
+test business::erp::cost::cost_batch_method_tests::db::zz_teardown_leaves_zero_residue ... ok
+
+failures:
+
+---- business::erp::cost::cost_batch_method_tests::db::c1_partial_completion_holds_cost_in_wip_until_batch_finishes stdout ----
+
+thread 'business::erp::cost::cost_batch_method_tests::db::c1_partial_completion_holds_cost_in_wip_until_batch_finishes' (4142557) panicked at app/src/business/erp/cost/cost_batch_method_tests.rs:943:9:
+整批完工 + 有成本 ⇒ 无拦截：[FinishBlocker { code: "UNCOLLECTED_STOCK_OUT", message: "还有 2 张领料出库单已过账但没有归集到本批：材料成本还没进筐，现在结转会少转", fix: "先对本批做归集（分批法归集接口 / 期间 calc 料段），再结转" }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::cost::cost_batch_method_tests::db::c2_two_batches_finished_and_partial_reconcile_at_the_totals stdout ----
+
+thread 'business::erp::cost::cost_batch_method_tests::db::c2_two_batches_finished_and_partial_reconcile_at_the_totals' (4142560) panicked at app/src/business/erp/cost/cost_batch_method_tests.rs:1036:53:
+A 批整批完工: ApiError { code: 66107, msg: "批次 CB-M506-A-97653001 不能完工结转：[UNCOLLECTED_STOCK_OUT] 还有 1 张领料出库单已过账但没有归集到本批：材料成本还没进筐，现在结转会少转 ⇒ 先对本批做归集（分批法归集接口 / 期间 calc 料段），再结转", status: 409, internal_detail: None, data: Some(Object {"blockers": Array [Object {"code": String("UNCOLLECTED_STOCK_OUT"), "fix": String("先对本批做归集（分批法归集接口 / 期间 calc 料段），再结转"), "message": String("还有 1 张领料出库单已过账但没有归集到本批：材料成本还没进筐，现在结转会少转")}]}) }
+
+---- business::erp::cost::cost_batch_method_tests::db::c3_late_cost_after_finish_moves_only_the_delta stdout ----
+
+thread 'business::erp::cost::cost_batch_method_tests::db::c3_late_cost_after_finish_moves_only_the_delta' (4142561) panicked at app/src/business/erp/cost/cost_batch_method_tests.rs:1106:59:
+首次结转: ApiError { code: 66107, msg: "批次 CB-M506-LATE-66690002 不能完工结转：[UNCOLLECTED_STOCK_OUT] 还有 1 张领料出库单已过账但没有归集到本批：材料成本还没进筐，现在结转会少转 ⇒ 先对本批做归集（分批法归集接口 / 期间 calc 料段），再结转", status: 409, internal_detail: None, data: Some(Object {"blockers": Array [Object {"code": String("UNCOLLECTED_STOCK_OUT"), "fix": String("先对本批做归集（分批法归集接口 / 期间 calc 料段），再结转"), "message": String("还有 1 张领料出库单已过账但没有归集到本批：材料成本还没进筐，现在结转会少转")}]}) }
+
+---- business::erp::cost::cost_batch_method_tests::db::c4_repeat_finish_and_reads_are_idempotent stdout ----
+
+thread 'business::erp::cost::cost_batch_method_tests::db::c4_repeat_finish_and_reads_are_idempotent' (4142562) panicked at app/src/business/erp/cost/cost_batch_method_tests.rs:1185:59:
+首次结转: ApiError { code: 66107, msg: "批次 CB-M506-IDEM-36522003 不能完工结转：[UNCOLLECTED_STOCK_OUT] 还有 1 张领料出库单已过账但没有归集到本批：材料成本还没进筐，现在结转会少转 ⇒ 先对本批做归集（分批法归集接口 / 期间 calc 料段），再结转", status: 409, internal_detail: None, data: Some(Object {"blockers": Array [Object {"code": String("UNCOLLECTED_STOCK_OUT"), "fix": String("先对本批做归集（分批法归集接口 / 期间 calc 料段），再结转"), "message": String("还有 1 张领料出库单已过账但没有归集到本批：材料成本还没进筐，现在结转会少转")}]}) }
+
+---- business::erp::cost::cost_batch_method_tests::db::c6_collected_stock_out_unblocks_the_chain stdout ----
+
+thread 'business::erp::cost::cost_batch_method_tests::db::c6_collected_stock_out_unblocks_the_chain' (4142564) panicked at app/src/business/erp/cost/cost_batch_method_tests.rs:1337:9:
+归集过就不该再报未归集：["UNCOLLECTED_STOCK_OUT"]
+
+
+failures:
+    business::erp::cost::cost_batch_method_tests::db::c1_partial_completion_holds_cost_in_wip_until_batch_finishes
+    business::erp::cost::cost_batch_method_tests::db::c2_two_batches_finished_and_partial_reconcile_at_the_totals
+    business::erp::cost::cost_batch_method_tests::db::c3_late_cost_after_finish_moves_only_the_delta
+    business::erp::cost::cost_batch_method_tests::db::c4_repeat_finish_and_reads_are_idempotent
+    business::erp::cost::cost_batch_method_tests::db::c6_collected_stock_out_unblocks_the_chain
+
+test result: FAILED. 7 passed; 5 failed; 0 ignored; 0 measured; 6709 filtered out; finished in 0.41s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

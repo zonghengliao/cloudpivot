@@ -164,6 +164,10 @@ mod db {
                 format!("DELETE FROM biz_cost_collect WHERE cost_object_id IN ({list})"),
                 format!("DELETE FROM biz_cost_period_item WHERE cost_object_id IN ({list})"),
                 format!("DELETE FROM biz_cost_labor WHERE cost_object_id IN ({list})"),
+                format!(
+                    "DELETE FROM biz_stock_out_item WHERE stock_out_id IN \
+                       (SELECT id FROM biz_stock_out WHERE cost_object_id IN ({list}))"
+                ),
                 format!("DELETE FROM biz_stock_out WHERE cost_object_id IN ({list})"),
                 format!("DELETE FROM biz_status_log WHERE entity_type = 'COST_OBJECT' AND entity_id IN ({list})"),
                 format!("DELETE FROM biz_cost_object WHERE id IN ({list})"),
@@ -202,7 +206,25 @@ mod db {
 
     /// 造一行归集（把某张出库单「归集掉」）。`material_id` 必填 —— `ck_biz_cost_collect_mat`
     /// 要求 MATERIAL 行必须同时有物料与数量（一张表两种语义的防线）。
+    ///
+    /// `source_id` 必须是**出库明细行 id**（`biz_stock_out_item.id`），不是单头 id ——
+    /// 这是归集写入侧的真实幂等键（`cost_batch_collect` / `cost_calc_material` 都写明细 id），
+    /// 夹具必须造成同形状，否则「归集过」在判据里看不见（M5-06 修过这个判据）。
     async fn collect_of(object: Uuid, stock_out_id: Uuid, period: &str, material_id: Uuid) {
+        let item = Uuid::now_v7();
+        db().exec_sql(
+            "INSERT INTO biz_stock_out_item (id, stock_out_id, line_no, material_id, unit_id, qty, \
+                                              unit_cost, amount, created_at, updated_at) \
+             VALUES (?::uuid, ?::uuid, 1, ?::uuid, (SELECT id FROM biz_unit LIMIT 1), 10, 10, 100, now(), now())"
+                .to_string(),
+            vec![
+                Value::from(&item),
+                Value::from(&stock_out_id),
+                Value::from(&material_id),
+            ],
+        )
+        .await
+        .expect("造领料明细夹具");
         db().exec_sql(
             "INSERT INTO biz_cost_collect (id, cost_object_id, period_code, element, source_type, \
                                            source_id, source_no, line_no, occur_date, material_id, \
@@ -214,7 +236,7 @@ mod db {
                 Value::from(&Uuid::now_v7()),
                 Value::from(&object),
                 Value::Text(period.to_string()),
-                Value::from(&stock_out_id),
+                Value::from(&item),
                 Value::from(&material_id),
             ],
         )

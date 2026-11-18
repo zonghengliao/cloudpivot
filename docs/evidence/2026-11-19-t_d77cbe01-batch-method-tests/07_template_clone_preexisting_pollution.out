@@ -1,0 +1,81 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 7 tests
+test business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces ... FAILED
+test business::erp::cost::cost_period_approval_db_tests::db::submit_and_withdraw_guard_non_draft_states ... ok
+test business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch ... FAILED
+test business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch ... FAILED
+test business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed ... FAILED
+test business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft ... FAILED
+test business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures ... FAILED
+
+failures:
+
+---- business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces' (4139553) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["e2e01_appr", "e2e02_appr", "e2e04_fin", "e2e06_mgr"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch' (4139557) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["e2e01_appr", "e2e02_appr", "e2e04_fin", "e2e06_mgr"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch' (4139558) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["e2e01_appr", "e2e02_appr", "e2e04_fin", "e2e06_mgr"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed' (4139559) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["e2e01_appr", "e2e02_appr", "e2e04_fin", "e2e06_mgr"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft' (4139560) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["e2e01_appr", "e2e02_appr", "e2e04_fin", "e2e06_mgr"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures stdout ----
+[B3-3] zz 收尾：发现上一轮残留批次 2 条：["2031-07(SUBMITTED)", "2031-09(SUBMITTED)"]
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures' (4139561) panicked at app/src/business/erp/fixture_hygiene.rs:473:5:
+[cost::cost_period_approval_db_tests::zz_teardown_purges_fixtures] 演示种子账号的岗位绑定在跑完之后少了 ["demo_lead→DEPT_LEADER"]（`system::setup::model::DEMO_USERS`）。
+病根：某个夹具按 `role_id` 整表删了共享种子角色成员却没归还 —— 改成
+`fixture_hygiene::borrow_role_bindings` / `restore_role_bindings` 借出归还，别永久摘掉。
+这条断言就是为了让下一次「第二轮才红」当场在第一轮点名。
+
+
+failures:
+    business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces
+    business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch
+    business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch
+    business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed
+    business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft
+    business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures
+
+test result: FAILED. 1 passed; 6 failed; 0 ignored; 0 measured; 6714 filtered out; finished in 0.44s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+
+== 证据：模板库 cloudpivot_test 自带的 FINANCE_MANAGER 成员（与本卡无关，模板本身就是脏的）==
+e2e01_appr|FINANCE_MANAGER|
+e2e02_appr|FINANCE_MANAGER|
+e2e04_fin|FINANCE_MANAGER|
+e2e06_mgr|FINANCE_MANAGER|
+
+== 证据：本卡改动的文件里没有 sys_user / sys_role / sys_user_role ==
+ README.md                                          |  2 +-
+ .../erp/cost/cost_batch_finish_db_tests.rs         | 32 ++++++++++++++++++----
+ .../src/business/erp/cost/cost_object_db_tests.rs  | 24 +++++++++++++++-
+ .../app/src/business/erp/cost/cost_object_model.rs |  9 ++++--
+ backend/app/src/business/erp/cost/mod.rs           |  5 ++++
+ frontend/e2e/global-setup.ts                       |  2 +-
+ frontend/src/api/business/erp/cost-object-kinds.ts |  2 +-
+ .../views/business/erp/contract/contract-logic.ts  |  2 +-
+ .../views/business/erp/shared/detail-line-limit.ts |  2 +-
+ .../business/flow/components/flow-error-codes.ts   |  2 +-
+ .../views/business/flow/def/state-edge-logic.ts    |  2 +-
+ 11 files changed, 69 insertions(+), 15 deletions(-)

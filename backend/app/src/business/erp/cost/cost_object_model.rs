@@ -947,7 +947,11 @@ pub async fn close_facts(id: Uuid, wip_qty: Decimal, force_wip: bool) -> DbResul
         .await?;
 
     // ② 已过账但未归集的领料出库：POSTED 且**没有**对应的归集行
-    //    （归集行的幂等键是 `(source_type='STOCK_OUT', source_id=出库单 id, element='MATERIAL')`）。
+    //    （归集行的幂等键是 `(source_type='STOCK_OUT', source_id=出库**明细**行 id,
+    //      element='MATERIAL')` —— `source_id` 指向 `biz_stock_out_item.id`，**不是**出库单头 id；
+    //      判据必须按明细行反查单头，否则「归集过」的单永远被当成没归集，
+    //      批就永远关不掉 / 结转不掉，只能改库。见 M5-06 的回归用例
+    //      `c6_collected_stock_out_unblocks_the_chain`）。
     //    期间已在 SETTLED / CLOSED 批次内的不算（那些已经结算，缺归集是历史既成事实，
     //    拦关批也补不回来 —— 与设计 §4.1 前置 ②「且期间不在已结算批次内」一致）。
     let uncollected_stock_out: i64 = db()
@@ -955,7 +959,8 @@ pub async fn close_facts(id: Uuid, wip_qty: Decimal, force_wip: bool) -> DbResul
             "SELECT count(*) FROM biz_stock_out so \
               WHERE so.cost_object_id = ?::uuid AND so.deleted_at IS NULL AND so.status = 'POSTED' \
                 AND NOT EXISTS (SELECT 1 FROM biz_cost_collect cc \
-                                 WHERE cc.source_type = 'STOCK_OUT' AND cc.source_id = so.id \
+                                  JOIN biz_stock_out_item i ON i.id = cc.source_id \
+                                 WHERE cc.source_type = 'STOCK_OUT' AND i.stock_out_id = so.id \
                                    AND cc.element = 'MATERIAL' AND cc.deleted_at IS NULL) \
                 AND NOT EXISTS (SELECT 1 FROM biz_cost_period p \
                                  WHERE p.status IN ('SETTLED','CLOSED') AND p.deleted_at IS NULL \
