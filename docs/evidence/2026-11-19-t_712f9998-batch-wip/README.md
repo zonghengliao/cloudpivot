@@ -30,6 +30,7 @@
 | 静态检查 | `cargo clippy --lib -- -D warnings` | **0 告警** rc=0 | 本节下方 |
 | HTTP 真跑 | 隔离实例 `:18026` + admin 登录 | 401 / 400×3 / 200×8 / 404×2 全符合契约；清场残留 0 | `04_http_probe.out`、`05_http_probe_warnings.out` |
 | 反证（牙齿） | 把「累计归集」的 `period_code <= ?` 改成 `= ?` | **2 条真库用例当场红**（V1 截止口径、V6 余额表 vs 台账），还原 sha256 一致后复绿 | `06_teeth_cutoff_mutation.out` |
+| 提交门禁 | `git push` 的 pre-push（`bash scripts/check.sh --fast`，L0+L1） | **全部检查通过**，耗时 241s，`be5ac7a8..21eb3592 main -> main` | `08_pre_push_check_fast.out` |
 
 ```
 $ rustfmt --edition 2024 --check cost_batch_wip_{dto,model,handler,db_tests}.rs mod.rs ; echo $?
