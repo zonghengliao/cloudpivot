@@ -1,0 +1,13 @@
+=== M4-20 交付门禁（2026-11-18 · 99 主机 · 库 cp_m420_* 建在 145）===
+
+-- cargo fmt -p cloudpivot -- --check
+rc=0（格式已对齐）
+
+-- cargo clippy --lib -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
+
+-- cargo clippy --lib --tests -- -D warnings（测试模块也要过）
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+-- 权限审计（本卡零权限码，确认未被影响）
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6513 filtered out; finished in 13.86s

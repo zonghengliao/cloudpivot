@@ -1,0 +1,21 @@
+=== M4-20 作用域自证：零迁移 / 零权限码 / 零路由 / 零前端 ===
+
+本卡是**验证卡**（M4-20 采购缺口 E2E）：只补「计划 → 申请 → 订单 → 入库」的全链用例
+与演练脚本，不动业务代码、不动表结构、不动权限。
+
+-- 本卡改动的文件（git status，按路径）
+ M backend/app/src/business/erp/purchase/mod.rs                        （+4 行：声明测试模块）
+?? backend/app/src/business/erp/purchase/purchase_chain_e2e_tests.rs  （新，1494 行）
+?? scripts/verify/m420_purchase_chain_e2e_drill.sh                     （新，237 行）
+?? docs/evidence/2026-11-18-m420-purchase-chain-e2e/                   （本目录）
+
+-- 迁移目录零改动
+git status --porcelain backend/app/migrations | wc -l = 0
+
+-- 零路由：新文件里 `#[nik::…]` 宏声明数 = 0（不新增、不改动任何接口）
+-- 零权限码：新文件里 `"business:erp…"` 权限码字面量数 = 0
+   （文件里 19 处 `business:` 全部是 Rust 模块路径 `business::erp::…`）
+-- 零前端：`grep -rn 'M420\|purchase_chain_e2e' frontend/` 命中 0 行
+
+-- 门禁：权限审计未受影响（新增的只是测试模块）
+cargo test --lib system::menu::permission_audit_tests → 8 passed / 0 failed

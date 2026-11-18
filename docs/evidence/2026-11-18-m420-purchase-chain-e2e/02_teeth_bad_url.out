@@ -1,0 +1,29 @@
+== M4-20 采购缺口 E2E（计划 → 申请 → 订单 → 入库）演练（PG 172.18.10.145:5432 / 库 cp_m420_purchase_chain_e2e_3841676）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m420_purchase_chain_e2e_3841676
+== 1) 补齐业务迁移 V0405…最新（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 54 条业务迁移全部应用成功
+== 2) 前置：本链依赖的表 / 流程 / 角色 / 科目 / 状态机边
+  [32mPASS[0m 采购计划头表存在（V0446）（=biz_purchase_plan）
+  [32mPASS[0m 采购计划明细表存在（V0446）（=biz_purchase_plan_item）
+  [32mPASS[0m 采购申请表存在（V0331）（=biz_purchase_requisition）
+  [32mPASS[0m 采购订单表存在（V0137/V0145）（=biz_purchase_order）
+  [32mPASS[0m 收货入库表存在（V0145）（=biz_stock_in）
+  [32mPASS[0m 应付表存在（V0161）（=biz_payable）
+  [32mPASS[0m pp_approve 已发布（V0447）（=1）
+  [32mPASS[0m pr_approve 已发布（V0331）（=1）
+  [32mPASS[0m po_approve 已发布（V0182）（=1）
+  [32mPASS[0m 三条流程用到的五个岗位都在位（=5）
+  [32mPASS[0m 进项凭证三个默认科目齐全（1405 / 2202 / 2221.01）（=3）
+  [32mPASS[0m 采购链四张单据没有被关掉的状态机边（=0）
+== 3) 演练库清污：模板自带的 W1B-PO-0001 历史 PENDING 审批实例
+  ---- 清污影响行数：待办 [DELETE 3] / 节点 [DELETE 4] / 实例 [DELETE 1]
+  [32mPASS[0m W1B 历史残留已清（别的单号一行不碰）（=0）
+== 4) 有牙自检：坏连接串必须让本卡用例红（否则「全绿」是假绿）
+  ---- 坏连接串跑本卡用例：rc=101 / test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 6518 filtered out; finished in 0.04s
+  [32mPASS[0m 有牙：坏连接串下 3 条用例全部失败（拒绝静默 SKIP 假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m420_teeth_3841676.out
+
+== 汇总（有牙模式）：PASS=17 FAIL=0 ==
+ALL PASS

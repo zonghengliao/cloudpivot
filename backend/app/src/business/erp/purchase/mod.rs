@@ -129,6 +129,10 @@ mod framework_agreement_crud_db_tests;
 #[cfg(test)]
 mod framework_agreement_over_limit_tests;
 
+/// 采购计划 → 申请 → 订单 → 入库 的全链 E2E（M4-20；同一个串行锁）。
+#[cfg(test)]
+mod purchase_chain_e2e_tests;
+
 /// 采购计划执行率跟踪的真库用例（M4-04；同一个串行锁）。
 #[cfg(test)]
 mod purchase_plan_execution_db_tests;
