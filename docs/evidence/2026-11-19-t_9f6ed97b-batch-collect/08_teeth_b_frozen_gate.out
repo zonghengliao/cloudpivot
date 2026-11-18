@@ -1,0 +1,61 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 32s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 34 tests
+test business::erp::cost::cost_batch_collect::tests::collect_message_counts_inserts_and_purges ... ok
+test business::erp::cost::cost_batch_collect::tests::collect_message_reports_noop_and_recalc_hint ... ok
+test business::erp::cost::cost_batch_collect::tests::path_param_garbage_is_404_not_400 ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::batch_res_is_the_shared_shape ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_404_when_object_out_of_scope ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_409_when_object_is_closed ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_409_when_period_batch_is_frozen ... FAILED
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_writes_three_elements_and_is_idempotent ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::labor_without_rate_is_reported_not_written ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::period_calc_after_batch_collect_does_not_double_count ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::pool_rows_and_other_batches_are_untouched ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::preview_lists_three_sources_with_states ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::relinked_stock_out_moves_the_collected_row ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::zz_teardown_leaves_zero_residue ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::after_amount_subtracts_purged_and_floors_at_zero ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::cancelled_and_reversed_period_batches_do_not_block ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::closed_or_cancelled_object_is_blocked_before_period_check ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::draft_period_batch_is_allowed ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::element_labels_match_the_sheet_vocabulary ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::frozen_period_batches_are_blocked_with_actionable_fix ... FAILED
+test business::erp::cost::cost_batch_collect_dto::tests::line_state_prefers_collected_then_pending_then_uncollectable ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::not_collectable_uses_the_new_error_code ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::open_object_and_no_period_batch_is_allowed ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::period_is_required_and_must_be_month_shaped ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::permissions_are_reused_from_existing_codes ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::subset_is_empty_when_nothing_matches ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::subset_keeps_own_rows_and_key_hits_but_not_others ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::subset_works_for_overhead_rows_with_null_object ... ok
+test business::erp::cost::cost_batch_collect_handler::tests::permissions_are_the_two_reused_codes ... ok
+test business::erp::cost::cost_batch_collect_handler::tests::route_macros_declare_the_same_permission_literals ... ok
+test business::erp::cost::cost_batch_collect_handler::tests::route_methods_are_get_for_preview_and_post_for_collect ... ok
+test business::erp::cost::cost_batch_collect_model::tests::element_totals_sums_three_elements ... ok
+test business::erp::cost::cost_batch_collect_model::tests::scope_target_is_the_registered_cost_object_anchor ... ok
+
+failures:
+
+---- business::erp::cost::cost_batch_collect_db_tests::db::collect_409_when_period_batch_is_frozen stdout ----
+
+thread 'business::erp::cost::cost_batch_collect_db_tests::db::collect_409_when_period_batch_is_frozen' (4097236) panicked at app/src/business/erp/cost/cost_batch_collect_db_tests.rs:764:10:
+期间批次审批中必须拒: BatchCollectRes { period_code: "2002-01", batch: SheetBatchRes { object_id: "01a1f008-71ec-7290-a042-1cdc570c6539", object_no: "CB-M503-FRZ-13467002", object_type: "BATCH", source_doc_no: None, lot_no: None, product_id: "72bbe60b-d66d-8cb2-bc95-d3816b97e77a", product_code: Some("M503-MAT-719313467002"), product_name: Some("M5-03 夹具产出品 719313467002"), workshop_dept_id: "20000000-0000-4000-8000-0000000f0366", workshop_dept_name: Some("总部"), plan_qty: "100.0000", completed_qty: "0.0000", wip_qty: "0.0000", completion_pct: "0.00", status: "OPEN", start_date: "2002-01-10", due_date: None }, period_batch: Some(PeriodBatchRes { batch_no: "CS-M503-13467002", status: "SUBMITTED", status_label: "已提交待审", frozen: true }), recalc_required: false, material: ElementCollectRes { element: "MATERIAL", element_label: "直接材料", scanned: 1, inserted: 1, skipped_existing: 0, purged: 0, inserted_amount: "10.0000", purged_amount: "0", collected_rows: 1, collected_amount: "10.0000", uncollected_rows: 0, uncollected_amount: "0" }, labor: ElementCollectRes { element: "LABOR", element_label: "直接人工", scanned: 0, inserted: 0, skipped_existing: 0, purged: 0, inserted_amount: "0", purged_amount: "0", collected_rows: 0, collected_amount: "0", uncollected_rows: 0, uncollected_amount: "0" }, overhead: ElementCollectRes { element: "OVERHEAD", element_label: "制造费用", scanned: 0, inserted: 0, skipped_existing: 0, purged: 0, inserted_amount: "0", purged_amount: "0", collected_rows: 0, collected_amount: "0", uncollected_rows: 0, uncollected_amount: "0" }, totals: SheetAmounts { mat: "10.0000", labor: "0", oh: "0", total: "10.0000" }, message: "已归集 1 笔（料 1+工 0+费 0），清理过期 0 笔；本批本期合计 10.0000 元" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::cost::cost_batch_collect_dto::tests::frozen_period_batches_are_blocked_with_actionable_fix stdout ----
+
+thread 'business::erp::cost::cost_batch_collect_dto::tests::frozen_period_batches_are_blocked_with_actionable_fix' (4097250) panicked at app/src/business/erp/cost/cost_batch_collect_dto.rs:622:87:
+冻结状态必须拦下
+
+
+failures:
+    business::erp::cost::cost_batch_collect_db_tests::db::collect_409_when_period_batch_is_frozen
+    business::erp::cost::cost_batch_collect_dto::tests::frozen_period_batches_are_blocked_with_actionable_fix
+
+test result: FAILED. 32 passed; 2 failed; 0 ignored; 0 measured; 6592 filtered out; finished in 0.51s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

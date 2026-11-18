@@ -1,0 +1,46 @@
+== 前置：erp.cost.enabled=true must_change_password=f
+== 实例 pid=4096171 端口=18024
+== /health 200（第 2 次探测）
+== 登录成功（token 长度 461）
+== 造夹具（成本对象 OPEN + CLOSED / 领料 150 / 工时 240 / 费用 20）
+
+===== ① 缺 period_code ⇒ 400（报文说清为什么必填）
+HTTP 400
+{"code":10001,"msg":"period_code 必填（yyyy-MM，例如 2026-11）：归集额是「期间 × 批次」的量，没有期间就没有这张表"}
+
+===== ② 三路来源预览（料 150 / 工 240 / 费 20，全部待归集）
+HTTP 200
+{"collectable":true,"period_batch":null,"material":{"rows":1,"pending_amount":"150.0000","state":"PENDING"},"labor":{"rows":1,"pending_amount":"240.0000","state":"PENDING"},"overhead":{"rows":1,"pending_amount":"20.0000"},"totals":{"mat":"0","labor":"0","oh":"0","total":"0"},"after_totals":{"mat":"150.0000","labor":"240.0000","oh":"20.0000","total":"410.0000"}}
+
+===== ③ 执行归集（POST）
+HTTP 200
+{"material":{"inserted":1,"amount":"150.0000"},"labor":{"inserted":1,"amount":"240.0000"},"overhead":{"inserted":1,"amount":"20.0000"},"totals":{"mat":"150.0000","labor":"240.0000","oh":"20.0000","total":"410.0000"},"recalc_required":false,"message":"已归集 3 笔（料 1+工 1+费 1），清理过期 0 笔；本批本期合计 410.0000 元"}
+
+===== ④ 再执行一次 ⇒ 幂等（inserted 全 0）
+HTTP 200
+{"inserted":[0,0,0],"skipped":[1,1,1],"totals":{"mat":"150.0000","labor":"240.0000","oh":"20.0000","total":"410.0000"},"message":"本批本期没有新的可归集行（料 1 / 工 1 / 费 1 已全部归集过），合计 410.0000 元"}
+
+===== ⑤ 与 M5-02 归集表/明细对得上（同一份 biz_cost_collect 两个粒度）
+HTTP 200
+{"lines":3,"totals":{"mat":"150.0000","labor":"240.0000","oh":"20.0000","total":"410.0000"},"elements":["MATERIAL","LABOR","OVERHEAD"]}
+HTTP 200
+{"rows":1,"row":{"object_no":"CB-M503-PROBE-1","mat":"150.0000","labor":"240.0000","oh":"20.0000","total":"410.0000","line_count":3},"totals":{"mat":"150.0000","labor":"240.0000","oh":"20.0000","total":"410.0000","line_count":3,"batch_count":1}}
+
+===== ⑥ 不存在的批次 ⇒ 404（不区分「不存在 / 不可见」）
+HTTP 404
+{"code":10002,"msg":"批次不存在、已删除，或不在你的数据范围（22222222-2222-2222-2222-222222222222）。归集表请用 GET /business/erp/cost-collect-sheet?period_code=yyyy-MM 先找到批次"}
+
+===== ⑦ 已关批的批次 ⇒ 409 + 66106（点名原因与修法）
+HTTP 409
+{"code":66106,"msg":"批次 CB-M503-PROBE-2 已关批（CLOSED），关批后成本不再变动\n需要怎么做：关批批次只读：需要继续投入请在制品开新批次；确属错关请走关批撤销后重开"}
+
+===== ⑧ 期间形状非法 ⇒ 400
+HTTP 400
+{"code":10001,"msg":"期间编码必须是 yyyy-MM（收到「2031-13」）"}
+
+== 库内实况（归集行按要素）
+LABOR|LABOR_TICKET|1|240.0000
+MATERIAL|STOCK_OUT|1|150.0000
+OVERHEAD|OVERHEAD_TICKET|1|20.0000
+== 清场
+== 清场后残留：cost_collect=0 cost_object=0 stock_out=0

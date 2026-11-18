@@ -1,0 +1,17 @@
+ERP_DB_URL=postgres://cloudpivot:fbb1263691ff75c31ec99eaf258138b4@172.18.10.145:5432/cp_m503_dev
+
+=== ① 本卡用例（24 纯函数/契约 + 11 条真库 = 34）===
+test business::erp::cost::cost_batch_collect_model::tests::scope_target_is_the_registered_cost_object_anchor ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 6592 filtered out; finished in 0.46s
+
+
+=== ② 成本域全量回归 ===
+
+test result: ok. 729 passed; 0 failed; 0 ignored; 0 measured; 5897 filtered out; finished in 7.96s
+
+
+=== ③ 数据范围接线守卫 ===
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6625 filtered out; finished in 0.73s
+

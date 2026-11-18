@@ -9,6 +9,24 @@ mod cost_alloc_rule_db_tests;
 pub mod cost_alloc_rule_dto;
 pub mod cost_alloc_rule_handler;
 pub mod cost_alloc_rule_model;
+/// 分批法「料工费归集到批次」**编排**（M5-03）：三路「扫描 + 取差」+ 单事务写入
+/// （先软删过期、再插入、再回查）+ 预览（同一套取差，不落库）。
+pub mod cost_batch_collect;
+/// M5-03 的真库用例（`ERP_DB_URL` 开关）：三路归集 / 幂等重跑 / 改挂批次 / 过期清理 /
+/// 状态闸 409 / 数据范围 404 / 与期间 calc 不打架 / 清场零残留。
+#[cfg(test)]
+mod cost_batch_collect_db_tests;
+/// 分批法「料工费归集到批次」的**契约层与纯逻辑**（M5-03）：三路取差 / 行状态 /
+/// 状态闸（期间批次冻结 · 批次关批 · 已作废）/ 旧行取舍。零 DB 依赖，可纯单测。
+pub mod cost_batch_collect_dto;
+/// 分批法「料工费归集到批次」**接口层**（M5-03）：
+/// `GET …/cost-collect-sheet/{id}/sources`（三路来源预览，复用 `cost-object:list`）+
+/// `POST …/cost-collect-sheet/{id}/collect`（执行归集，复用 `cost-period:calc`）。
+pub mod cost_batch_collect_handler;
+/// 分批法「料工费归集到批次」**取数层**（M5-03）：本期活跃成本批次（闸门）/
+/// 本批本期三要素已有归集额 / 物料名批量补 / 批次抬头（复用 M5-02 的范围探针）。
+/// 三路扫描与写入原语**直接复用** calc 各段的函数，不抄 SQL。
+pub mod cost_batch_collect_model;
 /// calc 第 5 段：分摊计算（ARCH-9 §4.4.3 · 四标准基数 + 最大余数法 + 守恒断言 + 整删重灌）。
 pub mod cost_calc_alloc;
 /// B2-10 的真库用例（`ERP_DB_URL` 开关）：四标准逐对象核数 / 尾差只落一行 / 池 0 与基数 0 边界 / 重算幂等。

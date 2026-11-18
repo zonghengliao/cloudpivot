@@ -1,0 +1,87 @@
+warning: unused variable: `object_id`
+   --> app/src/business/erp/cost/cost_batch_collect_dto.rs:280:45
+    |
+280 | pub fn subset_for_object<R>(existing: &[R], object_id: Uuid, candidate_keys: &[CollectKey]) -> Vec<R>
+    |                                             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_object_id`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `cloudpivot` (lib test) generated 1 warning (run `cargo fix --lib -p cloudpivot --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 34 tests
+test business::erp::cost::cost_batch_collect::tests::collect_message_counts_inserts_and_purges ... ok
+test business::erp::cost::cost_batch_collect::tests::collect_message_reports_noop_and_recalc_hint ... ok
+test business::erp::cost::cost_batch_collect::tests::path_param_garbage_is_404_not_400 ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::batch_res_is_the_shared_shape ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_404_when_object_out_of_scope ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_409_when_object_is_closed ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_409_when_period_batch_is_frozen ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::collect_writes_three_elements_and_is_idempotent ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::labor_without_rate_is_reported_not_written ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::period_calc_after_batch_collect_does_not_double_count ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::pool_rows_and_other_batches_are_untouched ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::preview_lists_three_sources_with_states ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost::cost_batch_collect_db_tests::db::relinked_stock_out_moves_the_collected_row ... FAILED
+test business::erp::cost::cost_batch_collect_db_tests::db::zz_teardown_leaves_zero_residue ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::after_amount_subtracts_purged_and_floors_at_zero ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::cancelled_and_reversed_period_batches_do_not_block ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::closed_or_cancelled_object_is_blocked_before_period_check ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::draft_period_batch_is_allowed ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::element_labels_match_the_sheet_vocabulary ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::frozen_period_batches_are_blocked_with_actionable_fix ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::line_state_prefers_collected_then_pending_then_uncollectable ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::not_collectable_uses_the_new_error_code ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::open_object_and_no_period_batch_is_allowed ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::period_is_required_and_must_be_month_shaped ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::permissions_are_reused_from_existing_codes ... ok
+test business::erp::cost::cost_batch_collect_dto::tests::subset_is_empty_when_nothing_matches ... FAILED
+test business::erp::cost::cost_batch_collect_dto::tests::subset_keeps_own_rows_and_key_hits_but_not_others ... FAILED
+test business::erp::cost::cost_batch_collect_dto::tests::subset_works_for_overhead_rows_with_null_object ... FAILED
+test business::erp::cost::cost_batch_collect_handler::tests::permissions_are_the_two_reused_codes ... ok
+test business::erp::cost::cost_batch_collect_handler::tests::route_macros_declare_the_same_permission_literals ... ok
+test business::erp::cost::cost_batch_collect_handler::tests::route_methods_are_get_for_preview_and_post_for_collect ... ok
+test business::erp::cost::cost_batch_collect_model::tests::element_totals_sums_three_elements ... ok
+test business::erp::cost::cost_batch_collect_model::tests::scope_target_is_the_registered_cost_object_anchor ... ok
+
+failures:
+
+---- business::erp::cost::cost_batch_collect_db_tests::db::relinked_stock_out_moves_the_collected_row stdout ----
+
+thread 'business::erp::cost::cost_batch_collect_db_tests::db::relinked_stock_out_moves_the_collected_row' (4096730) panicked at app/src/business/erp/cost/cost_batch_collect_db_tests.rs:922:9:
+assertion `left == right` failed
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::cost::cost_batch_collect_dto::tests::subset_is_empty_when_nothing_matches stdout ----
+
+thread 'business::erp::cost::cost_batch_collect_dto::tests::subset_is_empty_when_nothing_matches' (4096743) panicked at app/src/business/erp/cost/cost_batch_collect_dto.rs:707:9:
+assertion failed: subset_for_object(&rows, me, &[]).is_empty()
+
+---- business::erp::cost::cost_batch_collect_dto::tests::subset_keeps_own_rows_and_key_hits_but_not_others stdout ----
+
+thread 'business::erp::cost::cost_batch_collect_dto::tests::subset_keeps_own_rows_and_key_hits_but_not_others' (4096744) panicked at app/src/business/erp/cost/cost_batch_collect_dto.rs:681:9:
+assertion `left == right` failed: 本批行 + 键命中的外来行
+  left: 3
+ right: 2
+
+---- business::erp::cost::cost_batch_collect_dto::tests::subset_works_for_overhead_rows_with_null_object stdout ----
+
+thread 'business::erp::cost::cost_batch_collect_dto::tests::subset_works_for_overhead_rows_with_null_object' (4096745) panicked at app/src/business/erp/cost/cost_batch_collect_dto.rs:698:9:
+assertion `left == right` failed
+  left: 2
+ right: 1
+
+
+failures:
+    business::erp::cost::cost_batch_collect_db_tests::db::relinked_stock_out_moves_the_collected_row
+    business::erp::cost::cost_batch_collect_dto::tests::subset_is_empty_when_nothing_matches
+    business::erp::cost::cost_batch_collect_dto::tests::subset_keeps_own_rows_and_key_hits_but_not_others
+    business::erp::cost::cost_batch_collect_dto::tests::subset_works_for_overhead_rows_with_null_object
+
+test result: FAILED. 30 passed; 4 failed; 0 ignored; 0 measured; 6592 filtered out; finished in 0.48s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

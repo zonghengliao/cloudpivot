@@ -1,0 +1,4 @@
+$ cargo clippy -p cloudpivot --lib --tests -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 45s
+rc=0
