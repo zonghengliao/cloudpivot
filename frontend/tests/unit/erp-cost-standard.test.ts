@@ -448,7 +448,7 @@ test('导入结果话术：失败时说清「整批未入库」并按行去重',
   const text = importSummaryText(result);
   assert.ok(text.includes('整批未入库'), text);
   assert.ok(text.includes('一条都没写入'), text);
-  assert.ok(text.includes('2 行'), text, '按行去重：第 3 行两条错只算一行');
+  assert.ok(text.includes('2 行'), `按行去重：第 3 行两条错只算一行（实际：${text}）`);
   assert.equal(importSummaryTheme(result), 'error');
 
   const rows = importIssueRows(result);
