@@ -1,0 +1,24 @@
+卡	主题	目标	提交	迁移/号	主要产物	本卡复核口径
+M4-01	① 计划	采购计划表结构（年度/月度 × 物料 × 仓库）	0aef195b	V0446	purchase_plan_model.rs / purchase_plan_db_tests.rs	真库用例（计划组 117 条）+ 表/索引/取号断言
+M4-02	① 计划	计划 CRUD + 审批（pp_approve + 菜单）	378a9bbd, a77e4b1b	V0447	purchase_plan_handler.rs / _dto.rs / _bridge.rs	计划组用例 + 菜单 8 行 + 路由 5 条
+M4-03	① 计划	计划 → 采购申请转换（一仓一单 + 已执行量回写）	8f89101c	V0448	purchase_plan_convert_handler.rs	计划组用例（convert_db_tests 11 条）
+M4-04	① 计划	执行率跟踪（2 视图 + 2 只读接口）	d3ae08cf	V0449	purchase_plan_execution_*	v_purchase_plan(_item)_execution 存在 + 用例
+M4-05	① 计划	计划单测（状态机 × 报错出口 × 快照 × 执行率 24 条）	1ade9652	—	purchase_plan_state_tests.rs	计划组用例
+M4-06	① 计划	前端页面（录入 + 执行率总览/下钻）	41d66a9c	—	frontend/src/views/business/erp/purchase-plan/	页面 + api + 路由 三件齐（浏览器档见 2026-11-18-m406 证据）
+M4-07	② 框架	框架协议表结构（有效期 + 价格条款 + 数量上限）	6019e4e5	V0450	framework_agreement_model.rs	框架组 101 条 + 头/明细表断言
+M4-08	② 框架	订单引用协议（校验单价/累计量，超限拒绝）	56138ebf, 62669429	V0451	framework_agreement_ref.rs	框架组用例 + 采购单 framework_agreement_id/快照 2 列
+M4-09	② 框架	协议执行量统计（2 视图 + 2 只读接口）	a5aeb295	V0452	framework_agreement_execution_*	两视图存在 + 框架组用例
+M4-10	② 框架	超限反例 12 条 + 变异反证 4 处	ef8c36fe	—	framework_agreement_over_limit_tests.rs	框架组用例
+M4-11	② 框架	前端页面 + 执行量视图除零修复	8adc727c	V0453	frontend/.../framework-agreement/	三件齐 + 视图存在
+M4-11b	② 框架	协议维护链路（CRUD + 提交审批 + 写入口）	3d256f92, e75f7d76	V0456	framework_agreement_crud_db_tests.rs	框架组用例 + 路由 8 条 + 流程 PUBLISHED
+M4-12	③ 评估	供应商评估表结构（四维打分 + 权重 + 生成列总分）	2f3dec42	V0454	supplier_evaluation_model.rs	评估组 71 条 + 表断言
+M4-13	③ 评估	评估打分 + 评级 A/B/C/D（阈值唯一出处）	a1d98ca2	—	supplier_evaluation_grading.rs	评估组用例
+M4-14	③ 准入	准入 / 黑名单流程（supplier_access + 启停闸）	209eefe1, b39e6c05	V0455	supplier_access_handler.rs / _flow.rs	准入组 20 条 + 流程 PUBLISHED + 路由 6 条
+M4-15	③ 评估	评估单测（评级边界穷举 / 并发 / 跨期）	eb1a95fb	—	supplier_evaluation_suite_tests.rs	评估组用例
+M4-16	③ 评估	评估页接口面（台账 / 详情 / 打分 / 排名 / 交期建议）	ffd75d2d	V0457	supplier_evaluation_handler.rs	路由 5 条 + 菜单 3 行 + 三件齐
+M4-17	④ 合同号	采购订单加 contract_id	a203dc02	（V0198 早已落地，本卡不重复加）	4 列 + ck_biz_po_contract_pair + idx_biz_po_contract	结构断言（列/CHECK/索引）
+M4-18	④ 合同号	订单挂合同校验（金额不超合同，超限 409/66019）	ff467315	—	purchase_handler.rs::guard_contract_amount	采购域 459 条（含 8 条额度守卫真库用例）
+M4-19	④ 合同号	合同执行量统计（2 视图 + 2 只读接口）	b1772279	V0458	contract/contract_execution_*	合同执行组 26 条 + 两视图 + 路由 2 条
+M4-20	E2E	计划 → 申请 → 订单 → 入库 全链	b1a42d52	—	purchase_chain_e2e_tests.rs	3 条真库用例（本次重跑）
+M4-21	E2E	框架协议 + 合同关联（含超限夹在链中间）	d79504b4（+9cccdc87, 4201da80）	—	framework_contract_e2e_tests.rs	5 条真库用例（本次重跑）
+M4-22	收口	汇总证据包（计划 + 框架 + 评估 + 合同号）	本卡	—（零迁移）	scripts/verify/m422_purchase_gap_closeout_drill.sh + m422_purchase_scope_audit.py + 本目录	本卡全量重跑：PASS=78 FAIL=0

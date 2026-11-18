@@ -1,0 +1,93 @@
+== M4-22 采购缺口收口演练（PG 172.18.10.145:5432 / 库 cp_m422_closeout_drill_3871499）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m422_closeout_drill_3871499
+== 1) 迁移面：补齐 V0405…最新，并把 M4 段 V0446…V0458 再跑一遍（幂等）
+  [32mPASS[0m 54 条业务迁移全部应用成功
+  [32mPASS[0m M4 段迁移文件 13 条（V0446…V0458，跨目录无重号）（=13）
+  [32mPASS[0m M4 段 13 条迁移**第二遍零 ERROR**（幂等；空库重建/灾备走同一条路）（=0）
+== 2) 结构面：6 表 + 6 视图 + 采购单 4 列 + 合同对偶 CHECK + 3 套审批流
+  [32mPASS[0m 主题① 采购计划头表（V0446）（=biz_purchase_plan）
+  [32mPASS[0m 主题① 采购计划明细（V0446）（=biz_purchase_plan_item）
+  [32mPASS[0m 主题② 框架协议头表（V0450）（=biz_framework_agreement）
+  [32mPASS[0m 主题② 框架协议明细（V0450）（=biz_framework_agreement_item）
+  [32mPASS[0m 主题③ 供应商评估（V0454）（=biz_supplier_evaluation）
+  [32mPASS[0m 主题③ 供应商准入（V0455）（=biz_supplier_access）
+  [32mPASS[0m 视图 v_purchase_plan_execution 存在（=v_purchase_plan_execution）
+  [32mPASS[0m 视图 v_purchase_plan_item_execution 存在（=v_purchase_plan_item_execution）
+  [32mPASS[0m 视图 v_framework_agreement_execution 存在（=v_framework_agreement_execution）
+  [32mPASS[0m 视图 v_framework_agreement_item_execution 存在（=v_framework_agreement_item_execution）
+  [32mPASS[0m 视图 v_contract_execution 存在（=v_contract_execution）
+  [32mPASS[0m 视图 v_contract_execution_order 存在（=v_contract_execution_order）
+  [32mPASS[0m 主题④ 采购单 4 个合同/协议列都在（contract_id 由 V0198 早已落地）（=4）
+  [32mPASS[0m 合同对偶 CHECK ck_biz_po_contract_pair 在位（CONTRACT⇔有合同号 / SPOT⇔无）（=1）
+  [32mPASS[0m 合同索引 idx_biz_po_contract 在位（=1）
+  [32mPASS[0m 3 套新审批流已发布（pp_approve / fw_agreement / supplier_access）（=3）
+  [32mPASS[0m 四主题菜单 24 行（4 页面 + 20 按钮）（=24）
+  [32mPASS[0m 4 个页面行 path 挂在 /business/erp 下（侧栏显形）（=4）
+  [32mPASS[0m PURCHASE_MANAGER 对四主题全量授权（≥24 码）（=24）
+== 2b) 前端面：4 个页面 / 4 个 api / 4 条路由登记
+  [32mPASS[0m 四个前端页面「页面 + api + 路由」三件齐（=4）
+== 3) 接口面：源码路由 ↔ 权限码 ↔ sys_menu（三向对拍）
+  PASS 主题① 采购计划 路由 9 条
+  PASS 主题② 框架协议 路由 8 条
+  PASS 主题③ 供应商评估 路由 5 条
+  PASS 主题③ 供应商准入 路由 6 条
+  PASS 主题④ 合同执行量 路由 2 条
+  PASS 主题④ 采购单承载面（既有域） 路由 10 条
+  PASS 40 条范围内路由全部挂了 `#[nik::permission]` 权限码
+  PASS 权限声明 path 与路由宏 path 逐条一致
+  PASS 主题① 采购计划（1 页 + 7 按钮） 菜单 8 行
+  PASS 主题② 框架协议（1 页 + 6 按钮） 菜单 7 行
+  PASS 主题③ 供应商评估（1 页 + 2 按钮） 菜单 3 行
+  PASS 主题③ 供应商准入（1 页 + 4 按钮） 菜单 5 行
+  PASS 主题④ 合同执行量（1 按钮） 菜单 1 行
+  PASS 源码用到的 26 个权限码在 `sys_menu` 全部有承载
+  PASS 25 个按钮码全部有接口承载（无摆设码）
+  PASS 4 个页面显形码在后端代码零引用（只给前端判显隐）
+  PASS 四主题菜单 title 全部 ≤ 12 字
+  [32mPASS[0m 三向对拍审计全绿（17 条断言，见 /root/.hermes/profiles/backend-developer/cache/scratch/m422_audit_3871499.out）
+== 5) 演练库清污：模板自带的 W1B-PO-0001 历史 PENDING 审批实例
+  ---- 清污影响行数：待办 [DELETE 3] / 节点 [DELETE 4] / 实例 [DELETE 1]
+== 6) 真库用例（--test-threads=1；每组 SKIP 必须为 0）
+  [32mPASS[0m 主题① 计划（结构/CRUD/审批/转申请/执行率/单测）：business::erp::purchase::purchase_plan 全绿（117 条 ≥ 基线 117）
+  [32mPASS[0m 主题① 计划（结构/CRUD/审批/转申请/执行率/单测）：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 主题② 框架协议（引用/执行量/超限/维护）：business::erp::purchase::framework_agreement 全绿（101 条 ≥ 基线 101）
+  [32mPASS[0m 主题② 框架协议（引用/执行量/超限/维护）：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 主题③ 供应商评估（打分/评级/台账/排名）：business::erp::purchase::supplier_evaluation 全绿（71 条 ≥ 基线 71）
+  [32mPASS[0m 主题③ 供应商评估（打分/评级/台账/排名）：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 主题③ 供应商准入（申请单 + 启停闸）：business::erp::purchase::supplier_access 全绿（20 条 ≥ 基线 20）
+  [32mPASS[0m 主题③ 供应商准入（申请单 + 启停闸）：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 主题④ 合同执行量（视图 + 两接口）：business::erp::contract::contract_execution 全绿（26 条 ≥ 基线 26）
+  [32mPASS[0m 主题④ 合同执行量（视图 + 两接口）：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m E2E-20 计划→申请→订单→入库：business::erp::purchase::purchase_chain_e2e_tests 全绿（3 条 ≥ 基线 3）
+  [32mPASS[0m E2E-20 计划→申请→订单→入库：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m E2E-21 框架协议 + 合同关联：business::erp::purchase::framework_contract_e2e_tests 全绿（5 条 ≥ 基线 5）
+  [32mPASS[0m E2E-21 框架协议 + 合同关联：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 回归：采购域整组（四主题同域，互不踩脚）：business::erp::purchase 全绿（459 条 ≥ 基线 459）
+  [32mPASS[0m 回归：采购域整组（四主题同域，互不踩脚）：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 回归：合同域整组：business::erp::contract 全绿（109 条 ≥ 基线 109）
+  [32mPASS[0m 回归：合同域整组：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  [32mPASS[0m 回归：收货域整组（两条 E2E 都要过账到库存）：business::erp::stockin 全绿（165 条 ≥ 基线 165）
+  [32mPASS[0m 回归：收货域整组（两条 E2E 都要过账到库存）：SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+== 7) 卫生面：本批业务单据 0 残留 / 明细无孤儿 / 审批实例无在跑
+  [32mPASS[0m biz_purchase_plan 无 M4xx 计划（=0）
+  [32mPASS[0m biz_framework_agreement 无 M4xx 协议（=0）
+  [32mPASS[0m biz_supplier_evaluation 无 M4xx 评估（=0）
+  [32mPASS[0m biz_supplier_access 无 M4xx 准入单（=0）
+  [32mPASS[0m biz_purchase_order 无 M4xx 采购单（=0）
+  [32mPASS[0m biz_purchase_requisition 无 M4xx 申请单（=0）
+  [32mPASS[0m biz_stock_in 无 M4xx 收货单（=0）
+  [32mPASS[0m biz_contract 无 M4xx 合同（=0）
+  [32mPASS[0m 计划明细无孤儿（=0）
+  [32mPASS[0m 协议明细无孤儿（=0）
+  [32mPASS[0m 本批三类审批无在跑实例（PP/FWA/SUPPLIER_ACCESS 模板里本来 0 条 → 全量闸）（=0）
+  [32mPASS[0m 采购单审批无在跑实例（模板 W1B 残留已按单号清）（=0）
+  [32mPASS[0m 申请单审批 PENDING = 2（模板库 2026-11-09 种子基线，与本批无关，只按基线比）（=2）
+  ---- 主数据基线（不设闸）：物料 M4xx=20 / 供应商 M4xx=12 —— 一律走 test_seed::ensure_*，重复跑不增行
+== 8) 门禁面：permission_audit_tests（8 条）+ menu_invariants.sh（8 条）
+  [32mPASS[0m permission_audit_tests 全绿（8 条 ≥ 8）
+  [32mPASS[0m menu_invariants.sh 8 条全绿（见 /root/.hermes/profiles/backend-developer/cache/scratch/m422_menu_inv_3871499.out）
+
+== 汇总：PASS=78 FAIL=0 ==
+ALL PASS

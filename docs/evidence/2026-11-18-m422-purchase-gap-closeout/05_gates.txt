@@ -1,0 +1,44 @@
+M4-22 门禁原始输出（2026-11-18，99 开发机）
+本卡只新增 2 个脚本 + 1 个证据包，零 Rust / 零迁移 / 零前端改动；门禁仍按卡面全跑一遍。
+
+==================== 1) cargo fmt -p cloudpivot -- --check ====================
+$ cd backend && cargo fmt -p cloudpivot -- --check
+fmt_rc=0
+
+==================== 2) cargo clippy -p cloudpivot --lib -- -D warnings ====================
+$ cd backend && cargo clippy -p cloudpivot --lib -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 33.73s
+clippy_rc=0
+
+==================== 3) permission_audit_tests（8 条）====================
+$ cargo test -p cloudpivot --lib system::menu::permission_audit_tests -- --test-threads=1
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... ok
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6518 filtered out; finished in 13.47s
+
+
+==================== 4) menu_invariants.sh（8 条，跑在演练库上）====================
+$ PGHOST=172.18.10.145 PGUSER=cloudpivot bash scripts/verify/menu_invariants.sh <演练库>
+═══ 菜单结构不变量 ═══
+库: cp_m422_closeout_drill_3871499
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            564  ✅ (400-580)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 129 条，全部命中
+结果: 全绿 ✅
+
+==================== 5) 迁移号段自查 ====================
+$ ls backend/app/migrations/business | grep -oE "^V[0-9]{4}" | sort -u | tail -3
+V0456
+V0457
+V0458
+（M4 段 = V0446…V0458 共 13 个版本号，跨目录全局唯一；本卡零新增迁移）
