@@ -457,8 +457,11 @@ async fn update_evaluation(
 ///
 /// 落库后立即读回并**对拍**两件事：
 ///
-/// 1. 读回的 `total_score`（库层生成列）必须等于 Rust 侧 [`weighted_total`] 的试算值 ——
-///    两条公式一旦漂移，这里立刻报错，而不是让「总分」和「等级」长期不一致；
+/// 1. 读回的 `total_score`（库层生成列）必须等于用**这一行自己的**权重 / 分数算的
+///    [`weighted_total`]（[`EvaluationRow::recomputed_total`]）—— 两条公式一旦漂移，
+///    这里立刻报错，而不是让「总分」和「等级」长期不一致。
+///    ⚠ 刻意**不**拿本次入参比：并发写同一期间时读回的可能已是另一路的一次完整写入，
+///    拿入参比会把「并发」误判成「漂移」并给用户 400（M4-15 的并发用例实测复现）。
 /// 2. 读回的 `grade` 必须等于 [`grade_for_total`]（读回总分）—— 等级与阈值同源。
 ///
 /// 不给 `total_score` 一个写入口（它本来就是生成列，写不进）；调用方只需要传四维分数 + 权重。
@@ -468,7 +471,7 @@ pub async fn save_evaluation(
     now: DateTime<Utc>,
 ) -> DbResult<SaveOutcome> {
     validate_input(input)?;
-    let (grade, rust_total) = grade_and_total(&input.weights, &input.scores)?;
+    let grade = grade_and_total(&input.weights, &input.scores)?.0;
 
     let existing = model::evaluation_of_period(ex, input.supplier_id, input.period_start, input.period_end).await?;
     let (id, created) = match existing {
@@ -500,7 +503,14 @@ pub async fn save_evaluation(
     let row = model::find_evaluation(ex, id)
         .await?
         .ok_or_else(|| DbError::InvalidValue(format!("评估 {id} 落库后读不回来（同事务内被删？）")))?;
-    // ① 两条公式对拍（库层生成列 vs Rust 试算）
+    // ① 两条公式对拍：库层生成列 vs 用**读回这一行自己的**权重 / 分数试算
+    //    （`EvaluationRow::recomputed_total`）。为什么不再拿本次入参比：
+    //    并发写同一供应商同一期间时，读回的可能已经是另一路的一次**完整**写入
+    //    （整行 UPDATE 原子，不存在「分数是甲的、等级是乙的」撕裂行），
+    //    拿入参比会误报「加权总分漂移」把 400 甩给用户（M4-15 并发用例实测复现）。
+    //    用行内数据比仍能抓住真正的漂移：生成列表达式与 weighted_total 不一致时，
+    //    任何一行读回来都对不上。
+    let rust_total = row.recomputed_total();
     if row.total_score != rust_total {
         return Err(DbError::InvalidValue(format!(
             "加权总分漂移：库层生成列 {} vs Rust 试算 {rust_total}（生成列表达式与 weighted_total 不一致）",

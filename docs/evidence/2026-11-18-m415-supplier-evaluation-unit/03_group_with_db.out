@@ -1,0 +1,60 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 53 tests
+test business::erp::purchase::supplier_evaluation_db_tests::dimension_scores_are_0_to_100 ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::evaluation_no_format_and_surviving_uniqueness ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::grade_domain_and_null_means_unrated ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::model_weighted_total_matches_db_generated_column ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::next_evaluation_no_uses_sev_seq ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::one_evaluation_per_supplier_per_period ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::period_window_and_eval_date_invariants ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::schema_shape_matches_migration ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::supplier_snapshot_and_live_name_coexist ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::tests::fixture_numbers_sit_in_the_probe_band ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::total_score_is_generated_from_weights_and_scores ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::weights_must_sum_to_one_and_be_in_range ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::delivery_stat_scores_only_when_there_is_data ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_and_total_uses_weighted_total_and_validates_inputs ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_boundaries_are_inclusive_on_the_lower_bound ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_case_sql_mirrors_the_threshold_table ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_rejects_out_of_range_totals ... ok
+test business::erp::purchase::supplier_evaluation_grading::tests::grade_thresholds_are_descending_and_end_with_zero ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::delivery_stat_counts_only_posted_purchase_stock_ins ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::delivery_stat_empty_without_receipts ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::grade_boundaries_in_database ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::invalid_inputs_are_rejected_before_write ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::regrade_repairs_wrong_and_null_grades ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::regrade_scope_leaves_other_periods_alone ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::rust_total_matches_generated_column_on_grid ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::save_creates_graded_evaluation ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::save_twice_overwrites_same_document ... ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::decimal_and_date_text_are_plain_literals ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::dimension_consts_are_unique_and_ordered ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::equal_weights_are_valid_and_sum_to_one ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::grade_domain_keeps_unrated_as_none ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::no_format_is_padded_to_six_digits ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::period_and_eval_date_invariants ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::period_key_rolls_on_beijing_midnight ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::period_label_recognizes_month_quarter_and_year ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::scores_are_0_to_100_inclusive ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::weight_sum_must_be_exactly_one ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::weighted_total_matches_hand_arithmetic ... ok
+test business::erp::purchase::supplier_evaluation_model::tests::weighted_total_rounds_midpoint_away_from_zero_like_pg ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::bulk_regrade_is_one_pass_idempotent_and_leaves_scores_alone ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::case_sql_and_rust_share_one_threshold_table ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::concurrent_scoring_of_one_period_keeps_one_document ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::cross_period_scoring_makes_independent_documents ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::grade_policy_holds_on_every_hundredth_point ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rating_boundaries_hold_in_the_database ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rejected_inputs_never_touch_an_existing_evaluation ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rounding_happens_before_grading ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::single_dimension_weights_reach_every_band ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::sql_case_agrees_with_rust_on_every_hundredth_point ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::weight_and_score_domains_are_validated_at_the_edges ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 6380 filtered out; finished in 0.68s
+

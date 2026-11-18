@@ -1,0 +1,60 @@
+== M4-15 供应商评估单测演练 · PG 172.18.10.145:5432 / 库 cp_m415_ut_drill_3674688 ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m415_ut_drill_3674688
+== 1) 应用业务迁移（模板 → 仓库当前版本）
+  ---- 模板库版本 = V404
+  [32mPASS[0m 迁移全部成功（应用 51 个）（=0）
+  [32mPASS[0m M4-12 的评估表在位（=1）
+  [32mPASS[0m SEV 取号行在位（=1）
+==> 2. 不连库：整组仍 passed，但本卡标记只有纯逻辑那 5 条（假绿对照）
+  [32mPASS[0m 不连库时返回 0（跳过的用例不算失败）（=0）
+  [32mPASS[0m 不连库时 0 failed（=0）
+  [32mPASS[0m 不连库时 passed 仍是 12 条（passed 数不能判真假绿）（=12）
+  [32mPASS[0m 不连库时只有 5 条纯逻辑真跑了（真库用例提前 return）（=5）
+==> 3. 真库：本卡 12 条标记全部出现，0 failed / 0 SKIP
+  [32mPASS[0m 真库本卡返回 0（=0）
+  [32mPASS[0m 真库本卡 0 failed（=0）
+  [32mPASS[0m 真库本卡 SKIP=0（一条都没跳过）（=0）
+  [32mPASS[0m 真库本卡 passed = 12（=12）
+  [32mPASS[0m 本卡 12 条逐条执行（=12）
+  [32mPASS[0m 本卡 12 条正向标记全部出现（=12）
+  [32mPASS[0m 本卡 0 条 FAILED（=0）
+==> 4. 回归：整组 supplier_evaluation（M4-12 表结构 + M4-13 打分评级 + 本卡）
+  [32mPASS[0m 整组返回 0（=0）
+  [32mPASS[0m 整组 0 failed（本卡改的读回对拍没弄坏 M4-12/13 的用例）（=0）
+  [32mPASS[0m 整组 SKIP=0（=0）
+  [32mPASS[0m 整组 passed = 53（=53）
+==> 5. 变异反证：判据改错必须转红，恢复必须转绿
+  [32mPASS[0m 变异 A 被用例抓住（rc=101，grade_policy_holds_on_every_hundredth_point 转红）
+  [32mPASS[0m 变异 A 恢复后转绿（12 条全过）
+  [32mPASS[0m 变异 B 被用例抓住（rc=101，rounding_happens_before_grading 转红）
+  [32mPASS[0m 变异 B 恢复后转绿（12 条全过）
+  [32mPASS[0m 变异 C 被用例抓住（rc=101，grade_policy_holds_on_every_hundredth_point 转红）
+  [32mPASS[0m 变异 C 恢复后转绿（12 条全过）
+  [32mPASS[0m 变异 D 被用例抓住（rc=101，sql_case_agrees_with_rust_on_every_hundredth_point 转红）
+  [32mPASS[0m 变异 D 恢复后转绿（12 条全过）
+  [32mPASS[0m 打分模块已逐字回到变异前的基线（含本卡的读回对拍修复）（=a328025a6bfdf50c89560c07e655ff75b544f769e436304f1f21be8ffb3242de）
+  [32mPASS[0m 模型模块已逐字回到变异前的基线（=034b4e484be079186b4dcbea693d2fe2bf049a7f96f06ea6d504280be57eb2b3）
+  [32mPASS[0m 工作区里没有残留的 MUTATION 标记
+== 6) 不夹带：本卡 0 迁移 / 0 前端改动 / 生产代码只动一处
+  [32mPASS[0m 本卡不动任何迁移文件（=0）
+  [32mPASS[0m 新增的测试文件在位（=1）
+  [32mPASS[0m 本卡 0 前端改动（=0）
+  ---- 生产代码改动（应为 HEAD + 读回对拍修复）：
+     .../erp/purchase/supplier_evaluation_grading.rs        | 18 ++++++++++++++----
+     1 file changed, 14 insertions(+), 4 deletions(-)
+==> 7. 门禁：fmt / clippy --lib / clippy --all-targets / P2-62 夹具
+  [32mPASS[0m cargo fmt --check rc=0（=0）
+  [32mPASS[0m cargo clippy --lib -D warnings rc=0（=0）
+  [32mPASS[0m cargo clippy --all-targets -D warnings rc=0（=0）
+  [32mPASS[0m clippy 输出 0 条 warning（=0）
+  [32mPASS[0m P2-62 夹具门禁 rc=0（本文件零主数据手写 INSERT）（=0）
+
+================ M4-15 供应商评估单测演练汇总 ================
+不连库：passed=12 failed=0 本卡标记=5（假绿对照：真库用例提前 return）
+真  库：passed=12 failed=0 SKIP=0 本卡标记=12
+回归组：passed=53 failed=0 SKIP=0
+变异反证：A(含下界改不含) / B(舍入截断) / C(阈值 80→85) / D(SQL CASE 塞第二份阈值)
+断言：PASS=39 FAIL=0
+RESULT: PASS

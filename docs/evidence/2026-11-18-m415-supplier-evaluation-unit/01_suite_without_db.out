@@ -1,0 +1,26 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 29s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 12 tests
+test business::erp::purchase::supplier_evaluation_suite_tests::bulk_regrade_is_one_pass_idempotent_and_leaves_scores_alone ... SKIP: 未设置 ERP_DB_URL（不连真实数据库）
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::case_sql_and_rust_share_one_threshold_table ... [M4-15] case_sql_and_rust_share_one_threshold_table
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::concurrent_scoring_of_one_period_keeps_one_document ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::cross_period_scoring_makes_independent_documents ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::grade_policy_holds_on_every_hundredth_point ... [M4-15] grade_policy_holds_on_every_hundredth_point
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rating_boundaries_hold_in_the_database ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rejected_inputs_never_touch_an_existing_evaluation ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rounding_happens_before_grading ... [M4-15] rounding_happens_before_grading
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::single_dimension_weights_reach_every_band ... [M4-15] single_dimension_weights_reach_every_band
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::sql_case_agrees_with_rust_on_every_hundredth_point ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::weight_and_score_domains_are_validated_at_the_edges ... [M4-15] weight_and_score_domains_are_validated_at_the_edges
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 6421 filtered out; finished in 0.01s
+

@@ -84,6 +84,11 @@ mod supplier_access_db_tests;
 #[cfg(test)]
 mod supplier_evaluation_grading_db_tests;
 
+/// 供应商评估「单测」收口（M4-15：评级边界穷举 / 并发同期间 / 跨期重打分 / 大方量
+/// regrade；与其它 ERP 用例共用同一个串行锁）。
+#[cfg(test)]
+mod supplier_evaluation_suite_tests;
+
 /// 供应商评估表结构的真库用例（M4-12；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]
 mod supplier_evaluation_db_tests;

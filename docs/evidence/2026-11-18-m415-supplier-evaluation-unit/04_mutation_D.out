@@ -1,0 +1,49 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 53s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 12 tests
+test business::erp::purchase::supplier_evaluation_suite_tests::bulk_regrade_is_one_pass_idempotent_and_leaves_scores_alone ... [M4-15] bulk_regrade_is_one_pass_idempotent_and_leaves_scores_alone
+[M4-15-bulk] bulk regrade 1200 行耗时 35.958541ms
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::case_sql_and_rust_share_one_threshold_table ... [M4-15] case_sql_and_rust_share_one_threshold_table
+
+thread 'business::erp::purchase::supplier_evaluation_suite_tests::case_sql_and_rust_share_one_threshold_table' (3678693) panicked at app/src/business/erp/purchase/supplier_evaluation_suite_tests.rs:277:5:
+assertion `left == right` failed: CASE 的阈值序列必须**逐字等于** GRADE_THRESHOLDS（阈值只有一份）
+  left: ["91", "90", "80", "70", "0"]
+ right: ["90", "80", "70", "0"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test business::erp::purchase::supplier_evaluation_suite_tests::concurrent_scoring_of_one_period_keeps_one_document ... [M4-15] concurrent_scoring_of_one_period_keeps_one_document
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::cross_period_scoring_makes_independent_documents ... [M4-15] cross_period_scoring_makes_independent_documents
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::grade_policy_holds_on_every_hundredth_point ... [M4-15] grade_policy_holds_on_every_hundredth_point
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rating_boundaries_hold_in_the_database ... [M4-15] rating_boundaries_hold_in_the_database
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rejected_inputs_never_touch_an_existing_evaluation ... [M4-15] rejected_inputs_never_touch_an_existing_evaluation
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::rounding_happens_before_grading ... [M4-15] rounding_happens_before_grading
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::single_dimension_weights_reach_every_band ... [M4-15] single_dimension_weights_reach_every_band
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::sql_case_agrees_with_rust_on_every_hundredth_point ... [M4-15] sql_case_agrees_with_rust_on_every_hundredth_point
+
+thread 'business::erp::purchase::supplier_evaluation_suite_tests::sql_case_agrees_with_rust_on_every_hundredth_point' (3678705) panicked at app/src/business/erp/purchase/supplier_evaluation_suite_tests.rs:556:5:
+SQL CASE 与 Rust 阈值在 901 个点上分叉（前 5 个）：["总分 91.00：SQL Some(\"B\") vs Rust A", "总分 91.01：SQL Some(\"B\") vs Rust A", "总分 91.02：SQL Some(\"B\") vs Rust A", "总分 91.03：SQL Some(\"B\") vs Rust A", "总分 91.04：SQL Some(\"B\") vs Rust A"]
+FAILED
+test business::erp::purchase::supplier_evaluation_suite_tests::weight_and_score_domains_are_validated_at_the_edges ... [M4-15] weight_and_score_domains_are_validated_at_the_edges
+ok
+test business::erp::purchase::supplier_evaluation_suite_tests::zz_teardown_purges_fixtures ... [M4-15] zz_teardown_purges_fixtures
+ok
+
+failures:
+
+failures:
+    business::erp::purchase::supplier_evaluation_suite_tests::case_sql_and_rust_share_one_threshold_table
+    business::erp::purchase::supplier_evaluation_suite_tests::sql_case_agrees_with_rust_on_every_hundredth_point
+
+test result: FAILED. 10 passed; 2 failed; 0 ignored; 0 measured; 6421 filtered out; finished in 0.49s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

@@ -1,0 +1,20 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 38s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test business::erp::purchase::supplier_evaluation_suite_tests::concurrent_scoring_of_one_period_keeps_one_document ... [M4-15] concurrent_scoring_of_one_period_keeps_one_document
+
+thread 'business::erp::purchase::supplier_evaluation_suite_tests::concurrent_scoring_of_one_period_keeps_one_document' (3680552) panicked at app/src/business/erp/purchase/supplier_evaluation_suite_tests.rs:593:41:
+第 0 轮第 1 路并发打分失败（并发不许给用户报错）：invalid value: 加权总分漂移：库层生成列 96.00 vs Rust 试算 74.00（生成列表达式与 weighted_total 不一致）
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    business::erp::purchase::supplier_evaluation_suite_tests::concurrent_scoring_of_one_period_keeps_one_document
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6432 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

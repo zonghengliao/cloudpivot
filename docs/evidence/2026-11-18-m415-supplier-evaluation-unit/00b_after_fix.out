@@ -1,0 +1,10 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 36s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test business::erp::purchase::supplier_evaluation_suite_tests::concurrent_scoring_of_one_period_keeps_one_document ... [M4-15] concurrent_scoring_of_one_period_keeps_one_document
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6432 filtered out; finished in 0.22s
+
