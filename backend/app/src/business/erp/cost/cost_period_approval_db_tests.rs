@@ -675,4 +675,104 @@ mod db {
         purge(PERIOD).await;
         purge_fixtures().await;
     }
+
+    /// ⑦ 清场自证：本模块的期间批次 / 审批痕迹**一条不剩**（含上一轮中途失败留下的）。
+    ///
+    /// # 这条用例守的是什么（卡 `t_18b222b9`）
+    ///
+    /// 每条用例尾部都会 `purge(PERIOD) + purge_fixtures()`，但那只在**用例跑到尾**时生效。
+    /// 一旦某条用例在中途 panic（第二轮实测：`role_tasks` 的夹具污染断言先红），它造的那张
+    /// `2031-09` 批次就停在 `SUBMITTED`（「已提交待审批」）没人收 —— 随后
+    /// `business::erp::period` 的结账用例（`p1_*` / `p3_*`，共 10 条）集体被它挡住
+    /// （「成本核算未结算：批次 CS-203109-0028…请先结算或作废后再结账」）。
+    ///
+    /// 所以这里**不信「每条用例都会跑到尾」**：按本模块的根（`create_by = 夹具制单人`）
+    /// 把这一批期间的全部批次 / 实例 / 待办 / 计算单 / 状态日志再收一遍，并逐项断言为 0。
+    /// 判据是「本模块自己造的 id 集合」——不按期间前缀扫全库（别的模块也用 `2031-xx`）。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        if !ensure_db().await {
+            return;
+        }
+        let _guard = DB_LOCK.lock().await;
+
+        // ① 先把「本模块建单人造的全部期间批次」抓下来（删完就查不到了），顺便把残留形态打出来
+        let rows = db()
+            .query_sql(
+                "SELECT id, period_code, status FROM biz_cost_period WHERE create_by = ?::uuid \
+                  ORDER BY period_code"
+                    .to_string(),
+                vec![Value::from(&uid(U_MAKER))],
+            )
+            .await
+            .expect("查本模块批次");
+        let leftovers: Vec<Uuid> = rows
+            .iter()
+            .map(|row| row.get_typed::<Uuid>("id").expect("批次 id"))
+            .collect();
+        let shape: Vec<String> = rows
+            .iter()
+            .map(|row| {
+                format!(
+                    "{}({})",
+                    row.get_typed::<String>("period_code").expect("期间"),
+                    row.get_typed::<String>("status").expect("状态")
+                )
+            })
+            .collect();
+        if !leftovers.is_empty() {
+            println!("[B3-3] zz 收尾：发现上一轮残留批次 {} 条：{shape:?}", leftovers.len());
+        }
+        let id_list = leftovers
+            .iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        // ② 按本模块的根清场（与每例 setup 同一个函数，幂等）
+        purge_fixtures().await;
+
+        // ③ 逐项复查 —— 不信 self-report，全部回库数：
+        //    残留批次的**计算单 / 审批实例 / 待办**必须在删批次时就跟着走干净。
+        let mut checks: Vec<(String, String)> = vec![(
+            "本模块批次残留".to_string(),
+            format!("SELECT count(*) AS n FROM biz_cost_period WHERE create_by = '{U_MAKER}'::uuid"),
+        )];
+        if !leftovers.is_empty() {
+            checks.push((
+                "计算单残留".to_string(),
+                format!("SELECT count(*) AS n FROM biz_cost_period_item WHERE period_id IN ({id_list})"),
+            ));
+            checks.push((
+                "审批实例残留".to_string(),
+                format!(
+                    "SELECT count(*) AS n FROM biz_flow_instance \
+                      WHERE biz_type = 'COST_SETTLE' AND biz_id IN ({id_list})"
+                ),
+            ));
+            checks.push((
+                "待办残留".to_string(),
+                format!(
+                    "SELECT count(*) AS n FROM biz_flow_task WHERE instance_id IN \
+                       (SELECT id FROM biz_flow_instance WHERE biz_type = 'COST_SETTLE' AND biz_id IN ({id_list}))"
+                ),
+            ));
+        }
+        for (label, sql) in checks {
+            let n: i64 = db()
+                .scalar_with_params::<Option<i64>>(&sql, vec![])
+                .await
+                .unwrap_or_else(|err| panic!("查{label}失败：{err}\nSQL: {sql}"))
+                .unwrap_or(0);
+            assert_eq!(n, 0, "zz 收尾后仍有{label}：{n} 行（SQL：{sql}）");
+        }
+
+        // ④ 共享角色成员：演示种子账号的岗位绑定必须一条不少（本模块自己不借角色，
+        //    但它是**第一个**被污染打红的模块 —— 收尾在这里顺手把别人的漏还也钉住）。
+        crate::business::erp::fixture_hygiene::restore_and_assert_role_bindings(
+            "cost::cost_period_approval_db_tests::zz_teardown_purges_fixtures",
+        )
+        .await;
+        println!("[B3-3] 清场：本模块期间批次 / 实例 / 计算单残留 0，演示种子岗位绑定完好 ✓");
+    }
 }

@@ -144,3 +144,13 @@ mod stockin_handler_tests_d9_copy;
 #[cfg(test)]
 #[path = "stockin_handler_tests_a4.rs"]
 mod stockin_handler_tests_a4;
+
+/// 卡 `t_18b222b9`：**模块收尾**——把共享种子角色（`WAREHOUSE_MANAGER`）上本模块夹具自建的
+/// 绑定摘掉、把借出的绑定原样挂回、按 `DEMO_USERS` 逐条对账。
+///
+/// 模块名刻意排在所有 `stockin_handler_tests_*` 之后（libtest 按完整路径排序 ⇒ 本模块最后跑），
+/// 因为 `..._tests_fixtures::zz_module_namespace_has_no_residue` 虽然以 `zz_` 开头，
+/// 模块路径却排在 `p16` / `posting` 这些用例**之前**（`f` < `p`）。
+#[cfg(test)]
+#[path = "stockin_handler_tests_zz_shared_roles.rs"]
+mod stockin_handler_tests_zz_shared_roles;

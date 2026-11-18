@@ -1,0 +1,38 @@
+mkdb rc=0
+  TPL=cloudpivot_test_t18v3 python3 /opt/cloudpivot/scripts/test_domain.py run --package all --jobs 4
+
+口径文档：docs/测试库口径-全量套件.md
+=== 起始库形态 ===
+DEPT_LEADER | demo_lead
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr
+GENERAL_MANAGER | demo_gm
+PURCHASE_MANAGER | demo_purchase,demo_purchase_mgr
+SALES_SUPERVISOR | demo_sales_mgr
+WAREHOUSE_MANAGER | demo_wh
+biz_cost_period=0 biz_cost_period_item=0 COST_SETTLE_instances=0
+=== ROUND 1 开始 22:52:49 ===
+=== ROUND 1 结束 rc=0 22:58:37 ===
+test result: ok. 6564 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 214.27s
+--- round 1 后库形态 ---
+DEPT_LEADER | demo_lead
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr
+GENERAL_MANAGER | demo_gm
+PURCHASE_MANAGER | demo_purchase,demo_purchase_mgr
+SALES_SUPERVISOR | demo_sales_mgr
+WAREHOUSE_MANAGER | demo_wh
+biz_cost_period=0 biz_cost_period_item=0 COST_SETTLE_instances=0
+=== ROUND 2 开始 22:58:37 ===
+=== ROUND 2 结束 rc=0 23:02:12 ===
+test result: ok. 6564 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 214.50s
+--- round 2 后库形态 ---
+DEPT_LEADER | demo_lead
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr
+GENERAL_MANAGER | demo_gm
+PURCHASE_MANAGER | demo_purchase,demo_purchase_mgr
+SALES_SUPERVISOR | demo_sales_mgr
+WAREHOUSE_MANAGER | demo_wh
+biz_cost_period=0 biz_cost_period_item=0 COST_SETTLE_instances=0
+ALLDONE 23:02:12

@@ -1,0 +1,58 @@
+===== 1) cargo fmt --check =====
+fmt rc=1
+Diff in /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler_tests_zz_shared_roles.rs:39:
+     .await;
+ 
+     // ②③ 归还借出的绑定 + 逐条对账演示种子岗位绑定
+-    fixture_hygiene::restore_and_assert_role_bindings("stockin::zz_teardown_returns_shared_role_bindings")
+-        .await;
++    fixture_hygiene::restore_and_assert_role_bindings("stockin::zz_teardown_returns_shared_role_bindings").await;
+ 
+     // ④ 再回库确认：`WAREHOUSE_MANAGER` 上不许有本模块夹具账号（自己造的自己收）
+     let strangers: i64 = db()
+===== 2) cargo clippy -p cloudpivot --lib --tests -- -D warnings =====
+clippy rc=0
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 39s
+===== 3) 全新种子库 cloudpivot_test_t18v2 =====
+mkdb rc=0
+  cargo test -p cloudpivot --lib -- --test-threads=1
+
+按域跑（P2-61，并行 + 每域一份库克隆；本库可直接当模板）：
+  TPL=cloudpivot_test_t18v2 python3 /opt/cloudpivot/scripts/test_domain.py run --package all --jobs 4
+
+口径文档：docs/测试库口径-全量套件.md
+=== 起始库形态 ===
+DEPT_LEADER | demo_lead
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr
+GENERAL_MANAGER | demo_gm
+PURCHASE_MANAGER | demo_purchase,demo_purchase_mgr
+SALES_SUPERVISOR | demo_sales_mgr
+WAREHOUSE_MANAGER | demo_wh
+biz_cost_period=0 biz_cost_period_item=0 COST_SETTLE_instances=0
+=== ROUND 1 开始 22:35:28 ===
+=== ROUND 1 结束 rc=0 22:41:40 ===
+test result: ok. 6564 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 219.32s
+--- round 1 后库形态 ---
+DEPT_LEADER | demo_lead
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr
+GENERAL_MANAGER | demo_gm
+PURCHASE_MANAGER | demo_purchase,demo_purchase_mgr
+SALES_SUPERVISOR | demo_sales_mgr
+WAREHOUSE_MANAGER | demo_wh
+biz_cost_period=0 biz_cost_period_item=0 COST_SETTLE_instances=0
+=== ROUND 2 开始 22:41:40 ===
+=== ROUND 2 结束 rc=0 22:45:26 ===
+test result: ok. 6564 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 224.90s
+--- round 2 后库形态 ---
+DEPT_LEADER | demo_lead
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr
+GENERAL_MANAGER | demo_gm
+PURCHASE_MANAGER | demo_purchase,demo_purchase_mgr
+SALES_SUPERVISOR | demo_sales_mgr
+WAREHOUSE_MANAGER | demo_wh
+biz_cost_period=0 biz_cost_period_item=0 COST_SETTLE_instances=0
+ALLDONE 22:45:26

@@ -2240,7 +2240,7 @@ mod tests {
     /// 本模块会写 `ROLE_PM` / `ROLE_GM` 上的 `sys_user_role` 绑定（`setup_approval` 还按角色 id
     /// 摘别人的绑定），`contract_approval_tests` 写的是同一批行 —— 两把不相识的锁时
     /// 一方会把另一方的夹具账号摘掉，待办展开不到人（实测：同一库两个进程并行时本模块一轮 5 条红）。
-    use crate::business::erp::fixture_hygiene::SEED_ROLE_LOCK as DB_LOCK;
+    use crate::business::erp::fixture_hygiene::{self, SEED_ROLE_LOCK as DB_LOCK};
 
     /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `ERP_DB_URL`。
     async fn ensure_db() -> bool {
@@ -2375,6 +2375,9 @@ mod tests {
         if !ensure_db().await {
             return None;
         }
+        // 先把上一条用例 panic 没还的共享角色绑定挂回去（自愈），再清自己造的痕迹：
+        // 顺序反了会把「归还」当成残留一起删（见 `fixture_hygiene` 的借出/归还）。
+        fixture_hygiene::restore_role_bindings().await;
         // 先清审批痕迹（实例是弱引用，删单据带不走 → 不先清就会积累孤儿 PENDING），
         // 再清上一轮的订单（明细随主单 CASCADE）。
         purge_fixture_docs().await;
@@ -2794,13 +2797,17 @@ mod tests {
     /// 审批夹具：四个账号 + 角色绑定 + 清掉本卡造过的审批实例。
     ///
     /// 四个种子角色是**共享资源**：别的用例 / 运维给他们绑过的人会让「这条待办派给谁」
-    /// 不可判定，所以这里**只留本卡夹具的人**（按 id 白名单删绑定），并在模块末尾说明。
+    /// 不可判定，所以这里**只留本卡夹具的人** —— 但走的是
+    /// [`fixture_hygiene::borrow_role_bindings`]（**借出→归还**），不是过去那句
+    /// `DELETE … user_id NOT IN (本卡三个)`：后者会把演示种子的绑定
+    /// （`demo_lead` / `demo_purchase` / `demo_purchase_mgr` / `demo_gm`）**永久摘掉**，
+    /// 下一个模块的 `ensure_role_member` 见岗位没人就补 `tst02b.<role>`，把别人的严格断言
+    /// 打红（卡 `t_18b222b9`：同一库第二轮 5 条 cost + 10 条 period 红）。
     async fn setup_approval() {
-        sql(&format!(
-            "DELETE FROM sys_user_role WHERE role_id IN \
-                ('{ROLE_DEPT_LEADER}'::uuid, '{ROLE_PM}'::uuid, '{ROLE_GM}'::uuid) \
-                AND user_id NOT IN ('{U_DEPT}'::uuid, '{U_PM}'::uuid, '{U_GM}'::uuid)"
-        ))
+        fixture_hygiene::borrow_role_bindings(
+            &[uid(ROLE_DEPT_LEADER), uid(ROLE_PM), uid(ROLE_GM)],
+            &[uid(U_DEPT), uid(U_PM), uid(U_GM)],
+        )
         .await;
         for (id, name) in [
             (U_MAKER, "p3a 制单人"),
@@ -3475,6 +3482,17 @@ mod tests {
             running, 0,
             "模块收尾后不许剩 PENDING 的采购审批实例（同库连跑第二遍的前提）"
         );
+        // ⑤ 共享种子角色成员：先摘掉本模块夹具（`p3a_*`）在三个岗位上的绑定，再把借出的
+        // （演示种子 / 兄弟模块的）绑定原样挂回 + 逐条对账。
+        //
+        // 卡 `t_18b222b9`：过去 `setup_approval` 是「按角色 id 摘掉所有不是我的绑定」且
+        // **不还** ⇒ 演示账号（`demo_lead` / `demo_purchase` / `demo_purchase_mgr` / `demo_gm`）
+        // 在三个审批岗位上的绑定被永久抹掉，下一个模块 `ensure_role_member` 见岗位没人就补
+        // `tst02b.<role>`，同一库**第二轮** cost 5 条 + period 10 条红（第一轮绿）。
+        let roles = [uid(ROLE_DEPT_LEADER), uid(ROLE_PM), uid(ROLE_GM)];
+        fixture_hygiene::release_fixture_role_bindings(&roles, &[uid(U_DEPT), uid(U_PM), uid(U_GM)]).await;
+        fixture_hygiene::restore_and_assert_role_bindings("purchase_handler::zz_teardown_purges_po_approval_residue")
+            .await;
     }
     // ==================== A3：采购单绑定合同（CONTRACT / SPOT 双类型） ====================
     //

@@ -12,6 +12,7 @@ use nik::uuid::Uuid;
 
 use super::stockin_handler_tests_fixtures::*;
 use super::*;
+use crate::business::erp::fixture_hygiene;
 use crate::business::erp::stockin::stockin_bridge;
 use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
 use crate::business::erp::stockin::stockin_model::{self, STATUS_CANCELLED};
@@ -370,14 +371,15 @@ pub(super) async fn cancel_request(id: Uuid, reason: &str) {
 /// 作废复核岗位（`WAREHOUSE_MANAGER`）的夹具：只留本模块的复核人。
 ///
 /// 角色成员是**共享资源**（`stock_in_post.n_wh` 也用它），多一个成员就多一条会签待办 ⇒
-/// 「派给谁 / 有几条待办」不可判定。与 [`setup_post_approval`] 同一范式：先删掉别人的绑定，
-/// 再绑本模块的复核人。
+/// 「派给谁 / 有几条待办」不可判定。与 [`setup_post_approval`] 同一范式：**借出**别人的绑定
+/// （登记后归还，见 `fixture_hygiene::borrow_role_bindings`），再绑本模块的复核人。
+///
+/// ⚠️ 过去这里是 `DELETE FROM sys_user_role WHERE role_id = … AND user_id <> 本夹具`，删完不还
+/// ⇒ 演示账号 `demo_wh` 在 `WAREHOUSE_MANAGER` 上的种子绑定被永久抹掉，下一个模块
+/// `ensure_role_member` 见岗位没人就补 `tst02b.warehouse_manager`，把别人的严格断言打红
+/// （卡 `t_18b222b9`：同一库第二轮 15 条红）。
 pub(super) async fn setup_cancel_reviewer() {
-    sql(&format!(
-        "DELETE FROM sys_user_role WHERE role_id = '{ROLE_WH_MGR}'::uuid \
-            AND user_id <> '{U_CANCEL_REVIEWER}'::uuid"
-    ))
-    .await;
+    fixture_hygiene::borrow_role_bindings(&[uid_of(ROLE_WH_MGR)], &[uid_of(U_CANCEL_REVIEWER)]).await;
     sql(&format!(
         "INSERT INTO sys_user (id, username, password, real_name, status) \
          VALUES ('{U_CANCEL_REVIEWER}'::uuid, 'p16_reviewer', 'x', 'P16 作废复核人', 1) \
@@ -628,12 +630,10 @@ pub(super) async fn d4_ledger_received(item_id: Uuid) -> Decimal {
 
 /// 过账审批夹具：仓管主管账号 + 角色绑定 + 清掉本卡夹具的审批实例 / 通知。
 pub(super) async fn setup_post_approval() {
-    // 仓管主管角色是共享资源：只留本卡夹具的人（否则「派给谁」不可判定）
-    sql(&format!(
-        "DELETE FROM sys_user_role WHERE role_id = '{ROLE_WH_MGR}'::uuid \
-            AND user_id <> '{U_WH_MGR}'::uuid"
-    ))
-    .await;
+    // 仓管主管角色是共享资源：只留本卡夹具的人（否则「派给谁」不可判定）。
+    // **借出 → 归还**：别人（含演示种子 `demo_wh`）的绑定登记后摘掉，模块收尾原样挂回 ——
+    // 过去直接 `DELETE … user_id <> 本夹具` 且不还，是卡 `t_18b222b9` 第二轮 15 条红的病根之一。
+    fixture_hygiene::borrow_role_bindings(&[uid_of(ROLE_WH_MGR)], &[uid_of(U_WH_MGR)]).await;
     sql(&format!(
         "INSERT INTO sys_user (id, username, password, real_name, status) \
          VALUES ('{U_WH_MGR}'::uuid, 'p3a_wh_mgr', 'x', 'p3a 仓管主管', 1) \

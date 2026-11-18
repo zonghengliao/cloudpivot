@@ -15,6 +15,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::approval_gate;
+use crate::business::erp::fixture_hygiene;
 use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
 
 /// ARCH-3 DC-01：系统路径的审批前置上下文 —— 不请求跳过、也没有权限声明。
@@ -180,6 +181,9 @@ pub(super) async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     if !ensure_db().await {
         return None;
     }
+    // 先把上一条用例 panic 没还的**共享角色绑定**挂回去（自愈），再清自己造的痕迹：
+    // 顺序反了会把刚归还的行当残留一起删（见 `fixture_hygiene` 的借出/归还，卡 t_18b222b9）。
+    fixture_hygiene::restore_role_bindings().await;
     cleanup_fixtures().await;
     for sql in FIXTURES {
         if let Err(err) = db().execute_with_params(sql, vec![]).await {
@@ -664,6 +668,23 @@ pub(super) async fn zz_module_namespace_has_no_residue() {
         orphans, 0,
         "STOCK_IN / PURCHASE_ORDER 状态日志不许留孤儿行（收敛等待 5s 后仍非 0）"
     );
+
+    // ④ 共享角色成员：先摘掉**本模块夹具**在岗位上的绑定（不留自己的临时账号占岗位），
+    //    再把借出的（演示种子 / 兄弟模块的）绑定原样挂回，逐条对账。
+    //
+    // 卡 `t_18b222b9`：`setup_post_approval` / `setup_cancel_reviewer` 过去是「按 role_id 摘掉
+    // 所有不是本夹具的绑定」且**不还** ⇒ 演示种子 `demo_wh` 在 `WAREHOUSE_MANAGER` 上的绑定被
+    // 永久抹掉，下一个模块 `ensure_role_member` 见岗位没人就补 `tst02b.warehouse_manager`，
+    // 同一库**第二轮** cost 5 条 + period 10 条红（第一轮绿）。
+    crate::business::erp::fixture_hygiene::release_fixture_role_bindings(
+        &[uid_of(ROLE_WH_MGR)],
+        &[uid_of(U_WH_MGR), uid_of(U_CANCEL_REVIEWER)],
+    )
+    .await;
+    crate::business::erp::fixture_hygiene::restore_and_assert_role_bindings(
+        "stockin::zz_module_namespace_has_no_residue",
+    )
+    .await;
 }
 
 /// 收掉本模块命名空间内的**孤儿审批实例**（`biz_id` 指向已不存在的收货单）。

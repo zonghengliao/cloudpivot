@@ -165,10 +165,12 @@ async fn purge_fixtures() {
             .to_string(),
         "DELETE FROM biz_account WHERE account_code LIKE 'P3B.%'".to_string(),
         "DELETE FROM biz_supplier WHERE supplier_code = 'P3B-SUP'".to_string(),
-        "DELETE FROM sys_user_role WHERE role_id IN \
-           ('20000000-0000-4000-8000-0000000f0005'::uuid, \
-            '20000000-0000-4000-8000-0000000f0006'::uuid)"
-            .to_string(),
+        // 共享种子角色（`FINANCE_MANAGER` / `FINANCE_DIRECTOR`）上的成员**不在这里删**：
+        // 过去这一行是 `DELETE FROM sys_user_role WHERE role_id IN (f0005, f0006)` ——
+        // **整表删**，把演示种子（`demo_finance` / `demo_finance_mgr`）的绑定一起抹掉且不还，
+        // 下一个模块 `ensure_role_member` 见岗位没人就补 `tst02b.finance_manager`，把
+        // `cost_period_approval_db_tests` 的严格断言在**第二轮**打红（卡 `t_18b222b9` 的 15 条红）。
+        // 现在走 `fixture_hygiene::borrow_role_bindings`（借出 → 收尾归还）。
         "DELETE FROM sys_user_role WHERE user_id IN \
            (SELECT id FROM sys_user WHERE username LIKE 'p3b_%')"
             .to_string(),
@@ -185,8 +187,13 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     if !ensure_db().await {
         return None;
     }
-    // 清上一轮
+    // 先把上一条用例没还的共享角色绑定挂回去（自愈），再清上一轮
+    fixture_hygiene::restore_role_bindings().await;
     purge_fixtures().await;
+    // 独占共享种子角色成员（`FINANCE_MANAGER` / `FINANCE_DIRECTOR`）：会签语义下「一级就过」与
+    // 「逐级推进」两个断言的前提是角色成员 = 本模块夹具。走**借出 → 归还**（登记后收尾挂回），
+    // 不再整表删 —— 卡 `t_18b222b9`。
+    fixture_hygiene::borrow_role_bindings(&[uid(ROLE_FM), uid(ROLE_FD)], &[uid(U_MAKER), uid(U_FM), uid(U_FD)]).await;
 
     // 供应商 + 两个科目（凭证分录的外键）
     exec(&format!(
@@ -1283,4 +1290,14 @@ async fn pflow3b_zz_teardown_purges_fixtures() {
     fixture_hygiene::purge_orphans(fixture_hygiene::ALL_TYPES).await;
     let orphans = fixture_hygiene::orphans(fixture_hygiene::ALL_TYPES).await;
     assert_eq!(orphans, 0, "收尾后仍有孤儿状态日志：{orphans} 行");
+
+    // 共享种子角色成员：本模块借出的绑定原样挂回 + 演示种子账号的岗位绑定一条不少。
+    //
+    // 卡 `t_18b222b9`：过去 `purge_fixtures()` 里有一句
+    // `DELETE FROM sys_user_role WHERE role_id IN (FINANCE_MANAGER, FINANCE_DIRECTOR)` ——
+    // **整表删**、不还 ⇒ 演示种子 `demo_finance` / `demo_finance_mgr` 的绑定被永久抹掉，
+    // 下一个模块 `ensure_role_member` 见岗位没人就补 `tst02b.finance_manager`，
+    // **第二轮** cost 5 条 + period 10 条红（第一轮绿）。现在改成借出 → 归还，
+    // 这条断言就是护栏：漏还一条当场点名。
+    fixture_hygiene::restore_and_assert_role_bindings("pflow3b::pflow3b_zz_teardown_purges_fixtures").await;
 }

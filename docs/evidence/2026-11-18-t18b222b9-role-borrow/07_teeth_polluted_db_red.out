@@ -1,0 +1,30 @@
+===== ① 污染前 =====
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr
+===== ② 模拟老写法：把 FINANCE_MANAGER 的绑定整表删掉 =====
+FINANCE_MANAGER 剩余成员=(空)
+===== ③ 跑护栏：期望 RED 并点名 =====
+test business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures ... FAILED
+
+failures:
+
+---- business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures' (4014075) panicked at app/src/business/erp/fixture_hygiene.rs:473:5:
+[cost::cost_period_approval_db_tests::zz_teardown_purges_fixtures] 演示种子账号的岗位绑定在跑完之后少了 ["demo_finance→FINANCE_MANAGER", "demo_finance_mgr→FINANCE_MANAGER"]（`system::setup::model::DEMO_USERS`）。
+病根：某个夹具按 `role_id` 整表删了共享种子角色成员却没归还 —— 改成
+`fixture_hygiene::borrow_role_bindings` / `restore_role_bindings` 借出归还，别永久摘掉。
+这条断言就是为了让下一次「第二轮才红」当场在第一轮点名。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::cost::cost_period_approval_db_tests::db::zz_teardown_purges_fixtures
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6564 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+rc=101
+===== ④ 补回绑定（把库恢复成种子基线） =====
+FINANCE_DIRECTOR | (空)
+FINANCE_MANAGER | demo_finance,demo_finance_mgr

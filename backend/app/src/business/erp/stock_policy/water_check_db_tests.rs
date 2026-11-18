@@ -271,6 +271,9 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     if !ensure_db().await {
         return None;
     }
+    // 先把上一条用例没还的共享角色绑定挂回去（自愈，卡 t_18b222b9）：
+    // 「角色下没人」那条用例借出过整个 `WAREHOUSE_MANAGER`。
+    crate::business::erp::fixture_hygiene::restore_role_bindings().await;
     ensure_users().await;
     warehouse_a().await;
     mat_a().await;
@@ -625,7 +628,9 @@ async fn owner_source_falls_back_to_operator_then_none() {
     set_policy(material, wh, "50", STATUS_ENABLED).await;
     let inv = set_qty(material, wh, "10").await;
 
-    // 临时把仓管主管成员全部摘掉（模拟「角色还没配人」），摘之前先记下原有成员，用完还原
+    // 临时把仓管主管成员全部借出（模拟「角色还没配人」）；走 `fixture_hygiene` 的
+    // **借出 → 归还**台账，不再裸删整表 —— 裸删万一中途 panic 就把演示种子 `demo_wh`
+    // 的绑定永久丢了（卡 `t_18b222b9` 的 15 条红就是这么来的）。
     let role = role_manager().await;
     let prior: Vec<Uuid> = db()
         .find_with_params(
@@ -638,11 +643,7 @@ async fn owner_source_falls_back_to_operator_then_none() {
         .map(|row| row.get_typed::<Uuid>("user_id").expect("user_id"))
         .collect();
     assert!(!prior.is_empty(), "夹具成员应在角色里");
-    exec(
-        "DELETE FROM sys_user_role WHERE role_id = ?::uuid",
-        vec![Value::from(&role)],
-    )
-    .await;
+    crate::business::erp::fixture_hygiene::borrow_role_bindings(&[role], &[]).await;
 
     let background = water_check::run_check(Some(material), Some(wh), false, None)
         .await
@@ -677,7 +678,9 @@ async fn owner_source_falls_back_to_operator_then_none() {
         "create_by 记真实触发人"
     );
 
-    // 还原角色成员（一律走 `test_seed::bind_role`，不在用例里手写 sys_user_role 的 INSERT）
+    // 还原角色成员（一律走 `test_seed::bind_role`，不在用例里手写 sys_user_role 的 INSERT）；
+    // 借出台账先挂回（演示种子 / 兄弟模块的绑定），再把本模块自己的两个夹具账号绑上。
+    crate::business::erp::fixture_hygiene::restore_role_bindings().await;
     for user_id in prior {
         test_seed::bind_role(user_id, ROLE_CODE).await;
     }
@@ -773,6 +776,15 @@ async fn zz_teardown_purges_fixtures() {
         .await
         .expect("统计待办");
     assert_eq!(rows[0].get_typed::<i64>("n").expect("n"), 0, "待办已清");
+
+    // 共享角色成员：先摘掉本模块夹具（`m214.warehouse.manager`）在岗位上的绑定，
+    // 再把借出的（演示种子 / 兄弟模块的）绑定原样挂回 + 逐条对账（卡 t_18b222b9）
+    let role = role_manager().await;
+    crate::business::erp::fixture_hygiene::release_fixture_role_bindings(&[role], &[manager_uuid().await]).await;
+    crate::business::erp::fixture_hygiene::restore_and_assert_role_bindings(
+        "stock_policy::water_check::zz_teardown_purges_fixtures",
+    )
+    .await;
     println!("[M2-14] 清场：M214- 的库存行 / 水位待办 0 条 ✓");
 }
 

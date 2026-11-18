@@ -3544,6 +3544,9 @@ mod tests {
         if !ensure_db().await {
             return None;
         }
+        // 先把上一条用例 panic 没还的**共享角色绑定**挂回去（自愈），再清自己造的痕迹。
+        // 归还的行由本模块 `zz_teardown_purges_finance_status_logs` 统一收口（卡 t_18b222b9）。
+        crate::business::erp::fixture_hygiene::restore_role_bindings().await;
         cleanup_fixtures().await;
         for sql in FIXTURES {
             exec(sql).await;
@@ -3632,11 +3635,17 @@ mod tests {
     /// ⚠️ 复核节点是 `assignee_type = 'ROLE'`（`WAREHOUSE_MANAGER`，P1-FIX-1 起）
     /// + `empty_assignee=ERROR`（不兜底超管）⇒ **复核岗位必须先在册有人**，否则发起就 422。
     ///
-    /// 角色成员是共享资源，这里只留本模块的复核人（`p2c1_reviewer`）。
+    /// 角色成员是共享资源，这里只留本模块的复核人（`p2c1_reviewer`）——
+    /// **借出 → 归还**（`fixture_hygiene::borrow_role_bindings`）：别人（含演示种子 `demo_wh`）的
+    /// 绑定登记后摘掉，模块收尾原样挂回。过去直接 `DELETE … user_id <> 本夹具` 且不还，
+    /// 是卡 `t_18b222b9`「同一库第二轮 15 条红」的病根之一。
     async fn cancel_via_approval(stock_in_id: Uuid, reason: &str) {
+        crate::business::erp::fixture_hygiene::borrow_role_bindings(
+            &[uid("20000000-0000-4000-8000-0000000f0004")],
+            &[uid("b2c10009-0000-4000-8000-000000000002")],
+        )
+        .await;
         for sql_text in [
-            "DELETE FROM sys_user_role WHERE role_id = '20000000-0000-4000-8000-0000000f0004'::uuid \
-                AND user_id <> 'b2c10009-0000-4000-8000-000000000002'::uuid",
             "INSERT INTO sys_user (id, username, password, real_name, status) \
              VALUES ('b2c10009-0000-4000-8000-000000000002'::uuid, 'p2c1_reviewer', 'x', \
                      'P2C1 作废复核人', 1) ON CONFLICT (id) DO NOTHING",
@@ -4386,6 +4395,20 @@ mod tests {
             left, 0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"
         );
+
+        // ③ 共享角色成员：先摘掉本模块复核人（`p2c1_reviewer`）在岗位上的绑定，
+        //    再把借出的（演示种子 / 兄弟模块的）绑定原样挂回 + 逐条对账。
+        //
+        // 卡 `t_18b222b9`：`cancel_via_approval` 过去按 `role_id` 摘掉所有不是
+        // `p2c1_reviewer` 的 `WAREHOUSE_MANAGER` 绑定且**不还** ⇒ 演示种子 `demo_wh` 的绑定
+        // 被永久抹掉，同一库**第二轮** cost 5 条 + period 10 条红（第一轮绿）。
+        let role_wh = Uuid::parse_str("20000000-0000-4000-8000-0000000f0004").expect("角色 UUID");
+        let reviewer = Uuid::parse_str("b2c10009-0000-4000-8000-000000000002").expect("复核人 UUID");
+        crate::business::erp::fixture_hygiene::release_fixture_role_bindings(&[role_wh], &[reviewer]).await;
+        crate::business::erp::fixture_hygiene::restore_and_assert_role_bindings(
+            "voucher::zz_teardown_purges_finance_status_logs",
+        )
+        .await;
     }
 
     // ==================== SO-22：销售收入确认凭证 ====================

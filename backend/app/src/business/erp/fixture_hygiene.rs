@@ -30,6 +30,7 @@
 #![cfg(test)]
 
 use nik::prelude::*;
+use nik::uuid::Uuid;
 
 /// `entity_type` → 单据表（`biz_status_log` 没有外键，只能按「引用是否还活着」判断）。
 ///
@@ -201,3 +202,281 @@ pub(crate) const ALL_TYPES: &[&str] = &[
     "QUOTATION",
     "SALE_ORDER",
 ];
+
+// ============================================================================
+// 共享种子角色成员的**借出 / 归还**（`sys_user_role`）—— 卡 `t_18b222b9`
+// ============================================================================
+//
+// # 病根（同一库连跑两轮全量实测）
+//
+// 审批节点按**角色成员**展开待办，所以「待办派给谁 / 有几条」只有在「角色上只有本模块
+// 夹具」时才可判定。历史写法用「按 `role_id` 删掉所有不是我的绑定」制造这个前提，但
+// **删完不还**：
+//
+// ```sql
+// DELETE FROM sys_user_role WHERE role_id = '<WAREHOUSE_MANAGER>' AND user_id <> '<夹具>';
+// DELETE FROM sys_user_role WHERE role_id IN ('<FINANCE_MANAGER>', '<FINANCE_DIRECTOR>');  -- 整表删
+// ```
+//
+// 演示种子的绑定（`system::setup::model::DEMO_USERS`：`demo_finance` / `demo_finance_mgr` /
+// `demo_wh` …）就这样被永久抹掉，后果不是「少一行」而是**滚雪球**：
+//
+// * 下一个模块的 `test_helpers::ensure_role_member` 见岗位**一个在职成员都没有**就补出
+//   `tst02b.<role>` ⇒ `cost_period_approval_db_tests` 的「岗位上只能有夹具 + 演示种子成员」
+//   断言在**第二轮**红（第一轮绿 —— 没有上一轮的残留，这正是它只红第二轮的原因）；
+// * 角色里塞进别人的夹具账号 ⇒ 会签 / 或签的待办条数与「谁批完节点才推进」一起漂移。
+//
+// # 判据（只加不减）
+//
+// 「让角色上只有本模块夹具」本身是**合法的夹具需求**（业务事实需要），越界的只是
+// 「永久摘掉别人的绑定」。所以不改需求，改成 **借出 → 归还**：
+//
+// 1. [`borrow_role_bindings`]：把角色上不属于自己的绑定**逐行登记**进进程内台账，然后只删
+//    这些行（自己的夹具照旧绑上，不动）；
+// 2. [`restore_role_bindings`]：台账原样挂回（`ON CONFLICT DO NOTHING` 幂等；账号已被
+//    对方模块删掉的跳过）。每个借用模块的 `setup()` 起手 + `zz_` 收尾各调一次 ——
+//    起手那次是**自愈**（上一条用例 panic 没还的，这里补还）；
+// 3. [`restore_and_assert_role_bindings`]：归还后再按 `DEMO_USERS` 逐条核对「演示账号在它
+//    该在的岗位上」，漏还一条就当场点名 —— 护栏由断言钉住，不靠人肉 psql 复查。
+//
+// ⚠️ 写同一批角色绑定的模块共用 [`SEED_ROLE_LOCK`]（`contract` / `purchase` / `cost` 已是）。
+// 台账是**进程级**的，`--test-threads=1` 下按模块串行收口；并行跑时「谁是最后一个」
+// 不可依赖（与本仓其它 `zz_` 收尾同口径）。
+
+/// 借出台账：`(user_id, role_id)` —— 摘掉了哪些别人的绑定，收尾要原样挂回。
+static BORROWED_ROLE_BINDINGS: std::sync::Mutex<Vec<(Uuid, Uuid)>> = std::sync::Mutex::new(Vec::new());
+
+/// 台账句柄（被 panic 毒化时照样拿得到 —— 归还路径必须能跑）。
+fn borrowed_slot() -> std::sync::MutexGuard<'static, Vec<(Uuid, Uuid)>> {
+    BORROWED_ROLE_BINDINGS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// `['a'::uuid, 'b'::uuid]` —— 空集合给 `NULL`。
+///
+/// ⚠️ 只在**已判空**的地方用：`NOT IN (NULL)` 恒为 NULL（一行都选不到），
+/// 所以 `keep` 为空时 [`borrow_role_bindings`] 会整段省掉 `NOT IN (...)`，
+/// 不是把 `NULL` 拼进去。
+fn uuid_sql_list(ids: &[Uuid]) -> String {
+    if ids.is_empty() {
+        return "NULL".to_string();
+    }
+    ids.iter()
+        .map(|id| format!("'{id}'::uuid"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// **借出** `roles` 上的共享绑定：`keep` = 本模块夹具账号（留在角色上不动），其余逐行登记后摘掉。
+///
+/// 返回摘掉的行数（`0` = 角色上本来就只有自己人，没动别人的东西）。
+pub(crate) async fn borrow_role_bindings(roles: &[Uuid], keep: &[Uuid]) -> usize {
+    if roles.is_empty() {
+        return 0;
+    }
+    let select = if keep.is_empty() {
+        // `keep` 为空 = 把角色成员**全部**借出。这里必须整段省掉 `NOT IN (...)`：
+        // `user_id NOT IN (NULL)` 在 SQL 三值逻辑里恒为 NULL（一行都选不到），
+        // 写成 `NULL` 会让「借出全部」静默变成「什么都没借」（实测：water_check 的
+        // 「岗位没人」用例因此拿到 `owner_source = ROLE`）。
+        format!(
+            "SELECT user_id, role_id FROM sys_user_role \
+              WHERE role_id IN ({}) \
+              ORDER BY role_id, user_id",
+            uuid_sql_list(roles)
+        )
+    } else {
+        format!(
+            "SELECT user_id, role_id FROM sys_user_role \
+              WHERE role_id IN ({}) AND user_id NOT IN ({}) \
+              ORDER BY role_id, user_id",
+            uuid_sql_list(roles),
+            uuid_sql_list(keep)
+        )
+    };
+    let rows = db()
+        .find_with_params(&select, vec![])
+        .await
+        .unwrap_or_else(|err| panic!("借出共享角色成员失败（读）：{err}\nSQL: {select}"));
+    let mut pairs: Vec<(Uuid, Uuid)> = Vec::new();
+    for row in &rows {
+        let user: Uuid = row
+            .get_typed("user_id")
+            .unwrap_or_else(|err| panic!("成员 user_id：{err}"));
+        let role: Uuid = row
+            .get_typed("role_id")
+            .unwrap_or_else(|err| panic!("成员 role_id：{err}"));
+        if !pairs.contains(&(user, role)) {
+            pairs.push((user, role));
+        }
+    }
+    if pairs.is_empty() {
+        return 0;
+    }
+    for (user, role) in &pairs {
+        db().execute_with_params(
+            "DELETE FROM sys_user_role WHERE user_id = ? AND role_id = ?",
+            vec![Value::from(user), Value::from(role)],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("借出共享角色成员失败（摘掉 {user}/{role}）：{err}"));
+    }
+    let mut slot = borrowed_slot();
+    for pair in &pairs {
+        if !slot.contains(pair) {
+            slot.push(*pair);
+        }
+    }
+    pairs.len()
+}
+
+/// **归还**台账里的全部绑定（幂等）。返回真正写回的行数。
+///
+/// 账号已经被对方模块删掉时跳过（`sys_user` 外键拦着，也本来就没有意义）；已存在则
+/// `ON CONFLICT DO NOTHING` 不动。
+pub(crate) async fn restore_role_bindings() -> usize {
+    let pairs = {
+        let mut slot = borrowed_slot();
+        std::mem::take(&mut *slot)
+    };
+    if pairs.is_empty() {
+        return 0;
+    }
+    let mut restored = 0usize;
+    let mut skipped = 0usize;
+    for (user, role) in pairs {
+        let sql = "INSERT INTO sys_user_role (user_id, role_id) \
+                   SELECT ?::uuid, ?::uuid \
+                    WHERE EXISTS (SELECT 1 FROM sys_user WHERE id = ?::uuid) \
+                   ON CONFLICT DO NOTHING";
+        match db()
+            .execute_with_params(sql, vec![Value::from(&user), Value::from(&role), Value::from(&user)])
+            .await
+        {
+            Ok(n) => {
+                restored += usize::try_from(n).unwrap_or(0);
+                if n == 0 {
+                    skipped += 1;
+                }
+            }
+            Err(err) => panic!("归还共享角色绑定失败（{user}/{role}）：{err}"),
+        }
+    }
+    if skipped > 0 {
+        println!("[fixture_hygiene] 归还共享角色绑定：写回 {restored} 行，{skipped} 行跳过（账号已被删 / 绑定已在）");
+    }
+    restored
+}
+
+/// 当前还挂着的借出台账（`zz_` 收尾断言「一条都没漏还」用）。
+pub(crate) fn borrowed_role_bindings() -> Vec<(Uuid, Uuid)> {
+    borrowed_slot().clone()
+}
+
+/// 收尾用：把**本模块自己的夹具账号**从这些角色上摘掉，并从借出台账里划掉（不归还自己）。
+///
+/// # 为什么自己的夹具也不能留
+///
+/// 借出/归还是为了「别人的绑定一条不少」。但本模块的临时账号（`p3a_*` / `p16_reviewer` /
+/// `p2c1_reviewer` / `m214.*` …）活儿干完之后还占着岗位，会让**下一轮的基线与种子库不同**
+/// （岗位成员数从 1 变 5）—— 那正是这类卡反复复发的形态：第一轮绿、第二轮红。
+/// 所以收尾顺序固定为「先摘自己的，再归还别人的」。
+///
+/// 返回摘掉的行数。
+pub(crate) async fn release_fixture_role_bindings(roles: &[Uuid], fixture_users: &[Uuid]) -> usize {
+    if roles.is_empty() || fixture_users.is_empty() {
+        return 0;
+    }
+    let sql = format!(
+        "DELETE FROM sys_user_role WHERE role_id IN ({}) AND user_id IN ({})",
+        uuid_sql_list(roles),
+        uuid_sql_list(fixture_users)
+    );
+    let removed = db()
+        .execute_with_params(&sql, vec![])
+        .await
+        .unwrap_or_else(|err| panic!("摘掉本模块夹具角色绑定失败：{err}\nSQL: {sql}"));
+    let removed = usize::try_from(removed).unwrap_or(0);
+    // 台账里也划掉：这些行是**自己的**，归还等于把它们又绑回去。
+    let pairs: Vec<(Uuid, Uuid)> = fixture_users
+        .iter()
+        .flat_map(|user| roles.iter().map(move |role| (*user, *role)))
+        .collect();
+    {
+        let mut slot = borrowed_slot();
+        slot.retain(|pair| !pairs.contains(pair));
+    }
+    removed
+}
+
+/// 演示种子账号在**它该在的岗位上**的绑定，缺了哪些（`"用户名→角色码"`，人读）。
+///
+/// 判据来自产品种子常量 `DEMO_USERS`（不手抄名单、不按前缀猜）：演示账号**在库且未删**
+/// 时，它声明的每个角色都必须有绑定。空库 / 生产快照库没有演示账号 ⇒ 自然跳过（不是本判据
+/// 的对象，不假红）。
+pub(crate) async fn missing_demo_role_bindings() -> Vec<String> {
+    use crate::system::setup::model::DEMO_USERS;
+
+    let mut missing = Vec::new();
+    for demo in DEMO_USERS {
+        let named = vec![Value::Text(demo.username.to_string())];
+        let present: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM sys_user WHERE username = ? AND deleted_at IS NULL",
+                named.clone(),
+            )
+            .await
+            .unwrap_or_else(|err| panic!("查演示账号 {} 失败：{err}", demo.username))
+            .unwrap_or(0);
+        if present == 0 {
+            continue;
+        }
+        for role_code in demo.role_codes {
+            let bound: i64 = db()
+                .scalar_with_params::<Option<i64>>(
+                    "SELECT count(*) FROM sys_user_role ur \
+                       JOIN sys_user u ON u.id = ur.user_id AND u.deleted_at IS NULL \
+                       JOIN sys_role r ON r.id = ur.role_id AND r.deleted_at IS NULL \
+                      WHERE u.username = ? AND r.role_code = ?",
+                    vec![
+                        Value::Text(demo.username.to_string()),
+                        Value::Text((*role_code).to_string()),
+                    ],
+                )
+                .await
+                .unwrap_or_else(|err| panic!("查演示账号 {} 的角色 {role_code} 失败：{err}", demo.username))
+                .unwrap_or(0);
+            if bound == 0 {
+                missing.push(format!("{}→{role_code}", demo.username));
+            }
+        }
+    }
+    missing
+}
+
+/// 归还 + 断言：`zz_` 收尾的**统一出口**（卡 `t_18b222b9` 的护栏，别绕过它）。
+///
+/// 三件事一起做，缺一件就等于没有护栏：
+/// ① 台账挂回（别人的绑定一条不少地回来）；
+/// ② 台账必须清零（漏还 = 本模块的 bug，当场点名）；
+/// ③ 演示种子账号在它声明的岗位上必须有绑定（`DEMO_USERS` 逐条对账 —— 这正是第二轮
+///    `cost_period_approval_db_tests` / `period::tests` 那 15 条红的直接病根）。
+pub(crate) async fn restore_and_assert_role_bindings(stage: &str) -> usize {
+    let restored = restore_role_bindings().await;
+    let leftover = borrowed_role_bindings();
+    assert!(
+        leftover.is_empty(),
+        "[{stage}] 共享角色借出台账没还清：{leftover:?} —— 归还路径必须覆盖所有借出点"
+    );
+    let missing = missing_demo_role_bindings().await;
+    assert!(
+        missing.is_empty(),
+        "[{stage}] 演示种子账号的岗位绑定在跑完之后少了 {missing:?}（`system::setup::model::DEMO_USERS`）。\n\
+         病根：某个夹具按 `role_id` 整表删了共享种子角色成员却没归还 —— 改成\n\
+         `fixture_hygiene::borrow_role_bindings` / `restore_role_bindings` 借出归还，别永久摘掉。\n\
+         这条断言就是为了让下一次「第二轮才红」当场在第一轮点名。"
+    );
+    println!("[fixture_hygiene] {stage}：归还共享角色绑定 {restored} 行，演示种子岗位绑定完好 ✓");
+    restored
+}
