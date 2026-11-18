@@ -60,6 +60,7 @@ use crate::business::erp::purchase::purchase_model::{
     self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals, can_transition,
     status_label, transition_rejected_message,
 };
+use crate::business::erp::purchase::supplier_access_model;
 use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::unit_guard;
 use crate::business::flow::{engine, model as flow_model};
@@ -264,6 +265,41 @@ async fn resolve_contract(raw: &str, order_date: NaiveDate) -> std::result::Resu
 ///   （相等视为幂等，不等 → `400 + 66025`，不静默覆盖）；
 /// - `SPOT`：供应商必须存在且未软删（名称顺手作为快照），合同必须为空（DTO 已拦）。
 async fn resolve_head(prepared: &PreparedOrder) -> std::result::Result<ResolvedHead, ApiError> {
+    let head = resolve_head_values(prepared).await?;
+    // 供应商启停闸（M4-14）：停用 / 黑名单供应商不许再下单 ——
+    // 这是「准入 / 黑名单流程」唯一的强制点（状态由审批回调落 biz_supplier.status）。
+    ensure_supplier_usable(head.supplier_id, head.supplier_name_snapshot.as_deref()).await?;
+    Ok(head)
+}
+
+/// 供应商可下单校验（`biz_supplier.status = 1` 才算可用；不存在也算不可用）。
+///
+/// `SPOT`（手选供应商）与 `CONTRACT`（合同乙方派生）两条路径都过这一道闸 ——
+/// 合同乙方被拉黑之后，旧合同也不能继续下单（合同有效性不覆盖内控黑名单）。
+pub(crate) async fn ensure_supplier_usable(
+    supplier_id: Uuid,
+    supplier_name: Option<&str>,
+) -> std::result::Result<(), ApiError> {
+    let state = supplier_access_model::supplier_state(db(), supplier_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询供应商启停状态"))?;
+    if state.usable() {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        409,
+        error_code::ERP_SUPPLIER_NOT_USABLE,
+        format!(
+            "供应商「{}」当前{}，不能下单：停用 / 黑名单供应商要恢复供货，\
+             请先走「供应商准入 / 解除黑名单」审批，通过后状态才会置为启用",
+            supplier_name.unwrap_or("（未命名）"),
+            state.label()
+        ),
+    ))
+}
+
+/// [`resolve_head`] 的实现体（只做解析，不做启停闸）。
+async fn resolve_head_values(prepared: &PreparedOrder) -> std::result::Result<ResolvedHead, ApiError> {
     if prepared.purchase_type == PURCHASE_TYPE_CONTRACT {
         let raw = prepared.contract_id_raw.as_deref().ok_or_else(|| {
             ApiError::new(

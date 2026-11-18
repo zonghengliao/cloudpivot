@@ -345,3 +345,28 @@ sort=39），执行量接口挂同迁移的 1 条 `menu_type=3` 按钮行（…4
 
 页面码已按第 7 节登记进 `permission_audit_tests::ROUTE_LEVEL_ONLY`（N18 持续校验：
 后端源码一旦引用它、或菜单行消失，N18 立刻红）。
+
+## 13. 补记（M4-14 / V0455，2026-11-18）：供应商准入/黑名单页的页面显形码
+
+`V0455__supplier_access` 为「供应商准入」页种下**一个页面显形码**
+`business:erp:supplier-access:page`（`sys_menu.menu_type=2`，挂「采购管理」目录 …946 下，
+sort=42），它与 4 个**接口码**刻意分开（同迁移的 4 条 `menu_type=3` 按钮行 …4485–…4488）：
+
+| 码 | 管什么 | 承载行 | 谁判 |
+|---|---|---|---|
+| `business:erp:supplier-access:page` | 侧栏显隐 + 路由 `meta.permission` | V0455 页面行 …4484 | **前端路由**（后端零引用） |
+| `business:erp:supplier-access:list` | `GET /page` + `GET /{id}` | V0455 按钮行 …4485 | 接口 `#[nik::permission]` |
+| `business:erp:supplier-access:create` | `POST /supplier-access` | …4486 | 同上 |
+| `business:erp:supplier-access:update` | `PUT /supplier-access/{id}` + `DELETE /supplier-access/{id}` | …4487 | 同上 |
+| `business:erp:supplier-access:submit` | `POST /supplier-access/{id}/submit` | …4488 | 同上 |
+
+两条补充口径：
+
+1. **Vue 页面文件不在本卡**：M4-14 只做后端（申请单表 + `supplier_access` 审批流 +
+   接口），页面文件由 M4-16 落地。页面行必须先由本迁移落下，否则按钮行的 `parent_id`
+   指向不存在的页面 → `menu_invariants` ①（孤儿 parent）直接红（与 V0452 → M4-11 同款）。
+2. **`update` 一个码管改与删两个动作**：草稿的「改内容」与「作废」是同一批人
+   （采购经办）的同一类动作，拆两个码只会让授权树里多一个永远同时勾选的项。
+   `DELETE` 只软删草稿，审批中的单要作废得走审批中心撤回（`flow` 侧能力）。
+
+页面码已按本文件第 7 节登记进 `permission_audit_tests::ROUTE_LEVEL_ONLY`（N18 持续校验）。

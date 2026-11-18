@@ -2102,6 +2102,22 @@ pub const ERP_FWA_PRICE_EXCEEDED: i32 = 66097;
 /// 所以这个码是**唯一**的超限出口；并发靠 `SELECT … FOR UPDATE` 锁协议行串行化。
 pub const ERP_FWA_QTY_EXCEEDED: i32 = 66098;
 
+/// 供应商当前不可下单（HTTP 409 · M4-14 · `66099`）。
+///
+/// 供应商主数据 `biz_supplier.status = 0`（停用）时建采购单会被拦下。停用的两条来路：
+/// 主数据里手工停用，或**准入 / 黑名单审批通过**（V0455 的回调把 status 落成 0）。
+/// 与 [`ERP_SUPPLIER_ACCESS_STATUS_GUARD`] 分开两个码：一个是「这家供应商不能买」，
+/// 一个是「这张申请单现在不能改 / 不能提交」，前端的处置动作完全不同
+/// （换供应商 vs 刷新单据）。
+pub const ERP_SUPPLIER_NOT_USABLE: i32 = 66099;
+
+/// 供应商准入 / 黑名单申请单**状态不接受该动作**（HTTP 409 · M4-14 · `66100`）。
+///
+/// 例：审批中的单要改 / 要删、已生效的单要再提交、同一家供应商已有未结单时又建一张、
+/// 起点不合法（对已拉黑的供应商发「准入」、对没拉黑的发「解除」）。
+/// 报文一律点名单号与当前状态，让人知道下一步该做什么。
+pub const ERP_SUPPLIER_ACCESS_STATUS_GUARD: i32 = 66100;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -2457,6 +2473,10 @@ mod tests {
             (ERP_FWA_NOT_APPLICABLE, 66096),
             (ERP_FWA_PRICE_EXCEEDED, 66097),
             (ERP_FWA_QTY_EXCEEDED, 66098),
+            // 供应商准入 / 黑名单（66099–66100；M4-14 —— 「这家供应商不能买」与「这张申请单
+            // 现在不能改」是两个处置动作：换供应商 vs 刷新单据）
+            (ERP_SUPPLIER_NOT_USABLE, 66099),
+            (ERP_SUPPLIER_ACCESS_STATUS_GUARD, 66100),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

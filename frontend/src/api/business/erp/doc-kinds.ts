@@ -274,6 +274,7 @@ export const FLOW_BIZ_TYPES = [
   'COST_SETTLE',
   'QUOTATION_APPROVE',
   'PP_APPROVE',
+  'SUPPLIER_ACCESS',
 ] as const;
 
 /** 审批业务类型（联合类型）。 */
@@ -308,6 +309,7 @@ export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   COST_SETTLE: '成本结算审批',
   QUOTATION_APPROVE: '报价单审批',
   PP_APPROVE: '采购计划审批',
+  SUPPLIER_ACCESS: '供应商准入审批',
 };
 
 // 末尾 4 项的 flow_code 与各自迁移种下的值逐字一致（成本那条不是 `cost_settle`，是 `cost_settle_approve`）。
@@ -339,6 +341,7 @@ export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   COST_SETTLE: 'cost_settle_approve',
   QUOTATION_APPROVE: 'quotation_approve',
   PP_APPROVE: 'pp_approve',
+  SUPPLIER_ACCESS: 'supplier_access',
 };
 
 /** 采购订单审批的业务类型（历史常量名，值来自 {@link FLOW_BIZ_TYPES}）。 */

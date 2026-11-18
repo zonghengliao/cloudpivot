@@ -67,6 +67,19 @@ pub mod supplier_evaluation_model;
 // 交期维度按真实入库单算准时率的参考分。接口与权限码属 M4-16。
 pub mod supplier_evaluation_grading;
 
+// ==================== 供应商准入 / 黑名单（M4-14） ====================
+// 一张申请单承载三种动作（准入 / 拉黑 / 解除），走 `supplier_access` 审批流；
+// 通过后落 `biz_supplier.status`（拉黑 → 停用，准入 / 解除 → 启用），
+// 采购订单建单时按 `status = 1` 统一闸（409 / 66099）。表结构见 V0455。
+pub mod supplier_access_dto;
+pub mod supplier_access_flow;
+pub mod supplier_access_handler;
+pub mod supplier_access_model;
+
+/// 供应商准入 / 黑名单的真库用例（M4-14；与其它 ERP 用例共用同一个串行锁）。
+#[cfg(test)]
+mod supplier_access_db_tests;
+
 /// 供应商评估打分 + 评级的真库用例（M4-13；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]
 mod supplier_evaluation_grading_db_tests;

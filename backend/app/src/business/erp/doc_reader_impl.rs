@@ -126,7 +126,7 @@ use crate::business::erp::expense::{expense_bridge, expense_dto};
 use crate::business::erp::payable::{payable_bridge, payable_payment, payable_query};
 use crate::business::erp::purchase::{
     purchase_bridge, purchase_model, purchase_plan_bridge, purchase_plan_dto, purchase_requisition_dto,
-    purchase_return_bridge, purchase_return_dto,
+    purchase_return_bridge, purchase_return_dto, supplier_access_flow, supplier_access_model,
 };
 use crate::business::erp::sales::{quotation_approval_bridge, quotation_model, sales_approval_bridge, sales_model};
 use crate::business::erp::stockin::{stockin_base, stockin_bridge};
@@ -233,13 +233,18 @@ pub enum ErpDoc {
     /// 年度 / 月度采购计划提交审批：通过即 `APPROVED`（可转采购申请），
     /// 驳回 / 撤回打回 `DRAFT`。受内控约束（制单人不可自审，`GOVERNED_CODES` 已登记）。
     PurchasePlan,
+    /// 供应商准入 / 黑名单审批（`SUPPLIER_ACCESS`，采购链 M4-14）。
+    ///
+    /// 通过即把申请单置 `APPROVED` 并落 `biz_supplier.status`（拉黑 → 停用，准入/解除 → 启用）；
+    /// 驳回 / 撤回打回 `DRAFT`，供应商状态一个字节不动。受内控约束（申请人不可自审）。
+    SupplierAccess,
 }
 
 impl ErpDoc {
-    /// 全部实现（= 注册表里应当出现的 19 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
+    /// 全部实现（= 注册表里应当出现的 20 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
     ///
-    /// 18 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
-    pub const ALL: [ErpDoc; 19] = [
+    /// 19 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
+    pub const ALL: [ErpDoc; 20] = [
         ErpDoc::PurchaseOrder,
         ErpDoc::StockInPost,
         ErpDoc::StockInCancel,
@@ -259,6 +264,7 @@ impl ErpDoc {
         ErpDoc::StockTransfer,
         ErpDoc::QuotationApprove,
         ErpDoc::PurchasePlan,
+        ErpDoc::SupplierAccess,
     ];
 
     /// 审批业务类型（注册表键）。
@@ -283,6 +289,7 @@ impl ErpDoc {
             ErpDoc::StockTransfer => FlowBizType::StockTransfer,
             ErpDoc::QuotationApprove => FlowBizType::QuotationApprove,
             ErpDoc::PurchasePlan => FlowBizType::PpApprove,
+            ErpDoc::SupplierAccess => FlowBizType::SupplierAccess,
         }
     }
 
@@ -308,6 +315,7 @@ impl ErpDoc {
             ErpDoc::StockTransfer => "调拨单",
             ErpDoc::QuotationApprove => "报价单",
             ErpDoc::PurchasePlan => "采购计划",
+            ErpDoc::SupplierAccess => "供应商准入申请",
         }
     }
 
@@ -445,6 +453,13 @@ impl ErpDoc {
                 creator: "create_by",
                 label: |status| purchase_plan_dto::status_label(status).to_string(),
             },
+            ErpDoc::SupplierAccess => DocSpec {
+                table: "biz_supplier_access",
+                doc_no: "access_no",
+                status: "status",
+                creator: "create_by",
+                label: |status| supplier_access_model::status_label(status).to_string(),
+            },
         }
     }
 
@@ -512,6 +527,9 @@ impl ErpDoc {
             ErpDoc::PurchasePlan => {
                 let _ = purchase_plan_bridge::on_pp_settled(instance_id, instance_status).await;
             }
+            ErpDoc::SupplierAccess => {
+                let _ = supplier_access_flow::on_sa_settled(instance_id, instance_status).await;
+            }
         }
     }
 
@@ -541,6 +559,7 @@ impl ErpDoc {
             ErpDoc::StockTransfer => Ok(()),
             ErpDoc::QuotationApprove => quotation_approval_bridge::guard_self_approval(task_id, operator).await,
             ErpDoc::PurchasePlan => purchase_plan_bridge::guard_self_approval(task_id, operator).await,
+            ErpDoc::SupplierAccess => supplier_access_flow::guard_self_approval(task_id, operator).await,
         }
     }
 
@@ -569,7 +588,8 @@ impl ErpDoc {
             | ErpDoc::ReceiptRefund
             | ErpDoc::StockTransfer
             | ErpDoc::QuotationApprove
-            | ErpDoc::PurchasePlan => Ok(()),
+            | ErpDoc::PurchasePlan
+            | ErpDoc::SupplierAccess => Ok(()),
         }
     }
 
@@ -600,6 +620,7 @@ impl ErpDoc {
             ErpDoc::StockTransfer => Ok(None),
             ErpDoc::QuotationApprove => quotation_approval_bridge::internal_control_creator(biz_id).await,
             ErpDoc::PurchasePlan => purchase_plan_bridge::internal_control_creator(biz_id).await,
+            ErpDoc::SupplierAccess => supplier_access_flow::internal_control_creator(biz_id).await,
         }
     }
 }
@@ -654,7 +675,7 @@ impl DocReader for ErpDocReader {
     }
 }
 
-/// 全部 ERP 单据查询器（18 个，顺序 = [`ErpDoc::ALL`]）。
+/// 全部 ERP 单据查询器（20 个，顺序 = [`ErpDoc::ALL`]）。
 pub fn readers() -> Vec<Arc<dyn DocReader>> {
     ErpDoc::ALL
         .iter()

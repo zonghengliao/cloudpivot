@@ -30,7 +30,9 @@ use crate::business::erp::cost::cost_period_bridge;
 use crate::business::erp::doc_reader_impl::{self, ErpDoc, ErpDocReader};
 use crate::business::erp::expense::expense_bridge;
 use crate::business::erp::payable::payable_bridge;
-use crate::business::erp::purchase::{purchase_bridge, purchase_plan_bridge, purchase_return_bridge};
+use crate::business::erp::purchase::{
+    purchase_bridge, purchase_plan_bridge, purchase_return_bridge, supplier_access_flow,
+};
 use crate::business::erp::receipt_refund_bridge;
 use crate::business::erp::requisition_bridge;
 use crate::business::erp::sales::{quotation_approval_bridge, sales_approval_bridge};
@@ -68,21 +70,23 @@ fn bridge_codes() -> Vec<(FlowBizType, &'static str)> {
         (FlowBizType::QuotationApprove, quotation_approval_bridge::BIZ_TYPE),
         // M4-02：采购计划审批（受内控约束：制单人不可自审自己编的计划）
         (FlowBizType::PpApprove, purchase_plan_bridge::BIZ_TYPE),
+        // M4-14：供应商准入 / 黑名单审批（受内控约束：申请人不可自审自己提的申请）
+        (FlowBizType::SupplierAccess, supplier_access_flow::BIZ_TYPE),
     ]
 }
 
-/// 18 个受控实现与 18 个 `governed` 分支**一一对应**，外加 1 个「只接回调」的调拨单，
-/// 且落库码与桥常量逐字一致（M4-02 起实现数 = 19）。
+/// 19 个受控实现与 19 个 `governed` 分支**一一对应**，外加 1 个「只接回调」的调拨单，
+/// 且落库码与桥常量逐字一致（M4-14 起实现数 = 20）。
 #[test]
 fn supported_set_matches_governed_branches() {
     let expected = bridge_codes();
-    assert_eq!(expected.len(), 18, "登记表本身应恰好 18 条");
+    assert_eq!(expected.len(), 19, "登记表本身应恰好 19 条");
 
     let implemented: Vec<FlowBizType> = ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect();
     assert_eq!(
         implemented.len(),
-        19,
-        "ErpDoc::ALL 应恰好 19 个实现（18 受控 + 调拨单）"
+        20,
+        "ErpDoc::ALL 应恰好 20 个实现（19 受控 + 调拨单）"
     );
 
     // ⓪ P2-34：多出来的那一个必须**恰好**是 STOCK_TRANSFER —— 它只接终态回调、不做内控排除。
@@ -156,9 +160,9 @@ fn registers_every_reader_once() {
     let mut registry = DocRegistry::new();
     assert!(registry.is_empty(), "空注册表应 is_empty");
 
-    let count = doc_reader_impl::register_into(&mut registry).expect("19 个实现应能一次注册完");
-    assert_eq!(count, 19, "register_into 应报告注册了 19 个（18 受控 + 调拨单）");
-    assert_eq!(registry.len(), 19, "注册表里应有 19 个键");
+    let count = doc_reader_impl::register_into(&mut registry).expect("20 个实现应能一次注册完");
+    assert_eq!(count, 20, "register_into 应报告注册了 20 个（19 受控 + 调拨单）");
+    assert_eq!(registry.len(), 20, "注册表里应有 20 个键");
 
     // 按落库编码取（P2-34 调用点最常用的入口）
     for doc in ErpDoc::ALL {
@@ -169,7 +173,7 @@ fn registers_every_reader_once() {
     }
 
     let registered: BTreeSet<FlowBizType> = registry.registered().into_iter().collect();
-    assert_eq!(registered.len(), 19, "registered() 应给出 19 个键（18 受控 + 调拨单）");
+    assert_eq!(registered.len(), 20, "registered() 应给出 20 个键（19 受控 + 调拨单）");
     assert_eq!(
         registered,
         ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect::<BTreeSet<_>>(),
@@ -366,8 +370,8 @@ async fn process_registry_is_filled_by_register_all() {
     assert_eq!(doc_reader::len(), 0, "reset 之后应为空");
 
     let count = doc_reader_impl::register_all().expect("启动期注册应成功");
-    assert_eq!(count, 19);
-    assert_eq!(doc_reader::len(), 19, "进程级注册表应有 19 个键（18 受控 + 调拨单）");
+    assert_eq!(count, 20);
+    assert_eq!(doc_reader::len(), 20, "进程级注册表应有 20 个键（19 受控 + 调拨单）");
 
     // 分派助手（P2-34 的替换点）能按编码取到实现
     for doc in ErpDoc::ALL {

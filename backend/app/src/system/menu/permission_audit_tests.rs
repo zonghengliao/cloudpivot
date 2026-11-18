@@ -153,6 +153,15 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
          （侧栏显隐 + meta.permission）。Vue 页面文件由 M4-11（t_da2f0a9b）落地，\
          本卡只落菜单行 —— 因为按钮权限点必须挂在页面行下（menu_invariants ① 孤儿 parent）。",
     ),
+    // ---- ERP 供应商准入 / 黑名单页（V0455，卡 t_583852b1 / M4-14）----
+    (
+        "business:erp:supplier-access:page",
+        "页面显形码（V0455）：供应商准入 / 黑名单页；接口各自判 \
+         business:erp:supplier-access:{list,create,update,submit}（同迁移的 4 个按钮行），\
+         本码只给前端路由（侧栏显隐 + meta.permission）。Vue 页面文件由 M4-16 落地，\
+         本卡只落菜单行 + 接口 —— 与 V0447 采购计划页同形：页面行不复用接口码，\
+         把「能进这一页」与「能改全公司的供应商启停」拆开。",
+    ),
 ];
 
 /// **已种菜单、后端校验点尚未落地**的权限码 → 落地它的卡（临时例外，落地即删）。
