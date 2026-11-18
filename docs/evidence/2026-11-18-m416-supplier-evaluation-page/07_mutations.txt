@@ -1,0 +1,36 @@
+M4-16 变异反证（证明本卡新增的两段 SQL 与名次编号有用例有牙）
+每次改一处 → 跑对应用例 → 逐字抄回终端里的断言失败原文 → 立即还原。
+
+=== 变异 A：`evaluations_in_period` 的 ORDER BY 由 DESC 改 ASC ===
+$ ERP_DB_URL=.../cp_m416_mutation_drill cargo test --lib \
+    business::erp::purchase::supplier_evaluation_handler_db_tests::rank -- --test-threads=1
+thread '...::rank_orders_by_total_desc_and_numbers_from_one' (3803326) panicked at
+  supplier_evaluation_handler_db_tests.rs:238:5:
+assertion `left == right` failed: 必须按总分降序
+  left: ["70.00", "85.00", "92.00"]
+ right: ["92.00", "85.00", "70.00"]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6483 filtered out
+
+=== 变异 B：`page_evaluations` 忽略等级筛选（不再拼 `AND e.grade = ?`）===
+$ ERP_DB_URL=.../cp_m416_mutation_drill cargo test --lib \
+    business::erp::purchase::supplier_evaluation_handler_db_tests::page_filters -- --test-threads=1
+thread '...::page_filters_by_grade_keyword_and_period' (3803703) panicked at
+  supplier_evaluation_handler_db_tests.rs:185:5:
+assertion `left == right` failed: 库里只有一份 A 级（另两份是 B / D）
+  left: 3
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6483 filtered out
+
+=== 变异 C：`build_rank` 名次从 0 起（`index` 而不是 `index + 1`）===
+$ ERP_DB_URL=.../cp_m416_mutation_drill cargo test --lib \
+    business::erp::purchase::supplier_evaluation_handler_db_tests::rank -- --test-threads=1
+thread '...::rank_orders_by_total_desc_and_numbers_from_one' (3804108) panicked at
+  supplier_evaluation_handler_db_tests.rs:240:5:
+assertion `left == right` failed: 名次从 1 起、不并列
+  left: [0, 1, 2]
+ right: [1, 2, 3]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6483 filtered out
+
+=== 三处变异全部还原后的复核 ===
+$ ERP_DB_URL=.../cp_m416_mutation_drill cargo test --lib business::erp::purchase::supplier_evaluation -- --test-threads=1
+test result: ok. 71 passed; 0 failed; 0 ignored; 0 measured; 6413 filtered out; finished in 0.64s

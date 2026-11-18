@@ -70,6 +70,13 @@ pub mod supplier_evaluation_model;
 // 交期维度按真实入库单算准时率的参考分。接口与权限码属 M4-16。
 pub mod supplier_evaluation_grading;
 
+// ==================== 供应商评估（SEV）：页面接口（M4-16） ====================
+// M4-16 交「页面要的一组取数 + 写入口」：台账分页 / 详情 / 打分录入（同期间覆盖）/ 本期排名 /
+// 交期参考分。判据全部复用 M4-12 的 model 与 M4-13 的 grading（阈值、算分、落库都只有一份），
+// 本层只做入参校验与出参整形；页面显形码 `…:page` 在后端零引用（约定 14）。
+pub mod supplier_evaluation_dto;
+pub mod supplier_evaluation_handler;
+
 // ==================== 供应商准入 / 黑名单（M4-14） ====================
 // 一张申请单承载三种动作（准入 / 拉黑 / 解除），走 `supplier_access` 审批流；
 // 通过后落 `biz_supplier.status`（拉黑 → 停用，准入 / 解除 → 启用），
@@ -91,6 +98,11 @@ mod supplier_evaluation_grading_db_tests;
 /// regrade；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]
 mod supplier_evaluation_suite_tests;
+
+/// 供应商评估页面接口的真库用例（M4-16：打分入口覆盖语义 / 台账分页筛选 / 排名排序；
+/// 与其它 ERP 用例共用同一个串行锁）。
+#[cfg(test)]
+mod supplier_evaluation_handler_db_tests;
 
 /// 供应商评估表结构的真库用例（M4-12；与其它 ERP 用例共用同一个串行锁）。
 #[cfg(test)]

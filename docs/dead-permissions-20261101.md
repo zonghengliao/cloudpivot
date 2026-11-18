@@ -370,3 +370,27 @@ sort=42），它与 4 个**接口码**刻意分开（同迁移的 4 条 `menu_ty
    `DELETE` 只软删草稿，审批中的单要作废得走审批中心撤回（`flow` 侧能力）。
 
 页面码已按本文件第 7 节登记进 `permission_audit_tests::ROUTE_LEVEL_ONLY`（N18 持续校验）。
+
+## 14. 补记（M4-16 / V0457，2026-11-18）：供应商评估页的页面显形码
+
+`V0457__supplier_evaluation_page` 为「供应商评估」页种下**一个页面显形码**
+`business:erp:supplier-evaluation:page`（`sys_menu.menu_type=2`，挂「采购管理」目录 …946 下，
+sort=43），它与 2 个**接口码**刻意分开（同迁移的 2 条 `menu_type=3` 按钮行 …4496–…4497）：
+
+| 码 | 管什么 | 承载行 | 谁判 |
+|---|---|---|---|
+| `business:erp:supplier-evaluation:page` | 侧栏显隐 + 路由 `meta.permission` | V0457 页面行 …4495 | **前端路由**（后端零引用） |
+| `business:erp:supplier-evaluation:list` | `GET /page` + `GET /rank` + `GET /{id}` | V0457 按钮行 …4496 | 接口 `#[nik::permission]` |
+| `business:erp:supplier-evaluation:save` | `POST /supplier-evaluation`（打分录入 / 重打分覆盖）+ `GET /delivery-suggestion` | …4497 | 同上 |
+
+两条补充口径：
+
+1. **接口与页面同卡**：M4-12/13 只交表结构与打分口径（零路由），M4-14 交准入流程。
+   本卡（M4-16）按 M4-13 README §四的建议把「页面 + 它需要的最小接口面」一起交付 ——
+   5 条路由全部是页面用得到的（台账分页 / 详情 / 打分 / 排名 / 交期参考分），
+   没有导出、批量重评级等页面没有入口的能力。先例：M4-11b（框架协议 CRUD + 页面写入口）。
+2. **两个码的职责边界**：`save` 只管「打分录入」这一件事（含它依赖的交期参考分取数），
+   `list` 管全部只读面（台账 / 排名 / 详情）。分开是为了让「能看排名」不等于「能改分」——
+   财务经理只拿 `page + list`，不给 `save`（自己打分自己复核 = 自审）。
+
+页面码已按本文件第 7 节登记进 `permission_audit_tests::ROUTE_LEVEL_ONLY`（N18 持续校验）。

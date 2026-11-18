@@ -40,6 +40,8 @@ use nik::prelude::rust_decimal::{Decimal, RoundingStrategy};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use cloudpivot_kernel::business::shared::scope;
+
 // ==================== 表名 / 取号 / 枚举值 ====================
 
 /// 供应商评估表。
@@ -515,6 +517,92 @@ pub async fn graded_in_period(
                 evaluation_select_sql()
             ),
             vec![Value::Text(date_text(period_start)), Value::Text(date_text(period_end))],
+        )
+        .await?;
+    rows.iter().map(read_evaluation_row).collect()
+}
+
+// ==================== 分页 / 排名（M4-16 页面取数） ====================
+
+/// 评估单分页锚点（SCOPE-EXEMPT：公司级采购文件，无 dept 归属列，与表头「数据权限」同口径）。
+pub const EVALUATION_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(EVALUATION_TABLE);
+
+/// 分页查询（关键字 / 等级 / 供应商 / 期间，按期间倒序 + 总分倒序）。
+///
+/// 排序口径：`period_end DESC, total_score DESC, supplier_display_name` —— 台账页要「最新期间在上」，
+/// 同期间内高分在前（页面另有专门的排名接口，见 [`evaluations_in_period`]）。
+/// 筛选值由 `dto::EvaluationFilter` 先校验（非法枚举 / 非法日期在 handler 侧就 400，不静默忽略）。
+pub async fn page_evaluations(
+    filter: &crate::business::erp::purchase::supplier_evaluation_dto::EvaluationFilter,
+) -> DbResult<(Vec<EvaluationRow>, u64)> {
+    let mut sql = evaluation_select_sql();
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(grade) = filter.grade.as_deref() {
+        sql.push_str(" AND e.grade = ?");
+        params.push(Value::Text(grade.to_string()));
+    }
+    if let Some(supplier_id) = filter.supplier_id {
+        sql.push_str(" AND e.supplier_id = ?::uuid");
+        params.push(Value::from(&supplier_id));
+    }
+    if let Some(start) = filter.period_start {
+        sql.push_str(" AND e.period_start = ?::text::date");
+        params.push(Value::Text(date_text(start)));
+    }
+    if let Some(end) = filter.period_end {
+        sql.push_str(" AND e.period_end = ?::text::date");
+        params.push(Value::Text(date_text(end)));
+    }
+    if let Some(pattern) = cloudpivot_kernel::utils::like_pattern(filter.keyword.as_deref()) {
+        let like = Value::Text(pattern);
+        sql.push_str(
+            " AND (e.evaluation_no LIKE ? OR COALESCE(e.supplier_name, '') LIKE ? \
+                OR COALESCE(s.supplier_name, '') LIKE ? OR COALESCE(e.remark, '') LIKE ?)",
+        );
+        for _ in 0..4 {
+            params.push(like.clone());
+        }
+    }
+    let page = scope::paginate_unscoped(
+        EVALUATION_TARGET,
+        &sql,
+        params,
+        Some("ORDER BY e.period_end DESC, e.total_score DESC, e.supplier_id"),
+        filter.page,
+        filter.page_size,
+    )
+    .await?;
+    let rows = page
+        .list
+        .iter()
+        .map(read_evaluation_row)
+        .collect::<DbResult<Vec<_>>>()?;
+    Ok((rows, page.total))
+}
+
+/// 某期间的全部评估，**按总分降序**（排名榜；未评级（`grade IS NULL`）也列出，排在总分序列里）。
+///
+/// 期间判据与 [`graded_in_period`] 相同（`period_start` / `period_end` 全等，不是区间相交）：
+/// 「2026-Q1 排名」只该有那一季度的结论，跨期混排会把不同口径的分数放在一起比。
+pub async fn evaluations_in_period(
+    ex: &impl SqlExecutor,
+    period_start: NaiveDate,
+    period_end: NaiveDate,
+    limit: u64,
+) -> DbResult<Vec<EvaluationRow>> {
+    // SCOPE-EXEMPT: 同上（明细随单头可见性走）。
+    let rows = ex
+        .query_sql(
+            format!(
+                "{} AND e.period_start = ?::text::date AND e.period_end = ?::text::date \
+                    ORDER BY e.total_score DESC, e.evaluation_no LIMIT ?",
+                evaluation_select_sql()
+            ),
+            vec![
+                Value::Text(date_text(period_start)),
+                Value::Text(date_text(period_end)),
+                Value::from(limit as i64),
+            ],
         )
         .await?;
     rows.iter().map(read_evaluation_row).collect()

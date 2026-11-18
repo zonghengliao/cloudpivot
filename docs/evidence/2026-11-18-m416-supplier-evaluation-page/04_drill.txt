@@ -1,0 +1,53 @@
+== M4-16 供应商评估页面演练 · PG 172.18.10.145:5432 / 库 cp_m416_sev_page_drill_3804991 ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m416_sev_page_drill_3804991
+== 1) 应用业务迁移 V0405…（含本卡的 V0457）
+  ---- 模板库版本 = V404
+  [32mPASS[0m 53 条迁移全部应用成功（演练库 = 仓库当前版本）
+== 2) V0457 幂等（重跑 up）与可回滚（down → up）
+  [32mPASS[0m V0457 up 重跑一次不报错（ON CONFLICT DO UPDATE 幂等）
+  [32mPASS[0m 重跑后仍是 3 行菜单（不重复插）（=3）
+  [32mPASS[0m V0457 down 执行成功
+  [32mPASS[0m down 后菜单 0 行（=0）
+  [32mPASS[0m down 后授权 0 行（=0）
+  [32mPASS[0m down 不删表（表与数据属 V0454，回滚页面不带走历史分数）（=1）
+  [32mPASS[0m V0457 重新 up 成功（回滚可逆）
+== 3) 菜单 / 授权 / 权限码形状（psql 侧）
+  [32mPASS[0m 3 行菜单（1 页面 + 2 按钮）（=3）
+  [32mPASS[0m 页面行形状（显形码 / 父级采购管理 / path / component / 标题 ≤12 / 图标存在）（=1）
+  [32mPASS[0m 2 个接口码按钮行挂在页面行下（=2）
+  [32mPASS[0m 采购管理目录下 sort_order 无重复（=0）
+  [32mPASS[0m PURCHASE_MANAGER 拿到 3 行（N20：:list 至少一个非超管角色）（=3）
+  [32mPASS[0m FINANCE_MANAGER 拿到页面 + 列表（**不给** save：自己打分自己复核 = 自审）（=2）
+  [32mPASS[0m FINANCE_MANAGER 确实没有 save 行（=0）
+== 4) 页面显形码在后端零引用（AGENTS 约定 14）
+  [32mPASS[0m 后端源码（非注释、除例外台账）零引用 business:erp:supplier-evaluation:page（=0）
+  [32mPASS[0m 页面码已登记进 ROUTE_LEVEL_ONLY（N18 持续校验）（=1）
+== 5) 前端接线（页面 / API / 路由三件齐）
+  [32mPASS[0m 页面文件存在（=1）
+  [32mPASS[0m API 层文件存在（=1）
+  [32mPASS[0m router/index.ts 注册了该 path（n08：menu_type=2 的 path 必须能解析）（=1）
+  [32mPASS[0m 路由 meta.permission 用的是页面显形码（=1）
+  [32mPASS[0m API 层导出 5 个调用（page / detail / rank / suggestion / save）（=5）
+== 6) 真库用例（本卡新增的两段 SQL 只能这样验）
+  [32mPASS[0m 接口 DTO 纯逻辑（400 分支 + 出参整形） 失败数（=0）
+  [32mPASS[0m 接口 DTO 纯逻辑（400 分支 + 出参整形） 通过 14 条（要求 >= 13）
+  [32mPASS[0m 接口 DTO 纯逻辑（400 分支 + 出参整形） SKIP 行数（真库用例不许默默跳过）（=0）
+  [32mPASS[0m 页面接口真库（覆盖 / 分页 / 排名 / 清场） 失败数（=0）
+  [32mPASS[0m 页面接口真库（覆盖 / 分页 / 排名 / 清场） 通过 4 条（要求 >= 4）
+  [32mPASS[0m 页面接口真库（覆盖 / 分页 / 排名 / 清场） SKIP 行数（真库用例不许默默跳过）（=0）
+== 7) 门禁（权限审计 / 菜单-路由对齐 / 菜单 8 条）
+  [32mPASS[0m 权限审计 N14–N21 失败数（=0）
+  [32mPASS[0m 权限审计 N14–N21 通过 8 条（要求 >= 8）
+  [32mPASS[0m 权限审计 N14–N21 SKIP 行数（真库用例不许默默跳过）（=0）
+  [32mPASS[0m n08 菜单路径全部能在前端路由解析 失败数（=0）
+  [32mPASS[0m n08 菜单路径全部能在前端路由解析 通过 1 条（要求 >= 1）
+  [32mPASS[0m n08 菜单路径全部能在前端路由解析 SKIP 行数（真库用例不许默默跳过）（=0）
+  [32mPASS[0m menu_invariants.sh 8 条断言全绿
+== 8) 夹具残留（真库用例跑完必须自带清场）
+  [32mPASS[0m M416- 评估夹具 0 残留（=0）
+  [32mPASS[0m M416- 供应商夹具 0 残留（=0）
+
+== 汇总：PASS=39 FAIL=0 ==
+演练通过（rc=0）

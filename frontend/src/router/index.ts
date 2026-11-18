@@ -670,6 +670,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '供应商准入', permission: 'business:erp:supplier-access:page' },
       },
       {
+        // ==================== ERP 供应商评估（M4-16 后端接口 + 本卡前端） ====================
+        // `sys_menu`（V0457 页面行 …4495）path = `/business/erp/supplier-evaluation`、
+        // component `business/erp/supplier-evaluation/index`，页面显形码
+        // `business:erp:supplier-evaluation:page`（AGENTS 约定 14：页面码只给前端判显隐，
+        // 后端零引用）。**路由手工注册**（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档会当场红）。
+        // 2 个接口码：`…:list`（台账 / 排名 / 详情）、`…:save`（打分录入 + 交期参考分）。
+        path: 'business/erp/supplier-evaluation',
+        name: 'BusinessErpSupplierEvaluation',
+        component: () => import('@/views/business/erp/supplier-evaluation/index.vue'),
+        meta: { title: '供应商评估', permission: 'business:erp:supplier-evaluation:page' },
+      },
+      {
         // ==================== ERP 采购退货（P2-03 · 退货 → 审批 → 红字应付 → 库存回冲 → 凭证） ====================
         // `sys_menu`（V0332 种子 …3341）path = `/business/erp/purchase-return`，
         // component `business/erp/purchase-return/index`。**路由手工注册**（没有 views 自动扫描），

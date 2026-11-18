@@ -146,13 +146,13 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
          把「能进这一页」与「能看全公司计划」拆开。",
     ),
     // ---- ERP 框架协议页（V0452，卡 t_645358e9 / M4-09）----
-    (
-        "business:erp:framework-agreement:page",
-        "页面显形码（V0452）：框架协议页（协议维护 + 执行量）；两个只读接口判 \
-         business:erp:framework-agreement:execution（同迁移的按钮行），本码只给前端路由\
-         （侧栏显隐 + meta.permission）。Vue 页面文件由 M4-11（t_da2f0a9b）落地，\
-         本卡只落菜单行 —— 因为按钮权限点必须挂在页面行下（menu_invariants ① 孤儿 parent）。",
-    ),
+    // ⚠ 2026-11-18（卡 t_005d6b65 / M4-16 顺手销号）：这条例外曾长期挂着，但 M4-11b
+    // （t_f358da98）在 `framework_agreement_dto.rs` 的用例里写了**字面量负断言**
+    // （`!AGREEMENT_PERMISSIONS.contains("business:erp:framework-agreement:page")`），
+    // 而本文件的 `code_refs` 口径（§口径 3）把 `#[cfg(test)]` 模块里的引用也算「有承载」
+    // ⇒ N18 判台账过期、整组审计在 HEAD 上就是红的（实测：只应用到 V0456 的库里跑 n18 即红）。
+    // 该码**仍然是纯前端显形码**（后端零判权），完整记录见 `docs/dead-permissions-20261101.md` §12；
+    // 这里销号是为了让 N18「台账必须是活的」这条规则自洽，不再因一条负断言长期假红。
     // ---- ERP 供应商准入 / 黑名单页（V0455，卡 t_583852b1 / M4-14）----
     (
         "business:erp:supplier-access:page",
@@ -161,6 +161,14 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
          本码只给前端路由（侧栏显隐 + meta.permission）。Vue 页面文件由 M4-16 落地，\
          本卡只落菜单行 + 接口 —— 与 V0447 采购计划页同形：页面行不复用接口码，\
          把「能进这一页」与「能改全公司的供应商启停」拆开。",
+    ),
+    // ---- ERP 供应商评估页（V0457，卡 t_005d6b65 / M4-16）----
+    (
+        "business:erp:supplier-evaluation:page",
+        "页面显形码（V0457）：供应商评估页（台账 + 本期排名 + 打分录入抽屉）；\
+         接口各自判 business:erp:supplier-evaluation:{list,save}（同迁移的 2 个按钮行），\
+         本码只给前端路由（侧栏显隐 + meta.permission）。与 V0455 供应商准入页同形：\
+         页面行不复用接口码，把「能进这一页」与「能给供应商打分 / 看全公司排名」拆开。",
     ),
 ];
 
