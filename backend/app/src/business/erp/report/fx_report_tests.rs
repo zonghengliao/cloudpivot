@@ -22,6 +22,11 @@
 //!   V6 2064-10-25  USD 999       **DRAFT**              ← 草稿不进报表
 //! ```
 //!
+//! 收尾：`zz_teardown_purges_fixtures`（模块最后跑）按 `voucher_word` 清场并断言 0 ——
+//! 连它自己的 `VOUCHER` 状态日志、本文件独占的 `2064-` 期间 / USD 牌价、以及历史孤儿一起收干净。
+//! 只靠 `setup_fixture()` 开头那次清场是不够的：本模块最后一条用例造的东西会一直留到下一轮
+//! （卡 `t_255fb28e`：跑完全量后库里常驻 6 张 `summary='M109 夹具'` 的凭证）。
+//!
 //! 于是 2064-10 的 USD 口径应当是：1001 = 170 / 1122 = 100 / 2202 = 200 /
 //! 收入 100 / 管理费用 30 / 净利润 70，且**资产 270 ≡ 负债 200 + 权益 70**（真平）；
 //! 本位币口径同一期间是另一组数（1001 = 1979 …），两者必须**不同**才证明「切币种真的换了取数」。
@@ -29,6 +34,7 @@
 use nik::prelude::chrono::NaiveDate;
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
+use nik::uuid::Uuid;
 use std::str::FromStr;
 
 use super::fx_report;
@@ -44,14 +50,87 @@ fn dec(text: &str) -> Decimal {
     Decimal::from_str(text).expect("十进制字面量")
 }
 
+/// 清场：删掉本文件造的全部夹具凭证（`voucher_word = 'ERPFX9'`，本文件独占）。
+///
+/// # 为什么先删状态日志、再删凭证行
+///
+/// `biz_status_log` **没有外键**（审计留痕表刻意不跟单据级联），凭证行一删，它写过的
+/// `entity_id` 就再也查不到了 ⇒ 日志变孤儿（判据 `entity_type = 'VOUCHER' AND
+/// entity_id NOT IN (SELECT id FROM biz_voucher)`），而全仓的孤儿扫描会一直把它们数进去。
+/// 顺序反了会静默留孤儿（卡 `t_7938e24a` 的同类根因）。
+///
+/// 返回删掉的**凭证行数**（状态日志条数打印出来，方便对照）。
+async fn purge_fixtures() -> i64 {
+    let logs_sql = format!(
+        "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' \
+          AND entity_id IN (SELECT id FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}')"
+    );
+    let logs = db()
+        .execute_with_params(logs_sql.as_str(), vec![])
+        .await
+        .unwrap_or_else(|error| panic!("清场失败（删夹具凭证的 VOUCHER 状态日志）：{error}"));
+    let vouchers_sql = format!("DELETE FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'");
+    let vouchers = db()
+        .execute_with_params(vouchers_sql.as_str(), vec![])
+        .await
+        .unwrap_or_else(|error| panic!("清场失败（删夹具凭证）：{error}"));
+    let (logs, vouchers) = (i64::try_from(logs).unwrap_or(0), i64::try_from(vouchers).unwrap_or(0));
+    if vouchers > 0 || logs > 0 {
+        println!("[M1-09] 清场：删夹具凭证 {vouchers} 张、其 VOUCHER 状态日志 {logs} 条");
+    }
+    vouchers
+}
+
+/// 本文件夹具凭证的条数（按 `voucher_word` —— 只用这个词定位，不按单号前缀猜）。
+async fn fixture_vouchers() -> i64 {
+    let sql = format!("SELECT count(*) FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'");
+    db().scalar(sql.as_str())
+        .await
+        .unwrap_or_else(|error| panic!("统计夹具凭证失败：{error}"))
+}
+
+/// 本文件夹具凭证的 id（清场前抓下来，清场后靠它们数状态日志 —— 凭证一删就查不到 id 了）。
+async fn fixture_voucher_ids() -> Vec<Uuid> {
+    let sql = format!("SELECT id FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}' ORDER BY voucher_no");
+    let rows = db()
+        .find_with_params(sql.as_str(), vec![])
+        .await
+        .unwrap_or_else(|error| panic!("读夹具凭证 id 失败：{error}"));
+    rows.iter()
+        .map(|row| {
+            row.get_typed("id")
+                .unwrap_or_else(|error| panic!("夹具凭证 id：{error}"))
+        })
+        .collect()
+}
+
+/// 这些凭证 id 上的 `VOUCHER` 状态日志条数（清场后必须是 0）。
+async fn status_logs_of(ids: &[Uuid]) -> i64 {
+    if ids.is_empty() {
+        return 0;
+    }
+    let list = ids
+        .iter()
+        .map(|id| format!("'{id}'::uuid"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT count(*) FROM biz_status_log \
+          WHERE entity_type = 'VOUCHER' AND entity_id IN ({list})"
+    );
+    db().scalar(sql.as_str())
+        .await
+        .unwrap_or_else(|error| panic!("统计夹具凭证状态日志失败：{error}"))
+}
+
 /// 建夹具：期间 / 汇率 / 科目标记 / 六张凭证（其中一张草稿）。
 async fn setup_fixture() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     let guard = DB_LOCK.lock().await;
     if !ensure_db().await {
         return None;
     }
+    purge_fixtures().await;
     let statements = [
-        format!("DELETE FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'"),
         // 牌价：USD / EUR / HKD → CNY 的行整体删掉再种（**只动这三对**）。
         //
         // 为什么不能只删「2064 年及以后」：模板库里 USD→CNY 有一条 `effective_to IS NULL`
@@ -678,4 +757,90 @@ async fn fx_report_currency_param_validation() {
     assert_eq!(unknown.status, 400);
     assert_eq!(unknown.code, error_code::ERP_REPORT_CURRENCY_INVALID);
     assert!(unknown.msg.contains("币种"), "报文要点名去哪儿维护：{}", unknown.msg);
+}
+
+/// 收尾清场（`zz_` 排在本模块最后跑）：本文件夹具凭证必须一张不留。
+///
+/// # 为什么 `setup_fixture()` 里清不够
+///
+/// `setup_fixture()` 的清场只对**本模块的下一条用例**生效。本模块最后一条跑完，最后造的
+/// 那 6 张凭证（`9001~9005 POSTED` + `9006 DRAFT`，`summary='M109 夹具'`）就一直躺在库里，
+/// 直到下一次有人跑本模块 —— 于是「全量跑完净增量 = 0」这类统计永远非 0（卡 `t_255fb28e`）。
+///
+/// # 为什么还要给凭证补一条状态日志
+///
+/// 夹具是用裸 SQL 灌凭证的，**自己不写** `biz_status_log`。只断言「日志 0 条」等于断言一个
+/// 空集合 ⇒ 假绿。所以这里显式补上「凭证落库时会写的那条日志」，让
+/// [`purge_fixtures`] 的「先删日志、再删凭证」那条腿真的有牙：顺序反了 / 漏删日志，
+/// 这条断言当场红。
+#[tokio::test]
+async fn zz_teardown_purges_fixtures() {
+    let Some(_guard) = setup_fixture().await else {
+        return;
+    };
+    seed_vouchers().await;
+    let ids = fixture_voucher_ids().await;
+    assert_eq!(ids.len(), 6, "清场前必须先把夹具造出来（否则「删了个寂寞」也会绿）");
+    let logs_sql = format!(
+        "INSERT INTO biz_status_log \
+            (entity_type, entity_id, entity_no, from_status, to_status, operator_name, created_at) \
+         SELECT 'VOUCHER', v.id, v.voucher_no, NULL, v.status, 'M109 夹具', NOW() \
+           FROM biz_voucher v WHERE v.voucher_word = '{FIXTURE_WORD}'"
+    );
+    db().execute_with_params(logs_sql.as_str(), vec![])
+        .await
+        .unwrap_or_else(|error| panic!("造夹具凭证的 VOUCHER 状态日志失败：{error}"));
+    assert_eq!(
+        status_logs_of(&ids).await,
+        6,
+        "清场前 6 张夹具凭证都该带上一条状态日志（这是「先删日志」那条腿的牙齿）"
+    );
+
+    let deleted = purge_fixtures().await;
+    assert_eq!(deleted, 6, "清场必须删掉 6 张夹具凭证");
+    assert_eq!(
+        fixture_vouchers().await,
+        0,
+        "清场后按 voucher_word = '{FIXTURE_WORD}' 数必须 0 张（跑完全量库里不许常驻 M109 凭证）"
+    );
+    assert_eq!(
+        status_logs_of(&ids).await,
+        0,
+        "清场后这 {} 个 id 上的 VOUCHER 状态日志必须 0 条（日志没有外键，必须先删）",
+        ids.len()
+    );
+
+    // 兜历史孤儿：修前每一轮 `setup_fixture()` 删掉上一轮凭证后，那些凭证的状态日志就成了孤儿，
+    // 永远没有模块会回来收（`entity_id NOT IN (SELECT id FROM biz_voucher)`）。
+    let cleaned = crate::business::erp::fixture_hygiene::purge_orphans(&["VOUCHER"]).await;
+    let left = crate::business::erp::fixture_hygiene::orphans(&["VOUCHER"]).await;
+    assert_eq!(
+        left, 0,
+        "VOUCHER 孤儿状态日志必须收干（本轮清了 {cleaned} 条，还剩 {left} 条）"
+    );
+
+    // 本文件**独占**的另外两样夹具（`setup_fixture()` 每轮开头都整体重建，见其注释）：
+    // 2064-09 / 2064-10 期间与 2064 年的 USD 牌价。不收的话「全量跑完净增量 = 0」仍然非 0。
+    let period_sql = "DELETE FROM biz_accounting_period WHERE period_code LIKE '2064-%'";
+    let rate_sql = "DELETE FROM biz_exchange_rate \
+                     WHERE from_currency IN ('USD', 'EUR', 'HKD') AND to_currency = 'CNY' \
+                       AND effective_date >= DATE '2064-01-01' AND effective_date < DATE '2065-01-01'";
+    for sql in [period_sql, rate_sql] {
+        db().execute_with_params(sql, vec![])
+            .await
+            .unwrap_or_else(|error| panic!("清场失败：{error}\nSQL: {sql}"));
+    }
+    let residue: i64 = db()
+        .scalar(
+            "SELECT (SELECT count(*) FROM biz_accounting_period WHERE period_code LIKE '2064-%') \
+                  + (SELECT count(*) FROM biz_exchange_rate \
+                      WHERE from_currency IN ('USD', 'EUR', 'HKD') AND to_currency = 'CNY' \
+                        AND effective_date >= DATE '2064-01-01' AND effective_date < DATE '2065-01-01')",
+        )
+        .await
+        .unwrap_or_else(|error| panic!("清场核对失败：{error}"));
+    assert_eq!(residue, 0, "2064 期间 / USD 牌价夹具残留必须为 0");
+    println!(
+        "[M1-09] 清场：M109 夹具凭证 0 张、其状态日志 0 条、VOUCHER 历史孤儿已收 {cleaned} 条、2064 期间与牌价 0 行 ✓"
+    );
 }

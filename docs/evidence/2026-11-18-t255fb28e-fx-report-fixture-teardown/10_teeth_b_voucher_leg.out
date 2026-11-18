@@ -1,0 +1,30 @@
+=== 变异 B：purge_fixtures 里「删夹具凭证」的 voucher_word 改成永不匹配
+mutate B OK（命中 1 处）sha256=d52e611881eaacb2f85e3203dba2784ffadcb1aaa92cdcc2fde428dece8055e0
+d52e611881eaacb2f85e3203dba2784ffadcb1aaa92cdcc2fde428dece8055e0  /opt/cloudpivot/backend/app/src/business/erp/report/fx_report_tests.rs
+--- 跑收尾用例（期望 RED：清场删 0 张）
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test business::erp::report::fx_report_tests::zz_teardown_purges_fixtures ... FAILED
+
+failures:
+
+---- business::erp::report::fx_report_tests::zz_teardown_purges_fixtures stdout ----
+[M1-09] 清场：删夹具凭证 0 张、其 VOUCHER 状态日志 6 条
+
+thread 'business::erp::report::fx_report_tests::zz_teardown_purges_fixtures' (4049074) panicked at app/src/business/erp/report/fx_report_tests.rs:800:5:
+assertion `left == right` failed: 清场必须删掉 6 张夹具凭证
+  left: 0
+ right: 6
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::report::fx_report_tests::zz_teardown_purges_fixtures
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6565 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+restore OK sha256=630f818dace095f529f750a872f6a8fc009dd8f45b231481a4b851cd0e83a8e6

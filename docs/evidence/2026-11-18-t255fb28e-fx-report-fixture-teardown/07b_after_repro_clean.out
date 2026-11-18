@@ -1,0 +1,22 @@
+=== 复绿：把收尾用例放回来再跑一次同模块（应把上一步的 6 张清干净）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 7 tests
+test business::erp::report::fx_report_tests::fx_report_base_mode_keeps_previous_behaviour ... ok
+test business::erp::report::fx_report_tests::fx_report_closing_matches_fx_balance ... ok
+test business::erp::report::fx_report_tests::fx_report_currency_param_validation ... ok
+test business::erp::report::fx_report_tests::fx_report_income_statement_by_currency ... ok
+test business::erp::report::fx_report_tests::fx_report_missing_rate_leaves_converted_null ... ok
+test business::erp::report::fx_report_tests::fx_report_usd_balance_sheet_takes_only_usd_entries ... ok
+test business::erp::report::fx_report_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 6559 filtered out; finished in 0.47s
+
+--- 残留核对（psql postgres://cloudpivot:fbb1263691ff75c31ec99eaf258138b4@172.18.10.145:5432/cloudpivot_test_fxm109）
+M109夹具凭证=0
+ERPFX9凭证=0
+VOUCHER孤儿日志=0
+2064期间=0
+2064牌价=0
+(空)

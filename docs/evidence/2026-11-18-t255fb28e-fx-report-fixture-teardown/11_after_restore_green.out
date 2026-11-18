@@ -1,0 +1,24 @@
+=== 还原后（sha 与备份逐字节一致）整模块复绿
+630f818dace095f529f750a872f6a8fc009dd8f45b231481a4b851cd0e83a8e6  /opt/cloudpivot/backend/app/src/business/erp/report/fx_report_tests.rs
+630f818dace095f529f750a872f6a8fc009dd8f45b231481a4b851cd0e83a8e6  /root/t255_bak.rs
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 06s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 7 tests
+test business::erp::report::fx_report_tests::fx_report_base_mode_keeps_previous_behaviour ... ok
+test business::erp::report::fx_report_tests::fx_report_closing_matches_fx_balance ... ok
+test business::erp::report::fx_report_tests::fx_report_currency_param_validation ... ok
+test business::erp::report::fx_report_tests::fx_report_income_statement_by_currency ... ok
+test business::erp::report::fx_report_tests::fx_report_missing_rate_leaves_converted_null ... ok
+test business::erp::report::fx_report_tests::fx_report_usd_balance_sheet_takes_only_usd_entries ... ok
+test business::erp::report::fx_report_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 6559 filtered out; finished in 0.49s
+
+M109夹具凭证=0
+VOUCHER孤儿日志=0
+--- fmt / clippy
+fmt rc=0
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 59.87s

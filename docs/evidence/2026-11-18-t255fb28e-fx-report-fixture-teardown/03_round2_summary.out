@@ -1,0 +1,14 @@
+=== 03_round2（原始输出 6805 行，这里只留判据行；完整输出在跑完的临时目录里已随会话丢弃）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+...
+test result: ok. 6565 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 214.58s
+round2 RC=0
+  test business::erp::report::fx_report_tests::fx_report_base_mode_keeps_previous_behaviour ... ok
+  test business::erp::report::fx_report_tests::fx_report_closing_matches_fx_balance ... ok
+  test business::erp::report::fx_report_tests::fx_report_currency_param_validation ... ok
+  test business::erp::report::fx_report_tests::fx_report_income_statement_by_currency ... ok
+  test business::erp::report::fx_report_tests::fx_report_missing_rate_leaves_converted_null ... ok
+  test business::erp::report::fx_report_tests::fx_report_usd_balance_sheet_takes_only_usd_entries ... ok
+  test business::erp::report::fx_report_tests::zz_teardown_purges_fixtures ... ok

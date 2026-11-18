@@ -1,0 +1,51 @@
+==> 仓根 /opt/cloudpivot
+==> 二进制 /opt/cloudpivot/backend/target/debug/cloudpivot（migrations 编译期内嵌，必须是被测树自己编的）
+==> 库 cloudpivot_test_fxm109 表属主 cloudpivot
+==> 已删除旧库 cloudpivot_test_fxm109
+==> 已建空库 cloudpivot_test_fxm109（owner=cloudpivot）
+==> 启动 pid=4033518 端口=18255 日志=/root/t255/dbseed.log（migrations + bootstrap + 演示组织）
+==> 实例已停（日志尾部）
+    [2m2026-11-18T15:36:13.565209Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+    [2m2026-11-18T15:36:13.565391Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+    [2m2026-11-18T15:36:13.565429Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件已全部停止，关停完成 [3melapsed_ms[0m[2m=[0m16
+==> 自检
+    schema_migrations(条数)                      392          ✓
+    迁移最新版本                             460          ✓
+    public 表数                                  201          ✓
+    sys_user(含 admin)                            10           ✓
+    sys_role                                       12           ✓
+    sys_menu(种子菜单)                         568          ✓
+    biz_account(科目表)                         84           ✓
+    biz_flow_def(已发布审批流)               27           ✓
+    biz_report_item(报表项)                     53           ✓
+    sys_dept(演示组织/部门)                  2            ✓
+    演示部门 DEPT_DEMO                         DEPT_DEMO    ✓
+    角色 SALES_SUPERVISOR 在职成员数        1            ✓
+    角色 PURCHASE_MANAGER 在职成员数        2            ✓
+    角色 FINANCE_MANAGER 在职成员数         2            ✓
+    角色 DEPT_LEADER 在职成员数             1            ✓
+    角色 WAREHOUSE_MANAGER 在职成员数       1            ✓
+    角色 GENERAL_MANAGER 在职成员数         1            ✓
+    biz_voucher(应为 0：无历史凭证)        0            ✓
+    biz_sales_order(应为 0)                      0            ✓
+    biz_purchase_order(应为 0)                   0            ✓
+    biz_flow_instance(应为 0)                    0            ✓
+
+==> 就绪：cloudpivot_test_fxm109
+
+四条连接串（**必须同一个库**，原因见脚本头注释）：
+  export ERP_DB_URL='postgres://cloudpivot:***@172.18.10.145:5432/cloudpivot_test_fxm109'
+  export SYS_DB_URL="$ERP_DB_URL"
+  export TASK_DB_URL="$ERP_DB_URL"
+  export P0FIX_DB_URL="$ERP_DB_URL"
+
+全量套件（串行；不许 --skip / --ignored）—— **CWD 必须是 backend/app**
+（business::permission::scope_model 的登记表用例扫相对路径 src/，在 backend/ 跑会红）：
+  cd /opt/cloudpivot/backend/app
+  cargo test -p cloudpivot --lib -- --test-threads=1
+
+按域跑（P2-61，并行 + 每域一份库克隆；本库可直接当模板）：
+  TPL=cloudpivot_test_fxm109 python3 /opt/cloudpivot/scripts/test_domain.py run --package all --jobs 4
+
+口径文档：docs/测试库口径-全量套件.md
+dbseed RC=0

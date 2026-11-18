@@ -1,0 +1,29 @@
+=== cargo test ... business::erp::report::fx_report_tests --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 7 tests
+test business::erp::report::fx_report_tests::fx_report_base_mode_keeps_previous_behaviour ... ok
+test business::erp::report::fx_report_tests::fx_report_closing_matches_fx_balance ... [M1-09] 清场：删夹具凭证 6 张、其 VOUCHER 状态日志 0 条
+ok
+test business::erp::report::fx_report_tests::fx_report_currency_param_validation ... [M1-09] 清场：删夹具凭证 6 张、其 VOUCHER 状态日志 0 条
+ok
+test business::erp::report::fx_report_tests::fx_report_income_statement_by_currency ... ok
+test business::erp::report::fx_report_tests::fx_report_missing_rate_leaves_converted_null ... [M1-09] 清场：删夹具凭证 6 张、其 VOUCHER 状态日志 0 条
+ok
+test business::erp::report::fx_report_tests::fx_report_usd_balance_sheet_takes_only_usd_entries ... [M1-09] 清场：删夹具凭证 6 张、其 VOUCHER 状态日志 0 条
+ok
+test business::erp::report::fx_report_tests::zz_teardown_purges_fixtures ... [M1-09] 清场：删夹具凭证 6 张、其 VOUCHER 状态日志 0 条
+[M1-09] 清场：删夹具凭证 6 张、其 VOUCHER 状态日志 6 条
+[M1-09] 清场：M109 夹具凭证 0 张、其状态日志 0 条、VOUCHER 历史孤儿已收 0 条、2064 期间与牌价 0 行 ✓
+ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 6559 filtered out; finished in 0.47s
+
+--- 残留核对（psql postgres://cloudpivot:fbb1263691ff75c31ec99eaf258138b4@172.18.10.145:5432/cloudpivot_test_fxm109）
+M109夹具凭证=0
+ERPFX9凭证=0
+VOUCHER孤儿日志=0
+2064期间=0
+2064牌价=0
+(空)

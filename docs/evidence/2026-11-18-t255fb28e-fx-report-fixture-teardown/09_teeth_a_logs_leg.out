@@ -1,0 +1,30 @@
+=== 变异 A：purge_fixtures 里「删 VOUCHER 状态日志」那条腿的定位词改成永不匹配
+mutate A OK（命中 1 处）sha256=68230489c3ef6b8fdaaebbd65174fb9363316db60e677d285e66f2f13ef2e94b
+68230489c3ef6b8fdaaebbd65174fb9363316db60e677d285e66f2f13ef2e94b  /opt/cloudpivot/backend/app/src/business/erp/report/fx_report_tests.rs
+--- 跑收尾用例（期望 RED：日志 6 条删不掉）
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 11s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test business::erp::report::fx_report_tests::zz_teardown_purges_fixtures ... FAILED
+
+failures:
+
+---- business::erp::report::fx_report_tests::zz_teardown_purges_fixtures stdout ----
+[M1-09] 清场：删夹具凭证 6 张、其 VOUCHER 状态日志 0 条
+
+thread 'business::erp::report::fx_report_tests::zz_teardown_purges_fixtures' (4048767) panicked at app/src/business/erp/report/fx_report_tests.rs:806:5:
+assertion `left == right` failed: 清场后这 6 个 id 上的 VOUCHER 状态日志必须 0 条（日志没有外键，必须先删）
+  left: 6
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::report::fx_report_tests::zz_teardown_purges_fixtures
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6565 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+restore OK sha256=630f818dace095f529f750a872f6a8fc009dd8f45b231481a4b851cd0e83a8e6
