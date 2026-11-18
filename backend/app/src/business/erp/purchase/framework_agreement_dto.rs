@@ -641,8 +641,11 @@ mod tests {
 
         assert_eq!(check_currency(None).expect("缺省 CNY"), "CNY");
         assert_eq!(check_currency(Some("usd")).expect("自动大写"), "USD");
-        assert!(check_currency(Some("rmb")).is_err(), "非 ISO 4217 必须拒");
-        assert!(check_currency(Some("CN")).is_err());
+        // 判据是**形状**（与 ck_biz_fwa_currency 的 `^[A-Z]{3}$` 同口径），不查 ISO 全表：
+        // 库里拦得住的就是「不是三个大写字母」，多一个在库层能过的码这里也放行。
+        assert_eq!(check_currency(Some(" rmb ")).expect("小写自动大写"), "RMB");
+        assert!(check_currency(Some("CN")).is_err(), "两位必须拒");
+        assert!(check_currency(Some("人民币")).is_err(), "非 ASCII 必须拒");
 
         assert_eq!(check_tolerance(None).expect("缺省 0"), Decimal::ZERO);
         assert_eq!(check_tolerance(Some(dec("0.05"))).expect("5% 容差合法"), dec("0.05"));

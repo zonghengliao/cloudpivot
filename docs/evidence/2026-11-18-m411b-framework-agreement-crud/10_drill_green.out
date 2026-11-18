@@ -1,0 +1,39 @@
+== M4-11b 框架协议维护链路演练 · PG 172.18.10.145:5432 / 库 cp_m411b_drill_3692898 ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m411b_drill_3692898
+== 1) 应用业务迁移 V0405…（含本卡 V0456）
+  ---- 模板库版本 = V404
+  [32mPASS[0m 迁移全部成功（应用 52 条）（=0）
+== 2) 迁移幂等（V0456 再跑一遍）
+  [32mPASS[0m V0456 重跑不报错
+  [32mPASS[0m 重跑后权限码行数不变（=7）
+  [32mPASS[0m 重跑后流程定义行数不变（=1）
+  [32mPASS[0m 重跑后节点仍 4 个（=4）
+== 3) 结构断言（菜单 / 授权 / 流程 / 视图）
+  [32mPASS[0m 框架协议域共 7 个码（页面 + 执行量 + 本卡 5 个）（=7）
+  [32mPASS[0m 5 个接口码按钮全部挂在 V0452 页面行下（=5）
+  [32mPASS[0m 同父 sort_order 无重复（menu_invariants ⑦）（=0）
+  [32mPASS[0m 按钮行 title 均 ≤ 12 字（menu_invariants ⑥）（=0）
+  [32mPASS[0m PURCHASE_MANAGER 拿到 5 个授权（=5）
+  [32mPASS[0m fw_agreement 流程已发布且默认（=1）
+  [32mPASS[0m 流程版本 4 节点 / 3 边 / hash 形状正确（=1）
+  [32mPASS[0m 边 3 条（采购经理 → 财务经理 串行）（=3）
+  [32mPASS[0m 两个 ROLE 审批人（采购经理 / 财务经理）（=2）
+  [32mPASS[0m graph_snapshot 里 4 个节点（=4）
+  [32mPASS[0m 夹具协议 0 残留（跑用例前）（=0）
+  [32mPASS[0m FWA 取号行唯一（V0450 种的，不许被本卡重复种）（=1）
+== 4) 本卡真库用例（framework_agreement_crud_db_tests，12 条）
+  [32mPASS[0m 用例通过 12 条（=12）
+  [32mPASS[0m 0 条失败（=0）
+  [32mPASS[0m 12 条用例都真连了库（每条打印一次自证标记）（=12）
+  [32mPASS[0m cargo test rc=0
+== 5) 回归：框架协议全组 + 审批回调注册表 + 词表契约
+  [32mPASS[0m business::erp::purchase::framework_agreement 全绿（101 条）
+  [32mPASS[0m business::flow::doc_reader_tests 全绿（18 条）
+  [32mPASS[0m business::erp::doc_reader_impl_tests 全绿（16 条）
+== 6) 门禁：permission_audit_tests + menu_invariants
+  [32mPASS[0m permission_audit_tests 全绿
+  [32mPASS[0m menu_invariants 8 条全绿
+== 结果
+  PASS=28 FAIL=0  RESULT: PASS

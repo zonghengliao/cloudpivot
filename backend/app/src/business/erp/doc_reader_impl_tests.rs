@@ -162,9 +162,9 @@ fn registers_every_reader_once() {
     let mut registry = DocRegistry::new();
     assert!(registry.is_empty(), "空注册表应 is_empty");
 
-    let count = doc_reader_impl::register_into(&mut registry).expect("20 个实现应能一次注册完");
-    assert_eq!(count, 20, "register_into 应报告注册了 20 个（19 受控 + 调拨单）");
-    assert_eq!(registry.len(), 20, "注册表里应有 20 个键");
+    let count = doc_reader_impl::register_into(&mut registry).expect("21 个实现应能一次注册完");
+    assert_eq!(count, 21, "register_into 应报告注册了 21 个（20 受控 + 调拨单）");
+    assert_eq!(registry.len(), 21, "注册表里应有 21 个键");
 
     // 按落库编码取（P2-34 调用点最常用的入口）
     for doc in ErpDoc::ALL {
@@ -175,7 +175,7 @@ fn registers_every_reader_once() {
     }
 
     let registered: BTreeSet<FlowBizType> = registry.registered().into_iter().collect();
-    assert_eq!(registered.len(), 20, "registered() 应给出 20 个键（19 受控 + 调拨单）");
+    assert_eq!(registered.len(), 21, "registered() 应给出 21 个键（20 受控 + 调拨单）");
     assert_eq!(
         registered,
         ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect::<BTreeSet<_>>(),
@@ -372,8 +372,8 @@ async fn process_registry_is_filled_by_register_all() {
     assert_eq!(doc_reader::len(), 0, "reset 之后应为空");
 
     let count = doc_reader_impl::register_all().expect("启动期注册应成功");
-    assert_eq!(count, 20);
-    assert_eq!(doc_reader::len(), 20, "进程级注册表应有 20 个键（19 受控 + 调拨单）");
+    assert_eq!(count, 21);
+    assert_eq!(doc_reader::len(), 21, "进程级注册表应有 21 个键（20 受控 + 调拨单）");
 
     // 分派助手（P2-34 的替换点）能按编码取到实现
     for doc in ErpDoc::ALL {

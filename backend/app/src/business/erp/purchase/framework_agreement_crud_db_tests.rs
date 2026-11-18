@@ -103,6 +103,8 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     cleanup().await;
     // `fw_agreement` 带职责分离内控（制单人会被排除），审批岗位必须有**非制单人**成员
     test_seed::ensure_approver_roles().await;
+    // 真库自证标记：演练脚本靠它区分「用例真跑了」与「没连上库、提前 return 也算 passed」
+    println!("[M411B-DB] setup 走通（连上库 + 清场 + 审批岗位就绪）");
     Some(guard)
 }
 
