@@ -1,2 +1,15 @@
-    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 01s
+== cargo clippy（lib + tests，零告警）
+$ cd backend && cargo clippy -p cloudpivot --lib --tests -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+rc=0（2026-11-18 在本次提交的源码上实跑；增量编译命中缓存，故无 Checking 行）
+
+== 同一棵源码在 pre-push 全量档里的记录（scripts/check.sh --fast / L1）
+==> L1 后端：cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in …
+==> L1 后端：cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in …
+✓ pre-push 门禁通过（L0+L1）
+
+== cargo fmt
+$ cd backend && cargo fmt -p cloudpivot -- --check
+（无输出；`grep -c '^Diff in'` = 0）
