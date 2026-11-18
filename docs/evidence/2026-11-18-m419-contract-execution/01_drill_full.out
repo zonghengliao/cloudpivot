@@ -1,0 +1,64 @@
+== M4-19 合同执行量统计演练 · PG 172.18.10.145:5432 / 库 cp_m419_exec_drill_3832675 ==
+== 0) 前置：模板库可克隆，演练库推到仓库当前版本
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m419_exec_drill_3832675
+  ---- 模板库版本 = V404
+  [32mPASS[0m 回放 V0405…HEAD 共 54 条迁移，0 失败
+== 1) 迁移结构：两个视图 / 按钮行 / 三角色授权
+  [32mPASS[0m 视图 v_contract_execution 存在 = 1
+  [32mPASS[0m 视图 v_contract_execution_order 存在 = 1
+  [32mPASS[0m 单头视图列数 = 37
+  [32mPASS[0m 单据视图列数 = 12
+  [32mPASS[0m 关键列齐（executed_amount / remaining_amount / exec_state / downstream_type / currency_mismatch_doc_count） = 5
+  [32mPASS[0m 按钮行（…4498 / menu_type=3 / 父=合同管理 / sort=50 / 标题≤12） = 1
+  [32mPASS[0m 合同管理页面行仍在（V0197 的资产，down 不许连带删） = 1
+  [32mPASS[0m 三角色授权（采购经理 / 销售主管 / 财务经理） = 3
+  [32mPASS[0m 其它角色没被顺手授权（授权行总数 = 3） = 3
+== 2) 视图口径：SQL 直查（累加 / 释放 / 销售侧 / 无下游 / 币种 / 精度）
+  [32mPASS[0m 演练夹具造好（3 张合同 + 4 张采购单 + 1 张销售单 + 1 张软删合同）
+  [32mPASS[0m 采购合同已执行额（作废/软删不算，USD 照加） = 300.0000
+  [32mPASS[0m 采购合同已执行净额（不含税） = 265.4956
+  [32mPASS[0m 采购合同剩余额（1000 − 300） = 700.0000
+  [32mPASS[0m 采购合同执行率（6 位小数） = 0.300000
+  [32mPASS[0m 采购合同执行状态 = PARTIAL
+  [32mPASS[0m 计入单据数（2 张） = 2
+  [32mPASS[0m 释放单据数（作废 1 + 软删 1） = 2
+  [32mPASS[0m 币种串了的计入单据数 = 1
+  [32mPASS[0m 采购单计入数 / 销售单计入数 = 2|0
+  [32mPASS[0m 下游类型按合同类型分派（采购） = PURCHASE_ORDER
+  [32mPASS[0m 销售合同已执行额 = 500.0000
+  [32mPASS[0m 销售合同剩余额 = 0.0000
+  [32mPASS[0m 销售合同执行率 = 1.000000
+  [32mPASS[0m 销售合同执行状态（边界：等于合同额 = DONE） = DONE
+  [32mPASS[0m 销售合同下游类型 = SALES_ORDER
+  [32mPASS[0m 服务合同执行状态 = NO_DOWNSTREAM
+  [32mPASS[0m 服务合同剩余 = 合同额原样 = 100.0000
+  [32mPASS[0m 服务合同 downstream_type 为空 = NULL
+  [32mPASS[0m 已软删合同不进报表 = 0
+  [32mPASS[0m 单据级：作废单 counted=false = f
+  [32mPASS[0m 单据级：软删单 counted=false = f
+  [32mPASS[0m 单据级：USD 单 currency_matched=false 但 counted=true = false|true
+  [32mPASS[0m 单头合计 = 单据级 counted 合计 = true
+  [32mPASS[0m 演练夹具清场 0 残留（合同） = 0
+  [32mPASS[0m 演练夹具清场 0 残留（单据） = 0
+== 3) 幂等与回滚：up 重跑 / down 撤干净 / 再 up 复原
+  [32mPASS[0m up 重跑（幂等）通过
+  [32mPASS[0m 重跑后视图仍在 = 2
+  [32mPASS[0m down 执行通过
+  [32mPASS[0m down 之后两个视图都没了 = 0
+  [32mPASS[0m down 之后按钮行没了 = 0
+  [32mPASS[0m down 之后授权没了 = 0
+  [32mPASS[0m down 之后合同管理页面行仍在（不是本卡的资产） = 1
+  [32mPASS[0m 再 up 复原通过
+  [32mPASS[0m 复原后视图在位 = 2
+== 4) 真库用例：contract_execution_db_tests（12 条）
+  [32mPASS[0m 真库用例 12 passed / 12 条正向标记（0 failed / 0 ignored）
+== 5) 合同模块回归：business::erp::contract::
+  [32mPASS[0m 合同模块回归全绿（passed=109 failed=0）
+== 6) 门禁：fmt / clippy
+  [32mPASS[0m cargo fmt --check rc=0
+  [32mPASS[0m cargo clippy --lib -D warnings rc=0
+== 7) 残留检查
+  [32mPASS[0m 演练库夹具 0 残留（合同） = 0
+
+===== M4-19 演练结果：PASS=52 FAIL=0 =====

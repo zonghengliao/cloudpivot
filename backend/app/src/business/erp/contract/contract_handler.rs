@@ -91,9 +91,17 @@ pub const PERM_STATUS: &str = "business:erp:contract:status";
 /// 合同域全部权限码（顺序与 `V0197` 的 `auth_code` 一致，也是「权限码唯一真相」）。
 ///
 /// 与迁移**逐字对应**：`V0241__erp_contract_permission_prefix_unify.up.sql` 改名后的 5 条
-/// `sys_menu` 行就是这个数组。任一侧改动而另一侧没跟，`contract_permissions_match_menu`
-/// 用例会红。
-pub const PERMISSIONS: [&str; 5] = [PERM_LIST, PERM_CREATE, PERM_UPDATE, PERM_DELETE, PERM_STATUS];
+/// `sys_menu` 行 + `V0458__erp_contract_execution.up.sql` 追加的第 6 条
+/// （`…:execution`，M4-19 执行量统计）就是这个数组。任一侧改动而另一侧没跟，
+/// `contract_permissions_match_menu` 用例会红。
+pub const PERMISSIONS: [&str; 6] = [
+    PERM_LIST,
+    PERM_CREATE,
+    PERM_UPDATE,
+    PERM_DELETE,
+    PERM_STATUS,
+    crate::business::erp::contract::contract_execution_dto::EXEC_PERMISSION,
+];
 
 /// 合同域历史权限码（P2-4 前缀统一前的 `erp:contract:*`）。
 ///
@@ -1364,10 +1372,13 @@ mod tests {
 
     // ---------- 纯逻辑用例（无需数据库） ----------
 
-    /// ① 权限码：5 个、不重复、统一前缀 `business:erp:contract:`（P2-4 前缀统一后四段式）。
+    /// ① 权限码：6 个、不重复、统一前缀 `business:erp:contract:`（P2-4 前缀统一后四段式）。
+    ///
+    /// 6 = `ARCH-2 附录 B #7` 的 5 个（list/create/update/delete/status）
+    ///   + `V0458` 的 `execution`（M4-19 合同执行量统计的两个只读接口共用）。
     #[test]
     fn contract_permission_codes_are_well_formed() {
-        assert_eq!(PERMISSIONS.len(), 5, "ARCH-2 附录 B #7 定了 5 个码");
+        assert_eq!(PERMISSIONS.len(), 6, "ARCH-2 附录 B #7 的 5 个 + M4-19 的 execution");
         let unique: std::collections::BTreeSet<&str> = PERMISSIONS.iter().copied().collect();
         assert_eq!(unique.len(), PERMISSIONS.len(), "权限码不得重复");
 
@@ -1395,8 +1406,8 @@ mod tests {
             .collect();
         assert_eq!(
             actions,
-            vec!["list", "create", "update", "delete", "status"],
-            "动作集合必须与 ARCH-2 附录 B #7 一致"
+            vec!["list", "create", "update", "delete", "status", "execution"],
+            "动作集合必须与 ARCH-2 附录 B #7 + M4-19 一致"
         );
     }
 
@@ -1422,12 +1433,16 @@ mod tests {
     /// 这条把「旧码仍能访问」钉在代码层：装载权限时（`auth::model::load_permissions`）
     /// 只有规范码，靠 `shared::permission_alias::expand` 补出旧码 —— 老令牌 / 前端老包
     /// 因此在兼容期内继续命中。
+    ///
+    /// ⚠ 历史码只有 **5** 个：`execution`（M4-19）是 P2-4 前缀统一**之后**新增的码，
+    /// 从没有过 `erp:contract:execution` 这个旧码，所以它不该有别名
+    /// （给它编一个别名 = 放行一个从没存在过的权限）。
     #[test]
     fn contract_legacy_codes_alias_both_ways() {
         use cloudpivot_kernel::shared::permission_alias;
-        assert_eq!(LEGACY_PERMISSIONS.len(), PERMISSIONS.len());
-        for (i, canonical) in PERMISSIONS.iter().enumerate() {
-            let legacy = LEGACY_PERMISSIONS[i];
+        assert_eq!(LEGACY_PERMISSIONS.len(), 5, "历史码只有 P2-4 之前的 5 个");
+        for (i, legacy) in LEGACY_PERMISSIONS.iter().enumerate() {
+            let canonical = PERMISSIONS[i];
             assert_eq!(
                 legacy.rsplit(':').next(),
                 canonical.rsplit(':').next(),
@@ -1435,15 +1450,21 @@ mod tests {
             );
             assert_eq!(
                 permission_alias::aliases_of(canonical),
-                vec![legacy],
+                vec![*legacy],
                 "{canonical} 应扩出 {legacy}"
             );
             assert_eq!(
                 permission_alias::aliases_of(legacy),
-                vec![*canonical],
+                vec![canonical],
                 "{legacy} 应扩出 {canonical}（老令牌带着旧码时路由才放行）"
             );
         }
+        // M4-19 新增码没有历史孪生兄弟
+        let exec = crate::business::erp::contract::contract_execution_dto::EXEC_PERMISSION;
+        assert!(
+            permission_alias::aliases_of(exec).is_empty(),
+            "{exec} 是 P2-4 之后新增的码，不许有历史别名"
+        );
     }
 
     /// ③ 合同边表与状态机注册表逐条一致（A1 改了注册表、A2 没跟上 → 立刻红）。
@@ -1581,10 +1602,10 @@ mod tests {
 
     /// ⑩ 真库：授权 → 装载权限 → **双码都在**（P2-4「兼容期旧码仍能访问」的落地点）。
     ///
-    /// 造一个只持合同 5 个权限点的非超管用户，走真实的 `auth::model::load_permissions`
+    /// 造一个只持合同 6 个权限点的非超管用户，走真实的 `auth::model::load_permissions`
     /// （登录 / 刷新令牌 / `/me` 都是这一条读路径），断言：
     ///
-    /// 1. 5 个规范码 `business:erp:contract:*` 在（库里就这些）；
+    /// 1. 6 个规范码 `business:erp:contract:*` 在（库里就这些，含 M4-19 的 `execution`）；
     /// 2. 5 个历史码 `erp:contract:*` 也在 —— 全靠 `shared::permission_alias::expand`
     ///    在装载末尾补出来，因此老令牌里的旧码、前端老包按旧码判权都继续命中；
     /// 3. 其它 ERP 码不被误扩（只按对照表逐条映射，不按前缀）。
@@ -1629,7 +1650,7 @@ mod tests {
                 .await
                 .unwrap_or_else(|err| panic!("授权 {code} 失败：{err}"));
         }
-        assert_eq!(granted, 5, "5 个合同权限点都应授出去（实际 {granted}）");
+        assert_eq!(granted, 6, "6 个合同权限点都应授出去（实际 {granted}）");
 
         let perms = crate::system::auth::model::load_permissions(&user_id, false)
             .await
@@ -1643,14 +1664,14 @@ mod tests {
                 "缺历史码 {code}（兼容期老令牌将 403）：{perms:?}"
             );
         }
-        assert_eq!(perms.len(), 10, "只应涉及合同 10 个码：{perms:?}");
+        assert_eq!(perms.len(), 11, "只应涉及合同 11 个码（新 6 + 旧 5）：{perms:?}");
         assert!(
             !perms
                 .iter()
                 .any(|c| c.starts_with("business:erp:contract:") && !PERMISSIONS.contains(&c.as_str())),
             "不得凭前缀凭空扩码：{perms:?}"
         );
-        println!("[P2-4] 授权 5 个新码 → load_permissions 返回 10 个（新 5 + 旧 5）✓");
+        println!("[P2-4] 授权 6 个新码 → load_permissions 返回 11 个（新 6 + 旧 5）✓");
 
         // 清场（授权 → 用户角色 → 用户 → 角色；sys_role_menu 先删以免外键拦住）
         for (sql, param) in [

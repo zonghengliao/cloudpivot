@@ -1,0 +1,31 @@
+=== 路由与权限注解（2 条路由 / 2 处 #[nik::permission]） ===
+70:#[nik::get("/business/erp/contract/execution/page")]
+100:#[nik::get("/business/erp/contract/{id}/execution")]
+68:    permission = "business:erp:contract:execution"
+98:    permission = "business:erp:contract:execution"
+
+=== 权限码常量（唯一出处）与 PERMISSIONS 引用 ===
+backend/app/src/business/erp/contract/contract_execution_dto.rs:52:pub const EXEC_PERMISSION: &str = "business:erp:contract:execution";
+backend/app/src/business/erp/contract/contract_execution_dto.rs:657:        assert_eq!(EXEC_PERMISSION, "business:erp:contract:execution");
+backend/app/src/business/erp/contract/contract_execution_dto.rs:659:        assert_eq!(EXEC_PERMISSION.matches(':').count(), 3);
+backend/app/src/business/erp/contract/contract_execution_dto.rs:660:        let action = EXEC_PERMISSION.rsplit(':').next().unwrap_or_default();
+backend/app/src/business/erp/contract/contract_handler.rs:103:    crate::business::erp::contract::contract_execution_dto::EXEC_PERMISSION,
+backend/app/src/business/erp/contract/contract_handler.rs:1463:        let exec = crate::business::erp::contract::contract_execution_dto::EXEC_PERMISSION;
+
+=== 前端命中数（本卡零前端 → 应为 0） ===
+0
+
+=== 迁移号段核对（全局唯一，最大 V0458） ===
+V0456
+V0457
+V0458
+
+=== 本卡改动的文件（git status --porcelain 过滤） ===
+?? backend/app/migrations/business/V0458__erp_contract_execution.down.sql
+?? backend/app/migrations/business/V0458__erp_contract_execution.up.sql
+?? backend/app/src/business/erp/contract/contract_execution_db_tests.rs
+?? backend/app/src/business/erp/contract/contract_execution_dto.rs
+?? backend/app/src/business/erp/contract/contract_execution_handler.rs
+?? backend/app/src/business/erp/contract/contract_execution_model.rs
+?? docs/evidence/2026-11-18-m419-contract-execution/
+?? scripts/verify/m419_contract_execution_drill.sh
