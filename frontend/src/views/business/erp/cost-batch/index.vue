@@ -69,7 +69,7 @@
       @refresh="onRefresh"
     >
       <template #head-extra>
-        <span class="panel-head__tip">
+        <span class="cb-tip">
           一行一批：本期已归集的料 / 工 / 费。合计为**整张表**合计（不随翻页变），点批次号看明细
         </span>
       </template>
@@ -163,7 +163,7 @@
       @refresh="onRefresh"
     >
       <template #head-extra>
-        <span class="panel-head__tip">
+        <span class="cb-tip">
           截止本期的快照：在制余额 = 累计归集 − 已结转（逐要素，<b>不夹零</b>）；负数说明要查账
         </span>
       </template>
@@ -1273,7 +1273,7 @@ function elementEmptyHint(element: CostBatchElement): string {
   margin-bottom: 4px;
 }
 
-.panel-head__tip {
+.cb-tip {
   color: var(--td-text-color-secondary);
   font-size: 12px;
 }

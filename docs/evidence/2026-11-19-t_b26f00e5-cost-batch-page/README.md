@@ -61,7 +61,7 @@
 | `04_menu_invariants_fresh_full_chain.out` | 空库首启全链（V0462 由真迁移器跑）后的 menu_invariants | 8/8 全绿（569 条菜单） |
 | `05_unit_tests.out` / `06_frontend_gate.out` | 纯逻辑单测 + `check:palettes` / `typecheck` / `typecheck:unit` / `build` | 24 条全绿 / 全绿 |
 
-## 本卡抓到的真问题（真跑才看得见）
+## 本卡抓到的真问题（真跑 / 真门禁才看得见）
 
 **归集表出参是「扁的」，不是嵌套的。** `SheetTotalsRes` 与 `SheetRowRes` 对 `amounts` 用了
 `#[serde(flatten)]`：真响应是
@@ -78,6 +78,13 @@
 `SheetAmounts 四字段` / `SheetRow 字段`），修完 TS 类型后全绿。
 细节：明细 / 来源 / 归集三处的 `totals` **仍是嵌套** `SheetAmounts` —— 同一页两种形状，
 `cost-batch-kinds.ts` 的模块头与 `SheetTotals` 注释都写了「别混」。
+
+**迁移里照抄 V0460 的 `ADMIN` 角色码会被 pre-push 拦下。** V0460 的授权矩阵里
+有 `('SUPER_ADMIN', all_ids), ('ADMIN', all_ids)`，但本仓 `sys_role` 只有 12 个活角色、
+**没有 `ADMIN`**（`scripts/verify/role_code_gate.py` 白名单里也没有）。照抄的结果是
+「那行永远 0 行」+ push 直接红（`✗ 未知角色码 1 处：V0462 → 'ADMIN'@L127`）。
+已改为只补 `SUPER_ADMIN`，并在迁移注释里写明「别照抄 V0460 的 ADMIN」。
+这说明**别把别的迁移的授权矩阵当模板整段复制** —— 角色码是环境事实，不是格式。
 
 ## 边界（本卡没做的事）
 
