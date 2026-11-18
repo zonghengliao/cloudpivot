@@ -1,0 +1,42 @@
+# bash scripts/check.sh --fast（L0 静态闸 + L1 fmt/clippy/check/typecheck）
+✓ 正好 5.000 s 不算超（口径是「>」不是「>=」）
+✓ 报出实测耗时（5001 ms）
+
+-- ④ 阈值 5001 ms ⇒ 0 条超（不误报）
+✓ 0 条超时 --strict 也 exit 0（rc=0）
+✓ 口头结论是『全部在预算内』
+
+-- ⑤ 阈值 1 ms ⇒ 4 条全抓（不漏报）
+✓ 压低阈值不阻断（rc=0）
+✓ 抓到 4 条
+✓ 最慢的那条也在
+
+-- ⑥ --strict 有超预算 ⇒ exit 1
+✓ 严格档阻断（rc=1）
+
+-- ⑦ 反证：未量的套件不得被判成『全部在预算内』
+✓ 未量时默认不阻断（但要说清未判定）（rc=0）
+✓ 明确说『预算未判定』
+✓ 报出未量条数
+✓ **不得**出现『全部在预算内』
+✓ --require-measured 时 exit 2（防静默降级）（rc=2）
+
+-- ⑧ 反证：判据坏了会被抓住
+✓ 反证 (a) 判定确实读 testcase/@time（改小 1 条后 4 条超 → 3 条超）
+✓ 反证 (b) 静默合格形态造得出来（正因如此 ⑦ 必须断言『预算未判定』）
+
+-- ⑨ 接线（test_domain.py ↔ junit_report.py ↔ check.sh）
+✓ test_domain.py run 仍有 --budget-ms
+✓ test_domain.py 仍调用 budget_from_suites
+✓ test_domain.py 仍打印预算告警（format_budget）
+✓ check.sh 仍挂载本闸
+
+==> test_budget_gate 通过
+==> L0 /metrics 自检（http://127.0.0.1:8023/metrics，模式 skip）
+  ℹ 本机无部署证据（无 /etc/cloudpivot*/*.env、systemd 里无 cloudpivot 服务），且 http://127.0.0.1:8023/metrics 连不上 → 跳过
+    开发机没起服务属正常；要强制校验：METRICS_GATE=block bash scripts/check.sh --l0
+==> 页面零壳类声明（frontend/scripts/shell-variant-report.cjs --baseline）
+✓ 无新增页面壳类声明（存量 6 条待按批削减，已删 0 条可同步削 allowlist）
+  ✓ PASS：无新增页面壳类声明（存量按 §5 的 B1–B6 逐批削减）
+==> 全部检查通过（L0 L1）
+rc=0

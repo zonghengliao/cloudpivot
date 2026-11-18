@@ -1,0 +1,15 @@
+# ① 造 1 行活数据后跑 down（不带 ON_ERROR_STOP，模拟人手 psql -f）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0461__cost_batch_finish.down.sql:40: ERROR:  V0461 down 拒绝回滚：biz_cost_batch_finish 还有 1 行完工结转记录（它们是「这批货转出了多少钱」的唯一凭据）。先确认这些批次不需要保留结转历史（或软删 / 迁走数据）后再执行回滚。
+CONTEXT:  PL/pgSQL function inline_code_block line 14 at RAISE
+表还在？ biz_cost_batch_finish
+
+# ② 软删该行后 down 放行（软删不占护栏）
+DO
+表还在？ <gone>
+
+# ③ down 再跑一遍（幂等）
+DO
+
+# ④ 重新 up（可重放）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0461__cost_batch_finish.up.sql:252: NOTICE:  V0461 自检通过：形态 7 条 CHECK + 外键 + 部分唯一索引；行为 5 条（合计守恒 / 重复 seq / 软删不占键 / 期间形状）
+表回来了？ biz_cost_batch_finish

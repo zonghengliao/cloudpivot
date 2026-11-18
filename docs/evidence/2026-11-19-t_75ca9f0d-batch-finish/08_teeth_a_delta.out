@@ -1,0 +1,8 @@
+failures:
+failures:
+    business::erp::cost::cost_batch_finish_db_tests::db::finish_writes_one_row_and_replays_idempotently
+    business::erp::cost::cost_batch_finish_db_tests::db::second_transfer_only_moves_the_delta
+    business::erp::cost::cost_batch_finish_dto::tests::plan_clips_negative_delta_instead_of_reversing_cost
+    business::erp::cost::cost_batch_finish_dto::tests::plan_is_idempotent_when_nothing_new
+    business::erp::cost::cost_batch_finish_dto::tests::plan_second_time_is_the_delta_only
+test result: FAILED. 32 passed; 5 failed; 0 ignored; 0 measured; 6626 filtered out; finished in 0.47s

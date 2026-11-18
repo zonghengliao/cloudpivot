@@ -1,0 +1,14 @@
+# V0461 up 第一遍（空库基线 V0460）
+DO
+psql:/opt/cloudpivot/backend/app/migrations/business/V0461__cost_batch_finish.up.sql:252: NOTICE:  V0461 自检通过：形态 7 条 CHECK + 外键 + 部分唯一索引；行为 5 条（合计守恒 / 重复 seq / 软删不占键 / 期间形状）
+DO
+
+# V0461 up 第二遍（幂等：零 ERROR、自检再通过）
+ERROR 行数 = 0
+psql:/opt/cloudpivot/backend/app/migrations/business/V0461__cost_batch_finish.up.sql:252: NOTICE:  V0461 自检通过：形态 7 条 CHECK + 外键 + 部分唯一索引；行为 5 条（合计守恒 / 重复 seq / 软删不占键 / 期间形状）
+DO
+
+# 形态回查
+cols=23
+checks=7
+fks=1

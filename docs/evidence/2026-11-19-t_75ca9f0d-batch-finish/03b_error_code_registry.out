@@ -1,0 +1,3 @@
+## ⑤ 码段注册表（cargo test -p cloudpivot-kernel shared::error_code，含 66107 新码）
+test shared::error_code::tests::erp_error_codes_are_stable ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 230 filtered out; finished in 0.00s

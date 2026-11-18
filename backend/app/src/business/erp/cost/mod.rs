@@ -24,9 +24,27 @@ pub mod cost_batch_collect_dto;
 /// `POST …/cost-collect-sheet/{id}/collect`（执行归集，复用 `cost-period:calc`）。
 pub mod cost_batch_collect_handler;
 /// 分批法「料工费归集到批次」**取数层**（M5-03）：本期活跃成本批次（闸门）/
-/// 本批本期三要素已有归集额 / 物料名批量补 / 批次抬头（复用 M5-02 的范围探针）。
+/// 本期三要素已有归集额 / 物料名批量补 / 批次抬头（复用 M5-02 的范围探针）。
 /// 三路扫描与写入原语**直接复用** calc 各段的函数，不抄 SQL。
 pub mod cost_batch_collect_model;
+/// 分批法「完工批次结转（完工转出）」**编排**（M5-04）：锁批次行 → 重算
+/// `累计归集 − 已结转` → 判定闸门 → 写结转单 → 回查。一个事务，幂等（差额 0 不写空单）。
+pub mod cost_batch_finish;
+/// M5-04 的真库用例（`ERP_DB_URL` 开关）：整批全额结转 / 差额补结转 / 幂等重放 /
+/// 在制与已结算拦截 / 数据范围 404 / 并发第二次空转 / 清场零残留。
+#[cfg(test)]
+mod cost_batch_finish_db_tests;
+/// 分批法「完工批次结转（完工转出）」的**契约层与纯逻辑**（M5-04）：三要素值对象 /
+/// 结转判定（作废·已结算·在制·无产出·无成本·卫生四条·期间冻结）/ 结转计划与单位成本。
+/// 零 DB 依赖，可纯单测。
+pub mod cost_batch_finish_dto;
+/// 分批法「完工批次结转（完工转出）」**接口层**（M5-04）：
+/// `GET …/cost-collect-sheet/{id}/finish-preview`（试算，复用 `cost-object:list`）+
+/// `POST …/cost-collect-sheet/{id}/finish`（执行结转，复用 `cost-period:calc`）。
+pub mod cost_batch_finish_handler;
+/// 分批法「完工批次结转（完工转出）」**取数层**（M5-04）：累计归集（全期间）/ 已结转与
+/// 历史结转单 / 已结算计算单 / 成本对象行锁（**串行点**）。批次抬头与卫生四条复用既有实现。
+pub mod cost_batch_finish_model;
 /// calc 第 5 段：分摊计算（ARCH-9 §4.4.3 · 四标准基数 + 最大余数法 + 守恒断言 + 整删重灌）。
 pub mod cost_calc_alloc;
 /// B2-10 的真库用例（`ERP_DB_URL` 开关）：四标准逐对象核数 / 尾差只落一行 / 池 0 与基数 0 边界 / 重算幂等。

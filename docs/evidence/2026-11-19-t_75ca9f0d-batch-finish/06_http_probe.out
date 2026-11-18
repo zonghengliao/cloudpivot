@@ -1,0 +1,24 @@
+[0] 登录 → HTTP 200（token 长度 461）
+[1] 无 token 试算 → HTTP 401 code=401 msg=未授权访问，请先登录
+[2] 缺 period_code → HTTP 400 code=10001 msg=period_code 必填（yyyy-MM，例如 2026-11）：归集额是「期间 × 批次」的量，没有期间就没有这张表
+[3] 试算 A → HTTP 200 transferable=True transfer_no=1
+    collected = {"material": "15000.0000", "labor": "4000.0000", "overhead": "4000.0000", "total": "23000.0000"}
+    transferred = {"material": "0.0000", "labor": "0.0000", "overhead": "0.0000", "total": "0.0000"}
+    pending = {"material": "15000.0000", "labor": "4000.0000", "overhead": "4000.0000", "total": "23000.0000"}
+    finished_qty=800.0000 unit_cost=28.750000 cumulative_unit_cost=28.750000
+    batch={"object_no": "CB-M504PROBE-A", "completed_qty": "800.0000", "wip_qty": "0.0000", "status": "OPEN"}
+    blockers = []
+    warnings = ["本接口只出成本工作底稿（biz_cost_batch_finish）：不出凭证、不建完工入库单。账务出口是期间结算（ARCH-9 D-1），工作底稿不参与 4101 / 4001 余额与 C-COST-2 勾稽", "结转后请关批（POST /business/erp/cost-object/{id}/close）：批还开着就还能领料报工，新增成本会变成新的未结转差额"]
+[4] 结转 A → HTTP 200 inserted=True finish_id=01a1f035-f0ff-71d4-b275-724bfabd77d4
+    transfer = {"material": "15000.0000", "labor": "4000.0000", "overhead": "4000.0000", "total": "23000.0000"} remaining = {"material": "0.0000", "labor": "0.0000", "overhead": "0.0000", "total": "0.0000"}
+    message = 已结转第 1 次：料 15000.0000 / 工 4000.0000 / 费 4000.0000，合计 23000.0000，本次单位成本 28.750000
+[5] 再结转 A（重放）→ HTTP 200 inserted=False transfer={"material": "0.0000", "labor": "0.0000", "overhead": "0.0000", "total": "0.0000"}
+    message = 无可结转差额（累计归集已被历史结转单覆盖）：本次没有写新结转单
+    history = [{"transfer_seq": 1, "period_code": "2026-11", "unit_cost": "28.750000", "amounts": {"material": "15000.0000", "labor": "4000.0000", "overhead": "4000.0000", "total": "23000.0000"}}]
+[6] 结转 B（在制 200）→ HTTP 409 code=66107
+    msg = 批次 CB-M504PROBE-B 不能完工结转：[WIP_NOT_ZERO] 期末在制数量是 200.0000（不为 0）：分批法按批结转，批没完就一分不转（不做约当产量分摊） ⇒ 等整批完工后再结转；若这批确实允许带在制出货，请走期间结算（calc 约当产量口径）
+    data.blockers = [{"code": "WIP_NOT_ZERO", "fix": "等整批完工后再结转；若这批确实允许带在制出货，请走期间结算（calc 约当产量口径）", "message": "期末在制数量是 200.0000（不为 0）：分批法按批结转，批没完就一分不转（不做约当产量分摊）"}]
+[7] 不存在的批次试算 → HTTP 404 code=10002 msg=批次不存在、已删除，或不在你的数据范围（00000000-0000-4000-8000-0000000f5fff）。请先用 GET /business/erp/cost-collect-sheet?p
+[7b] 不存在的批次结转 → HTTP 404 code=10002
+[8] period_code=2026-13 → HTTP 400 code=10001 msg=期间编码必须是 yyyy-MM（收到「2026-13」）
+[9] 结转后试算 A → HTTP 200 transferable=False pending={"material": "0.0000", "labor": "0.0000", "overhead": "0.0000", "total": "0.0000"} transferred={"material": "15000.0000", "labor": "4000.0000", "overhead": "4000.0000", "total": "23000.0000"}

@@ -1,0 +1,4 @@
+[route] M5-02 明细 /{id} → HTTP 200（0）
+[route] M5-02 整表 → HTTP 200（0）
+[route] M5-03 来源预览 /{id}/sources → HTTP 200（0）
+[route] M5-04 试算 /{id}/finish-preview → HTTP 200（0）

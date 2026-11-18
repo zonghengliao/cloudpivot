@@ -1,0 +1,12 @@
+failures:
+thread 'business::erp::cost::cost_batch_finish_db_tests::db::wip_blocks_finish_and_writes_nothing' (4113386) panicked at app/src/business/erp/cost/cost_batch_finish_db_tests.rs:612:9:
+assertion failed: !preview_res.transferable
+thread 'business::erp::cost::cost_batch_finish_dto::tests::blocked_error_carries_structured_detail' (4113391) panicked at app/src/business/erp/cost/cost_batch_finish_dto.rs:770:9:
+assertion failed: !blockers.is_empty()
+thread 'business::erp::cost::cost_batch_finish_dto::tests::wip_blocks_because_job_costing_does_not_prorate' (4113407) panicked at app/src/business/erp/cost/cost_batch_finish_dto.rs:613:9:
+assertion `left == right` failed
+failures:
+    business::erp::cost::cost_batch_finish_db_tests::db::wip_blocks_finish_and_writes_nothing
+    business::erp::cost::cost_batch_finish_dto::tests::blocked_error_carries_structured_detail
+    business::erp::cost::cost_batch_finish_dto::tests::wip_blocks_because_job_costing_does_not_prorate
+test result: FAILED. 34 passed; 3 failed; 0 ignored; 0 measured; 6626 filtered out; finished in 0.50s
