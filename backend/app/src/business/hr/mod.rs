@@ -240,6 +240,11 @@ mod leave_bridge_db_tests;
 mod leave_db_tests;
 /// 请假单入参 / 回执契约 + 假别·状态·天数·区间校验（`biz_leave_request`，HR-24）。
 pub mod leave_dto;
+/// `hr_leave` 正式种子（V0393）的借出 → 归还守卫（`#[cfg(test)]`）：两套 leave 真库夹具为了
+/// 占住 `flow_code` 编码必须借走种子定义，收尾靠这里原样写回并逐项对账（卡 `t_85e005d9`）。
+/// 详见文件头注释。
+#[cfg(test)]
+pub(crate) mod leave_flow_seed_guard;
 /// 请假单接口层（设计 §5.2 #26~#31：列表 / 详情+审批轨迹 / 建单 / 改草稿 / 提交审批 /
 /// 作废=删草稿·撤回·销假），HR-25。
 pub mod leave_handler;

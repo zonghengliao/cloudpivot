@@ -44,6 +44,7 @@ mod db {
     use crate::business::hr::leave_dto::{
         self, LeaveCancelReq, LeaveCreateReq, LeavePageQuery, LeaveSubmitReq, LeaveUpdateReq,
     };
+    use crate::business::hr::leave_flow_seed_guard;
     use crate::business::hr::leave_handler;
     use cloudpivot_kernel::business::shared::principal::ScopedPrincipal;
     use cloudpivot_kernel::business::shared::scope::ScopeKind;
@@ -322,32 +323,22 @@ mod db {
     ///
     /// 审批人是**每个用例自己的夹具账号**（快照里写死了 `assignees[0].ref_id`）。复用上一轮
     /// 那条流程，待办会派给上一个用例已经清理掉的用户 —— 待办生成成功、但审批人是幽灵账号。
-    /// 所以每轮先删掉**没有被实例引用**的旧定义（有实例引用时 FK 会拒绝删除，那种情况下
-    /// 用例本该在清场阶段就删干净实例），再插一份新的。
+    /// 所以每轮先把库里那条 `hr_leave` 腾开（`uk_biz_flow_def_code` 全局唯一），再插一份新的。
+    ///
+    /// # 腾编码的两步分工（卡 `t_85e005d9`）
+    ///
+    /// - **V0393 的正式种子**交给 [`leave_flow_seed_guard::borrow`]：整链抓成 JSON 后从库里删掉，
+    ///   收尾（`zz_teardown_purges_fixtures`）原样写回。
+    /// - **本文件上一轮留下的夹具定义**（版本 `change_note = 'HR25 夹具'`）交给
+    ///   [`leave_flow_seed_guard::purge_fixture_defs`] 直接删。
+    ///
+    /// 旧写法「删掉所有没人引用的 `hr_leave` 定义」会连种子一起删且**不恢复** ⇒ 跑过全量套件的
+    /// 库永久失去 `hr_leave` 正式流程（本卡修的就是它）。
     async fn seed_leave_flow(approver: Uuid) {
-        let stale = db()
-            .find_with_params(
-                "SELECT d.id FROM biz_flow_def d \
-                  WHERE d.flow_code = ? AND d.deleted_at IS NULL \
-                    AND NOT EXISTS (SELECT 1 FROM biz_flow_instance i WHERE i.def_id = d.id)",
-                vec![Value::Text(leave_handler::FLOW_CODE.to_string())],
-            )
-            .await
-            .expect("查旧流程定义");
-        for row in &stale {
-            let id: Uuid = row.get_typed("id").expect("流程 id");
-            let _ = db()
-                .exec_sql(
-                    "DELETE FROM biz_flow_def_version WHERE def_id = ?::uuid".to_string(),
-                    vec![Value::from(&id)],
-                )
-                .await;
-            let _ = db()
-                .exec_sql(
-                    "DELETE FROM biz_flow_def WHERE id = ?::uuid".to_string(),
-                    vec![Value::from(&id)],
-                )
-                .await;
+        leave_flow_seed_guard::borrow().await;
+        let purged = leave_flow_seed_guard::purge_fixture_defs(FLOW_FIXTURE_NOTE).await;
+        if purged > 0 {
+            println!("[HR-25] 装夹前清掉上一轮夹具流程定义 {purged} 条");
         }
         let def_id = Uuid::now_v7();
         let version_id = Uuid::now_v7();
@@ -1235,7 +1226,8 @@ mod db {
         .unwrap_or(0)
     }
 
-    /// 收尾清场（`zz_` 排在本模块最后跑）：`hr_leave` 夹具流程必须一条不剩。
+    /// 收尾清场（`zz_` 排在本模块最后跑）：`hr_leave` 夹具流程一条不剩，
+    /// **借走的 V0393 正式种子原样还回来**，且**种子能被真实接口用**。
     ///
     /// # 为什么必须收尾删（卡 t_9c3551b0）
     ///
@@ -1246,6 +1238,19 @@ mod db {
     /// （**全库**口径：PUBLISHED / ARCHIVED 版本三方对账 0 漂移）报 `RowsEdited`：
     /// 行（空图）↔ 快照 ↔ `graph_hash` 对不上。实测第二轮
     /// `batches=1 versions=29 drifted=1 … flow_code: "hr_leave"`（第一轮绿、第二轮红）。
+    ///
+    /// # 为什么还要归还种子 + 真提交一次（卡 t_85e005d9）
+    ///
+    /// `seed_leave_flow` 装夹时借走了 V0393 的正式种子。不还 ⇒ 库永久少一条 `hr_leave`
+    /// 正式流程（判据只有 SQL 计数，是「库里有没有」）；光还回去也不够 —— **种子的图得真能跑**，
+    /// 所以这里再用真实接口（`create_leave` → `submit_leave` → 引擎派单）走一遍：
+    ///
+    /// - 实例必须钉在 `…e0393` 定义 / `…e0394` 版本上；
+    /// - 请假 2 天（< 3 天）走兜底边，只有「直属上级审批」一个节点 ⇒ 待办恰好一条，
+    ///   落在部门负责人（`INITIATOR_SUPERIOR` 的解析目标）头上。
+    ///
+    /// 断言四层：①自己的夹具 0 行；②种子形态逐项对账（[`leave_flow_seed_guard::restore`]）；
+    /// ③种子能被真实接口提交并派单；④`hr_leave` 上不许留「零 hash 的已发布版本」。
     #[tokio::test]
     async fn zz_teardown_purges_fixtures() {
         if !ensure_db().await {
@@ -1253,6 +1258,98 @@ mod db {
         }
         let left = purge_fixture_flows().await;
         assert_eq!(left, 0, "HR-25 夹具流程（定义 + 版本）残留必须为 0");
+
+        // ② 归还 V0393 正式种子（借出见 seed_leave_flow）并逐项对账
+        let seed = leave_flow_seed_guard::restore().await;
+        println!("[HR-25] 归还 V0393 正式种子：{}", seed.describe());
+
+        // ③ 种子的图必须真能跑：用正式流程提交一张请假单
+        let fx = fixture("seedcheck").await;
+        // 种子的 `n_sup` 是 `INITIATOR_SUPERIOR`（沿 `sys_dept.dept_path` 上溯取 `leader_id`）。
+        // `test_helpers::ensure_dept` 只插 code/name（`dept_path` 为空）⇒ 不补这两列的话解析必然
+        // 0 行、兜底派给超管，断言就成了「随便有个待办」。这里按真实部门树的形态补 path + 负责人。
+        db().exec_sql(
+            "UPDATE sys_dept SET leader_id = ?::uuid, dept_path = ? WHERE id = ?::uuid".to_string(),
+            vec![
+                Value::from(&fx.approver),
+                Value::Text(format!("/{}/", fx.dept)),
+                Value::from(&fx.dept),
+            ],
+        )
+        .await
+        .expect("补部门 dept_path 并把负责人设成夹具审批人（INITIATOR_SUPERIOR 的解析目标）");
+        let created = leave_handler::create_leave(fx.operator(), &fx.create_req())
+            .await
+            .expect("用正式种子建请假单");
+        let leave_id = leave_id_of(&created);
+        let submitted = leave_handler::submit_leave(fx.operator(), leave_id, &LeaveSubmitReq::default())
+            .await
+            .expect("用 V0393 正式种子提交审批（种子的图必须能被引擎解析）");
+        // 先把要断言的**事实**读出来，再清场，最后断言 —— 反过来的话断言一红就留下一个挂在
+        // 种子定义上的实例（`biz_flow_instance.def_id` 是 RESTRICT），下一轮 `borrow()` 会被迫
+        // 报「上一个用例没清场」，把一次失败放大成整个模块红。
+        let submitted_status = submitted.status.clone();
+        let instance_id = submitted
+            .approval_instance_id
+            .as_deref()
+            .map(|raw| Uuid::parse_str(raw).expect("实例 id"));
+        let (instance_def, instance_version, instance_code, assignee) = match instance_id {
+            None => (None, None, None, None),
+            Some(id) => {
+                let row = db()
+                    .query_first_sql(
+                        "SELECT def_id::text AS def_id, version_id::text AS version_id, flow_code \
+                           FROM biz_flow_instance WHERE id = ?::uuid"
+                            .to_string(),
+                        vec![Value::from(&id)],
+                    )
+                    .await
+                    .expect("读审批实例")
+                    .expect("实例必有行");
+                let assignee: Option<Uuid> = db()
+                    .scalar_with_params(
+                        "SELECT assignee_id FROM biz_flow_task \
+                          WHERE instance_id = ?::uuid AND status = 'PENDING'",
+                        vec![Value::from(&id)],
+                    )
+                    .await
+                    .expect("读待办");
+                (
+                    row.get_typed::<String>("def_id").expect("def_id").into(),
+                    row.get_typed::<String>("version_id").expect("version_id").into(),
+                    row.get_typed::<String>("flow_code").expect("flow_code").into(),
+                    assignee,
+                )
+            }
+        };
+        fx.clean(&[leave_id]).await;
+
+        assert_eq!(
+            submitted_status,
+            leave_dto::STATUS_SUBMITTED,
+            "用正式种子提交后请假单必须进 SUBMITTED"
+        );
+        assert!(instance_id.is_some(), "提交后必须挂审批实例");
+        assert_eq!(
+            instance_def.as_deref(),
+            Some(leave_flow_seed_guard::SEED_DEF_ID),
+            "实例必须钉在 V0393 的种子定义上"
+        );
+        assert_eq!(
+            instance_version.as_deref(),
+            Some(leave_flow_seed_guard::SEED_VERSION_ID),
+            "实例必须钉在 V0393 的种子版本上"
+        );
+        assert_eq!(instance_code.as_deref(), Some("hr_leave"));
+        assert_eq!(
+            assignee,
+            Some(fx.approver),
+            "请假 2 天（<3 天）只过「直属上级审批」一个节点，待办必须落在部门负责人头上"
+        );
+
+        // ④ 清场不许动种子：再核一次形态
+        let after = leave_flow_seed_guard::assert_intact().await;
+        println!("[HR-25] 真提交 + 清场后种子仍在：{}", after.describe());
 
         let zeroed: i64 = db()
             .scalar_sql(

@@ -1,0 +1,105 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 75 tests
+test business::flow::internal_control::tests::business_roles_leave_nobody_excluded ... ok
+test business::flow::notify_node::db_tests::on_leave_sends_after_node_passed ... ok
+test business::hr::leave_bridge::tests::biz_type_and_flow_code_match_seed_and_handler ... ok
+test business::hr::leave_bridge::tests::edges_match_registry_and_statuses_in_domain ... ok
+test business::hr::leave_bridge::tests::self_approval_blocks_initiator_and_employee ... ok
+test business::hr::leave_bridge::tests::status_constants_are_exact ... ok
+test business::hr::leave_bridge::tests::verdict_maps_three_paths ... ok
+test business::hr::leave_bridge_db_tests::db::approve_writes_back_and_keeps_trace ... ok
+test business::hr::leave_bridge_db_tests::db::cancel_approval_of_terminates_running_instance ... ok
+test business::hr::leave_bridge_db_tests::db::guard_blocks_self_approval ... ok
+test business::hr::leave_bridge_db_tests::db::reject_backs_to_draft_and_allows_resubmit ... ok
+test business::hr::leave_bridge_db_tests::db::zz_teardown_purges_fixtures ... FAILED
+test business::hr::leave_db_tests::db::approved_unpaid_days_counts_only_approved_unpaid ... ok
+test business::hr::leave_db_tests::db::cancel_without_reason_is_rejected_by_the_database ... ok
+test business::hr::leave_db_tests::db::draft_edit_then_state_machine_round_trip ... ok
+test business::hr::leave_db_tests::db::duplicate_leave_no_maps_to_409 ... ok
+test business::hr::leave_db_tests::db::insert_and_read_back_every_column ... ok
+test business::hr::leave_db_tests::db::next_leave_no_is_monotonic_and_well_formed ... ok
+test business::hr::leave_db_tests::db::page_respects_dept_scope_and_mine_flag ... ok
+test business::hr::leave_db_tests::db::soft_delete_keeps_the_row_but_hides_it ... ok
+test business::hr::leave_dto::tests::bounds_match_ddl_widths ... ok
+test business::hr::leave_dto::tests::cancel_requires_meaningful_reason ... ok
+test business::hr::leave_dto::tests::create_of_maps_valid_payload ... ok
+test business::hr::leave_dto::tests::create_of_names_the_missing_field ... ok
+test business::hr::leave_dto::tests::create_rejects_days_exceeding_range ... ok
+test business::hr::leave_dto::tests::domain_checks_reject_bad_values ... ok
+test business::hr::leave_dto::tests::duration_checks_enforce_half_day_granularity ... ok
+test business::hr::leave_dto::tests::duration_must_fit_the_range ... ok
+test business::hr::leave_dto::tests::filter_parses_multi_select_and_rejects_bad_values ... ok
+test business::hr::leave_dto::tests::leave_res_pairs_ids_with_names ... ok
+test business::hr::leave_dto::tests::leave_type_domain_matches_ddl_check ... ok
+test business::hr::leave_dto::tests::page_params_are_normalized ... ok
+test business::hr::leave_dto::tests::parse_datetime_accepts_known_formats ... ok
+test business::hr::leave_dto::tests::patch_merges_missing_fields_and_keeps_consistency ... ok
+test business::hr::leave_dto::tests::range_check_rejects_empty_and_reversed_ranges ... ok
+test business::hr::leave_dto::tests::status_domain_matches_ddl_check ... ok
+test business::hr::leave_handler::tests::cancel_action_codes_are_stable ... ok
+test business::hr::leave_handler::tests::cancel_action_maps_each_status ... ok
+test business::hr::leave_handler::tests::detail_permission_constant_matches_the_annotation ... ok
+test business::hr::leave_handler::tests::duration_days_num_mirrors_the_decimal_at_the_three_day_boundary ... ok
+test business::hr::leave_handler::tests::flow_constants_match_design ... ok
+test business::hr::leave_handler::tests::form_data_freezes_human_readable_fields ... ok
+test business::hr::leave_handler::tests::list_gate_is_the_route_annotation_only ... ok
+test business::hr::leave_handler::tests::locked_statuses_are_not_editable ... ok
+test business::hr::leave_handler::tests::permission_codes_match_seed ... ok
+test business::hr::leave_handler::tests::resigned_constant_matches_employee_domain ... ok
+test business::hr::leave_handler::tests::task_status_labels ... ok
+test business::hr::leave_handler::tests::withdraw_and_cancel_edges_are_registered ... ok
+test business::hr::leave_handler_db_tests::db::cancel_approved_requires_reason_then_moves_to_cancelled ... ok
+test business::hr::leave_handler_db_tests::db::cancel_draft_soft_deletes ... ok
+test business::hr::leave_handler_db_tests::db::create_copies_employee_snapshot_and_takes_no ... ok
+test business::hr::leave_handler_db_tests::db::create_rejects_resigned_employee ... ok
+test business::hr::leave_handler_db_tests::db::detail_returns_approval_trace ... ok
+test business::hr::leave_handler_db_tests::db::page_scopes_by_dept_and_mine ... ok
+test business::hr::leave_handler_db_tests::db::submit_starts_instance_then_withdraw_terminates ... ok
+test business::hr::leave_handler_db_tests::db::submit_without_flow_is_fail_closed ... ok
+test business::hr::leave_handler_db_tests::db::update_merges_partial_and_blocks_locked ... ok
+test business::hr::leave_handler_db_tests::db::withdraw_without_instance_still_returns_to_draft ... ok
+test business::hr::leave_handler_db_tests::db::zz_teardown_purges_fixtures ... FAILED
+test business::hr::leave_model::tests::check_names_match_ddl ... ok
+test business::hr::leave_model::tests::leave_no_format ... ok
+test business::hr::leave_model::tests::leave_target_matches_scope_registry ... ok
+test business::hr::leave_model::tests::list_query_placeholders_match ... ok
+test business::hr::leave_model::tests::row_sql_columns_exist_in_ddl ... ok
+test business::hr::leave_model::tests::row_to_res_pairs_ids_with_names ... ok
+test business::hr::leave_model::tests::set_status_uses_coalesce_for_audit_columns ... ok
+test business::hr::leave_model::tests::sql_placeholder_counts_match_params ... ok
+test business::hr::leave_model::tests::unique_index_matches_ddl ... ok
+test business::hr::leave_model::tests::update_sql_never_touches_guarded_columns ... ok
+test business::hr::perm_matrix_tests::dept_leader_gets_employee_and_leave_detail_only ... ok
+test business::hr::self_service_db_tests::db::leave_my_returns_only_the_callers_requests ... ok
+test business::hr::self_service_dto::tests::leave_res_serializes_cst_timestamps ... ok
+test business::hr::self_service_dto::tests::leave_status_is_whitelisted ... ok
+test business::impexp::builtin::hr::import_post::tests::leave_match_sql_is_cst_date_based_and_only_counts_approved_unpaid ... ok
+test business::impexp::builtin::hr::import_post_db_tests::approved_unpaid_leave_passes_and_totals_are_recalculated ... ok
+
+failures:
+
+---- business::hr::leave_bridge_db_tests::db::zz_teardown_purges_fixtures stdout ----
+
+thread 'business::hr::leave_bridge_db_tests::db::zz_teardown_purges_fixtures' (3746127) panicked at app/src/business/hr/leave_flow_seed_guard.rs:396:9:
+assertion `left == right` failed: hr_leave 正式种子（V0393）必须**恰好 1 条**未删定义，实际 0 条（hr_leave 定义 0 条（id=<无> name=None status=None default=false system=false auto_approve=false）当前版本=None/None（<无> status=None current=false hash=None note=None 计数 -1·-1）行 0 节点 / 0 边 / 0 审批人绑定）：跑完夹具后种子没回来就是这张卡的 bug；种子从头就不在 ⇒ 用 scripts/verify/make_full_suite_db.sh 重建演练库
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::hr::leave_handler_db_tests::db::zz_teardown_purges_fixtures stdout ----
+
+thread 'business::hr::leave_handler_db_tests::db::zz_teardown_purges_fixtures' (3746174) panicked at app/src/business/hr/leave_flow_seed_guard.rs:396:9:
+assertion `left == right` failed: hr_leave 正式种子（V0393）必须**恰好 1 条**未删定义，实际 0 条（hr_leave 定义 0 条（id=<无> name=None status=None default=false system=false auto_approve=false）当前版本=None/None（<无> status=None current=false hash=None note=None 计数 -1·-1）行 0 节点 / 0 边 / 0 审批人绑定）：跑完夹具后种子没回来就是这张卡的 bug；种子从头就不在 ⇒ 用 scripts/verify/make_full_suite_db.sh 重建演练库
+  left: 0
+ right: 1
+
+
+failures:
+    business::hr::leave_bridge_db_tests::db::zz_teardown_purges_fixtures
+    business::hr::leave_handler_db_tests::db::zz_teardown_purges_fixtures
+
+test result: FAILED. 73 passed; 2 failed; 0 ignored; 0 measured; 6388 filtered out; finished in 2.00s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

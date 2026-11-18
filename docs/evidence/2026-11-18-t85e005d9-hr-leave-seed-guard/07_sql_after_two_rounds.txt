@@ -1,0 +1,27 @@
+# 同一库连跑两轮全量套件后的库状态（2026-11-18，库 cloudpivot_test_hrseed）
+
+## 卡面验收 SQL
+psql> SELECT count(*) FROM biz_flow_def WHERE flow_code='hr_leave';
+1
+
+## 四条 hr 流程
+     flow_code      |  status   |                    flow_name                    
+--------------------+-----------+-------------------------------------------------
+ hr_employee_resign | PUBLISHED | 离职审批（标准·上级 → 人事 → 关键岗位总经理）
+ hr_leave           | PUBLISHED | 请假审批（标准·直属上级 → 长假人事复核）
+ hr_salary          | PUBLISHED | 薪资单审批（标准·人事 → 财务会签 → 大额总经理）
+ hr_salary_adjust   | PUBLISHED | 调薪审批（标准·上级 → 人事 → 财务三签）
+(4 rows)
+
+## 种子形态（定义 / 版本 / 节点行 / 边 / 审批人绑定）
+                  id                  |  status   | is_default | is_system | allow_auto_approve | current_version_no |              version_id              | version_status | is_current |                            graph_hash                            |                         change_note                         | node_count | edge_count | node_rows | edge_rows | assignee_rows 
+--------------------------------------+-----------+------------+-----------+--------------------+--------------------+--------------------------------------+----------------+------------+------------------------------------------------------------------+-------------------------------------------------------------+------------+------------+-----------+-----------+---------------
+ 20000000-0000-4000-8000-0000000e0393 | PUBLISHED | t          | t         | f                  |                  1 | 20000000-0000-4000-8000-0000000e0394 | PUBLISHED      | t          | 4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97 | V0393 种子：请假审批（直属上级 →（≥3 天）人事经理）默认流程 |          5 |          5 |         5 |         5 |             1
+(1 row)
+
+## 挂在本卡种子定义上的实例 / 本卡夹具流程残留
+ instances_on_seed | hr_fixture_defs | zero_hash_published 
+-------------------+-----------------+---------------------
+                 0 |               0 |                   0
+(1 row)
+

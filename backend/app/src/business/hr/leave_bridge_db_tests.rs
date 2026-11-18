@@ -37,6 +37,7 @@ mod db {
     use crate::business::hr::employee_handler;
     use crate::business::hr::leave_bridge::{self, BIZ_TYPE};
     use crate::business::hr::leave_dto::{self, LeaveCancelReq, LeaveCreateReq, LeaveSubmitReq};
+    use crate::business::hr::leave_flow_seed_guard;
     use crate::business::hr::leave_handler;
     use cloudpivot_kernel::business::shared::state_machine::Operator;
     use cloudpivot_kernel::shared::error_code;
@@ -317,34 +318,24 @@ mod db {
     /// 见 `flow::engine::load_snapshot`），所以不需要 `biz_flow_node` / `biz_flow_edge` 行。
     /// 审批人写死成本用例的夹具账号 —— 否则「待办派给谁」取决于部门 leader 的现状，
     /// 用例会随环境漂移。
+    ///
+    /// # 装夹前必须先腾开 `flow_code`（卡 `t_85e005d9`）
+    ///
+    /// `uk_biz_flow_def_code` 是 `flow_code` **全局唯一**（`deleted_at IS NULL` 的部分唯一索引），
+    /// 同一时刻库里只许有一条 `hr_leave` 定义。腾编码的两步分工：
+    ///
+    /// - **V0393 的正式种子**：交给 [`leave_flow_seed_guard::borrow`] —— 它把种子整链抓成 JSON
+    ///   再从库里删掉，收尾（`zz_teardown_purges_fixtures`）原样写回。
+    /// - **本文件上一轮留下的夹具定义**：按版本 `change_note` 认领后直接删。
+    ///
+    /// 旧写法是「删掉所有没人引用的 `hr_leave` 定义」，连种子一起删且**不恢复** ⇒ 跑过全量
+    /// 套件的库永久失去 `hr_leave` 正式流程（这张卡就是修它）。现在的写法还顺带把「库里有一条
+    /// 不是本夹具的 `hr_leave`」从「撞唯一索引」变成一句能读懂的 panic。
     async fn seed_leave_flow(approver: Uuid) {
-        // 先清掉**所有**没人引用的 `hr_leave` 定义（`uk_biz_flow_def_code` 是 flow_code 全局唯一，
-        // 同一时刻只能有一条定义 —— V0393 的正式种子也一样）。有实例引用的定义删不掉（FK 会拒），
-        // 那种情况说明上一个用例的清场没跑完，本轮直接复用会带着别人的审批人，故让插入报错暴露问题。
-        if let Ok(rows) = db()
-            .find_with_params(
-                "SELECT d.id FROM biz_flow_def d \
-                  WHERE d.flow_code = ? AND d.deleted_at IS NULL \
-                    AND NOT EXISTS (SELECT 1 FROM biz_flow_instance i WHERE i.def_id = d.id)",
-                vec![Value::Text(leave_bridge::FLOW_CODE.to_string())],
-            )
-            .await
-        {
-            for row in &rows {
-                let id: Uuid = row.get_typed("id").expect("流程 id");
-                let _ = db()
-                    .exec_sql(
-                        "DELETE FROM biz_flow_def_version WHERE def_id = ?::uuid".to_string(),
-                        vec![Value::from(&id)],
-                    )
-                    .await;
-                let _ = db()
-                    .exec_sql(
-                        "DELETE FROM biz_flow_def WHERE id = ?::uuid".to_string(),
-                        vec![Value::from(&id)],
-                    )
-                    .await;
-            }
+        leave_flow_seed_guard::borrow().await;
+        let purged = leave_flow_seed_guard::purge_fixture_defs(FIXTURE_NOTE).await;
+        if purged > 0 {
+            println!("[HR-27] 装夹前清掉上一轮夹具流程定义 {purged} 条");
         }
         let def_id = Uuid::now_v7();
         let version_id = Uuid::now_v7();
@@ -782,7 +773,8 @@ mod db {
         .unwrap_or(0)
     }
 
-    /// 收尾清场（`zz_` 排在本模块最后跑）：`hr_leave` 夹具流程必须一条不剩。
+    /// 收尾清场（`zz_` 排在本模块最后跑）：`hr_leave` 夹具流程必须一条不剩，
+    /// 且**借走的 V0393 正式种子必须原样还回来**。
     ///
     /// # 为什么必须收尾删（卡 t_9c3551b0）
     ///
@@ -793,8 +785,15 @@ mod db {
     /// 行（空图）↔ 快照 ↔ `graph_hash` 三方对不上。实测第二轮
     /// `batches=1 versions=29 drifted=1 … flow_code: "hr_leave"` —— 第一轮绿、第二轮红。
     ///
-    /// 断言写成两层：①自己的夹具 0 行；②`hr_leave` 上不许留「零 hash 的已发布版本」
-    /// （后者就是 p16 会红的那条判据，早一点在本模块暴露）。
+    /// # 为什么还要归还种子（卡 t_85e005d9）
+    ///
+    /// 装夹时 `seed_leave_flow` 借走了 V0393 的正式种子（[`leave_flow_seed_guard::borrow`]）。
+    /// 不还的话，本文件跑完库就**永久少一条 `hr_leave` 正式流程**：后续用例拿到 0 条定义、
+    /// 别的卡要验「正式流程能用」时无据可查。`restore()` 把整链原样写回并按迁移字面量对账
+    /// （id / 状态 / 版本指针 / `graph_hash` / `change_note` / 5 节点 5 边 1 绑定）。
+    ///
+    /// 断言写成三层：①自己的夹具 0 行；②种子（V0393）原样在库；③`hr_leave` 上不许留
+    /// 「零 hash 的已发布版本」（后者就是 p16 会红的那条判据，早一点在本模块暴露）。
     #[tokio::test]
     async fn zz_teardown_purges_fixtures() {
         if !ensure_db().await {
@@ -803,6 +802,9 @@ mod db {
         let _guard = DB_LOCK.lock().await;
         let left = purge_fixture_flows(FIXTURE_NOTE).await;
         assert_eq!(left, 0, "HR-27 夹具流程（定义 + 版本）残留必须为 0");
+
+        let seed = leave_flow_seed_guard::restore().await;
+        println!("[HR-27] 归还 V0393 正式种子：{}", seed.describe());
 
         let zeroed: i64 = db()
             .scalar_sql(

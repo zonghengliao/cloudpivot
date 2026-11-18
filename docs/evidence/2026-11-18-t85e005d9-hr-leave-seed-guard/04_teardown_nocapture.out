@@ -1,0 +1,84 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.54s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 41 tests
+test business::attachment::tests::zz_teardown_purges_fixtures ... ok
+test business::erp::cashflow_worksheet::tests::zz_teardown_purges_fixtures ... [M1-14] 清场：底稿 0、1913 期间 0、临时分类配置 0 ✓
+ok
+test business::erp::contract::contract_approval_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::credit_concurrency_tests::zz_teardown_purges_fixtures ... [M3-13] 清场：M313- 夹具 0 残留（含客户行）✓
+ok
+test business::erp::credit_release_tests::zz_teardown_purges_fixtures ... [M3-13] 清场：M312- 夹具 0 残留（含客户行）✓
+ok
+test business::erp::fx_balance::tests::zz_teardown_purges_fixtures ... [M1-07] 清场：M107- 残留 0 ✓
+ok
+test business::erp::fx_ledger::tests::zz_teardown_purges_fixtures ... [M1-08] 清场：M108- 残留 0、凭证孤儿状态日志 0 ✓
+ok
+test business::erp::inventory_aging::aging_db_tests::zz_teardown_purges_fixtures ... [M2-08] 清场：M208- 残留 0 ✓
+ok
+test business::erp::inventory_aging::aging_period_tests::zz_teardown_purges_fixtures ... [M2-11] 清场：M211- 残留 0（含期初流水）✓
+ok
+test business::erp::inventory_aging::report::report_db_tests::zz_teardown_purges_fixtures ... [M2-09] 清场：M209- 残留 0 ✓
+ok
+test business::erp::inventory_aging::slow_moving::slow_moving_db_tests::zz_teardown_purges_fixtures ... [M2-10] 清场：M210- 残留 0、阈值参数回到 V0426 种子行 ✓
+ok
+test business::erp::period::period_fx_reval::tests::zz_teardown_purges_fixtures ... [M1-05] 清场：M105- 残留 0 ✓
+ok
+test business::erp::pflow3b_tests::pflow3b_zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::framework_agreement_crud_db_tests::zz_teardown_purges_fixtures ... [M411B-DB] setup 走通（连上库 + 清场 + 审批岗位就绪）
+ok
+test business::erp::purchase::framework_agreement_db_tests::zz_teardown_purges_fixtures ... [M4-07] 清场：M407- 夹具 0 残留 ✓
+ok
+test business::erp::purchase::framework_agreement_execution_db_tests::zz_teardown_purges_fixtures ... [M4-09] 清场
+ok
+test business::erp::purchase::framework_agreement_over_limit_tests::zz_teardown_purges_fixtures ... [M4-10] 清场 夹具 0 残留 ✓
+ok
+test business::erp::purchase::framework_agreement_ref_db_tests::zz_teardown_purges_fixtures ... [M4-08] 清场 夹具 0 残留 ✓
+ok
+test business::erp::purchase::purchase_plan_convert_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::purchase_plan_db_tests::zz_teardown_purges_fixtures ... [M4-01] 清场：M401- 计划与明细 0 残留 ✓
+ok
+test business::erp::purchase::purchase_plan_execution_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::purchase_plan_handler_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::supplier_access_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::supplier_evaluation_db_tests::zz_teardown_purges_fixtures ... [M4-12] 清场：M412- 夹具 0 残留 ✓
+ok
+test business::erp::purchase::supplier_evaluation_grading_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::purchase::supplier_evaluation_suite_tests::zz_teardown_purges_fixtures ... [M4-15] zz_teardown_purges_fixtures
+ok
+test business::erp::replenish::replenish_db_tests::zz_teardown_purges_fixtures ... [M2-15] 清场：在途 / 采购订单 / 发货单 / 库存行 / 水位行 全部 0 条 ✓
+ok
+test business::erp::sales::quotation_handler::quotation_convert_tests::zz_teardown_purges_fixtures_and_status_log_orphans ... [M3-08] 清场：夹具 0 残留，销售链孤儿状态日志 0 条（本次顺手收干 0 条）
+ok
+test business::erp::sales::quotation_handler::quotation_state_tests::zz_teardown_purges_fixtures_and_status_log_orphans ... [M3-05] 清场：夹具 0 残留，销售链孤儿状态日志 0 条（本次顺手收干 0 条）
+ok
+test business::erp::sales::quotation_handler::tests::zz_teardown_purges_fixtures ... [M3-03] 清场：报价单 / 销售订单 / 状态日志 / 夹具客户 0 残留 ✓
+ok
+test business::erp::sales::quotation_model::tests::zz_teardown_purges_fixtures ... [M3-02] 清场：报价单 / 状态日志 / 夹具客户 0 残留 ✓
+ok
+test business::erp::sales::rebate_db_tests::zz_teardown_purges_fixtures ... [M3-15] 清场：M315- 客户的政策 0 条、客户行 0 条 ✓
+ok
+test business::erp::sales::rebate_invoice_db_tests::zz_teardown_purges_fixtures ... [M3-17] 清场：M317- 夹具全部删除（含客户行）✓
+ok
+test business::erp::sales::rebate_settle_db_tests::zz_teardown_purges_fixtures ... [M3-16] 清场：M316 夹具结算单 / 政策 / 客户均为 0 ✓
+ok
+test business::erp::sales::sales_forecast_db_tests::zz_teardown_purges_fixtures ... [M3-20] 清场完成：预测 0 行、夹具客户 0 行 ✓
+ok
+test business::erp::sales::sales_variance_db_tests::zz_teardown_purges_fixtures ... [M3-21] 清场：预测 0 行、订单 0 行、夹具客户 0 行 ✓
+ok
+test business::erp::sales::sales_variance_summary_db_tests::zz_teardown_purges_fixtures ... [M3-22] 清场：预测 0 行、订单 0 行、夹具客户 0 行 ✓
+ok
+test business::erp::stock_policy::policy_db_tests::zz_teardown_purges_fixtures ... [M2-13] 清场：水位行 0 条、物料级 safety_stock 复位 0 ✓
+ok
+test business::erp::stock_policy::water_check_db_tests::zz_teardown_purges_fixtures ... [M2-14] 清场：M214- 的库存行 / 水位待办 0 条 ✓
+ok
+test business::hr::leave_bridge_db_tests::db::zz_teardown_purges_fixtures ... [HR-27] 归还 V0393 正式种子：hr_leave 定义 1 条（id=20000000-0000-4000-8000-0000000e0393 name=Some("请假审批（标准·直属上级 → 长假人事复核）") status=Some("PUBLISHED") default=true system=true auto_approve=false）当前版本=Some("20000000-0000-4000-8000-0000000e0394")/Some(1)（20000000-0000-4000-8000-0000000e0394 status=Some("PUBLISHED") current=true hash=Some("4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97") note=Some("V0393 种子：请假审批（直属上级 →（≥3 天）人事经理）默认流程") 计数 5·5）行 5 节点 / 5 边 / 1 审批人绑定
+[HR-27] 清场：hr_leave 夹具流程 0 行、零 hash 已发布版本 0 ✓
+ok
+test business::hr::leave_handler_db_tests::db::zz_teardown_purges_fixtures ... [HR-25] 归还 V0393 正式种子：hr_leave 定义 1 条（id=20000000-0000-4000-8000-0000000e0393 name=Some("请假审批（标准·直属上级 → 长假人事复核）") status=Some("PUBLISHED") default=true system=true auto_approve=false）当前版本=Some("20000000-0000-4000-8000-0000000e0394")/Some(1)（20000000-0000-4000-8000-0000000e0394 status=Some("PUBLISHED") current=true hash=Some("4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97") note=Some("V0393 种子：请假审批（直属上级 →（≥3 天）人事经理）默认流程") 计数 5·5）行 5 节点 / 5 边 / 1 审批人绑定
+[HR-25] 真提交 + 清场后种子仍在：hr_leave 定义 1 条（id=20000000-0000-4000-8000-0000000e0393 name=Some("请假审批（标准·直属上级 → 长假人事复核）") status=Some("PUBLISHED") default=true system=true auto_approve=false）当前版本=Some("20000000-0000-4000-8000-0000000e0394")/Some(1)（20000000-0000-4000-8000-0000000e0394 status=Some("PUBLISHED") current=true hash=Some("4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97") note=Some("V0393 种子：请假审批（直属上级 →（≥3 天）人事经理）默认流程") 计数 5·5）行 5 节点 / 5 边 / 1 审批人绑定
+[HR-25] 清场：hr_leave 夹具流程 0 行、零 hash 已发布版本 0 ✓
+ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 6422 filtered out; finished in 1.14s
+

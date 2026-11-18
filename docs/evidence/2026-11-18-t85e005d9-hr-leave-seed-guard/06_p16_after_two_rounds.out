@@ -1,0 +1,24 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 17 tests
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::dc01_cancel_without_published_flow_is_409 ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_approval_generates_red_voucher ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_approval_rolls_back_six_ledgers ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_approval_uses_posted_amount_not_current_avg ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_approval_voids_serials ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_duplicate_submit_is_409 ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_other_path_cancel_reconciles_instance ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_pending_cancel_is_locked ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_reject_restores_posted ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_resubmit_after_reject ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_seed_flow_is_self_consistent ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_self_approval_is_forbidden ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_soft_deleted_doc_reconciles_instance ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_submit_moves_to_pending_cancel_with_instance ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_withdraw_failure_rolls_back ... ok
+test business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_withdraw_restores_posted ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 6446 filtered out; finished in 2.83s
+
