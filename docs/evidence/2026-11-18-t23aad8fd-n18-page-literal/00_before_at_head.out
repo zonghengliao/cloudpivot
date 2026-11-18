@@ -1,0 +1,9 @@
+$ git show HEAD:backend/app/src/business/erp/purchase/framework_agreement_dto.rs | grep -n "framework-agreement:page"
+21://! 页面显形码 `business:erp:framework-agreement:page` **不在这里**（AGENTS 约定 14：
+569:            !AGREEMENT_PERMISSIONS.contains(&"business:erp:framework-agreement:page"),
+
+$ git show HEAD:backend/app/src/system/menu/permission_audit_tests.rs | grep -n "framework-agreement"
+151:    // （`!AGREEMENT_PERMISSIONS.contains("business:erp:framework-agreement:page")`），
+
+$ git log -1 --format="%h %ci %s" HEAD
+ba90ab0e 2026-11-18 19:27:26 +0800 feat(cost): M5-01 成本方法配置（品种法/分批法/标准成本）—— 按成本对象选方法

@@ -146,13 +146,21 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
          把「能进这一页」与「能看全公司计划」拆开。",
     ),
     // ---- ERP 框架协议页（V0452，卡 t_645358e9 / M4-09）----
-    // ⚠ 2026-11-18（卡 t_005d6b65 / M4-16 顺手销号）：这条例外曾长期挂着，但 M4-11b
-    // （t_f358da98）在 `framework_agreement_dto.rs` 的用例里写了**字面量负断言**
-    // （`!AGREEMENT_PERMISSIONS.contains("business:erp:framework-agreement:page")`），
-    // 而本文件的 `code_refs` 口径（§口径 3）把 `#[cfg(test)]` 模块里的引用也算「有承载」
-    // ⇒ N18 判台账过期、整组审计在 HEAD 上就是红的（实测：只应用到 V0456 的库里跑 n18 即红）。
-    // 该码**仍然是纯前端显形码**（后端零判权），完整记录见 `docs/dead-permissions-20261101.md` §12；
-    // 这里销号是为了让 N18「台账必须是活的」这条规则自洽，不再因一条负断言长期假红。
+    // 2026-11-18（卡 t_005d6b65 / M4-16）曾把这条**销号**：当时 M4-11b（t_f358da98）在
+    // `framework_agreement_dto.rs` 的 `#[cfg(test)]` 用例里写了页面码的**字面量负断言**
+    // （`!AGREEMENT_PERMISSIONS.contains("…:page")`），`code_refs` 把内联 `#[cfg(test)]`
+    // 里的字面量也算「有承载」⇒ N18 判台账过期。销号只是让当次绿灯，病根（负断言踩约定 14）留着。
+    // 2026-11-18（卡 t_23aad8fd）改成治根：字面量全部从业务源码删掉，「没有 page」改由
+    // 「前缀 + 动作白名单」表达（见该文件 `permission_codes_match_v0456`），本例外按
+    // **C 类（纯前端显形码）**重新登记 —— 这正是 §1.7.2 要求的落点，不是新开例外。
+    (
+        "business:erp:framework-agreement:page",
+        "页面显形码（V0452）：框架协议页；接口各自判 business:erp:framework-agreement:\
+         {list,create,update,delete,submit,execution}（V0456 的 5 个按钮行 + M4-09 的两个取数行），\
+         本码只给前端路由（侧栏显隐 + meta.permission）。与 V0447 采购计划页同形：\
+         页面行不复用接口码，把「能进这一页」与「能看全公司协议」拆开。\
+         2026-11-18 修复：M4-11b 曾在 dto 的 `#[cfg(test)]` 里写死本码字面量，现已删净。",
+    ),
     // ---- ERP 供应商准入 / 黑名单页（V0455，卡 t_583852b1 / M4-14）----
     (
         "business:erp:supplier-access:page",

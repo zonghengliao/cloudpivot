@@ -1,0 +1,20 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 32s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test business::erp::purchase::framework_agreement_dto::tests::permission_codes_match_v0456 ... 
+thread 'business::erp::purchase::framework_agreement_dto::tests::permission_codes_match_v0456' (3894078) panicked at app/src/business/erp/purchase/framework_agreement_dto.rs:580:13:
+business:erp:framework-agreement:execution 的动作位「execution」不在接口动作白名单 ["list", "create", "update", "delete", "submit"] 里：接口码只取这 6 个动作，页面显形码（`…:page`）不属于接口码
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    business::erp::purchase::framework_agreement_dto::tests::permission_codes_match_v0456
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+rc=101

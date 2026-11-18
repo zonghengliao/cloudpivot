@@ -1,0 +1,22 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 54.93s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... 测试C 已连接验证库（cloudpivot_test）
+
+thread 'system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live' (3893638) panicked at app/src/system/menu/permission_audit_tests.rs:1314:5:
+ROUTE_LEVEL_ONLY 台账过期：
+business:erp:framework-agreement:page：后端源码已有引用（business/erp/purchase/framework_agreement_dto.rs），应改走注解并删除本例外
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 1.05s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+rc=101

@@ -1,0 +1,16 @@
+$ psql cloudpivot_test_n18
+ max_version | versioned | all_rows 
+-------------+-----------+----------
+         460 |       380 |      392
+(1 row)
+
+                  id                  |   name   |  title   |               path                | menu_type |               auth_code               | deleted_at 
+--------------------------------------+----------+----------+-----------------------------------+-----------+---------------------------------------+------------
+ 20000000-0000-0000-0000-000000004480 | 框架协议 | 框架协议 | /business/erp/framework-agreement |         2 | business:erp:framework-agreement:page | 
+(1 row)
+
+ menu_alive 
+------------
+        568
+(1 row)
+

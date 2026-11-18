@@ -18,8 +18,9 @@
 //! | GET | `/business/erp/framework-agreement/execution/page` | `…:execution`（M4-09，已存在） |
 //! | GET | `/business/erp/framework-agreement/{id}/execution` | `…:execution`（M4-09，已存在） |
 //!
-//! 页面显形码 `business:erp:framework-agreement:page` **不在这里**（AGENTS 约定 14：
-//! 只给前端判显隐，后端零引用；`permission_audit_tests` 的 N14/N18 会扫）。
+//! 页面显形码（`…:page`，菜单迁移 `V0452` 种下、`V0456` 不动它）**不在这里**：
+//! AGENTS 约定 14 / `docs/编码规范.md` §1.7.2 要求后端源码零引用（连常量都不定义），
+//! 例外登记在 `permission_audit_tests::ROUTE_LEVEL_ONLY`，N14/N18 会逐条核这条例外是否仍然成立。
 //!
 //! # 校验口径：与 M4-08（下单引用校验）**同一份判据**，不各写一套
 //!
@@ -564,11 +565,24 @@ mod tests {
                 "缺 {expected}（与迁移的 auth_code 对不上就是「码有了但没人有」，按钮点了 403）"
             );
         }
-        // 页面显形码**不在**接口码清单里（约定 14：只给前端）
-        assert!(
-            !AGREEMENT_PERMISSIONS.contains(&"business:erp:framework-agreement:page"),
-            "页面显形码不能出现在后端接口码清单里"
-        );
+        // 页面显形码**不在**接口码清单里（约定 14：只给前端判显隐）。
+        //
+        // 判据写成「前缀 + 动作白名单」，而不是把页面码字面量写死进来做负断言：
+        // 页面码本身就是本文件**必须避免出现**的字符串（N18 扫源码字面量），
+        // 写死进来等于「反证断言自己踩了铁律」—— 2026-11-18 卡 t_23aad8fd 修的就是这个。
+        // 白名单只有 6 个动作，`page` 不在其中 ⇒ 语义等价，且后端源码里 0 引用。
+        let prefix = "business:erp:framework-agreement:";
+        let interface_actions = ["list", "create", "update", "delete", "submit", "execution"];
+        for code in AGREEMENT_PERMISSIONS {
+            let action = code
+                .strip_prefix(prefix)
+                .unwrap_or_else(|| panic!("{code} 不以本资源的权限码前缀开头（借了别的资源的前缀）"));
+            assert!(
+                interface_actions.contains(&action),
+                "{code} 的动作位「{action}」不在接口动作白名单 {interface_actions:?} 里：\
+                 接口码只取这 6 个动作，页面显形码（`…:page`）不属于接口码"
+            );
+        }
     }
 
     /// ② 有效期：起止含边界；起晚于止必须拒（与 ck_biz_fwa_period 同口径）。

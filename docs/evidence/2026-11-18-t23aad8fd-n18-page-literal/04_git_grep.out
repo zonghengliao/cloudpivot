@@ -1,0 +1,8 @@
+$ git grep -n "framework-agreement:page" -- backend/app/src/
+backend/app/src/system/menu/permission_audit_tests.rs:157:        "business:erp:framework-agreement:page",
+
+$ git grep -n "framework-agreement:page" -- backend/app/src/business/
+(0 行 ✓ 业务源码零字面量)
+
+$ git grep -n "framework-agreement:page" -- backend/app/src/ ":(exclude)backend/app/src/system/menu/permission_audit_tests.rs"
+(0 行 ✓ 除台账登记点外，src 全树零字面量)
