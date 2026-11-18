@@ -737,8 +737,8 @@ fn governed_codes_are_the_sixteen_approval_lines() {
 
     assert_eq!(
         GOVERNED_CODES.len(),
-        19,
-        "受控集合必须恰好 19 个审批码（M4-14 加 SUPPLIER_ACCESS）"
+        20,
+        "受控集合必须恰好 20 个审批码（M4-11b 加 FWA_APPROVE）"
     );
     let unique: std::collections::BTreeSet<&str> = GOVERNED_CODES.iter().copied().collect();
     assert_eq!(unique.len(), GOVERNED_CODES.len(), "受控码表里有重复项");

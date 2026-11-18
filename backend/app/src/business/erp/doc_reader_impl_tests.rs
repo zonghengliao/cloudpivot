@@ -31,7 +31,7 @@ use crate::business::erp::doc_reader_impl::{self, ErpDoc, ErpDocReader};
 use crate::business::erp::expense::expense_bridge;
 use crate::business::erp::payable::payable_bridge;
 use crate::business::erp::purchase::{
-    purchase_bridge, purchase_plan_bridge, purchase_return_bridge, supplier_access_flow,
+    framework_agreement_flow, purchase_bridge, purchase_plan_bridge, purchase_return_bridge, supplier_access_flow,
 };
 use crate::business::erp::receipt_refund_bridge;
 use crate::business::erp::requisition_bridge;
@@ -72,21 +72,23 @@ fn bridge_codes() -> Vec<(FlowBizType, &'static str)> {
         (FlowBizType::PpApprove, purchase_plan_bridge::BIZ_TYPE),
         // M4-14：供应商准入 / 黑名单审批（受内控约束：申请人不可自审自己提的申请）
         (FlowBizType::SupplierAccess, supplier_access_flow::BIZ_TYPE),
+        // M4-11b：框架协议审批（受内控约束：制单人不可自审自己签的协议）
+        (FlowBizType::FrameworkAgreement, framework_agreement_flow::BIZ_TYPE),
     ]
 }
 
-/// 19 个受控实现与 19 个 `governed` 分支**一一对应**，外加 1 个「只接回调」的调拨单，
-/// 且落库码与桥常量逐字一致（M4-14 起实现数 = 20）。
+/// 20 个受控实现与 20 个 `governed` 分支**一一对应**，外加 1 个「只接回调」的调拨单，
+/// 且落库码与桥常量逐字一致（M4-11b 起实现数 = 21）。
 #[test]
 fn supported_set_matches_governed_branches() {
     let expected = bridge_codes();
-    assert_eq!(expected.len(), 19, "登记表本身应恰好 19 条");
+    assert_eq!(expected.len(), 20, "登记表本身应恰好 20 条");
 
     let implemented: Vec<FlowBizType> = ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect();
     assert_eq!(
         implemented.len(),
-        20,
-        "ErpDoc::ALL 应恰好 20 个实现（19 受控 + 调拨单）"
+        21,
+        "ErpDoc::ALL 应恰好 21 个实现（20 受控 + 调拨单）"
     );
 
     // ⓪ P2-34：多出来的那一个必须**恰好**是 STOCK_TRANSFER —— 它只接终态回调、不做内控排除。

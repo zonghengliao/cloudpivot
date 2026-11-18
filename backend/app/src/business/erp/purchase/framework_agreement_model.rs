@@ -54,6 +54,16 @@ pub const PRICE_MODE_FLOATING: &str = "FLOATING";
 /// 定价方式闭集（与库层 `ck_biz_fwa_price_mode` 同一份）。
 pub const PRICE_MODES: &[&str] = &[PRICE_MODE_FIXED, PRICE_MODE_FLOATING];
 
+/// 状态中文名（报文 / 审批详情 / 列表共用一份）。未知名原样返回，绝不 panic。
+pub fn status_label(status: &str) -> &str {
+    match status {
+        STATUS_DRAFT => "草稿",
+        STATUS_SUBMITTED => "审批中",
+        STATUS_APPROVED => "生效（已批准）",
+        other => other,
+    }
+}
+
 /// 状态：拟稿。
 pub const STATUS_DRAFT: &str = "DRAFT";
 /// 状态：审批中（必有审批实例）。
@@ -517,6 +527,18 @@ pub fn uuid_text(value: Option<Uuid>) -> Value {
     Value::Text(value.map(|id| id.to_string()).unwrap_or_default())
 }
 
+/// 部门名（建单时落快照；查不到 → `None`，由 handler 翻 400）。
+pub async fn dept_name_of(ex: &impl SqlExecutor, dept_id: Uuid) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: 按主键取一个部门名做快照，不涉及数据范围。
+    let rows = ex
+        .query_sql(
+            "SELECT dept_name FROM sys_dept WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
+            vec![Value::from(&dept_id)],
+        )
+        .await?;
+    rows.first().map(|row| row.get_typed("dept_name")).transpose()
+}
+
 /// 可选文本（`None` / 空串都折成 NULL）。
 pub fn optional_text(value: Option<&str>) -> Value {
     Value::Text(value.unwrap_or_default().to_string())
@@ -526,6 +548,550 @@ pub fn optional_text(value: Option<&str>) -> Value {
 /// 裸 `?::date` 会让 PG 把参数推断成 date，`Value::Text` 编码不进去）。
 pub fn date_text(value: NaiveDate) -> String {
     value.format("%Y-%m-%d").to_string()
+}
+
+// ==================== 写（M4-11b：建单 / 改单 / 删单 / 状态流转） ====================
+//
+// 两条与表结构卡（M4-07）一脉相承的口径：
+//
+// 1. **单头两个 `total_executed_*` 是派生列**：建单 / 改单之后一律走 [`recalc_totals`]，
+//    请求体里的同名值**不读**（客户端永远不许传）。
+// 2. **明细不整体重建**：M4-08 把 `framework_agreement_item_id` 写进采购明细
+//    （V0451，弱引用、无外键），所以改单必须按 `material_id` **就地**对齐 ——
+//    删行重建会让已下单的采购明细指向一个不存在的 id，执行量报表（现算 FROM 采购单）
+//    会静默少掉那些量。见 [`replace_agreement`]。
+
+/// 建单入参（单头）。
+#[derive(Debug, Clone)]
+pub struct NewAgreementHead {
+    /// 协议名称。
+    pub agreement_name: String,
+    /// 供应商。
+    pub supplier_id: Uuid,
+    /// 供应商名快照（签约主体历史事实）。
+    pub supplier_name: Option<String>,
+    /// 经办部门。
+    pub dept_id: Option<Uuid>,
+    /// 经办部门名快照。
+    pub dept_name: Option<String>,
+    /// 经办人。
+    pub owner_id: Option<Uuid>,
+    /// 经办人姓名快照。
+    pub owner_name: Option<String>,
+    /// 有效期起（含）。
+    pub start_date: NaiveDate,
+    /// 有效期止（含）。
+    pub end_date: NaiveDate,
+    /// 签订日期。
+    pub sign_date: Option<NaiveDate>,
+    /// 定价方式。
+    pub price_mode: String,
+    /// 协议价是否含税。
+    pub price_includes_tax: bool,
+    /// 协议价币种。
+    pub price_currency: String,
+    /// 允许高于协议价的比例上限。
+    pub price_tolerance: Decimal,
+    /// 调价规则原文。
+    pub price_adjust_rule: Option<String>,
+    /// 协议总量上限（None = 不限）。
+    pub total_max_qty: Option<Decimal>,
+    /// 协议总额上限（None = 不限）。
+    pub total_max_amount: Option<Decimal>,
+    /// 备注。
+    pub remark: Option<String>,
+}
+
+/// 建单入参（物料范围行；`unit_id` 由物料基础单位带出，客户端不许传）。
+#[derive(Debug, Clone)]
+pub struct NewAgreementItem {
+    /// 物料。
+    pub material_id: Uuid,
+    /// 计量单位（物料基础单位）。
+    pub unit_id: Uuid,
+    /// 协议单价（≥ 0）。
+    pub agreed_price: Decimal,
+    /// 进项税率（0–1）。
+    pub tax_rate: Decimal,
+    /// 该物料数量上限（None = 不限）。
+    pub max_qty: Option<Decimal>,
+    /// 行备注。
+    pub remark: Option<String>,
+}
+
+/// 单头 18 列的**列名**（顺序 = [`head_columns`] 的返回值顺序）。
+const HEAD_COLUMNS: &str = "agreement_name, supplier_id, supplier_name, dept_id, dept_name, \
+     owner_id, owner_name, start_date, end_date, sign_date, price_mode, price_includes_tax, \
+     price_currency, price_tolerance, price_adjust_rule, total_max_qty, total_max_amount, remark";
+
+/// 单头 18 列的 `VALUES` 占位（与 [`HEAD_COLUMNS`] 逐位对应）。
+///
+/// 全部走 `?::text::…` 显式转型：裸 `?::date` 会让 PG 把参数推断成 `date`，
+/// `Value::Text` 编码不进去（V0450 与 `commission_rule_model` 都踩过）。
+const HEAD_VALUES: &str = "?, ?::uuid, NULLIF(?::text,''), NULLIF(?::text,'')::uuid, \
+     NULLIF(?::text,''), NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+     ?::text::date, ?::text::date, NULLIF(?::text,'')::date, \
+     ?, ?::text::boolean, ?, ?::text::numeric, NULLIF(?::text,''), \
+     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')";
+
+/// 单头 18 列的 `SET` 片段（改单整单替换用；顺序与 [`HEAD_COLUMNS`] 一致）。
+const HEAD_SET: &str = "agreement_name = ?, supplier_id = ?::uuid, supplier_name = NULLIF(?::text,''), \
+     dept_id = NULLIF(?::text,'')::uuid, dept_name = NULLIF(?::text,''), \
+     owner_id = NULLIF(?::text,'')::uuid, owner_name = NULLIF(?::text,''), \
+     start_date = ?::text::date, end_date = ?::text::date, sign_date = NULLIF(?::text,'')::date, \
+     price_mode = ?, price_includes_tax = ?::text::boolean, price_currency = ?, \
+     price_tolerance = ?::text::numeric, price_adjust_rule = NULLIF(?::text,''), \
+     total_max_qty = NULLIF(?::text,'')::numeric, total_max_amount = NULLIF(?::text,'')::numeric, \
+     remark = NULLIF(?::text,'')";
+
+/// 单头 18 个参数（顺序 = [`HEAD_COLUMNS`]）。
+fn head_columns(head: &NewAgreementHead) -> Vec<Value> {
+    vec![
+        Value::Text(head.agreement_name.clone()),
+        Value::from(&head.supplier_id),
+        optional_text(head.supplier_name.as_deref()),
+        uuid_text(head.dept_id),
+        optional_text(head.dept_name.as_deref()),
+        uuid_text(head.owner_id),
+        optional_text(head.owner_name.as_deref()),
+        Value::Text(date_text(head.start_date)),
+        Value::Text(date_text(head.end_date)),
+        Value::Text(head.sign_date.map(date_text).unwrap_or_default()),
+        Value::Text(head.price_mode.clone()),
+        Value::Text(head.price_includes_tax.to_string()),
+        Value::Text(head.price_currency.clone()),
+        Value::Text(head.price_tolerance.to_string()),
+        optional_text(head.price_adjust_rule.as_deref()),
+        Value::Text(head.total_max_qty.map(|value| value.to_string()).unwrap_or_default()),
+        Value::Text(head.total_max_amount.map(|value| value.to_string()).unwrap_or_default()),
+        optional_text(head.remark.as_deref()),
+    ]
+}
+
+/// 建单（单头 + 物料范围 + 派生合计，同一事务），返回协议 id。
+pub async fn create_agreement(
+    head: &NewAgreementHead,
+    items: &[NewAgreementItem],
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Uuid> {
+    let tx = db().begin().await?;
+    let result = async {
+        let agreement_no = next_agreement_no(&tx, now).await?;
+        let id = Uuid::now_v7();
+        let mut params = vec![Value::from(&id), Value::Text(agreement_no)];
+        params.extend(head_columns(head));
+        params.push(Value::from(now));
+        params.push(Value::from(now));
+        params.push(uuid_text(operator));
+        params.push(uuid_text(operator));
+        tx.exec_sql(
+            format!(
+                "INSERT INTO {AGREEMENT_TABLE} \
+                    (id, agreement_no, {HEAD_COLUMNS}, status, created_at, updated_at, create_by, update_by) \
+                 VALUES (?, ?, {HEAD_VALUES}, 'DRAFT', ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+            ),
+            params,
+        )
+        .await?;
+        insert_items(&tx, id, items).await?;
+        recalc_totals(&tx, id).await?;
+        Ok::<Uuid, DbError>(id)
+    }
+    .await;
+    match result {
+        Ok(id) => {
+            tx.commit().await?;
+            Ok(id)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 插入物料范围行（建单 / 改单补新材料共用；行号 1 起）。
+async fn insert_items(ex: &impl SqlExecutor, agreement_id: Uuid, items: &[NewAgreementItem]) -> DbResult<()> {
+    for (index, item) in items.iter().enumerate() {
+        let line_no = i32::try_from(index + 1).unwrap_or(i32::MAX);
+        ex.exec_sql(
+            format!(
+                "INSERT INTO {ITEM_TABLE} \
+                    (id, agreement_id, line_no, material_id, unit_id, agreed_price, tax_rate, max_qty, remark) \
+                 VALUES (?, ?::uuid, ?, ?::uuid, ?::uuid, ?::text::numeric, ?::text::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,''))"
+            ),
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&agreement_id),
+                Value::I32(line_no),
+                Value::from(&item.material_id),
+                Value::from(&item.unit_id),
+                Value::Text(item.agreed_price.to_string()),
+                Value::Text(item.tax_rate.to_string()),
+                Value::Text(item.max_qty.map(|value| value.to_string()).unwrap_or_default()),
+                optional_text(item.remark.as_deref()),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// 锁单头并读状态（提交 / 改单事务的第一句；不带 JOIN，`FOR UPDATE` 才能用）。
+pub async fn lock_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<(String, Option<Uuid>)>> {
+    // SCOPE-EXEMPT: 按主键取单行状态并加行锁，不涉及数据范围（见模块头「数据权限」）。
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT status, approval_instance_id FROM {AGREEMENT_TABLE} \
+                  WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some((row.get_typed("status")?, row.get_typed("approval_instance_id")?))),
+    }
+}
+
+/// 改单（单头整单替换 + 物料范围**按物料就地对齐**，同一事务由调用方持有）。
+///
+/// # 为什么明细不是「删光重建」（与采购计划的做法刻意不同）
+///
+/// `biz_purchase_order_item.framework_agreement_item_id` 是**弱引用**（V0451 刻意不加外键：
+/// 协议是软删表，外键拦不住软删）。若改单把行删光重建：
+///
+/// * 行 id 变了 → 已下单的采购明细指向一个不存在的 id；
+/// * M4-09 的执行量视图从**采购单链现算**（`JOIN ... ON i.framework_agreement_item_id = it.id`），
+///   那些行会被 JOIN 掉 → 报表**静默少掉**这段用量；
+/// * 而单头 / 明细的回写列 `executed_*` 还在 → 报表与回写列分叉（`booked_drift` 非 0），
+///   谁也说不出到底用了多少。
+///
+/// 所以这里按 `material_id` 对齐：同一物料的既有行**原地 UPDATE**（保留 id 与已执行量），
+/// 新物料 INSERT，消失的物料只在 `executed_qty = 0` 时才删（有执行量的一律 409，
+/// 判据在 `framework_agreement_dto::check_missing_material`；这里的 `AND executed_qty = 0`
+/// 是库层兜底，防止绕过 handler 直接调）。
+///
+/// CAS 口径：`WHERE status = 'DRAFT'`；返回 0 行说明单据已不是草稿（并发提交 / 已被批）
+/// → 调用方 409。**只有草稿能改**：审批中的单改了会让审批人看的和落库的不是一张。
+pub async fn replace_agreement(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    head: &NewAgreementHead,
+    items: &[NewAgreementItem],
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let mut params = head_columns(head);
+    params.push(Value::from(now));
+    params.push(uuid_text(operator));
+    params.push(Value::from(&id));
+    let affected = ex
+        .exec_sql(
+            format!(
+                "UPDATE {AGREEMENT_TABLE} SET {HEAD_SET}, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
+            ),
+            params,
+        )
+        .await?;
+    if affected == 0 {
+        return Ok(0);
+    }
+
+    // 既有行（加锁：并发改单 / 并发下单会在这里排队）
+    // SCOPE-EXEMPT: 明细随单头可见性走（见模块头「数据权限」）。
+    let rows = ex
+        .query_sql(
+            format!("SELECT id, material_id FROM {ITEM_TABLE} WHERE agreement_id = ?::uuid FOR UPDATE"),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let mut existing: std::collections::BTreeMap<Uuid, Uuid> = std::collections::BTreeMap::new();
+    for row in rows.iter() {
+        existing.insert(row.get_typed("material_id")?, row.get_typed("id")?);
+    }
+
+    // 行号先整体挪到高位：`uk_biz_fwai_line(agreement_id, line_no)` 是即时唯一索引，
+    // 直接两行对调会撞键（第 1 行改成 2、第 2 行改成 1 的中间态）。
+    // `line_no > 0` 的 CHECK 仍然满足（+1_000_000 不会变负），最终行号再逐行落定。
+    if !existing.is_empty() {
+        ex.exec_sql(
+            format!("UPDATE {ITEM_TABLE} SET line_no = line_no + 1000000 WHERE agreement_id = ?::uuid"),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    }
+
+    let mut kept: std::collections::BTreeSet<Uuid> = std::collections::BTreeSet::new();
+    for (index, item) in items.iter().enumerate() {
+        let line_no = i32::try_from(index + 1).unwrap_or(i32::MAX);
+        match existing.get(&item.material_id) {
+            Some(item_id) => {
+                kept.insert(*item_id);
+                ex.exec_sql(
+                    format!(
+                        "UPDATE {ITEM_TABLE} SET line_no = ?, agreed_price = ?::text::numeric, \
+                                tax_rate = ?::text::numeric, max_qty = NULLIF(?::text,'')::numeric, \
+                                remark = NULLIF(?::text,''), updated_at = ? \
+                          WHERE id = ?::uuid"
+                    ),
+                    vec![
+                        Value::I32(line_no),
+                        Value::Text(item.agreed_price.to_string()),
+                        Value::Text(item.tax_rate.to_string()),
+                        Value::Text(item.max_qty.map(|value| value.to_string()).unwrap_or_default()),
+                        optional_text(item.remark.as_deref()),
+                        Value::from(now),
+                        Value::from(item_id),
+                    ],
+                )
+                .await?;
+            }
+            None => {
+                // 新物料：单行插入（行号按新列表的位置）
+                insert_one_item(ex, id, line_no, item).await?;
+            }
+        }
+    }
+
+    // 消失的物料行：只删没执行过量的（有量的在 handler 已经 409，这里兜底）
+    for (material_id, item_id) in existing.iter() {
+        if kept.contains(item_id) {
+            continue;
+        }
+        let removed = ex
+            .exec_sql(
+                format!("DELETE FROM {ITEM_TABLE} WHERE id = ?::uuid AND executed_qty = 0"),
+                vec![Value::from(item_id)],
+            )
+            .await?;
+        if removed == 0 {
+            return Err(DbError::InvalidValue(format!(
+                "物料 {material_id} 已有执行量，不允许从协议物料范围里删掉（改单被库层守卫拦下）"
+            )));
+        }
+    }
+
+    recalc_totals(ex, id).await?;
+    Ok(affected)
+}
+
+/// 插入一行物料（改单补新材料用；行号由调用方给定）。
+async fn insert_one_item(
+    ex: &impl SqlExecutor,
+    agreement_id: Uuid,
+    line_no: i32,
+    item: &NewAgreementItem,
+) -> DbResult<()> {
+    ex.exec_sql(
+        format!(
+            "INSERT INTO {ITEM_TABLE} \
+                (id, agreement_id, line_no, material_id, unit_id, agreed_price, tax_rate, max_qty, remark) \
+             VALUES (?, ?::uuid, ?, ?::uuid, ?::uuid, ?::text::numeric, ?::text::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,''))"
+        ),
+        vec![
+            Value::from(Uuid::now_v7()),
+            Value::from(&agreement_id),
+            Value::I32(line_no),
+            Value::from(&item.material_id),
+            Value::from(&item.unit_id),
+            Value::Text(item.agreed_price.to_string()),
+            Value::Text(item.tax_rate.to_string()),
+            Value::Text(item.max_qty.map(|value| value.to_string()).unwrap_or_default()),
+            optional_text(item.remark.as_deref()),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 删单（软删；只有草稿能删）。返回 0 行 = 不是草稿 / 不存在。
+///
+/// 为什么不物理删：明细带 `executed_qty`，且采购明细弱引用它的行 id ——
+/// 物理删会让「这份协议到底签过没有」查不出来（与采购计划同口径）。
+pub async fn soft_delete_agreement(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {AGREEMENT_TABLE} \
+                SET deleted_at = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::from(now),
+            Value::from(now),
+            uuid_text(operator),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 提交审批：`DRAFT → SUBMITTED` + 审批实例 id（同一事务由调用方持有）。
+pub async fn mark_submitted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    instance_id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &AgreementTransition {
+            from: STATUS_DRAFT,
+            to: STATUS_SUBMITTED,
+            instance: Some(instance_id),
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 审批结论回写：`SUBMITTED → APPROVED`（通过）。审批实例 id 保留（回溯要查得了「谁批的」）。
+pub async fn mark_approved(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &AgreementTransition {
+            from: STATUS_SUBMITTED,
+            to: STATUS_APPROVED,
+            instance: None,
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 审批结论回写：`SUBMITTED → DRAFT`（驳回 / 撤回打回草稿，清实例）。
+pub async fn mark_back_to_draft(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &AgreementTransition {
+            from: STATUS_SUBMITTED,
+            to: STATUS_DRAFT,
+            instance: None,
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 显式跳过审批：`DRAFT → APPROVED`（**没有**审批实例）。
+///
+/// 只有「没配已发布的 `fw_agreement` 流程」且操作人持 `business:erp:skip-approval`
+/// 且理由 ≥10 字时才走这条路（判据在 `approval_gate::authorize_missing_flow`）。
+pub async fn mark_skipped_approval(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(
+        ex,
+        id,
+        &AgreementTransition {
+            from: STATUS_DRAFT,
+            to: STATUS_APPROVED,
+            instance: None,
+            reason,
+        },
+        operator,
+        now,
+    )
+    .await
+}
+
+/// 一次状态流转的参数（把 6 个参数收成 5 个：clippy 的上限是 7）。
+struct AgreementTransition<'a> {
+    /// 期望的当前状态（CAS 条件）。
+    from: &'a str,
+    /// 目标状态。
+    to: &'a str,
+    /// 审批实例：`Some` 写入、`None` 保留原值。
+    instance: Option<Uuid>,
+    /// 追加到备注的说明。
+    reason: Option<&'a str>,
+}
+
+/// 状态流转（CAS：`from` → `to`）。
+///
+/// `instance = None` 时**保留**原 `approval_instance_id`（与采购计划刻意不同）：
+/// 协议是「签约主体」文件，审批通过后仍要能回溯「这一版是谁批的」；
+/// 打回草稿时清实例 —— 草稿不该挂着一个已结束的审批单。
+async fn apply_status_with_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    transition: &AgreementTransition<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let AgreementTransition {
+        from,
+        to,
+        instance,
+        reason,
+    } = *transition;
+    let set_instance = match instance {
+        Some(_) => "approval_instance_id = NULLIF(?::text,'')::uuid,",
+        None if to == STATUS_DRAFT => "approval_instance_id = NULL,",
+        None => "",
+    };
+    let mut params = vec![Value::Text(to.to_string())];
+    if instance.is_some() {
+        params.push(uuid_text(instance));
+    }
+    params.extend([
+        optional_text(reason),
+        optional_text(reason),
+        optional_text(reason),
+        Value::from(now),
+        uuid_text(operator),
+        Value::from(&id),
+        Value::Text(from.to_string()),
+    ]);
+    ex.exec_sql(
+        format!(
+            "UPDATE {AGREEMENT_TABLE} \
+                SET status = ?, {set_instance} \
+                    remark = CASE WHEN ?::text IS NULL OR btrim(?::text) = '' THEN remark \
+                                  ELSE COALESCE(NULLIF(remark, '') || E'\\n', '') || ?::text END, \
+                    updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+        ),
+        params,
+    )
+    .await
 }
 
 // ==================== 单测（纯逻辑，不连库） ====================

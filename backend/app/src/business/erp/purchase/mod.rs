@@ -47,9 +47,12 @@ pub mod purchase_plan_model;
 // M4-09 交「执行量统计」：`framework_agreement_execution_{dto,model,handler}` 里是
 // 「已用 / 剩余」两个只读接口，由 V0452 的两个视图现算（不读回写列）。
 // 系统单测属 M4-10、前端页面属 M4-11 —— 本目录**不含**它们。
+pub mod framework_agreement_dto;
 pub mod framework_agreement_execution_dto;
 pub mod framework_agreement_execution_handler;
 pub mod framework_agreement_execution_model;
+pub mod framework_agreement_flow;
+pub mod framework_agreement_handler;
 pub mod framework_agreement_model;
 pub mod framework_agreement_ref;
 
@@ -104,6 +107,11 @@ mod framework_agreement_ref_db_tests;
 /// 框架协议执行量统计的真库用例（M4-09；同一个串行锁）。
 #[cfg(test)]
 mod framework_agreement_execution_db_tests;
+
+/// 框架协议维护链路（建 / 改 / 删 / 提交 / 审批回调 / 下单后执行量涨）的真库用例
+/// （M4-11b；同一个串行锁）。
+#[cfg(test)]
+mod framework_agreement_crud_db_tests;
 
 /// 框架协议「超限反例」单测（M4-10；同一个串行锁）。
 #[cfg(test)]

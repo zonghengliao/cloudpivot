@@ -47,6 +47,8 @@
 //! | 17 | `STOCK_TRANSFER` | `biz_stock_transfer` | `transfer_no` | `status` | `create_by` | [`transfer_approval_settle::on_transfer_settled`] |
 //! | 18 | `QUOTATION_APPROVE` | `biz_quotation` | `quote_no` | `status` | `create_by` | [`quotation_approval_bridge::on_quotation_settled`] |
 //! | 19 | `PP_APPROVE` | `biz_purchase_plan` | `plan_no` | `status` | `create_by` | [`purchase_plan_bridge::on_pp_settled`] |
+//! | 20 | `SUPPLIER_ACCESS` | `biz_supplier_access` | `access_no` | `status` | `create_by` | [`supplier_access_flow::on_sa_settled`] |
+//! | 21 | `FWA_APPROVE` | `biz_framework_agreement` | `agreement_no` | `status` | `create_by` | [`framework_agreement_flow::on_fwa_settled`] |
 //!
 //! **第 17 行是 P2-34 补的**：调拨单的终态回调原来住在 `flow::task_bridge`（直连 ERP），
 //! 搬进 ERP 后需要一个入口被调起 —— 注册表就是那个入口。它**不在**内控受控集合里
@@ -125,8 +127,9 @@ use crate::business::erp::cost::{cost_period_bridge, cost_period_dto};
 use crate::business::erp::expense::{expense_bridge, expense_dto};
 use crate::business::erp::payable::{payable_bridge, payable_payment, payable_query};
 use crate::business::erp::purchase::{
-    purchase_bridge, purchase_model, purchase_plan_bridge, purchase_plan_dto, purchase_requisition_dto,
-    purchase_return_bridge, purchase_return_dto, supplier_access_flow, supplier_access_model,
+    framework_agreement_flow, framework_agreement_model, purchase_bridge, purchase_model, purchase_plan_bridge,
+    purchase_plan_dto, purchase_requisition_dto, purchase_return_bridge, purchase_return_dto, supplier_access_flow,
+    supplier_access_model,
 };
 use crate::business::erp::sales::{quotation_approval_bridge, quotation_model, sales_approval_bridge, sales_model};
 use crate::business::erp::stockin::{stockin_base, stockin_bridge};
@@ -238,13 +241,18 @@ pub enum ErpDoc {
     /// 通过即把申请单置 `APPROVED` 并落 `biz_supplier.status`（拉黑 → 停用，准入/解除 → 启用）；
     /// 驳回 / 撤回打回 `DRAFT`，供应商状态一个字节不动。受内控约束（申请人不可自审）。
     SupplierAccess,
+    /// 框架协议审批（`FWA_APPROVE`，采购链 M4-11b）。
+    ///
+    /// 提交审批：通过即 `APPROVED`（协议生效、可被下单引用），驳回 / 撤回打回 `DRAFT`。
+    /// 受内控约束（制单人不可自审自己签的协议）。
+    FrameworkAgreement,
 }
 
 impl ErpDoc {
-    /// 全部实现（= 注册表里应当出现的 20 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
+    /// 全部实现（= 注册表里应当出现的 21 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
     ///
-    /// 19 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
-    pub const ALL: [ErpDoc; 20] = [
+    /// 20 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
+    pub const ALL: [ErpDoc; 21] = [
         ErpDoc::PurchaseOrder,
         ErpDoc::StockInPost,
         ErpDoc::StockInCancel,
@@ -265,6 +273,7 @@ impl ErpDoc {
         ErpDoc::QuotationApprove,
         ErpDoc::PurchasePlan,
         ErpDoc::SupplierAccess,
+        ErpDoc::FrameworkAgreement,
     ];
 
     /// 审批业务类型（注册表键）。
@@ -290,6 +299,7 @@ impl ErpDoc {
             ErpDoc::QuotationApprove => FlowBizType::QuotationApprove,
             ErpDoc::PurchasePlan => FlowBizType::PpApprove,
             ErpDoc::SupplierAccess => FlowBizType::SupplierAccess,
+            ErpDoc::FrameworkAgreement => FlowBizType::FrameworkAgreement,
         }
     }
 
@@ -316,6 +326,7 @@ impl ErpDoc {
             ErpDoc::QuotationApprove => "报价单",
             ErpDoc::PurchasePlan => "采购计划",
             ErpDoc::SupplierAccess => "供应商准入申请",
+            ErpDoc::FrameworkAgreement => "框架协议",
         }
     }
 
@@ -460,6 +471,13 @@ impl ErpDoc {
                 creator: "create_by",
                 label: |status| supplier_access_model::status_label(status).to_string(),
             },
+            ErpDoc::FrameworkAgreement => DocSpec {
+                table: "biz_framework_agreement",
+                doc_no: "agreement_no",
+                status: "status",
+                creator: "create_by",
+                label: |status| framework_agreement_model::status_label(status).to_string(),
+            },
         }
     }
 
@@ -530,6 +548,9 @@ impl ErpDoc {
             ErpDoc::SupplierAccess => {
                 let _ = supplier_access_flow::on_sa_settled(instance_id, instance_status).await;
             }
+            ErpDoc::FrameworkAgreement => {
+                let _ = framework_agreement_flow::on_fwa_settled(instance_id, instance_status).await;
+            }
         }
     }
 
@@ -560,6 +581,7 @@ impl ErpDoc {
             ErpDoc::QuotationApprove => quotation_approval_bridge::guard_self_approval(task_id, operator).await,
             ErpDoc::PurchasePlan => purchase_plan_bridge::guard_self_approval(task_id, operator).await,
             ErpDoc::SupplierAccess => supplier_access_flow::guard_self_approval(task_id, operator).await,
+            ErpDoc::FrameworkAgreement => framework_agreement_flow::guard_self_approval(task_id, operator).await,
         }
     }
 
@@ -589,7 +611,8 @@ impl ErpDoc {
             | ErpDoc::StockTransfer
             | ErpDoc::QuotationApprove
             | ErpDoc::PurchasePlan
-            | ErpDoc::SupplierAccess => Ok(()),
+            | ErpDoc::SupplierAccess
+            | ErpDoc::FrameworkAgreement => Ok(()),
         }
     }
 
@@ -621,6 +644,7 @@ impl ErpDoc {
             ErpDoc::QuotationApprove => quotation_approval_bridge::internal_control_creator(biz_id).await,
             ErpDoc::PurchasePlan => purchase_plan_bridge::internal_control_creator(biz_id).await,
             ErpDoc::SupplierAccess => supplier_access_flow::internal_control_creator(biz_id).await,
+            ErpDoc::FrameworkAgreement => framework_agreement_flow::internal_control_creator(biz_id).await,
         }
     }
 }

@@ -1,20 +1,15 @@
 /**
- * 框架协议 API 层（后端 `backend/app/src/business/erp/purchase/framework_agreement*`，M4-07/08/09）。
+ * 框架协议 API 层（后端 `backend/app/src/business/erp/purchase/framework_agreement*`）。
  *
- * # 本卡（M4-11）能用的**全部**接口只有 2 条只读 GET
+ * # 两代接口并存，别混
  *
- * | 接口 | 用途 | 权限码 |
+ * | 代的 | 接口 | 权限码 |
  * |------|------|--------|
- * | `GET /api/business/erp/framework-agreement/execution/page` | 协议台账 / 执行量总览（服务端分页） | `business:erp:framework-agreement:execution` |
- * | `GET /api/business/erp/framework-agreement/{id}/execution` | 单协议详情（单头汇总 + 逐行 + 下钻来源） | 同上 |
+ * | M4-09（只读统计） | `GET /framework-agreement/execution/page`、`GET /{id}/execution` | `…:execution` |
+ * | M4-11b（维护链路） | `GET /page`、`GET /{id}`、`POST`、`PUT /{id}`、`DELETE /{id}`、`POST /{id}/submit` | `…:list` + `…:create/update/delete/submit` |
  *
- * ⚠ **没有** `POST/PUT/DELETE /framework-agreement`：协议的新建 / 编辑 / 提交 / 审批
- * 后端至今没有任何实现（M4-07 只建表、M4-08 只做下单引用校验、M4-09 只做统计视图），
- * 库里也**没有** `…:create` / `…:update` / `…:delete` 这三个权限码
- * （V0452 只种了页面行 `…:page` + 按钮行 `…:execution`）。
- * 所以页面**只画读写得到的入口**：不摆点了必然 404 的「新建 / 编辑」按钮 —— 那是
- * AGENTS「契约行有、接口没落地」的已知坑（前端照契约画按钮，用户点了必然报错）。
- * 要补维护链路得另开卡（`docs/planning/20261113-新卡清单.md` 里 M4 段目前**没有**这张卡）。
+ * 台账 Tab 用 `…:list` 那套（看单据），执行量 Tab 用 `…:execution` 那套（看用量）——
+ * 两个码不互相顶替（AGENTS 约定 14：页面显形码与接口码解耦）。
  *
  * # 四条渲染口径（都来自后端 DTO 注释，别在页面里重新猜）
  *
@@ -26,7 +21,7 @@
  *    低调提示即可，不是错误（视图现算永远是真相，drift 只是解释「为什么两个数不一样」）。
  * 4. **空物料范围的协议是 200 + `items: []`**，不是 404；只有协议不存在 / 已软删才 404。
  */
-import { get, type PageData } from '@/api/request';
+import { del, get, post, put, type PageData } from '@/api/request';
 
 /** 接口前缀（后端 `#[nik::get]` 注解不含 `/api`，这里必须写全，漏了会命中 SPA fallback 返回 HTML） */
 const BASE = '/api/business/erp';
@@ -309,4 +304,206 @@ export function fetchExecutionPage(query: ExecutionQuery): Promise<PageData<Agre
  */
 export function fetchAgreementExecution(id: string): Promise<AgreementExecution> {
   return get<AgreementExecution>(`${BASE}/framework-agreement/${id}/execution`);
+}
+
+// ==================== 维护链路（M4-11b） ====================
+
+/**
+ * 台账分页（`GET /framework-agreement/page`，权限码 `…:list`）。
+ *
+ * 与 {@link fetchExecutionPage} **返回同一份行结构**（后端共用一张视图），差别只有权限码：
+ * 台账看的是「单据」（谁签的 / 条款 / 上限），判 `…:list`；执行量看的是「用量」，判
+ * `…:execution`。两个 Tab 各用自己的码，别拿一个码顶两个入口。
+ */
+export function fetchAgreementPage(query: ExecutionQuery): Promise<PageData<AgreementExecRow>> {
+  return get<PageData<AgreementExecRow>>(`${BASE}/framework-agreement/page`, query);
+}
+
+/** 协议单价 / 数量上限等数字在 JSON 里是字符串（后端 `Decimal`） */
+export type DecimalInput = string | number | null;
+
+/** 物料范围行（入参：单位由物料带出，客户端不传） */
+export type AgreementItemPayload = {
+  /** 物料 id */
+  material_id: string;
+  /** 协议单价（≥ 0；0 = 赠品 / 试用料） */
+  agreed_price?: DecimalInput;
+  /** 进项税率（0–1 分数：13% 写 0.13） */
+  tax_rate?: DecimalInput;
+  /** 该物料协议期内累计上限（null = 不限；写了必须 > 0） */
+  max_qty?: DecimalInput;
+  /** 行备注 */
+  remark?: string | null;
+};
+
+/** 建 / 改协议的入参（`PUT` 是整单替换：单头 + 全量物料范围） */
+export type AgreementPayload = {
+  /** 协议名称（必填） */
+  agreement_name: string;
+  /** 供应商 id（必填） */
+  supplier_id: string;
+  /** 经办部门（null = 公司级） */
+  dept_id?: string | null;
+  /** 经办人（缺省 = 当前登录人） */
+  owner_id?: string | null;
+  /** 有效期起（含，YYYY-MM-DD） */
+  start_date: string;
+  /** 有效期止（含，YYYY-MM-DD） */
+  end_date: string;
+  /** 签订日期 */
+  sign_date?: string | null;
+  /** FIXED / FLOATING */
+  price_mode?: PriceMode;
+  /** 协议价是否含税 */
+  price_includes_tax?: boolean;
+  /** ISO 4217 三位大写 */
+  price_currency?: string;
+  /** 允许高于协议价的比例（0–1） */
+  price_tolerance?: DecimalInput;
+  /** 调价规则（FLOATING 必填） */
+  price_adjust_rule?: string | null;
+  /** 协议总量上限（null = 不限） */
+  total_max_qty?: DecimalInput;
+  /** 协议总额上限（null = 不限） */
+  total_max_amount?: DecimalInput;
+  /** 备注 */
+  remark?: string | null;
+  /** 物料范围（可以为空 = 拟稿还没编物料；提交审批前必须非空） */
+  items: AgreementItemPayload[];
+};
+
+/** 物料范围行（出参：改单表单要靠它回填「已用量」以免把上限改小到低于已用） */
+export interface AgreementItem {
+  /** 行 id（改单按 `material_id` 就地对齐，行 id 不会变） */
+  id: string;
+  /** 行号（1 起） */
+  line_no: number;
+  /** 物料 id */
+  material_id: string;
+  /** 物料编码 */
+  material_code: string;
+  /** 物料名称 */
+  material_name: string;
+  /** 单位 id */
+  unit_id: string;
+  /** 单位名 */
+  unit_name: string;
+  /** 协议单价 */
+  agreed_price: DecimalText;
+  /** 进项税率（0–1 分数） */
+  tax_rate: DecimalText;
+  /** 该物料数量上限（null = 不限） */
+  max_qty: DecimalText | null;
+  /** 已执行量（改单的新上限**不允许**小于它） */
+  executed_qty: DecimalText;
+  /** 已执行金额 */
+  executed_amount: DecimalText;
+  /** 剩余可下单量（null = 不限；负数 = 超上限） */
+  remaining_qty: DecimalText | null;
+  /** 行备注 */
+  remark: string | null;
+}
+
+/** 协议单头（维护口径：含 `editable`，前端别自己写状态机） */
+export interface AgreementRow {
+  /** 主键 */
+  id: string;
+  /** 协议号 FWA-yyyyMMdd-NNNNNN */
+  agreement_no: string;
+  /** 协议名称 */
+  agreement_name: string;
+  /** 供应商 id */
+  supplier_id: string;
+  /** 供应商名快照 */
+  supplier_name: string | null;
+  /** 供应商现名（展示一律用它） */
+  supplier_display_name: string;
+  /** 经办部门 id */
+  dept_id: string | null;
+  /** 经办部门名快照 */
+  dept_name: string | null;
+  /** 经办人 id */
+  owner_id: string | null;
+  /** 经办人姓名快照 */
+  owner_name: string | null;
+  /** 有效期起 */
+  start_date: string;
+  /** 有效期止 */
+  end_date: string;
+  /** 签订日期 */
+  sign_date: string | null;
+  /** 定价方式 */
+  price_mode: PriceMode;
+  /** 定价方式中文 */
+  price_mode_label: string;
+  /** 协议价是否含税 */
+  price_includes_tax: boolean;
+  /** 币种 */
+  price_currency: string;
+  /** 容差 */
+  price_tolerance: DecimalText;
+  /** 调价规则 */
+  price_adjust_rule: string | null;
+  /** 协议总量上限（null = 不限） */
+  total_max_qty: DecimalText | null;
+  /** 协议总额上限（null = 不限） */
+  total_max_amount: DecimalText | null;
+  /** 已执行量合计（派生） */
+  total_executed_qty: DecimalText;
+  /** 已执行金额合计（派生） */
+  total_executed_amount: DecimalText;
+  /** 状态 */
+  status: AgreementStatus;
+  /** 状态中文 */
+  status_label: string;
+  /** 审批实例 id */
+  approval_instance_id: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间（RFC3339） */
+  created_at: string;
+  /** 创建人 */
+  create_by: string | null;
+  /** 物料范围行数 */
+  item_count: number;
+  /** 是否可改 / 可删 / 可提交（只有 DRAFT）—— 按钮判定**用它** */
+  editable: boolean;
+}
+
+/** 协议详情（单头 + 物料范围） */
+export interface AgreementDetail {
+  /** 单头 */
+  agreement: AgreementRow;
+  /** 物料范围（按行号升序；空数组 = 拟稿还没编物料，不是 404） */
+  items: AgreementItem[];
+}
+
+/** 详情（`GET /framework-agreement/{id}`，权限码 `…:list`） */
+export function fetchAgreementDetail(id: string): Promise<AgreementDetail> {
+  return get<AgreementDetail>(`${BASE}/framework-agreement/${id}`);
+}
+
+/** 新建（`POST /framework-agreement`，权限码 `…:create`） */
+export function createAgreement(payload: AgreementPayload): Promise<AgreementDetail> {
+  return post<AgreementDetail>(`${BASE}/framework-agreement`, payload);
+}
+
+/** 整单替换（`PUT /framework-agreement/{id}`，权限码 `…:update`；只有 DRAFT 能改） */
+export function updateAgreement(id: string, payload: AgreementPayload): Promise<AgreementDetail> {
+  return put<AgreementDetail>(`${BASE}/framework-agreement/${id}`, payload);
+}
+
+/** 软删（`DELETE /framework-agreement/{id}`，权限码 `…:delete`；只有 DRAFT 能删） */
+export function deleteAgreement(id: string): Promise<void> {
+  return del<void>(`${BASE}/framework-agreement/${id}`);
+}
+
+/**
+ * 提交审批（`POST /framework-agreement/{id}/submit`，权限码 `…:submit`）。
+ *
+ * 走 `fw_agreement` 流程（采购经理 → 财务经理）；没有已发布流程时后端默认 409
+ * （只有持 `business:erp:skip-approval` + 理由 ≥10 字才直接批准）。
+ */
+export function submitAgreement(id: string, body: { reason?: string }): Promise<AgreementDetail> {
+  return post<AgreementDetail>(`${BASE}/framework-agreement/${id}/submit`, body);
 }

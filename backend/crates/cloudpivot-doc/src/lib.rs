@@ -762,6 +762,12 @@ pub enum FlowBizType {
     ///
     /// 顺序：追加在末尾（前端 `FLOW_BIZ_TYPES` 是保序逐字比对）。
     SupplierAccess,
+    /// 框架协议审批（`FWA_APPROVE`，采购链 M4-11b）。
+    ///
+    /// 框架协议提交审批：通过即 `APPROVED`（可被采购单引用），驳回 / 撤回打回 `DRAFT`。
+    /// 对象轴：**`None`** —— 协议没有 [`DocKind`] 成员（它不挂附件 / 提醒），
+    /// 与 `PP_APPROVE` / `SUPPLIER_ACCESS` 同口径如实返回 `None`，不硬塞一个对象进来。
+    FrameworkAgreement,
 }
 
 impl FlowBizType {
@@ -771,7 +777,7 @@ impl FlowBizType {
     /// （`hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`），
     /// 每套都有一个独立 `biz_type`；§8.1 的「+3」是卡面笔误（漏数了 `HR_EMPLOYEE_RESIGN`）。
     /// 少一个值 = 第 4 套流程落不了 `biz_flow_def.biz_type`，所以按 §3.2 ⑨ 的 4 个落。
-    pub const ALL: [FlowBizType; 27] = [
+    pub const ALL: [FlowBizType; 28] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -805,6 +811,8 @@ impl FlowBizType {
         FlowBizType::PpApprove,
         // 采购链 M4-14：供应商准入 / 黑名单审批（追加在末尾，前端镜像保序）
         FlowBizType::SupplierAccess,
+        // 采购链 M4-11b：框架协议审批（追加在末尾，前端镜像保序）
+        FlowBizType::FrameworkAgreement,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -855,6 +863,7 @@ impl FlowBizType {
             FlowBizType::QuotationApprove => "QUOTATION_APPROVE",
             FlowBizType::PpApprove => "PP_APPROVE",
             FlowBizType::SupplierAccess => "SUPPLIER_ACCESS",
+            FlowBizType::FrameworkAgreement => "FWA_APPROVE",
         }
     }
 
@@ -894,6 +903,8 @@ impl FlowBizType {
             FlowBizType::PpApprove => "pp_approve",
             // 采购链 M4-14：与 V0455 种下的 `flow_code` 逐字一致
             FlowBizType::SupplierAccess => "supplier_access",
+            // 采购链 M4-11b：与 V0456 种下的 `flow_code` 逐字一致
+            FlowBizType::FrameworkAgreement => "fw_agreement",
         }
     }
 
@@ -929,6 +940,7 @@ impl FlowBizType {
             FlowBizType::QuotationApprove => "报价单审批",
             FlowBizType::PpApprove => "采购计划审批",
             FlowBizType::SupplierAccess => "供应商准入审批",
+            FlowBizType::FrameworkAgreement => "框架协议审批",
         }
     }
 
@@ -978,6 +990,9 @@ impl FlowBizType {
             // 采购链 M4-14：申请单挂在供应商档案上，而供应商**不在对象轴**（没有供应商 DocKind），
             // 与 `PP_APPROVE` 同口径如实返回 `None`，不硬塞「采购订单」冒充。
             FlowBizType::SupplierAccess => return None,
+            // 采购链 M4-11b：框架协议**没有**对象轴成员（不挂附件 / 提醒），
+            // 与 `PP_APPROVE` 同口径如实返回 `None`。
+            FlowBizType::FrameworkAgreement => return None,
             FlowBizType::PrApprove => return None,
             FlowBizType::TaskAccept | FlowBizType::Other => return None,
         })
@@ -1727,7 +1742,7 @@ const DOC_KIND_VALUES: [&str; 37] = [
     "QUOTATION",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 27] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 28] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1760,6 +1775,8 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 27] = [
     "PP_APPROVE",
     // 采购链 M4-14：供应商准入 / 黑名单审批（V0455 种）
     "SUPPLIER_ACCESS",
+    // 采购链 M4-11b：框架协议审批（V0456 种）
+    "FWA_APPROVE",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 23] = [
