@@ -1,0 +1,22 @@
+### 二进制：/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77（sha256 84b18f2315cf8315e311cfad0c2ac4f34244996f6ba6813aea4c1f7ce78c3f41）
+### 源码：scope_model.rs = 本卡修法版本（CARGO_MANIFEST_DIR）sha256 b3727fb0486ca5c4d7e25f7734b2b69e4908e9c5a7b471cce945397ac7197d25
+
+=== CWD=backend/app（crate 根） ===
+
+running 1 test
+test business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source ... [D8c] 17 张 wired 表的锚点在源码中可查 ✓
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.56s
+
+rc=0
+
+=== CWD=backend（workspace 根 = L3 干净检出闸的 CWD） ===
+
+running 1 test
+test business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source ... [D8c] 17 张 wired 表的锚点在源码中可查 ✓
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.56s
+
+rc=0

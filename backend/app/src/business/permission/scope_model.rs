@@ -1276,6 +1276,14 @@ mod tests {
     /// 1. 出现 `ScopeTarget::<anchor>` 字面量（即声明时**复用**登记表常量，而不是 `ScopeTarget::new(…)`
     ///    抄一份 —— 抄本会与登记表各自演进，见 `erp/commission/commission_model.rs` 的注释）；
     /// 2. 该字面量与 `scope::paginate(` / `scope::filter_for(` / `scope::paginate_unscoped(` 同文件。
+    ///
+    /// # 不依赖运行时 CWD（卡 `t_71d2aa63`）
+    ///
+    /// 源码根由**编译期**常量 `env!("CARGO_MANIFEST_DIR")` 定位（= `backend/app`），而不是相对
+    /// `std::path::Path::new("src")`。原来的写法要求「跑测试时 CWD 恰好是 crate 根」，干净检出闸
+    /// L3 从 workspace 根 `backend/` 跑同一份二进制（那里只有 `config/`，没有 `src/`）时会假红成
+    /// 「找不到 src/ 下的 rs 文件」，与判据本身无关。判据强度不变：仍是「登记为 wired 的表，其
+    /// `ScopeTarget::<anchor>` 必须与 `scope::` 调用同文件，且不在登记表自己里」。
     #[test]
     fn d8c_wiring_anchors_exist_in_source() {
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -1291,11 +1299,21 @@ mod tests {
                 }
             }
         }
+        // 源码根用**编译期**的 `CARGO_MANIFEST_DIR`（= 本 crate 根 `backend/app`）定位，
+        // 不依赖运行时 CWD —— `cargo test` 与「直接跑测试二进制」的 CWD 可以不同
+        // （如干净检出闸 L3 就从 workspace 根 `backend/` 跑，那里只有 `config/`，没有 `src/`）。
+        let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let src_root = crate_root.join("src");
         let mut files = Vec::new();
-        walk(std::path::Path::new("src"), &mut files);
-        assert!(!files.is_empty(), "找不到 src/ 下的 rs 文件（单测须以 crate 根为 CWD）");
+        walk(&src_root, &mut files);
+        assert!(
+            !files.is_empty(),
+            "找不到 {} 下的 rs 文件（判据按 CARGO_MANIFEST_DIR 定位源码根，与 CWD={:?} 无关）",
+            src_root.display(),
+            std::env::current_dir().ok()
+        );
         // 登记表自己不算「调用点」：它天然同时含锚点字面量与 scope:: 说明文字。
-        let registry = std::path::Path::new("src/business/permission/scope_model.rs");
+        let registry = crate_root.join("src/business/permission/scope_model.rs");
         let wired: Vec<&TableWiring> = TABLE_WIRING
             .iter()
             .filter(|wiring| wiring.status == WiringStatus::Wired)

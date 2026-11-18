@@ -1,0 +1,27 @@
+锚点字面量出现次数：2（/opt/cloudpivot/backend/app/src/business/impexp/model.rs）
+===== 反证：锚点已挪走 → 期望 FAILED（CWD=/opt/cloudpivot/backend）rc=101 =====
+
+running 1 test
+test business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source ... FAILED
+
+failures:
+
+failures:
+    business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.14s
+
+thread 'business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source' (3916223) panicked at app/src/business/permission/scope_model.rs:1332:13:
+sys_import_task 登记为 wired，但 src/ 里没有含 scope:: 调用的文件出现 ScopeTarget::SYS_IMPORT_TASK（登记表已与代码漂移）。修法：在查询模块里 `const XXX_TARGET: scope::ScopeTarget = scope::ScopeTarget::SYS_IMPORT_TASK;` 复用登记表常量（如 hr/employee_model.rs::EMPLOYEE_TARGET）
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+还原校验：sha256 一致 ✓（7cf8a04b18c14fec46ed7dd5230e5bff9cb40963f1bea9ce59f9cc7314500ba1）
+===== 还原后 → 期望 ok（CWD=/opt/cloudpivot/backend）rc=0 =====
+
+running 1 test
+test business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source ... [D8c] 17 张 wired 表的锚点在源码中可查 ✓
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.56s
+
+
+结论：反证 rc=101（应非 0）、还原后 rc=0（应为 0）、sha 还原=True

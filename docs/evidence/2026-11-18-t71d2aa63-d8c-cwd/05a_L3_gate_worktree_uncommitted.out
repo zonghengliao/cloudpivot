@@ -1,0 +1,17 @@
+==> 干净检出闸：基线 HEAD (f09bdcf9)
+  ℹ 工作树有未提交的后端改动：本闸验证的是「工作树代码 + HEAD 的配置面」（提交后二者一致）
+==> ① 提取干净检出（git archive HEAD → /root/.hermes/profiles/backend-developer/cache/scratch/cleanco.A01oKG）
+  ✓ 提取完成：14062 个文件（只含 git 跟踪面）
+==> ② 断言检出确实干净（私有配置不得混进来）
+  ✓ 无私有配置（backend/config/config-dev.toml backend/config/config-test.toml .env backend/.env ），模板齐全
+==> ③ 取 lib 单测二进制（复用主 target，不重复编译）
+  ✓ 二进制：/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77
+==> ④ 在干净检出的 CWD 上跑全量 lib 单测（配置面 = 干净树）
+  test result: FAILED. 6561 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 9.43s
+  ✗ 干净检出任有 1 条单测失败（这正是「干净检出必红」）
+    test kernel_axis_tests::contract_aliases_match_handler_permissions ... FAILED
+    ---- kernel_axis_tests::contract_aliases_match_handler_permissions stdout ----
+    test result: FAILED. 6561 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 9.43s
+    完整日志：/root/.hermes/profiles/backend-developer/cache/scratch/cleanco-run.ScqaSx.log（--keep 可保留干净树排查）
+    修法：把测试改成「私有文件在就断言它，不在就断言 *.example.toml」（范本：backend/crates/cloudpivot-kernel/src/shared/startup_guard.rs）
+EXIT=1
