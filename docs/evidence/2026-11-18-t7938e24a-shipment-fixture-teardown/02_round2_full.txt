@@ -1,0 +1,134 @@
+==== 命令：cd backend/app && cargo test -p cloudpivot --lib -- --test-threads=1（第 2 轮，库 cloudpivot_test_shipclean）
+==== 用例数：6467 行 test 输出
+
+---------- 结果汇总 ----------
+test result: FAILED. 6449 passed; 16 failed; 1 ignored; 0 measured; 0 filtered out; finished in 222.29s
+
+---------- 失败清单与 panic ----------
+failures:
+
+---- business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces' (3788371) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["tst02b.finance_manager"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch' (3788373) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["tst02b.finance_manager"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch' (3788374) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["tst02b.finance_manager"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed' (3788375) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["tst02b.finance_manager"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft stdout ----
+
+thread 'business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft' (3788376) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:328:9:
+夹具污染：FINANCE_MANAGER 上有夹具与演示种子之外的在职成员 ["tst02b.finance_manager"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值
+
+---- business::erp::period::tests::p1_manual_voucher_on_closed_period_is_conflict stdout ----
+
+thread 'business::erp::period::tests::p1_manual_voucher_on_closed_period_is_conflict' (3789609) panicked at app/src/business/erp/period/mod.rs:2977:14:
+结账应成功: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p1_post_voucher_to_closed_period_is_bad_request stdout ----
+
+thread 'business::erp::period::tests::p1_post_voucher_to_closed_period_is_bad_request' (3789613) panicked at app/src/business/erp/period/mod.rs:2680:14:
+结账应成功: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p1_reopen_blocked_by_later_closed_period stdout ----
+
+thread 'business::erp::period::tests::p1_reopen_blocked_by_later_closed_period' (3789614) panicked at app/src/business/erp/period/mod.rs:2794:14:
+9 月结账: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p1_reopen_clears_closed_marks stdout ----
+
+thread 'business::erp::period::tests::p1_reopen_clears_closed_marks' (3789616) panicked at app/src/business/erp/period/mod.rs:2705:50:
+结账应成功: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p1_reopen_requires_reason stdout ----
+
+thread 'business::erp::period::tests::p1_reopen_requires_reason' (3789617) panicked at app/src/business/erp/period/mod.rs:2733:50:
+结账应成功: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p1_reopen_restores_posting stdout ----
+
+thread 'business::erp::period::tests::p1_reopen_restores_posting' (3789618) panicked at app/src/business/erp/period/mod.rs:2760:50:
+结账应成功: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p3_reopen_allows_after_later_year_was_reopened stdout ----
+
+thread 'business::erp::period::tests::p3_reopen_allows_after_later_year_was_reopened' (3789619) panicked at app/src/business/erp/period/mod.rs:2933:14:
+9 月结账: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p3_reopen_blocked_by_later_year_end stdout ----
+
+thread 'business::erp::period::tests::p3_reopen_blocked_by_later_year_end' (3789620) panicked at app/src/business/erp/period/mod.rs:2863:14:
+9 月结账: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p3_reopen_ignores_closed_periods_in_other_years stdout ----
+
+thread 'business::erp::period::tests::p3_reopen_ignores_closed_periods_in_other_years' (3789622) panicked at app/src/business/erp/period/mod.rs:2830:14:
+9 月结账: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- business::erp::period::tests::p3_reopen_reports_same_year_and_cross_year_conflicts_together stdout ----
+
+thread 'business::erp::period::tests::p3_reopen_reports_same_year_and_cross_year_conflicts_together' (3789623) panicked at app/src/business/erp/period/mod.rs:2896:14:
+9 月结账: ApiError { code: 10003, msg: "会计期间 2031-09 不能结账：成本核算未结算（2031-09 有 1 个批次：批次 CS-203109-0028 状态「已提交待审批」，暂无成本计算单）：请先结算或作废后再结账", status: 409, internal_detail: None, data: None }
+
+---- system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live stdout ----
+
+
+---------- 本卡三套件 + 下游全表口径用例的逐条结果 ----------
+business::erp::inventory_transit::transit_query_tests::age_days_and_ship_date_range ... ok
+business::erp::inventory_transit::transit_query_tests::default_status_is_open_transit ... ok
+business::erp::inventory_transit::transit_query_tests::page_fills_names_without_n_plus_one ... ok
+business::erp::inventory_transit::transit_query_tests::page_filters_by_material_warehouse_customer ... ok
+business::erp::inventory_transit::transit_query_tests::pagination_is_stable_and_counts_all ... ok
+business::erp::inventory_transit::transit_query_tests::qty_in_transit_comes_from_generated_column ... ok
+business::erp::inventory_transit::transit_query_tests::summary_groups_by_material_and_warehouse ... ok
+business::erp::inventory_transit::transit_query_tests::summary_ignores_cancelled_and_received ... ok
+business::erp::receivable::receivable_bridge::tests::cancel_blocked_when_receivable_has_receipts ... ok
+business::erp::receivable::receivable_bridge::tests::cancel_stock_out_cancels_receivable_and_restores_stock ... ok
+business::erp::receivable::receivable_bridge::tests::full_shipment_total_equals_order_line_total ... ok
+business::erp::receivable::receivable_bridge::tests::line_taxed_amount_adds_tax ... ok
+business::erp::receivable::receivable_bridge::tests::manual_stock_out_does_not_create_receivable ... ok
+business::erp::receivable::receivable_bridge::tests::missing_customer_rolls_back_stock_and_receivable ... ok
+business::erp::receivable::receivable_bridge::tests::partial_shipment_uses_shipped_qty ... ok
+business::erp::receivable::receivable_bridge::tests::post_shipment_creates_receivable_in_same_transaction ... ok
+business::erp::receivable::receivable_bridge::tests::repeated_cancel_keeps_receivable_cancelled_once ... ok
+business::erp::receivable::receivable_bridge::tests::repeated_post_keeps_single_receivable ... ok
+business::erp::receivable::receivable_bridge::tests::sales_out_source_type_matches_stockout_const ... ok
+business::erp::receivable::receivable_bridge::tests::taxed_amount_of_sums_rounded_lines ... ok
+business::erp::receivable::receivable_bridge::tests::zero_credit_days_means_due_on_posting_date ... ok
+business::erp::receivable::receivable_bridge::tests::zz_teardown_purges_fixtures ... ok
+business::erp::shipment::shipment_posting::tests::in_transit_reserves_available_quantity ... ok
+business::erp::shipment::shipment_posting::tests::insufficient_stock_leaves_everything_untouched ... ok
+business::erp::shipment::shipment_posting::tests::late_failure_rolls_back_the_whole_posting ... ok
+business::erp::shipment::shipment_posting::tests::normal_post_records_transit_without_touching_stock ... ok
+business::erp::shipment::shipment_posting::tests::order_status_constants_are_the_module_constants ... ok
+business::erp::shipment::shipment_posting::tests::order_status_domain_matches_check_constraint ... ok
+business::erp::shipment::shipment_posting::tests::partial_post_keeps_two_transit_rows_and_stock_untouched ... ok
+business::erp::shipment::shipment_posting::tests::reason_and_line_remark_are_traceable ... ok
+business::erp::shipment::shipment_posting::tests::repeated_post_is_idempotent ... ok
+business::erp::shipment::shipment_posting::tests::sales_source_is_not_an_out_type ... ok
+business::erp::shipment::shipment_posting::tests::stock_out_lands_in_pending_confirm_state ... ok
+business::erp::shipment::shipment_posting::tests::zz_teardown_purges_fixtures ... ok
+business::erp::shipment::shipment_receipt_tests::cancel_pending_stock_out_releases_transit ... ok
+business::erp::shipment::shipment_receipt_tests::cancel_posted_stock_out_leaves_received_transit_alone ... ok
+business::erp::shipment::shipment_receipt_tests::posting_from_stock_out_page_also_clears_transit ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_clears_transit_and_posts_stock_out ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_failure_leaves_transit_open_and_retryable ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_gate_uses_posted_status ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_reason_carries_ship_no ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_requires_posted_shipment ... ok
+business::erp::shipment::shipment_receipt_tests::repeat_receipt_is_rejected_at_gate ... ok
+business::erp::shipment::shipment_receipt_tests::transit_release_only_applies_to_sales_source ... ok
+business::erp::shipment::shipment_receipt_tests::zz_teardown_purges_fixtures ... ok

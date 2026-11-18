@@ -1,0 +1,58 @@
++ echo '== 起点（上一节「跳过收尾」留下的 SO* 残留）'
+== 起点（上一节「跳过收尾」留下的 SO* 残留）
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -Atc $'select \'SO*: ship=\'||(select count(*) from biz_shipment where ship_no like \'SO14T-%\' or ship_no like \'SO10R-%\' or ship_no like \'SO10T-%\')\n   ||\' so=\'||(select count(*) from biz_sales_order where so_no like \'SO14T-%\' or so_no like \'SO10R-%\' or so_no like \'SO10T-%\')\n   ||\' cust=\'||(select count(*) from biz_customer where code like \'SO14T-%\' or code like \'SO10R-%\' or code like \'SO10T-%\')\n   ||\' | all: ship=\'||(select count(*) from biz_shipment)\n   ||\' transit=\'||(select count(*) from biz_inventory_in_transit)\n   ||\' out=\'||(select count(*) from biz_stock_out)\n   ||\' ar=\'||(select count(*) from biz_receivable)\n   ||\' vou=\'||(select count(*) from biz_voucher)'
+SO*: ship=3 so=3 cust=3 | all: ship=6 transit=5 out=3 ar=23 vou=22
++ run_round R1
++ local tag=R1
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::receivable::receivable_bridge
++ grep -E '^test result'
++ sed 's/^/[R1] receivable_bridge: /'
+[R1] receivable_bridge: test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 6452 filtered out; finished in 1.00s
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::shipment::shipment_posting
++ grep -E '^test result'
++ sed 's/^/[R1] shipment_posting: /'
+[R1] shipment_posting: test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 6454 filtered out; finished in 0.47s
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::shipment::shipment_receipt_tests
++ grep -E '^test result'
++ sed 's/^/[R1] shipment_receipt_tests: /'
+[R1] shipment_receipt_tests: test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 6455 filtered out; finished in 0.92s
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::inventory_transit::transit_query_tests
++ grep -E '^test result'
++ sed 's/^/[R1] transit_query_tests: /'
+[R1] transit_query_tests: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6458 filtered out; finished in 0.21s
++ echo '== 第一轮后'
+== 第一轮后
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -Atc $'select \'SO*: ship=\'||(select count(*) from biz_shipment where ship_no like \'SO14T-%\' or ship_no like \'SO10R-%\' or ship_no like \'SO10T-%\')\n   ||\' so=\'||(select count(*) from biz_sales_order where so_no like \'SO14T-%\' or so_no like \'SO10R-%\' or so_no like \'SO10T-%\')\n   ||\' cust=\'||(select count(*) from biz_customer where code like \'SO14T-%\' or code like \'SO10R-%\' or code like \'SO10T-%\')\n   ||\' | all: ship=\'||(select count(*) from biz_shipment)\n   ||\' transit=\'||(select count(*) from biz_inventory_in_transit)\n   ||\' out=\'||(select count(*) from biz_stock_out)\n   ||\' ar=\'||(select count(*) from biz_receivable)\n   ||\' vou=\'||(select count(*) from biz_voucher)'
+SO*: ship=0 so=0 cust=0 | all: ship=3 transit=3 out=0 ar=21 vou=20
++ run_round R2
++ local tag=R2
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::receivable::receivable_bridge
++ grep -E '^test result'
++ sed 's/^/[R2] receivable_bridge: /'
+[R2] receivable_bridge: test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 6452 filtered out; finished in 0.94s
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::shipment::shipment_posting
++ grep -E '^test result'
++ sed 's/^/[R2] shipment_posting: /'
+[R2] shipment_posting: test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 6454 filtered out; finished in 0.46s
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::shipment::shipment_receipt_tests
++ grep -E '^test result'
++ sed 's/^/[R2] shipment_receipt_tests: /'
+[R2] shipment_receipt_tests: test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 6455 filtered out; finished in 0.90s
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::inventory_transit::transit_query_tests
++ grep -E '^test result'
++ sed 's/^/[R2] transit_query_tests: /'
+[R2] transit_query_tests: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6458 filtered out; finished in 0.21s
++ echo '== 第二轮后（同一库，未重造）'
+== 第二轮后（同一库，未重造）
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -Atc $'select \'SO*: ship=\'||(select count(*) from biz_shipment where ship_no like \'SO14T-%\' or ship_no like \'SO10R-%\' or ship_no like \'SO10T-%\')\n   ||\' so=\'||(select count(*) from biz_sales_order where so_no like \'SO14T-%\' or so_no like \'SO10R-%\' or so_no like \'SO10T-%\')\n   ||\' cust=\'||(select count(*) from biz_customer where code like \'SO14T-%\' or code like \'SO10R-%\' or code like \'SO10T-%\')\n   ||\' | all: ship=\'||(select count(*) from biz_shipment)\n   ||\' transit=\'||(select count(*) from biz_inventory_in_transit)\n   ||\' out=\'||(select count(*) from biz_stock_out)\n   ||\' ar=\'||(select count(*) from biz_receivable)\n   ||\' vou=\'||(select count(*) from biz_voucher)'
+SO*: ship=0 so=0 cust=0 | all: ship=3 transit=3 out=0 ar=21 vou=20
++ echo '== 收尾验证：在途行明细'
+== 收尾验证：在途行明细
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -c 'select m.material_code, s.ship_no, t.status from biz_inventory_in_transit t join biz_shipment s on s.id=t.shipment_id join biz_material m on m.id=t.material_id order by s.ship_no'
+ material_code |       ship_no        |   status   
+---------------+----------------------+------------
+ M204-M1       | M204-SH-6bad8d576116 | RECEIVED
+ M204-M1       | M204-SH-a162edd3aaa2 | CANCELLED
+ M204-M1       | M204-SH-e2a78a4ace80 | IN_TRANSIT
+(3 rows)
+

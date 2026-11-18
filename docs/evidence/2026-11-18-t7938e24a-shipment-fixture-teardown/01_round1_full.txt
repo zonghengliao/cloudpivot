@@ -1,0 +1,70 @@
+==== 命令：cd backend/app && cargo test -p cloudpivot --lib -- --test-threads=1（第 1 轮，库 cloudpivot_test_shipclean）
+==== 用例数：6467 行 test 输出
+
+---------- 结果汇总 ----------
+test result: FAILED. 6464 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 222.24s
+
+---------- 失败清单与 panic ----------
+failures:
+
+---- system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live stdout ----
+
+thread 'system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live' (3786883) panicked at app/src/system/menu/permission_audit_tests.rs:1298:5:
+ROUTE_LEVEL_ONLY 台账过期：
+business:erp:framework-agreement:page：后端源码已有引用（business/erp/purchase/framework_agreement_dto.rs），应改走注解并删除本例外
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live
+
+test result: FAILED. 6464 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 222.24s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+
+---------- 本卡三套件 + 下游全表口径用例的逐条结果 ----------
+business::erp::inventory_transit::transit_query_tests::age_days_and_ship_date_range ... ok
+business::erp::inventory_transit::transit_query_tests::default_status_is_open_transit ... ok
+business::erp::inventory_transit::transit_query_tests::page_fills_names_without_n_plus_one ... ok
+business::erp::inventory_transit::transit_query_tests::page_filters_by_material_warehouse_customer ... ok
+business::erp::inventory_transit::transit_query_tests::pagination_is_stable_and_counts_all ... ok
+business::erp::inventory_transit::transit_query_tests::qty_in_transit_comes_from_generated_column ... ok
+business::erp::inventory_transit::transit_query_tests::summary_groups_by_material_and_warehouse ... ok
+business::erp::inventory_transit::transit_query_tests::summary_ignores_cancelled_and_received ... ok
+business::erp::receivable::receivable_bridge::tests::cancel_blocked_when_receivable_has_receipts ... ok
+business::erp::receivable::receivable_bridge::tests::cancel_stock_out_cancels_receivable_and_restores_stock ... ok
+business::erp::receivable::receivable_bridge::tests::full_shipment_total_equals_order_line_total ... ok
+business::erp::receivable::receivable_bridge::tests::line_taxed_amount_adds_tax ... ok
+business::erp::receivable::receivable_bridge::tests::manual_stock_out_does_not_create_receivable ... ok
+business::erp::receivable::receivable_bridge::tests::missing_customer_rolls_back_stock_and_receivable ... ok
+business::erp::receivable::receivable_bridge::tests::partial_shipment_uses_shipped_qty ... ok
+business::erp::receivable::receivable_bridge::tests::post_shipment_creates_receivable_in_same_transaction ... ok
+business::erp::receivable::receivable_bridge::tests::repeated_cancel_keeps_receivable_cancelled_once ... ok
+business::erp::receivable::receivable_bridge::tests::repeated_post_keeps_single_receivable ... ok
+business::erp::receivable::receivable_bridge::tests::sales_out_source_type_matches_stockout_const ... ok
+business::erp::receivable::receivable_bridge::tests::taxed_amount_of_sums_rounded_lines ... ok
+business::erp::receivable::receivable_bridge::tests::zero_credit_days_means_due_on_posting_date ... ok
+business::erp::receivable::receivable_bridge::tests::zz_teardown_purges_fixtures ... ok
+business::erp::shipment::shipment_posting::tests::in_transit_reserves_available_quantity ... ok
+business::erp::shipment::shipment_posting::tests::insufficient_stock_leaves_everything_untouched ... ok
+business::erp::shipment::shipment_posting::tests::late_failure_rolls_back_the_whole_posting ... ok
+business::erp::shipment::shipment_posting::tests::normal_post_records_transit_without_touching_stock ... ok
+business::erp::shipment::shipment_posting::tests::order_status_constants_are_the_module_constants ... ok
+business::erp::shipment::shipment_posting::tests::order_status_domain_matches_check_constraint ... ok
+business::erp::shipment::shipment_posting::tests::partial_post_keeps_two_transit_rows_and_stock_untouched ... ok
+business::erp::shipment::shipment_posting::tests::reason_and_line_remark_are_traceable ... ok
+business::erp::shipment::shipment_posting::tests::repeated_post_is_idempotent ... ok
+business::erp::shipment::shipment_posting::tests::sales_source_is_not_an_out_type ... ok
+business::erp::shipment::shipment_posting::tests::stock_out_lands_in_pending_confirm_state ... ok
+business::erp::shipment::shipment_posting::tests::zz_teardown_purges_fixtures ... ok
+business::erp::shipment::shipment_receipt_tests::cancel_pending_stock_out_releases_transit ... ok
+business::erp::shipment::shipment_receipt_tests::cancel_posted_stock_out_leaves_received_transit_alone ... ok
+business::erp::shipment::shipment_receipt_tests::posting_from_stock_out_page_also_clears_transit ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_clears_transit_and_posts_stock_out ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_failure_leaves_transit_open_and_retryable ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_gate_uses_posted_status ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_reason_carries_ship_no ... ok
+business::erp::shipment::shipment_receipt_tests::receipt_requires_posted_shipment ... ok
+business::erp::shipment::shipment_receipt_tests::repeat_receipt_is_rejected_at_gate ... ok
+business::erp::shipment::shipment_receipt_tests::transit_release_only_applies_to_sales_source ... ok
+business::erp::shipment::shipment_receipt_tests::zz_teardown_purges_fixtures ... ok

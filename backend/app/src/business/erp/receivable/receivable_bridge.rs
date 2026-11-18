@@ -682,6 +682,13 @@ mod tests {
     const MATS: &str = "'d510f000-0000-4000-8000-000000000011'::uuid, \
                         'd510f000-0000-4000-8000-000000000012'::uuid";
 
+    /// 手工领用出库单的夹具标记（写在 `biz_stock_out.remark` 上）。
+    ///
+    /// 这张单**不是**销售来源（`source_type` / `source_id` 都是 NULL），生产号段是
+    /// `OUT-YYYYMMDD-NNNNNN`，按号段前缀既清不到、又可能误删真数据 ⇒ 只能靠单测自己
+    /// 打标记来定位（`cleanup()` 与 `zz_teardown_purges_fixtures` 都用它）。
+    const MANUAL_OUT_REMARK: &str = "SO14T-MANUAL-STOCK-OUT";
+
     const FIXTURES: &[&str] = &[
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order) \
          VALUES ('d510f000-0000-4000-8000-000000000001', 'SO14-PCS', '个', 1, NULL, 1.000000, 1, 1) \
@@ -740,11 +747,21 @@ mod tests {
     }
 
     /// 清场：只清本模块夹具（`SO14T-` 客户 / 两张夹具物料），不碰别的用例。
+    ///
+    /// 手工领用出库单（`manual_stock_out_does_not_create_receivable` 造的那张）不是销售来源：
+    /// `source_type` / `source_id` 都是 NULL，按 `source_id IN shipments` 反查一张也匹配不到，
+    /// 它的状态日志与成本结转凭证会永久留在库里（第二轮实测 `biz_voucher` 里那张没有来源号的
+    /// 草稿就是这条链的候选）。判据是本单测写在 `remark` 上的**夹具标记**，不是生产号段。
     async fn cleanup() {
-        let customers = "(SELECT id FROM biz_customer WHERE code LIKE 'SO14T-%')".to_string();
-        let orders = format!("(SELECT id FROM biz_sales_order WHERE customer_id IN {customers})");
-        let shipments = format!("(SELECT id FROM biz_shipment WHERE so_id IN {orders})");
+        let manual_mark: &str = MANUAL_OUT_REMARK;
+        // 判据用**本模块自己的单号 / 编码前缀**，不顺着客户链反查：
+        // `fixture_order` / `fixture_shipment` 也被 `missing_customer_rolls_back_stock_and_receivable`
+        // 用来造幽灵客户（`customer_id` 指向不存在的 uuid），这类单据按
+        // `customer_id IN (客户表)` 一辈子匹配不到 ⇒ 发货单 / 在途行 / 出库单 / 凭证越攒越多。
+        let orders = "(SELECT id FROM biz_sales_order WHERE so_no LIKE 'SO14T-%')".to_string();
+        let shipments = "(SELECT id FROM biz_shipment WHERE ship_no LIKE 'SO14T-%')".to_string();
         let stock_outs = format!("(SELECT id FROM biz_stock_out WHERE source_id IN {shipments})");
+        let manual_outs = format!("(SELECT id FROM biz_stock_out WHERE remark = '{manual_mark}')");
         // ⚠ M2-02 起在途量会**占用可用量**（`stock_shortfalls` 扣在途），
         //    别的用例（或上一轮失败）留在同物料上的在途行会让本模块的「库存够不够」
         //    从够变成不够。夹具物料是本模块独占的（MATS），所以一并清干净。
@@ -758,6 +775,10 @@ mod tests {
                 (entity_type = 'RECEIVABLE' AND entity_id IN \
                     (SELECT id FROM biz_receivable WHERE source_id IN {stock_outs})) \
              OR (entity_type = 'STOCK_OUT' AND entity_id IN {stock_outs}) \
+             OR (entity_type = 'STOCK_OUT' AND entity_id IN {manual_outs}) \
+             OR (entity_type = 'VOUCHER' AND entity_id IN \
+                    (SELECT id FROM biz_voucher WHERE source_type = 'STOCK_OUT' \
+                       AND (source_id IN {stock_outs} OR source_id IN {manual_outs}))) \
              OR (entity_type = 'SHIPMENT' AND entity_id IN {shipments}) \
              OR (entity_type = 'SALE_ORDER' AND entity_id IN {orders})"
         ))
@@ -767,12 +788,14 @@ mod tests {
         ))
         .await;
         sql(&format!(
-            "DELETE FROM biz_voucher WHERE source_type = 'STOCK_OUT' AND source_id IN {stock_outs}"
+            "DELETE FROM biz_voucher WHERE source_type = 'STOCK_OUT' AND source_id IN {stock_outs} \
+                OR (source_type = 'STOCK_OUT' AND source_id IN {manual_outs})"
         ))
         .await;
         sql(&format!("DELETE FROM biz_stock_out WHERE source_id IN {shipments}")).await;
-        sql(&format!("DELETE FROM biz_shipment WHERE so_id IN {orders}")).await;
-        sql(&format!("DELETE FROM biz_sales_order WHERE customer_id IN {customers}")).await;
+        sql(&format!("DELETE FROM biz_stock_out WHERE remark = '{manual_mark}'")).await;
+        sql("DELETE FROM biz_shipment WHERE ship_no LIKE 'SO14T-%'").await;
+        sql("DELETE FROM biz_sales_order WHERE so_no LIKE 'SO14T-%'").await;
         sql("DELETE FROM biz_customer WHERE code LIKE 'SO14T-%'").await;
         sql(&format!("DELETE FROM biz_inventory_txn WHERE material_id IN ({MATS})")).await;
         sql(&format!("DELETE FROM biz_inventory WHERE material_id IN ({MATS})")).await;
@@ -1155,6 +1178,21 @@ mod tests {
     async fn manual_stock_out_does_not_create_receivable() {
         let Some(_guard) = setup().await else { return };
         seed_stock(MAT_A, "20").await;
+        let out_id = manual_stock_out().await;
+
+        assert!(
+            receivable_of(db(), out_id).await.expect("查应收").is_none(),
+            "source_type 为空的出库单不许挂应收"
+        );
+        assert_eq!(cost_qty(MAT_A).await, dec("18"), "手工出库照常扣库存");
+    }
+
+    /// 造一张「手工领用」出库单并过账（`source_type` 为空 ⇒ 不挂应收）。
+    ///
+    /// 夹具身份写在 `remark` = [`MANUAL_OUT_REMARK`] 上：这张单没有来源单据可反查，
+    /// 单号又是生产号段 `OUT-YYYYMMDD-NNNNNN`，清场只能靠单测自己打的标记
+    /// （`cleanup()` 与 `zz_teardown_purges_fixtures` 都用它）。
+    async fn manual_stock_out() -> Uuid {
         let operator = state_machine::Operator::named(None, "SO14 单测");
         let now = Utc::now();
         let new = crate::business::erp::stockout::stockout_base::NewStockOut {
@@ -1162,7 +1200,7 @@ mod tests {
             warehouse_id: uuid(WAREHOUSE),
             out_date: crate::business::erp::voucher::today_cst(now),
             reason: Some("SO-14 单测：手工领用"),
-            remark: None,
+            remark: Some(MANUAL_OUT_REMARK),
             source_type: None,
             source_id: None,
             cost_object_id: None,
@@ -1188,12 +1226,7 @@ mod tests {
                     error.code, error.msg, error.internal_detail
                 )
             });
-
-        assert!(
-            receivable_of(db(), out_id).await.expect("查应收").is_none(),
-            "source_type 为空的出库单不许挂应收"
-        );
-        assert_eq!(cost_qty(MAT_A).await, dec("18"), "手工出库照常扣库存");
+        out_id
     }
 
     // ---------- 出库作废 → 应收冲销（V0290 / `cancel_in_tx`） ----------
@@ -1398,5 +1431,156 @@ mod tests {
         assert_eq!(logs, 1, "只许留一条作废轨迹（幂等）");
         assert_eq!(cost_qty(MAT_A).await, dec("20"), "库存只回滚一次，不会被退两次");
         println!("[SO-14 遗留] 幂等：重复作废 409，应收 {} 只冲销一次", ar.ar_no);
+    }
+
+    // ---------- 夹具收尾（t_7938e24a） ----------
+    //
+    // `cleanup()` 原先只在 `setup()` **开头**跑 ⇒ 本模块最后一条用例造的发货单 / 在途行 /
+    // 出库单 / 应收 / 凭证永久留在库里。同一库连跑第二轮全量时，
+    // `inventory_transit::transit_query_tests` 的全表口径断言（「留空 = 只看未签收在途」，
+    // 契约不许为了测试收窄成「只看我的」）就被这一批残留打红成 `left: 2 / right: 1`。
+    //
+    // `zz_` 前缀保证本模块最后跑（libtest 按用例全名排序），在这里调**真实** `cleanup()`
+    // 并把「残留 = 0」钉成断言。
+
+    /// 本模块夹具在库里的残留行数（`cleanup()` 之后必须为 0）。
+    ///
+    /// 口径：本模块单号 / 客户编码前缀（`SO14T-`）+ 夹具物料上的在途行（`MATS` 是本模块
+    /// 独占的固定夹具 UUID，在途表按物料清才能连「单据已删、行还挂着」的情况一起看见）
+    /// + 手工领用出库单（按 `remark` 标记反查，见 [`MANUAL_OUT_REMARK`]）。
+    async fn fixture_rows() -> i64 {
+        db().scalar_with_params::<i64>(
+            &format!(
+                "SELECT (SELECT count(*) FROM biz_shipment WHERE ship_no LIKE 'SO14T-%') \
+                      + (SELECT count(*) FROM biz_sales_order WHERE so_no LIKE 'SO14T-%') \
+                      + (SELECT count(*) FROM biz_stock_out o JOIN biz_shipment s ON s.id = o.source_id \
+                          WHERE s.ship_no LIKE 'SO14T-%') \
+                      + (SELECT count(*) FROM biz_stock_out WHERE remark = '{MANUAL_OUT_REMARK}') \
+                      + (SELECT count(*) FROM biz_inventory_in_transit WHERE material_id IN ({MATS})) \
+                      + (SELECT count(*) FROM biz_customer WHERE code LIKE 'SO14T-%')"
+            ),
+            vec![],
+        )
+        .await
+        .expect("数 SO14T- 夹具残留")
+    }
+
+    /// `SELECT count(*) FROM <table> WHERE <column> IN (<ids>)` —— id 口径的残留断言。
+    ///
+    /// 单据本体删完之后按单号前缀已经查不到「在途行 / 凭证 / 应收 / 状态日志」，只能按清场前
+    /// 抓到的 id 反查：查得到 = 引用已失效的残留（下一轮就是孤儿）。
+    async fn count_where_in(table: &str, column: &str, ids: &[Uuid]) -> i64 {
+        assert!(!ids.is_empty(), "ids 不能为空（空 IN 等于没查）");
+        let list = ids
+            .iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(",");
+        db().scalar_with_params::<i64>(
+            &format!("SELECT count(*) FROM {table} WHERE {column} IN ({list})"),
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("数 {table}.{column} 残留失败：{error}"))
+    }
+
+    /// 收尾：本模块在库里的夹具必须清干（含前面各条用例留下的最后一批）。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup().await else { return };
+
+        // ① 两条链都要覆盖：① 销售发货 → 在途 → 出库过账（应收 / 凭证）；② 手工领用出库
+        let customer = fixture_customer(CUSTOMER_CODE, 30).await;
+        seed_stock(MAT_A, "20").await;
+        let (so_id, item_id) = fixture_order(customer, "10", "100", "13", "APPROVED").await;
+        let ship_id = fixture_shipment(customer, so_id, item_id, "10", 0).await;
+        post_shipment(ship_id)
+            .await
+            .unwrap_or_else(|error| panic!("收尾夹具过账应成功：{} {}", error.code, error.msg));
+        let out_id = stock_out_of(ship_id).await.expect("过账必须生成销售出库单");
+        let ar_id = receivable_of(db(), out_id)
+            .await
+            .expect("查应收")
+            .expect("销售出库过账必须挂应收")
+            .id;
+        let voucher_id = db()
+            .scalar_with_params::<Uuid>(
+                "SELECT id FROM biz_voucher WHERE source_type = 'STOCK_OUT' AND source_id = ?::uuid",
+                vec![Value::from(&out_id)],
+            )
+            .await
+            .expect("取成本结转凭证 id");
+        let transit_id = db()
+            .scalar_with_params::<Uuid>(
+                "SELECT id FROM biz_inventory_in_transit WHERE shipment_id = ?::uuid",
+                vec![Value::from(&ship_id)],
+            )
+            .await
+            .expect("取在途行 id");
+        let manual_out_id = manual_stock_out().await;
+        let manual_voucher_id = db()
+            .scalar_with_params::<Uuid>(
+                "SELECT id FROM biz_voucher WHERE source_type = 'STOCK_OUT' AND source_id = ?::uuid",
+                vec![Value::from(&manual_out_id)],
+            )
+            .await
+            .expect("取手工出库的成本结转凭证 id");
+
+        // ② 清场前必须有东西可清（防空跑：清场函数若什么都没删，这条用例就成了假绿）
+        let before = fixture_rows().await;
+        assert!(
+            before >= 6,
+            "清场前 SO14T- 夹具行必须 ≥6（发货单 / 订单 / 两张出库单 / 在途 / 客户），实际 {before}"
+        );
+
+        // ③ 真实清场（就是各条用例 `setup()` 里调的那个函数，不另写一份 SQL）
+        cleanup().await;
+
+        // ④ 前缀口径：本模块残留归零
+        assert_eq!(
+            fixture_rows().await,
+            0,
+            "清场后 SO14T- 夹具必须 0 残留（在途行会随发货单 CASCADE，但显式删一遍更稳）"
+        );
+
+        // ⑤ id 口径：单据本体已删，在途 / 凭证 / 应收 / 日志只能按 id 反查
+        assert_eq!(
+            count_where_in("biz_inventory_in_transit", "id", &[transit_id]).await,
+            0,
+            "在途行必须跟着发货单一起清掉（留着就是下一轮全表口径断言的红）"
+        );
+        assert_eq!(
+            count_where_in("biz_stock_out", "id", &[out_id, manual_out_id]).await,
+            0,
+            "销售出库单与手工领用出库单都必须清掉"
+        );
+        assert_eq!(
+            count_where_in("biz_voucher", "id", &[voucher_id, manual_voucher_id]).await,
+            0,
+            "成本结转凭证必须清掉（手工领用那张没有来源号，漏了就是每跑一遍多一张）"
+        );
+        assert_eq!(
+            count_where_in("biz_receivable", "id", &[ar_id]).await,
+            0,
+            "应收必须清掉"
+        );
+        assert_eq!(
+            count_where_in(
+                "biz_status_log",
+                "entity_id",
+                &[
+                    ship_id,
+                    so_id,
+                    out_id,
+                    manual_out_id,
+                    ar_id,
+                    voucher_id,
+                    manual_voucher_id
+                ]
+            )
+            .await,
+            0,
+            "状态日志必须按单据 id 先删（漏了就是每跑一遍多一批孤儿）"
+        );
     }
 }

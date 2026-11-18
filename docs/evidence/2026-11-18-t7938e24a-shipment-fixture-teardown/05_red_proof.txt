@@ -1,0 +1,19 @@
+==== RED 反证：把 shipment_receipt_tests::cleanup() 里「删 SO10R- 订单」改成一串永不匹配的前缀，
+     只跑 shipment_receipt_tests ⇒ 收尾用例必须红（跑完立刻还原，见提交里的最终代码）
+
+test business::erp::shipment::shipment_receipt_tests::cancel_pending_stock_out_releases_transit ... ok
+test business::erp::shipment::shipment_receipt_tests::cancel_posted_stock_out_leaves_received_transit_alone ... ok
+test business::erp::shipment::shipment_receipt_tests::posting_from_stock_out_page_also_clears_transit ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_clears_transit_and_posts_stock_out ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_failure_leaves_transit_open_and_retryable ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_gate_uses_posted_status ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_reason_carries_ship_no ... ok
+test business::erp::shipment::shipment_receipt_tests::receipt_requires_posted_shipment ... ok
+test business::erp::shipment::shipment_receipt_tests::repeat_receipt_is_rejected_at_gate ... ok
+test business::erp::shipment::shipment_receipt_tests::transit_release_only_applies_to_sales_source ... ok
+test business::erp::shipment::shipment_receipt_tests::zz_teardown_purges_fixtures ... FAILED
+thread 'business::erp::shipment::shipment_receipt_tests::zz_teardown_purges_fixtures' (3778203) panicked at app/src/business/erp/shipment/shipment_receipt_tests.rs:983:5:
+assertion `left == right` failed: 清场后 SO10R- 夹具必须 0 残留（在途行会随发货单 CASCADE，但显式删一遍更稳）
+  left: 8
+ right: 0
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 6455 filtered out; finished in 1.04s

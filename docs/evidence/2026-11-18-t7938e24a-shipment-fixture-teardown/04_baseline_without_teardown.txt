@@ -1,0 +1,46 @@
++ echo '== 跳过收尾前（同一库，已跑完两轮全量）'
+== 跳过收尾前（同一库，已跑完两轮全量）
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -Atc 'select '\''ship='\''||(select count(*) from biz_shipment)||'\'' transit='\''||(select count(*) from biz_inventory_in_transit)||'\'' so='\''||(select count(*) from biz_sales_order)||'\'' out='\''||(select count(*) from biz_stock_out)||'\'' ar='\''||(select count(*) from biz_receivable)||'\'' vou='\''||(select count(*) from biz_voucher)||'\'' log='\''||(select count(*) from biz_status_log)'
+ship=3 transit=3 so=4 out=0 ar=21 vou=20 log=81
++ cargo test -p cloudpivot --lib -- --test-threads=1 receivable_bridge --skip zz_teardown_purges_fixtures
++ grep -E '^test result'
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 6453 filtered out; finished in 0.80s
++ echo '-- 只跑 receivable_bridge（不收尾）后'
+-- 只跑 receivable_bridge（不收尾）后
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -Atc 'select '\''ship='\''||(select count(*) from biz_shipment)||'\'' transit='\''||(select count(*) from biz_inventory_in_transit)||'\'' so='\''||(select count(*) from biz_sales_order)||'\'' out='\''||(select count(*) from biz_stock_out)||'\'' ar='\''||(select count(*) from biz_receivable)||'\'' vou='\''||(select count(*) from biz_voucher)||'\'' log='\''||(select count(*) from biz_status_log)'
+ship=4 transit=4 so=5 out=1 ar=22 vou=21 log=88
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::shipment::shipment_posting --skip zz_teardown_purges_fixtures
++ grep -E '^test result'
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 6455 filtered out; finished in 0.40s
++ cargo test -p cloudpivot --lib -- --test-threads=1 business::erp::shipment::shipment_receipt_tests --skip zz_teardown_purges_fixtures
++ grep -E '^test result'
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 6456 filtered out; finished in 0.86s
++ echo '-- 再跑 shipment_posting + shipment_receipt_tests（不收尾）后'
+-- 再跑 shipment_posting + shipment_receipt_tests（不收尾）后
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -Atc 'select '\''ship='\''||(select count(*) from biz_shipment)||'\'' transit='\''||(select count(*) from biz_inventory_in_transit)||'\'' so='\''||(select count(*) from biz_sales_order)||'\'' out='\''||(select count(*) from biz_stock_out)||'\'' ar='\''||(select count(*) from biz_receivable)||'\'' vou='\''||(select count(*) from biz_voucher)||'\'' log='\''||(select count(*) from biz_status_log)'
+ship=6 transit=5 so=7 out=3 ar=23 vou=22 log=99
++ echo '-- 残留明细：在途行'
+-- 残留明细：在途行
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -c 'select m.material_code, w.warehouse_code, s.ship_no, t.status from biz_inventory_in_transit t join biz_shipment s on s.id=t.shipment_id join biz_material m on m.id=t.material_id join biz_warehouse w on w.id=t.warehouse_id order by s.ship_no'
+ material_code | warehouse_code |        ship_no        |   status   
+---------------+----------------+-----------------------+------------
+ M204-M1       | M204-WHA       | M204-SH-4f30aa29d665  | CANCELLED
+ M204-M1       | M204-WHA       | M204-SH-9552ddb17ff3  | IN_TRANSIT
+ M204-M1       | M204-WHA       | M204-SH-b31367c1fd71  | RECEIVED
+ SO10R-M1      | SO10R-WH       | SO10R-SH-ce57aca05370 | RECEIVED
+ SO14-M1       | SO14-WH        | SO10T-SH-268c08be9b17 | IN_TRANSIT
+(5 rows)
+
++ echo '-- 残留明细：发货单'
+-- 残留明细：发货单
++ psql -h 172.18.10.145 -U cloudpivot -d cloudpivot_test_shipclean -c 'select ship_no, status from biz_shipment order by ship_no'
+        ship_no        | status 
+-----------------------+--------
+ M204-SH-4f30aa29d665  | POSTED
+ M204-SH-9552ddb17ff3  | POSTED
+ M204-SH-b31367c1fd71  | POSTED
+ SO10R-SH-ce57aca05370 | POSTED
+ SO10T-SH-268c08be9b17 | POSTED
+ SO14T-SH-ac8d50efa9da | POSTED
+(6 rows)
+

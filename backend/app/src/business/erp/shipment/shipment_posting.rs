@@ -718,11 +718,12 @@ mod tests {
     /// 在途行随 `biz_shipment` 的 `ON DELETE CASCADE` 一起消失（V0420 的硬外键），
     /// 所以不需要单独 DELETE 它 —— 但显式删一遍更稳（防止别的用例留下孤儿夹具）。
     async fn cleanup() {
-        let orders = format!(
-            "(SELECT id FROM biz_sales_order WHERE customer_id IN \
-              (SELECT id FROM biz_customer WHERE code = '{CUSTOMER_CODE}'))"
-        );
-        let shipments = format!("(SELECT id FROM biz_shipment WHERE so_id IN {orders})");
+        // 判据一律用**本模块自己的单号前缀**，不要顺着客户链反查：
+        // `fixture_order` 也被「客户不存在」那条用例用来造幽灵客户（`customer_id` 指向
+        // 不存在的 uuid），这类订单按 `customer_id IN (客户表)` 一辈子匹配不到 ⇒
+        // 单据 / 在途 / 出库单 / 凭证越攒越多（t_7938e24a 实测第二轮多出 2 张发货单）。
+        let orders = "(SELECT id FROM biz_sales_order WHERE so_no LIKE 'SO10T-%')".to_string();
+        let shipments = "(SELECT id FROM biz_shipment WHERE ship_no LIKE 'SO10T-%')".to_string();
         let stock_outs = format!("(SELECT id FROM biz_stock_out WHERE source_id IN {shipments})");
         sql(&format!(
             "DELETE FROM biz_voucher WHERE source_type = 'STOCK_OUT' AND source_id IN {stock_outs}"
@@ -741,12 +742,9 @@ mod tests {
         ))
         .await;
         sql(&format!("DELETE FROM biz_stock_out WHERE source_id IN {shipments}")).await;
-        sql(&format!("DELETE FROM biz_shipment WHERE so_id IN {orders}")).await;
-        sql(&format!(
-            "DELETE FROM biz_sales_order WHERE customer_id IN \
-                      (SELECT id FROM biz_customer WHERE code = '{CUSTOMER_CODE}')"
-        ))
-        .await;
+        sql("DELETE FROM biz_shipment WHERE ship_no LIKE 'SO10T-%'").await;
+        sql("DELETE FROM biz_sales_order WHERE so_no LIKE 'SO10T-%'").await;
+        // 订单本体的子行（明细）随 `biz_sales_order` 的 CASCADE 一起走；客户是手插夹具，按编码删
         sql(&format!("DELETE FROM biz_customer WHERE code = '{CUSTOMER_CODE}'")).await;
         sql(&format!("DELETE FROM biz_inventory_txn WHERE material_id IN ({MATS})")).await;
         sql(&format!("DELETE FROM biz_inventory WHERE material_id IN ({MATS})")).await;
@@ -1300,6 +1298,118 @@ mod tests {
             .as_deref(),
             Some("PARTIAL_OUT"),
             "订单状态不能被推进"
+        );
+    }
+
+    // ---------- 夹具收尾（t_7938e24a） ----------
+    //
+    // `cleanup()` 原先只在 `setup()` **开头**跑 ⇒ 本模块最后一条用例造的发货单 / 在途行 /
+    // 出库待确认单永久留在库里。下一轮全量里 `inventory_transit::transit_query_tests` 的
+    // 全表口径断言（「留空 = 只看未签收在途」，不许为了测试改成「只看我的」）就被这一行
+    // 打红成 `left: 2 / right: 1`，而报错完全看不出是谁漏清的。
+    //
+    // `zz_` 前缀保证本模块最后跑（libtest 按用例全名排序），在这里调**真实** `cleanup()`
+    // 并把「残留 = 0」钉成断言；跨模块顺序别指望，每个文件都要有自己的收尾。
+
+    /// 本模块夹具在库里的残留行数（`cleanup()` 之后必须为 0）。
+    ///
+    /// 口径：本模块单号前缀（`SO10T-`）+ 夹具物料上的在途行（`MATS` 是本模块独占的固定
+    /// 夹具 UUID，在途表按物料清才能连「单据已删、行还挂着」的情况一起看见）。
+    async fn fixture_rows() -> i64 {
+        db().scalar_with_params::<i64>(
+            &format!(
+                "SELECT (SELECT count(*) FROM biz_shipment WHERE ship_no LIKE 'SO10T-%') \
+                      + (SELECT count(*) FROM biz_sales_order WHERE so_no LIKE 'SO10T-%') \
+                      + (SELECT count(*) FROM biz_stock_out o JOIN biz_shipment s ON s.id = o.source_id \
+                          WHERE s.ship_no LIKE 'SO10T-%') \
+                      + (SELECT count(*) FROM biz_inventory_in_transit WHERE material_id IN ({MATS})) \
+                      + (SELECT count(*) FROM biz_customer WHERE code = '{CUSTOMER_CODE}')"
+            ),
+            vec![],
+        )
+        .await
+        .expect("数 SO10T- 夹具残留")
+    }
+
+    /// `SELECT count(*) FROM <table> WHERE <column> IN (<ids>)` —— id 口径的残留断言。
+    ///
+    /// 单据本体删完之后按单号前缀已经查不到「在途行 / 状态日志」这类子行，只能按清场前
+    /// 抓到的 id 反查：查得到 = 引用已失效的残留（下一轮就是孤儿）。
+    async fn count_where_in(table: &str, column: &str, ids: &[Uuid]) -> i64 {
+        assert!(!ids.is_empty(), "ids 不能为空（空 IN 等于没查）");
+        let list = ids
+            .iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(",");
+        db().scalar_with_params::<i64>(
+            &format!("SELECT count(*) FROM {table} WHERE {column} IN ({list})"),
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("数 {table}.{column} 残留失败：{error}"))
+    }
+
+    /// 收尾：本模块在库里的夹具必须清干（含前面各条用例留下的最后一批）。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup().await else { return };
+
+        // ① 走真实入口造一张「发货过账」的单：在途行 + 出库待确认单 + 状态日志一条龙
+        let customer = fixture_customer().await;
+        seed_stock(MAT_A, "20").await;
+        let (so_id, item_id) = fixture_order(customer, "10", "0", "APPROVED").await;
+        let ship_id = fixture_shipment(customer, so_id, item_id, MAT_A, "10").await;
+        post_shipment(ship_id)
+            .await
+            .unwrap_or_else(|error| panic!("收尾夹具过账应成功：{} {}", error.code, error.msg));
+        let out_id = db()
+            .scalar_with_params::<Uuid>(
+                "SELECT id FROM biz_stock_out WHERE source_id = ?::uuid",
+                vec![Value::from(&ship_id)],
+            )
+            .await
+            .expect("取收尾夹具的出库待确认单 id");
+        let transit_id = db()
+            .scalar_with_params::<Uuid>(
+                "SELECT id FROM biz_inventory_in_transit WHERE shipment_id = ?::uuid",
+                vec![Value::from(&ship_id)],
+            )
+            .await
+            .expect("取收尾夹具的在途行 id");
+
+        // ② 清场前必须有东西可清（防空跑：清场函数若什么都没删，这条用例就成了假绿）
+        let before = fixture_rows().await;
+        assert!(
+            before >= 4,
+            "清场前 SO10T- 夹具行必须 ≥4（发货单 / 订单 / 出库单 / 在途 / 客户），实际 {before}"
+        );
+
+        // ③ 真实清场（就是各条用例 `setup()` 里调的那个函数，不另写一份 SQL）
+        cleanup().await;
+
+        // ④ 前缀口径：本模块残留归零
+        assert_eq!(
+            fixture_rows().await,
+            0,
+            "清场后 SO10T- 夹具必须 0 残留（在途行会随发货单 CASCADE，但显式删一遍更稳）"
+        );
+
+        // ⑤ id 口径：单据本体已删，在途行 / 状态日志只能按 id 反查
+        assert_eq!(
+            count_where_in("biz_inventory_in_transit", "id", &[transit_id]).await,
+            0,
+            "在途行必须跟着发货单一起清掉（留着就是下一轮全表口径断言的红）"
+        );
+        assert_eq!(
+            count_where_in("biz_stock_out", "id", &[out_id]).await,
+            0,
+            "出库待确认单必须清掉"
+        );
+        assert_eq!(
+            count_where_in("biz_status_log", "entity_id", &[ship_id, so_id, out_id]).await,
+            0,
+            "状态日志必须按单据 id 先删（漏了就是每跑一遍多一批孤儿）"
         );
     }
 }

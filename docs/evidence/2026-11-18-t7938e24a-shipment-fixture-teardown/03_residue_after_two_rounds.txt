@@ -1,0 +1,34 @@
+            t             | n  
+--------------------------+----
+ biz_customer             | 20
+ biz_inventory            | 13
+ biz_inventory_in_transit |  3
+ biz_inventory_location   | 25
+ biz_inventory_txn        | 70
+ biz_receivable           | 21
+ biz_sales_order          |  4
+ biz_shipment             |  3
+ biz_status_log           | 81
+ biz_stock_out            |  0
+ biz_voucher              | 20
+(11 rows)
+
+       ship_no        | status 
+----------------------+--------
+ M204-SH-9552ddb17ff3 | POSTED
+ M204-SH-b31367c1fd71 | POSTED
+ M204-SH-4f30aa29d665 | POSTED
+(3 rows)
+
+     t      | material_code |   status   
+------------+---------------+------------
+ in_transit | M204-M1       | CANCELLED
+ in_transit | M204-M1       | RECEIVED
+ in_transit | M204-M1       | IN_TRANSIT
+(3 rows)
+
+          k          | ship | so | cust 
+---------------------+------+----+------
+ SO* fixture residue |    0 |  0 |    0
+(1 row)
+
