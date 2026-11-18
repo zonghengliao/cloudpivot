@@ -1,0 +1,75 @@
+== M4-17 采购订单 contract_id 字段演练 · PG 172.18.10.145:5432 / 库 cp_m417_evidence_drill ==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 使用调用方给的演练库 cp_m417_evidence_drill（只跑不清）
+== 1) 应用业务迁移到仓库当前版本
+  ---- 模板库版本 = V404
+  [32mPASS[0m 53 条迁移全部应用成功（演练库 = 仓库当前版本）
+== 2) V0198（本字段的来源迁移）：已应用记录 / 指纹 / 回滚脚本形状
+  [32mPASS[0m schema_migrations 记录 V0198 = executed/success（=1）
+  [32mPASS[0m 已应用 V0198 的 checksum 与仓库文件 sha256 一致（AGENTS 约定 6：已应用迁移不可改）（=f15729c09aa3645e69ed78f1d93a96ec7016deb966f6742aa135083a146e9ebf）
+  [32mPASS[0m down 的 4 条 DROP 全部带 IF EXISTS（可重跑）（=4）
+  [32mPASS[0m up 加约束走 existence-guard（重复执行 no-op）（=1）
+  [32mPASS[0m up 加列走 ADD COLUMN IF NOT EXISTS（重复执行 no-op）（=1）
+  ---- 不在 HEAD 上重跑 V0198 up/down 的原因（实测发现，写进 README）：
+  ----   up 的 S2-① 前置体检要求「非 PURCHASE 入库不得带供应商」，而后来的迁移把
+  ----   ck_biz_si_supplier_scope 放宽到 SOURCELESS 也可带供应商（现库里有 12 行 SOURCELESS 带供应商）。
+  ----   于是 down（删四列 + 删该约束）之后再 up 会被 S2-① 拦下 —— 这条迁移只对 ≤V0198 的库可逆；
+  ----   已应用迁移按约定 6 不可改，所以本脚本不拿「重跑 up」当验收面，改验结构与真库语义。
+== 3) 库结构：列 / 约束 / 部分索引 / 无外键 / 注释
+  [32mPASS[0m contract_id：uuid / 可空 / 无默认值（SPOT 单就是 NULL）（=uuid|YES|）
+  [32mPASS[0m purchase_type：varchar / NOT NULL / 默认 'SPOT'（存量单口径）（=character varying|NO|'SPOT'::character varying）
+  [32mPASS[0m 两个快照列长度分别 64 / 128（=2）
+  [32mPASS[0m 双向钉死约束 ck_biz_po_contract_pair 存在（=1）
+  [32mPASS[0m 枚举约束 ck_biz_po_purchase_type 存在（=1）
+  [32mPASS[0m idx_biz_po_contract 是**部分**索引（WHERE contract_id IS NOT NULL）（=1）
+  [32mPASS[0m 采购单表零外键（ARCH-2 DEC-02：contract_id / supplier_id 都是弱引用，别顺手补 FK）（=0）
+  [32mPASS[0m 4 列都有 COMMENT（口径写在库里，不是只写在代码注释里）（=4）
+  [32mPASS[0m 按 contract_id 筛选可走 idx_biz_po_contract（=1）
+== 4) 约束反证：四种非法组合必须被库拦下，合法行必须插得进
+  [32mPASS[0m CONTRACT 但 contract_id 为空 → 拦（拦下：ck_biz_po_contract_pair）
+  [32mPASS[0m CONTRACT 但合同号快照为空 → 拦（列表不 JOIN 合同表的前提）（拦下：ck_biz_po_contract_pair）
+  [32mPASS[0m SPOT 但带着 contract_id → 拦（零星采购没有合同）（拦下：ck_biz_po_contract_pair）
+  [32mPASS[0m purchase_type 拼成 CONTRCAT → 拦（CASE … ELSE FALSE，NULL 判真被堵死）（拦下：ck_biz_po_contract_pair）
+  [32mPASS[0m 合法 CONTRACT 行（id + 合同号快照齐）→ 插得进（约束没拦过头）
+  [32mPASS[0m 清掉本段的探针行
+== 5) 代码接线（模型 / DTO / handler / 前端逐段）
+  [32mPASS[0m 模型列清单 PURCHASE_ORDER_COLUMNS 带上 contract_id 与快照（=1）
+  [32mPASS[0m 行映射读 contract_id（漏读 = 详情永远 null）（=1）
+  [32mPASS[0m 分页筛选支持 contract_id（=1）
+  [32mPASS[0m 筛选处标注走哪条索引（注释与迁移对得上）（=1）
+  [32mPASS[0m DTO 入参筛选项 + 出参各一处 contract_id（=2）
+  [32mPASS[0m 入参校验：CONTRACT 必填 contract_id（=1）
+  [32mPASS[0m 入参校验：SPOT 必须为空（与库约束同口径）（=1）
+  [32mPASS[0m 改单写库用 NULLIF 归一空串 → NULL（否则 SPOT 改单会撞 uuid 解析）（=1）
+  [32mPASS[0m 合同累计已下单额现算 committed_amount（M4-18 的判据就靠它，缓存必漂移）（=1）
+  [32mPASS[0m handler 有合同解析（存在 / 采购类 / 可用状态 / 有效期四步）（=1）
+  [32mPASS[0m 额度守卫在建单 + 改单两处都调用（锁合同行后现算）（=2）
+  [32mPASS[0m 前端合同采购只发 contract_id（供应商由服务端从乙方派生）（=1）
+  [32mPASS[0m 前端表单状态里有 contract_id（=1）
+== 6) 真库用例（合同相关 13 条）
+  [32mPASS[0m 合同采购：派生 / 必填 / 不可用 / 额度 / 有效期 / 分页快照 失败数（=0）
+  [32mPASS[0m 合同采购：派生 / 必填 / 不可用 / 额度 / 有效期 / 分页快照 通过 8 条（要求 >= 8）
+  [32mPASS[0m 合同采购：派生 / 必填 / 不可用 / 额度 / 有效期 / 分页快照 SKIP 行数（真库用例不许默默跳过）（=0）
+  [32mPASS[0m 零星采购：带 contract_id 拒绝 / 快照保持 NULL 失败数（=0）
+  [32mPASS[0m 零星采购：带 contract_id 拒绝 / 快照保持 NULL 通过 2 条（要求 >= 2）
+  [32mPASS[0m 零星采购：带 contract_id 拒绝 / 快照保持 NULL SKIP 行数（真库用例不许默默跳过）（=0）
+  [32mPASS[0m 存量单（V0198 之前建的）落默认 SPOT / 快照为 NULL 仍可读 失败数（=0）
+  [32mPASS[0m 存量单（V0198 之前建的）落默认 SPOT / 快照为 NULL 仍可读 通过 1 条（要求 >= 1）
+  [32mPASS[0m 存量单（V0198 之前建的）落默认 SPOT / 快照为 NULL 仍可读 SKIP 行数（真库用例不许默默跳过）（=0）
+  [32mPASS[0m 改单不带 purchase_type 不得把合同单洗成 SPOT 失败数（=0）
+  [32mPASS[0m 改单不带 purchase_type 不得把合同单洗成 SPOT 通过 1 条（要求 >= 1）
+  [32mPASS[0m 改单不带 purchase_type 不得把合同单洗成 SPOT SKIP 行数（真库用例不许默默跳过）（=0）
+  [32mPASS[0m 分页出参下发 contract_id / 合同号快照 失败数（=0）
+  [32mPASS[0m 分页出参下发 contract_id / 合同号快照 通过 1 条（要求 >= 1）
+  [32mPASS[0m 分页出参下发 contract_id / 合同号快照 SKIP 行数（真库用例不许默默跳过）（=0）
+== 7) 夹具残留（按固定 id 清场 → 回到基线）
+  [32mPASS[0m 采购单回到跑测试前的基线（=15）
+  [32mPASS[0m 合同回到跑测试前的基线（=11）
+  [32mPASS[0m 探针行 0 残留（=0）
+
+== 汇总：PASS=54 FAIL=0 ==
+演练通过（rc=0）
+
+  （库保留 → cp_m417_evidence_drill；不删）
+DRILL_RC=0

@@ -1,0 +1,25 @@
+# 变异反证：把「行映射读 contract_id」这一句改掉，演练必须红
+
+## 1. 变异（只改一处，编译无碍：`contract_id: row.get_typed("contract_id")?` → `contract_id: None`）
+
+文件：backend/app/src/business/erp/model_order.rs 第 155 行
+
+```diff
+-            contract_id: row.get_typed("contract_id")?,
++            contract_id: None, // MUTATION-M417: 故意不读列
+```
+
+## 2. 演练结果：恰好 1 条红，且红的正是「行映射」那条（SKIP_TESTS=1，不做 cargo 编译）
+
+```
+  [31mFAIL[0m 行映射读 contract_id（漏读 = 详情永远 null）（期望 [1]，实际 [0]）
+== 汇总：PASS=35 FAIL=1 ==
+```
+
+## 3. 还原（git checkout）后逐字节核对
+
+```
+变异前 sha256: a5460e7933276fe83f04e115115690248929fbf512d8e5a7d00d40b1d75ada3f  backend/app/src/business/erp/model_order.rs
+还原后 sha256: a5460e7933276fe83f04e115115690248929fbf512d8e5a7d00d40b1d75ada3f  /opt/cloudpivot/backend/app/src/business/erp/model_order.rs
+git status 该文件：(空行 = 工作区与 HEAD 一致，变异没留在树里)
+```

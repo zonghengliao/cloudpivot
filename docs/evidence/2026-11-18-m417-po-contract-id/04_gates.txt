@@ -1,0 +1,12 @@
+# 门禁（后端无代码改动，但按卡面要求全量跑一遍）
+
+## cargo fmt --check
+```
+FMT_RC=0
+```
+## cargo clippy -p cloudpivot --lib -- -D warnings
+```
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 36.89s
+CLIPPY_RC=0
+```

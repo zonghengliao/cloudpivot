@@ -1,0 +1,85 @@
+# contract_id 在代码里的每一段落点（grep -n 原始输出）
+
+## 迁移
+7:--     · §3.2  `ck_biz_po_purchase_type` / `ck_biz_po_contract_pair` 写法（`CASE … ELSE FALSE`）
+9:--     · §3.3  部分索引 `idx_biz_po_contract`
+15:--   ② `ck_biz_po_contract_pair` 采用**设计 §3.2 的强化版**：`CONTRACT` 除 `contract_id` 外
+66:    ADD COLUMN IF NOT EXISTS contract_id            uuid,
+72:    '合同（弱引用 biz_contract.id，**不建外键**：同链零外键基线，存在性由 handler 校验 + 巡检兜底）。CONTRACT 必填 / SPOT 必须为空（ck_biz_po_contract_pair）';
+92:    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_biz_po_contract_pair') THEN
+94:            ADD CONSTRAINT ck_biz_po_contract_pair
+112:CREATE INDEX IF NOT EXISTS idx_biz_po_contract
+138:     WHERE conname IN ('ck_biz_po_purchase_type', 'ck_biz_po_contract_pair', 'ck_biz_si_supplier_scope');
+145:     WHERE tablename = 'biz_purchase_order' AND indexname = 'idx_biz_po_contract';
+147:        RAISE EXCEPTION 'S4 自检失败：idx_biz_po_contract 不存在';
+158:        RAISE EXCEPTION 'S6 自检失败：% 行违反双向钉死 ck_biz_po_contract_pair', violation;
+
+## 模型层（列清单 / 行映射 / 分页筛选）
+29:     purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
+155:            contract_id: row.get_typed("contract_id")?,
+213:        // 走部分索引 `idx_biz_po_contract(contract_id, order_date DESC)`（V0198）
+214:        sql.push_str(" AND contract_id = ?");
+
+## 出参 / 筛选 DTO
+2368:    pub contract_id: Option<String>,
+2524:    pub purchase_type: String,
+2526:    pub contract_id: Option<String>,
+2528:    pub contract_no: Option<String>,
+
+## 入参 DTO 校验
+68:/// 合同采购：供应商从合同乙方**派生**，`contract_id` 必填。
+113:    pub contract_id: Option<String>,
+226:    pub contract_id_raw: Option<String>,
+310:        let contract_id_raw = self
+311:            .contract_id
+330:        match (purchase_type.as_str(), contract_id_raw.as_deref()) {
+335:                    "purchase_type = CONTRACT 必须给 contract_id：合同采购的供应商从合同乙方带出，\
+343:                    "purchase_type = SPOT 不能给 contract_id：零星采购没有合同。\
+361:                 按框架协议下单请用零星采购（purchase_type = SPOT）并留空 contract_id",
+420:            contract_id_raw,
+
+## 写库（INSERT 列 / UPDATE NULLIF / 累计额现算）
+270:    pub contract_id: Option<Uuid>,
+507:                 purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
+537:            Value::Text(new.contract_id.map(|value| value.to_string()).unwrap_or_default()),
+591:                        purchase_type = ?, contract_id = NULLIF(?::text,'')::uuid, \
+615:                Value::Text(new.contract_id.map(|value| value.to_string()).unwrap_or_default()),
+959:/// 列，与 `supplier_id` / `warehouse_id` / `contract_id` 的口径一致。
+1046:/// - 只算 `contract_id = ?` 且 `status <> 'CANCELLED'` 且未软删的采购单；
+1052:pub async fn committed_amount(ex: &impl SqlExecutor, contract_id: Uuid, exclude: Option<Uuid>) -> DbResult<Decimal> {
+1055:              WHERE contract_id = ?::uuid AND status <> 'CANCELLED' AND deleted_at IS NULL"
+1057:    let mut params = vec![Value::from(&contract_id)];
+
+## handler（合同解析 / 额度守卫两处调用）
+202:async fn resolve_contract(raw: &str, order_date: NaiveDate) -> std::result::Result<OrderContract, ApiError> {
+307:                error_code::ERP_PO_CONTRACT_REQUIRED,
+317:                    error_code::ERP_PO_SUPPLIER_MISMATCH,
+359:async fn guard_contract_amount(
+715:        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, None).await
+1057:        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, Some(id)).await
+3507:        assert_eq!(err.code, error_code::ERP_PO_CONTRACT_REQUIRED);
+3554:        assert_eq!(err.code, error_code::ERP_PO_SUPPLIER_MISMATCH);
+
+## 前端（表单态 / 只发 contract_id / 列表快照列 / 详情跳合同）
+125:  contract_id: string;
+667: * - → `SPOT`：`contract_id` / 合同号 / 乙方名清空（后端 SPOT 带 contract_id 直接 400）。
+678:    form.contract_id = '';
+682:    form.contract_id = '';
+721:  form.contract_id = contract.id;
+734:export function contractNoText(form: Pick<PurchaseFormState, 'contract_id' | 'contract_no'>): string {
+735:  return form.contract_no || (form.contract_id ? '（合同号缺失）' : '');
+753:    contract_id: '',
+783:    contract_id: order.contract_id ?? '',
+818:    if (!form.contract_id) {
+819:      errors.contract_id = '合同采购必须选择合同（供应商由合同乙方带出）';
+903:  // 合同采购只发 contract_id（供应商由服务端从合同乙方派生，别把派生值再发回去）：
+95:      <template #contract_no_snapshot="{ row }">
+96:        <span v-if="row.contract_no_snapshot" class="mono" :data-testid="`purchase-contract-no-${row.order_no}`">{{
+97:          row.contract_no_snapshot
+248:              data-testid="purchase-contract-readonly"
+256:              data-testid="purchase-contract"
+259:            <p v-if="form.contract_no" class="field-note" data-testid="purchase-contract-no">
+662:                @click="openContract(detail.contract_id)"
+968:  // A6：合同号列**只读快照列** `contract_no_snapshot`（R3-a / AP-6），不为显示去实时 JOIN 合同表
+969:  { colKey: 'contract_no_snapshot', title: '合同号', width: 130, ellipsis: true },
+1745:function openContract(contractId: string | null): void {

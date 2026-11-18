@@ -1,0 +1,53 @@
+# 库 = cp_m417_evidence_drill（cloudpivot_test 克隆 + 迁移 V0405…HEAD 回放），PG 172.18.10.145
+# 采集时间：2026-11-18 15:17:55 CST
+
+## 1. 四列
+ pos |      column_name       |     data_type     | is_nullable |      column_default       | len 
+-----+------------------------+-------------------+-------------+---------------------------+-----
+  28 | contract_id            | uuid              | YES         |                           |    
+  29 | purchase_type          | character varying | NO          | 'SPOT'::character varying |  16
+  30 | contract_no_snapshot   | character varying | YES         |                           |  64
+  31 | supplier_name_snapshot | character varying | YES         |                           | 128
+(4 rows)
+
+## 2. 列注释
+contract_id → 合同（弱引用 biz_contract.id，**不建外键**：同链零外键基线，存在性由 handler 校验 + 巡检兜底）。CONTRACT 必填 / SPOT 必须为空（ck_biz_po_contract_pair）
+purchase_type → 采购类型：CONTRACT=合同采购（供应商由合同乙方派生）/ SPOT=零星采购（供应商手选）。存量与默认值一律 SPOT
+contract_no_snapshot → 合同号快照（建单时刻）。**列表/打印/审批表单只读这一列，不为显示合同号去 JOIN biz_contract**；存量行 NULL
+supplier_name_snapshot → 供应商名称快照（业务发生那一刻）。语义是**快照不是冗余**：合同换乙方后历史单仍显示当时是谁；存量行 NULL，显示端 coalesce(本列, 主档当前名)
+
+## 3. 约束
+         conname          | contype | convalidated |                                                                  pg_get_constraintdef                                                                   
+--------------------------+---------+--------------+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ ck_biz_po_contract_pair  | c       | t            | CHECK (                                                                                                                                                +
+                          |         |              | CASE purchase_type                                                                                                                                     +
+                          |         |              |     WHEN 'CONTRACT'::text THEN ((contract_id IS NOT NULL) AND (contract_no_snapshot IS NOT NULL))                                                      +
+                          |         |              |     WHEN 'SPOT'::text THEN ((contract_id IS NULL) AND (contract_no_snapshot IS NULL))                                                                  +
+                          |         |              |     ELSE false                                                                                                                                         +
+                          |         |              | END)
+ ck_biz_po_purchase_type  | c       | t            | CHECK (((purchase_type)::text = ANY (ARRAY[('CONTRACT'::character varying)::text, ('SPOT'::character varying)::text])))
+ ck_biz_si_supplier_scope | c       | t            | CHECK (                                                                                                                                                +
+                          |         |              | CASE                                                                                                                                                   +
+                          |         |              |     WHEN ((in_type)::text = ANY (ARRAY[('PURCHASE'::character varying)::text, ('SOURCELESS'::character varying)::text])) THEN (supplier_id IS NOT NULL)+
+                          |         |              |     ELSE (supplier_id IS NULL)                                                                                                                         +
+                          |         |              | END)
+(3 rows)
+
+## 4. 索引（部分索引）
+      indexname      |                                                                 indexdef                                                                 
+---------------------+------------------------------------------------------------------------------------------------------------------------------------------
+ idx_biz_po_contract | CREATE INDEX idx_biz_po_contract ON public.biz_purchase_order USING btree (contract_id, order_date DESC) WHERE (contract_id IS NOT NULL)
+(1 row)
+
+## 5. 采购单表外键数（设计：弱引用，应为 0）
+0
+## 6. 按 contract_id 筛选的执行计划（enable_seqscan=off，看有没有别的路）
+SET
+Index Scan using idx_biz_po_contract on biz_purchase_order
+## 7. 现有合同单 / 零星单分布（演练库，用例已自清）
+ purchase_type | count | with_contract | with_snapshot 
+---------------+-------+---------------+---------------
+ CONTRACT      |     3 |             3 |             3
+ SPOT          |    12 |             0 |             0
+(2 rows)
+
