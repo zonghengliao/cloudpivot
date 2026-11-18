@@ -1,0 +1,8 @@
+== 5) 变异反证（改 1 处 → 恰好对应用例红 → 还原 sha256 一致）
+  [32mPASS[0m M1 去掉 exclude → 恰好 1 条红（m418_update_excludes_self_so_a_full_contract_stays_editable），其余 7 条绿
+  [32mPASS[0m M2 去掉 status <> 'CANCELLED' → 恰好 1 条红（m418_cancelled_order_frees_quota），其余 7 条绿
+  [32mPASS[0m M3 去掉 FOR UPDATE → 并发用例连跑 2 轮全红（不是偶发）
+  [32mPASS[0m purchase_model.rs 还原后 sha256 一致（c8451acbbcea796c78521982de6f3ff6e977077ceb5cfadc511d090c95046b73）
+  [32mPASS[0m contract_model.rs 还原后 sha256 一致（6598646eedc6175a3b4296530151a588a4e0396464ec7e8a7c5dd551e4e34ced）
+
+== 汇总：PASS=23 FAIL=0 ==

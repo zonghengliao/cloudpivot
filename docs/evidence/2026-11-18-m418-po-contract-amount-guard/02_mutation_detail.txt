@@ -1,0 +1,59 @@
+M4-18 变异反证 · 单条手工记录（脚本固化之前，逐字保留当次输出）
+=================================================================
+环境：99 开发机 → 145 PG，演练库 cp_m418_guard_a1（cloudpivot_test 克隆 + V0405…HEAD 回放）
+过滤：cargo test --lib business::erp::purchase::purchase_handler::tests::m418 -- --test-threads=1
+行号对应当次运行时的文件版本（之后跑过 cargo fmt，行号有位移）。
+
+------------------------------------------------------------------
+M1：committed_amount 去掉「改单排除自己」（`AND id <> ?::uuid` 分支整段拿掉）
+期望：只有 ④ 红，其余 7 条绿
+实测：
+  test ...::m418_exact_limit_is_allowed_and_one_cent_over_is_rejected ... ok
+  test ...::m418_other_contract_orders_do_not_consume_this_contract ... ok
+  test ...::m418_soft_deleted_order_frees_quota ... ok
+  test ...::m418_update_excludes_self_so_a_full_contract_stays_editable ... FAILED
+  test ...::m418_update_over_limit_is_rejected_and_rolls_back ... ok
+  thread '...::tests::m418_update_excludes_self_so_a_full_contract_stays_editable' panicked at
+  app/src/business/erp/purchase/purchase_handler.rs:3937:14:
+  金额没变，本人这一张必须排除在已下单额之外: ApiError { code: 66019,
+  msg: "合同 P2A3-HT-FULL 额度不足：合同金额 22.6000，已下单 22.6000（不含作废单），
+        本单 22.60，下单后累计 45.2000 将超出合同额 0.0000", status: 409, ... }
+  test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 6484 filtered out; finished in 0.43s
+
+------------------------------------------------------------------
+M2：committed_amount 去掉 `AND status <> 'CANCELLED'`
+期望：只有 ⑤ 红
+实测：
+  test ...::m418_exact_limit_is_allowed_and_one_cent_over_is_rejected ... ok
+  test ...::m418_other_contract_orders_do_not_consume_this_contract ... ok
+  test ...::m418_soft_deleted_order_frees_quota ... ok
+  test ...::m418_update_excludes_self_so_a_full_contract_stays_editable ... ok
+  test ...::m418_update_over_limit_is_rejected_and_rolls_back ... ok
+  thread '...::tests::m418_cancelled_order_frees_quota' panicked at
+  app/src/business/erp/purchase/purchase_handler.rs:3977:14:
+  作废单不再占额度，第二张必须放行: ApiError { code: 66019,
+  msg: "合同 P2A3-HT-CAP30 额度不足：合同金额 30.0000，已下单 22.6000（不含作废单），
+        本单 22.60，下单后累计 45.2000 将超出合同额 7.4000", status: 409, ... }
+  test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 6484 filtered out; finished in 0.45s
+
+------------------------------------------------------------------
+M3：contract_model::contract_lock_full 的 SQL 去掉 `FOR UPDATE`
+期望：⑧ 并发用例红（且必须稳定红，不能偶发）
+实测（连跑 3 轮，全部红）：
+  == round 1
+  test ...::m418_concurrent_creates_only_one_wins ... FAILED
+  thread '...::tests::m418_concurrent_creates_only_one_wins' panicked at
+  app/src/business/erp/purchase/purchase_handler.rs:4059:9
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6491 filtered out; finished in 0.13s
+  == round 2
+  test ...::m418_concurrent_creates_only_one_wins ... FAILED   (同上)
+  test result: FAILED. 0 passed; 1 failed; ...
+  == round 3
+  test ...::m418_concurrent_creates_only_one_wins ... FAILED   (同上)
+  test result: FAILED. 0 passed; 1 failed; ...
+
+------------------------------------------------------------------
+还原：三处均用 cp 备份回写，还原后逐字节比对（diff -q 无差异），sha256：
+  purchase_model.rs    c8451acbbcea796c78521982de6f3ff6e977077ceb5cfadc511d090c95046b73
+  contract_model.rs    6598646eedc6175a3b4296530151a588a4e0396464ec7e8a7c5dd551e4e34ced
+  git status 这两个文件干净（不在本卡提交范围内）。

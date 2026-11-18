@@ -1,0 +1,36 @@
+== M4-18 采购单合同额度守卫演练 · PG 172.18.10.145:5432 / 库 cp_m418_guard_drill_3818855 ==
+== 0) 前置：模板库可克隆，演练库推到仓库当前版本
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m418_guard_drill_3818855
+  ---- 模板库版本 = V404
+  [32mPASS[0m 53 条迁移全部应用成功（演练库 = 仓库当前版本）
+== 0b) 模板自带的历史残留（跑用例前清理，逐行打印）
+  ---- 清掉跑前就存在的 PENDING 实例：FLW-20261110-DB2F055B
+  [32mPASS[0m 历史残留已清空（清理后 PENDING = 0）
+  ---- 基线：夹具供应商名下采购单 = 0 张
+== 1) 代码接线（守卫本体 + 两个入口 + 现算口径 + 行锁）
+  [32mPASS[0m 守卫本体 guard_contract_amount 在 purchase_handler.rs
+  [32mPASS[0m 建单入口调用守卫（exclude = None）
+  [32mPASS[0m 改单入口调用守卫（exclude = Some(id)，自己不算两遍）
+  [32mPASS[0m 守卫先锁合同行（contract_lock_full → FOR UPDATE）
+  [32mPASS[0m contract_lock_full 的 SQL 里确实有 FOR UPDATE
+  [32mPASS[0m 现算口径：contract_id 精确匹配 + 排除作废 + 排除软删
+  [32mPASS[0m 改单排除自己（exclude → AND id <> ?）
+  [32mPASS[0m 判据是 after > 合同额（正好用满放行，不是 >=）
+  [32mPASS[0m 超限用专用错误码 ERP_CONTRACT_AMOUNT_EXCEEDED（66019）
+  [32mPASS[0m 唯一写入口：create/update 各只有 1 个调用方（都在 purchase_handler.rs 的守卫之后）
+== 2) 真库用例：M4-18 八条（累计/边界/改单/排除自己/作废/软删/跨合同/并发）
+  [32mPASS[0m 8 条全绿（0 failed，0 ignored：没有 SKIP 假绿）
+== 3) 整套件回归：purchase_handler::tests 全量（确认新夹具没踩坏兄弟用例）
+  [32mPASS[0m 整套件 0 failed：test result: ok. 73 passed; 0 failed; 0 ignored; 0 measured; 6419 filtered out; finished in 3.17s
+== 4) 夹具残留（用例自清）
+  [32mPASS[0m 夹具供应商采购单回到基线（0 张）
+  [32mPASS[0m 四张额度夹具合同已清（P2A3-HT-CAP30/FULL/SHORT/OTHER 残留 0）
+== 5) 变异反证（改 1 处 → 恰好对应用例红 → 还原 sha256 一致）
+  [32mPASS[0m M1 去掉 exclude → 恰好 1 条红（m418_update_excludes_self_so_a_full_contract_stays_editable），其余 7 条绿
+  [32mPASS[0m M2 去掉 status <> 'CANCELLED' → 恰好 1 条红（m418_cancelled_order_frees_quota），其余 7 条绿
+  [32mPASS[0m M3 去掉 FOR UPDATE → 并发用例连跑 2 轮全红（不是偶发）
+  [32mPASS[0m purchase_model.rs 还原后 sha256 一致（c8451acbbcea796c78521982de6f3ff6e977077ceb5cfadc511d090c95046b73）
+  [32mPASS[0m contract_model.rs 还原后 sha256 一致（6598646eedc6175a3b4296530151a588a4e0396464ec7e8a7c5dd551e4e34ced）
+
+== 汇总：PASS=23 FAIL=0 ==

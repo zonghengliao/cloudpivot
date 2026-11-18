@@ -2150,6 +2150,15 @@ mod tests {
     const CONTRACT_ACTIVE_NO: &str = "P2A3-HT-ACTIVE";
     const CONTRACT_TINY_NO: &str = "P2A3-HT-TINY";
 
+    /// M4-18 额度守卫专用合同：**每张一个金额**，这样累积 / 边界 / 跨合同三类断言才有唯一解。
+    ///
+    /// 金额不是随手取的：`contract_req` 那一单的含税金额正好是 **22.60**（10 × 2.00 + 13%），
+    /// 于是 30 / 22.60 / 22.59 分别对应「两张顶破」「正好用满」「差一分拒绝」。
+    const CONTRACT_CAP30: &str = "d2a20001-0000-4000-8000-0000000000d1";
+    const CONTRACT_FULL: &str = "d2a20001-0000-4000-8000-0000000000d2";
+    const CONTRACT_SHORT: &str = "d2a20001-0000-4000-8000-0000000000d3";
+    const CONTRACT_OTHER: &str = "d2a20001-0000-4000-8000-0000000000d4";
+
     const FIXTURES: &[&str] = &[
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
          VALUES ('d2a20001-0000-4000-8000-000000000003', 'P2A2-PCS', '个', 1, NULL, 1.000000, 1, 1)
@@ -2200,6 +2209,27 @@ mod tests {
          VALUES ('d2a20001-0000-4000-8000-0000000000c3', 'P2A3-HT-TINY', 'P2A3 采购合同（1 元额度）',
                  'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
                  'P2A2 测试供应商', 1.0000, 'CNY',
+                 DATE '2026-01-01', DATE '2026-01-01', DATE '2027-12-31', 'ACTIVE')
+         ON CONFLICT (id) DO NOTHING",
+        // M4-18：额度守卫四张合同（30 / 22.60 / 22.59 / 1000，口径见上面常量注释）
+        "INSERT INTO biz_contract (id, contract_no, contract_name, contract_type, party_b_type,
+                                   party_b_id, party_b_name, amount, currency_code,
+                                   sign_date, start_date, end_date, status)
+         VALUES ('d2a20001-0000-4000-8000-0000000000d1', 'P2A3-HT-CAP30', 'P2A3 采购合同（30 元额度）',
+                 'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
+                 'P2A2 测试供应商', 30.0000, 'CNY',
+                 DATE '2026-01-01', DATE '2026-01-01', DATE '2027-12-31', 'ACTIVE'),
+                ('d2a20001-0000-4000-8000-0000000000d2', 'P2A3-HT-FULL', 'P2A3 采购合同（22.60 正好用满）',
+                 'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
+                 'P2A2 测试供应商', 22.6000, 'CNY',
+                 DATE '2026-01-01', DATE '2026-01-01', DATE '2027-12-31', 'ACTIVE'),
+                ('d2a20001-0000-4000-8000-0000000000d3', 'P2A3-HT-SHORT', 'P2A3 采购合同（22.59 差一分）',
+                 'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
+                 'P2A2 测试供应商', 22.5900, 'CNY',
+                 DATE '2026-01-01', DATE '2026-01-01', DATE '2027-12-31', 'ACTIVE'),
+                ('d2a20001-0000-4000-8000-0000000000d4', 'P2A3-HT-OTHER', 'P2A3 采购合同（跨合同对照）',
+                 'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
+                 'P2A2 测试供应商', 1000.0000, 'CNY',
                  DATE '2026-01-01', DATE '2026-01-01', DATE '2027-12-31', 'ACTIVE')
          ON CONFLICT (id) DO NOTHING",
     ];
@@ -2330,7 +2360,9 @@ mod tests {
         // 库里没有外键拦着，顺序靠这里写死，免得留下「PO 指着已删合同」的残行）
         let sql = format!(
             "DELETE FROM biz_contract WHERE id IN ('{CONTRACT_ACTIVE}'::uuid, \
-             '{CONTRACT_DRAFT}'::uuid, '{CONTRACT_TINY}'::uuid)"
+             '{CONTRACT_DRAFT}'::uuid, '{CONTRACT_TINY}'::uuid, \
+             '{CONTRACT_CAP30}'::uuid, '{CONTRACT_FULL}'::uuid, \
+             '{CONTRACT_SHORT}'::uuid, '{CONTRACT_OTHER}'::uuid)"
         );
         if let Err(err) = db().execute_with_params(&sql, vec![]).await {
             panic!("清理上一轮合同夹具失败：{err}");
@@ -3747,6 +3779,308 @@ mod tests {
             .unwrap();
         let detail = detail_of(second).await.unwrap();
         assert_eq!(detail.order.contract_id.as_deref(), Some(CONTRACT_ACTIVE));
+    }
+
+    // ==================== M4-18：合同额度「超限拒绝」（V-23 现算 + 行锁） ====================
+    //
+    // 卡面口径：*订单挂合同校验（金额不超合同）· 超限拒绝*。
+    //
+    // 守卫本体 = [`guard_contract_amount`]：事务内先 `contract_lock_full`（`FOR UPDATE`）锁合同行，
+    // 再 `purchase_model::committed_amount` 现算「其它未取消单 + 本单」，`> 合同额` 即 409。
+    // 两个入口各一处：建单（`create_purchase_order` 715 行）/ 改单（`update_purchase_order` 1057 行）。
+    //
+    // 判据只有一条：**合同下的有效单含税额累计不得超过合同金额**。它跨行，DDL 里写不出 CHECK，
+    // 所以这道守卫是唯一强制点 —— 下面 8 条用例把它拆成 8 个可单独被放宽的条件：
+    //   `>`→`>=`、漏掉 `exclude`、漏掉 `status <> 'CANCELLED'`、漏掉 `deleted_at IS NULL`、
+    //   漏掉 `contract_id = ?` 过滤、改单漏走守卫、建单漏走守卫、去掉行锁。
+    // 每个条件被放宽都会让**恰好一条**用例红（不是「都红」或「都不红」）。
+    //
+    // 夹具金额（见 `CONTRACT_CAP30` 等常量注释）：本夹具一单含税 **22.60**。
+
+    /// 一张合同下**计入额度**的采购单张数（独立于被测实现的第三条口径，用来验「回滚干净」）。
+    async fn live_orders_of(contract_id: &str) -> i64 {
+        // 必须绑 `Uuid` 而不是 `Text`：`contract_id` 是 uuid 列，驱动按列类型推断参数，
+        // 传 Text 会被拒（`cannot bind parameter to column type uuid`，首版实测）。
+        let id = Uuid::parse_str(contract_id).expect("夹具合同 id 必须是 uuid");
+        db().scalar_with_params(
+            "SELECT count(*) FROM biz_purchase_order \
+                  WHERE contract_id = ?::uuid AND status <> 'CANCELLED' AND deleted_at IS NULL",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("统计合同下的有效采购单")
+    }
+
+    /// ① 累计超限：30 元合同，第一张 22.60 放行，第二张 22.60（累计 45.20）→ **409 + 66019**，
+    ///    且被拒那张**整体回滚**（库里仍只有一张，已下单额停在 22.60）。
+    ///
+    /// 放宽点：把守卫写成「只看本单金额」（不累加）→ 第二张会过，这条红。
+    #[tokio::test]
+    async fn m418_cumulative_over_limit_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .expect("第一张 22.60 ≤ 30，必须放行");
+        assert_eq!(live_orders_of(CONTRACT_CAP30).await, 1);
+
+        let err = create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .expect_err("第二张：已下单 22.60 + 本单 22.60 = 45.20 > 30，必须拒绝");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert_eq!(
+            err.code,
+            error_code::ERP_CONTRACT_AMOUNT_EXCEEDED,
+            "必须用合同额度专用码 66019：{}",
+            err.msg
+        );
+        // 报文要让人自己就能算出「超在哪」：合同额 / 已下单 / 本单 / 下单后累计 / 超出
+        for needle in ["P2A3-HT-CAP30", "30.0000", "22.60", "45.20", "7.40"] {
+            assert!(err.msg.contains(needle), "报文缺少 {needle}：{}", err.msg);
+        }
+        assert_eq!(
+            live_orders_of(CONTRACT_CAP30).await,
+            1,
+            "被拒的单必须整体回滚，不许留半张"
+        );
+        let used = purchase_model::committed_amount(db(), Uuid::parse_str(CONTRACT_CAP30).unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(used, dec("22.60"), "被拒的单不许进已下单额");
+    }
+
+    /// ② 边界：**正好等于**合同额放行（守卫是 `>` 不是 `>=`），**差一分**拒绝。
+    ///
+    /// 放宽点：`>` 改成 `>=` → 「正好用满」那张被误拒；写成 `>=` 反过来的 `>` 会漏，都是这一条红。
+    #[tokio::test]
+    async fn m418_exact_limit_is_allowed_and_one_cent_over_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 22.60 == 22.60 → 放行
+        let exact = create_purchase_order(&contract_req(CONTRACT_FULL, None), None)
+            .await
+            .expect("合同额 22.60、本单 22.60：正好用满必须放行");
+        let detail = detail_of(exact).await.unwrap();
+        assert_eq!(detail.order.total_with_tax, dec("22.60"));
+        assert_eq!(detail.order.contract_id.as_deref(), Some(CONTRACT_FULL));
+
+        // 22.60 > 22.59 → 拒
+        let err = create_purchase_order(&contract_req(CONTRACT_SHORT, None), None)
+            .await
+            .expect_err("合同额 22.59、本单 22.60：差 1 分也必须拒");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED, "{}", err.msg);
+
+        // 已经用满的合同再来一张，同样拒（边界不是「只放第一张」的特例）
+        let err = create_purchase_order(&contract_req(CONTRACT_FULL, None), None)
+            .await
+            .expect_err("合同已用满，第二张必须拒");
+        assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED, "{}", err.msg);
+
+        assert_eq!(live_orders_of(CONTRACT_FULL).await, 1);
+        assert_eq!(live_orders_of(CONTRACT_SHORT).await, 0, "差一分那张一张都不许落库");
+    }
+
+    /// ③ 改单也走守卫：把 22.60 改成 45.20（> 30）→ 409，且**明细与金额原地不动**。
+    ///
+    /// 放宽点：改单漏走 `guard_contract_amount`（只建单拦）→ 这条红。
+    /// 回滚断言是必须的：先「金额改了单没改」的半张单比不拦更糟。
+    #[tokio::test]
+    async fn m418_update_over_limit_is_rejected_and_rolls_back() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .unwrap();
+
+        let mut bigger = contract_req(CONTRACT_CAP30, None);
+        bigger.items[0].qty = Some(dec("20")); // 40 × 1.13 = 45.20 > 30
+
+        let err = update_purchase_order(id, &bigger, None)
+            .await
+            .expect_err("改单后 45.20 > 合同额 30，必须拒绝");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED, "{}", err.msg);
+        assert!(err.msg.contains("P2A3-HT-CAP30"), "{}", err.msg);
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.total_with_tax, dec("22.60"), "被拒的改单必须整单回滚");
+        assert_eq!(detail.items.len(), 1);
+        assert_eq!(detail.items[0].qty, dec("10"), "明细数量不许半途改掉");
+        assert_eq!(live_orders_of(CONTRACT_CAP30).await, 1, "改单不许变成「多一张单」");
+    }
+
+    /// ④ 改单**排除自己**：合同 22.60 正好被这一张用满，改它的备注（金额不变）必须放行。
+    ///
+    /// 放宽点：漏掉 `exclude = Some(id)` → 自己会被算两遍（22.60 + 22.60 = 45.20 > 22.60），
+    /// 这张「用满的合同上的单」从此再也改不了（连改备注都不行），这条红。
+    #[tokio::test]
+    async fn m418_update_excludes_self_so_a_full_contract_stays_editable() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&contract_req(CONTRACT_FULL, None), None)
+            .await
+            .expect("正好用满的合同：建单放行");
+
+        let mut same = contract_req(CONTRACT_FULL, None);
+        same.remark = Some("M4-18 改备注：金额不变".to_string());
+        update_purchase_order(id, &same, None)
+            .await
+            .expect("金额没变，本人这一张必须排除在已下单额之外");
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.remark.as_deref(), Some("M4-18 改备注：金额不变"));
+        assert_eq!(detail.order.total_with_tax, dec("22.60"));
+        let used = purchase_model::committed_amount(db(), Uuid::parse_str(CONTRACT_FULL).unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(used, dec("22.60"), "已下单额不许因为一次改备注翻倍");
+    }
+
+    /// ⑤ 作废**释放**额度：作废第一张后，第二张就能过（口径 `status <> 'CANCELLED'`）。
+    ///
+    /// 放宽点：`committed_amount` 漏掉 `status <> 'CANCELLED'` → 作废单继续占额度，
+    /// 用户「作废重开」时会一直被拒（账上明明没这张单），这条红。
+    #[tokio::test]
+    async fn m418_cancelled_order_frees_quota() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let first = create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .unwrap();
+        // 对照组：未作废时第二张必须被拒（证明下面的放行是「作废释放的」，不是额度本来够）
+        let err = create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .expect_err("未作废时累计 45.20 > 30");
+        assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED, "{}", err.msg);
+
+        change_purchase_order_status(
+            first,
+            &status_req(STATUS_CANCELLED, Some("M4-18 演练：供应商断供，改走另一家")),
+            None,
+        )
+        .await
+        .expect("草稿作废");
+
+        let second = create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .expect("作废单不再占额度，第二张必须放行");
+        let used = purchase_model::committed_amount(db(), Uuid::parse_str(CONTRACT_CAP30).unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(used, dec("22.60"), "作废单不计入已下单额");
+        assert_eq!(live_orders_of(CONTRACT_CAP30).await, 1);
+        assert_eq!(
+            detail_of(second).await.unwrap().order.contract_id.as_deref(),
+            Some(CONTRACT_CAP30)
+        );
+    }
+
+    /// ⑥ 软删**释放**额度：删掉草稿后额度回来（口径 `deleted_at IS NULL`）。
+    ///
+    /// 放宽点：漏掉 `deleted_at IS NULL` → 删掉的单永远占着额度，这条红。
+    #[tokio::test]
+    async fn m418_soft_deleted_order_frees_quota() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let first = create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .unwrap();
+        delete_purchase_order(first, None).await.expect("草稿可软删");
+
+        create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .expect("软删的单不再占额度");
+        assert_eq!(live_orders_of(CONTRACT_CAP30).await, 1);
+    }
+
+    /// ⑦ 跨合同不串额：1000 元合同上的单，不影响 30 元合同的额度（口径 `contract_id = ?`）。
+    ///
+    /// 放宽点：`committed_amount` 漏掉 `contract_id = ?`（按供应商 / 全表累加）→ 这张红。
+    #[tokio::test]
+    async fn m418_other_contract_orders_do_not_consume_this_contract() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        create_purchase_order(&contract_req(CONTRACT_OTHER, None), None)
+            .await
+            .expect("1000 元合同");
+        create_purchase_order(&contract_req(CONTRACT_CAP30, None), None)
+            .await
+            .expect("30 元合同的额度不受别的合同影响");
+
+        for (contract, expected) in [(CONTRACT_CAP30, "22.60"), (CONTRACT_OTHER, "22.60")] {
+            let used = purchase_model::committed_amount(db(), Uuid::parse_str(contract).unwrap(), None)
+                .await
+                .unwrap();
+            assert_eq!(used, dec(expected), "{contract} 的已下单额必须只算自己");
+        }
+    }
+
+    /// ⑧ 并发：两张各 22.60 **同时**往 30 元合同下单 → 只准一张过，另一张 409。
+    ///
+    /// 这道守卫唯一的并发保证是 `contract_lock_full` 的 `FOR UPDATE`：两个事务先锁合同行，
+    /// 后者必须等前者**提交**，之后它那条 `SUM` 才看得见前者那张单（READ COMMITTED 下
+    /// 语句级快照在拿到锁之后才取）。去掉行锁 → 两边都读到 `used = 0` → 45.20 进 30 元合同，
+    /// 这条立刻红。`multi_thread` 是必需的：`current_thread` 下两个 future 不会真正交错。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn m418_concurrent_creates_only_one_wins() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let left = contract_req(CONTRACT_CAP30, None);
+        let right = contract_req(CONTRACT_CAP30, None);
+        let (left_result, right_result) =
+            tokio::join!(async move { create_purchase_order(&left, None).await }, async move {
+                create_purchase_order(&right, None).await
+            });
+        let results = [left_result, right_result];
+
+        let wins = results.iter().filter(|result| result.is_ok()).count();
+        let rejected: Vec<String> = results
+            .iter()
+            .filter_map(|result| result.as_ref().err())
+            .map(|error| format!("{} {}", error.code, error.msg))
+            .collect();
+        assert_eq!(
+            wins, 1,
+            "两张 22.60 都过 = 合同被超买（30 元额度里塞了 45.20）；被拒方：{rejected:?}"
+        );
+        assert_eq!(rejected.len(), 1, "必须恰好一张被拒");
+        let error = results
+            .iter()
+            .find_map(|result| result.as_ref().err())
+            .expect("被拒的那张");
+        assert_eq!(error.status, 409, "{}", error.msg);
+        assert_eq!(
+            error.code,
+            error_code::ERP_CONTRACT_AMOUNT_EXCEEDED,
+            "并发下被拒的原因必须是「额度不足」，不能是锁超时 / 死锁之类：{}",
+            error.msg
+        );
+        assert_eq!(
+            live_orders_of(CONTRACT_CAP30).await,
+            1,
+            "库里只许留一张（另一张必须整体回滚）"
+        );
+        let used = purchase_model::committed_amount(db(), Uuid::parse_str(CONTRACT_CAP30).unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(used, dec("22.60"), "已下单额不许超过合同额");
     }
 
     /// ㉒ 下单日期超出合同有效期 → 400 + 66014（V-22 第四步）。
