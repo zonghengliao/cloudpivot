@@ -1,0 +1,17 @@
+server pid=4086827 port=18023
+health OK after 2s
+{"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"dev","time":"2026-11-18T18:00:31.895082067+00:00"}}
+login OK (token len 461)
+--- 1) 归集表：缺 period_code ⇒ 应 400 ---
+http=400
+{"code":10001,"msg":"period_code 必填（yyyy-MM，例如 2026-11）：归集额是「期间 × 批次」的量，没有期间就没有这张表"}
+--- 2) 归集表：2026-08 正常查询（page_size=3） ---
+http=200
+{"code":0,"msg":"ok","data":{"period_code":"2026-08","totals":{"mat":"0.0000","labor":"0.0000","oh":"0.0000","total":"0.0000","line_count":0,"batch_count":0},"list":[{"object_id":"01a1efba-34e4-705b-acf6-a8297b536321","object_no":"CB-M502-T1-239000","object_type":"BATCH","source_doc_no":"SO-M502-THEIRS","lot_no":"LOT-T1-239000","product_id":"3b45e539-d260-80d7-9f1a-0b34479750f3","product_code":"M502-MAT-281823239000","product_name":"M5-02 夹具产出品 281823239000","workshop_dept_id":"a91b41c7-de1e-81ee-861c-65e033d98780","workshop_dept_name":"M5-02 夹具第二车间 281823239000","plan_qty":"100.0000","completed_qty":"0.0000","wip_qty":"0.0000","completion_pct":"0.00","status":"OPEN","start_date":"2031-07-01","due_date":null,"mat":"0.0000","labor":"0.0000","oh":"0.0000","total":"0.0000","line_count":0,"last_occur_date":null},{"object_id":"01a1efba-34e3-70c7-9796-fd3f1b19965d","object_no":"CB-M502-M1-239000","object_type":"BATCH","source_doc_no":"SO-M502-MINE","lot_no":"LOT-M1-239000","product_id":"3b45e539-d260-80d7-9f1a-0b34479750f3","product_code":"M502-MAT-281823239000","product_name":"M5-02 夹具产出品 281823239000","workshop_dept_id":"fc2f6bf6-4e65-88e4-8e90-a39d94d89638","workshop_dept_name":"M5-02 夹具车间 281823239000","plan_qty":"100.0000","completed_qty":"0.0000","wip_qty":"0.0000","completion_pct":"0.00","status":"OPEN","start_date":"2031-07-01","due_date":null,"mat":"0.0000","labor":"0.0000","oh":"0.0000","total":"0.0000","line_count":0,"last_occur_da
+--- 3) 明细：不存在的批次 ⇒ 应 404 ---
+http=404
+{"code":10002,"msg":"批次不存在、已删除，或不在你的数据范围（00000000-0000-0000-0000-000000000000）。归集表请用 GET /business/erp/cost-collect-sheet?period_code=yyyy-MM"}
+--- 4) 排序注入 ⇒ 应 400 ---
+http=400
+{"code":10001,"msg":"sort 只认 [\"total\", \"object_no\", \"order_no\", \"start_date\"]（收到「amount desc;drop table x」）"}
+server stopped

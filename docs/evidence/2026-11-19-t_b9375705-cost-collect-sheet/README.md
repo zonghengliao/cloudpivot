@@ -35,12 +35,20 @@
 | `02_clippy.out` | `cargo clippy -p cloudpivot --lib --tests -- -D warnings` | 零告警（`rc=0`） |
 | `03_tests_and_regression.out` | ① 本卡 25 条（16 纯函数 + 9 真库）② 成本域全量 `business::erp::cost::` ③ 数据范围接线守卫 `d8c_wiring_anchors_exist_in_source` | ① **25 passed** ② **695 passed / 0 failed** ③ **1 passed** |
 | `04_permission_audit.out` | `system::menu::permission_audit_tests`（N14 死码 / N15 码形状 / N16 裸路由 / N18 例外台账 / N20 非超管授权 / N21 模板遮蔽） | **8 passed** |
+| `05_http_probe.out` | 起隔离实例（`:18023`）→ admin 登录 → 打 4 种请求 | 缺 `period_code` ⇒ **400**（报文说清为什么必填）；`2026-08` ⇒ **200**（完整 JSON：`totals` + 每行 `mat/labor/oh/total/line_count/last_occur_date`）；不存在批次 ⇒ **404**；`sort=amount desc;drop table x` ⇒ **400**（回显收到什么） |
+| `06_http_probe_with_data.out` | 造一个批次（料 100+50、工 30、费 20）→ 归集表 + 明细 → 清场 | 表行 `mat=150.0000 / labor=30.0000 / oh=20.0000 / total=200.0000 / line_count=4 / last_occur_date=2031-07-20`；明细 4 笔（料 2 笔带数量、工/费 `qty=null`），**明细三项和 == 表行**；清场后残留计数 **0** |
 | `07_teeth_a_scope_totals.out` | 反证 A：把合计的数据范围片段改成恒真 | 红：`合计也必须按范围裁剪` left `1000.0000` / right `100.0000`（100 本部门 + 900 别部门被算进来） |
 | `08_teeth_b_bind_guard.out` | 反证 B：`page_rows` 少推一个期间参数 | 红且**拒绝执行**：`SQL 占位符与参数数量不一致（?=2，参数=1）：参数错位会静默绑错值，拒绝执行` |
 | `09_model_sha_after_restore.txt` / `00_model_sha_before.txt` | 反证后还原 | `ded092b4…3ca9f` 逐字节一致 |
 | `10_after_restore_green.out` | 还原后重跑 | 25 passed / 0 failed |
 
 > 反证模板：`mutate_scope.py`（scratch，仅本机）；A 换 `totals` 的范围片段为 `allow_all()`，B 删掉 `page_rows` 里的期间参数推送。
+
+### 真跑实例的两个前置（排障用，不是缺陷）
+
+1. **成本模块开关**：`sys_config.erp.cost.enabled` 默认 `false` ⇒ 所有 `/business/erp/cost*` 路由统一 `403 + 66079`（框架级守卫，本卡的两条路由同样被守）。真跑前置 `true`。
+2. **首登强制改密**：`admin` 的 `must_change_password=true` 时除改密/登出外一律 403；真跑前置 `false`（生产环境当然要留着，改成走一次改密流程）。
+
 
 ## 四、9 条真库用例覆盖（`cost_collect_sheet_db_tests.rs`）
 

@@ -1,0 +1,98 @@
+=== 0) 清掉可能的历史残留（只按本探针的固定 id 前缀） ===
+=== 1) 造夹具（车间 / 产出品 / 仓库 / 批次 + 料100+50、工30、费20） ===
+INSERT 0 1
+INSERT 0 1
+ERROR:  null value in column "warehouse_path" of relation "biz_warehouse" violates not-null constraint
+DETAIL:  Failing row contains (a5e00000-0000-4000-8000-0000000a0003, M5W2HTTP, M5-02 接口探针仓, NORMAL, null, 0, null, 1, 0, null, 2026-11-19 02:01:05.972195+08, 2026-11-19 02:01:05.972195+08, null, null, null, null, 1, null, 1).
+INSERT 0 1
+INSERT 0 4
+health: {"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"dev","t
+token len=461
+=== 2) GET 归集表（period=2031-07, 车间=探针车间） ===
+http=200
+{
+  "period_code": "2031-07",
+  "totals": {
+    "mat": "150.0000",
+    "labor": "30.0000",
+    "oh": "20.0000",
+    "total": "200.0000",
+    "line_count": 4,
+    "batch_count": 1
+  },
+  "list": [
+    {
+      "object_id": "a5e00000-0000-4000-8000-0000000a0004",
+      "object_no": "CB-M502-HTTP-000001",
+      "object_type": "BATCH",
+      "source_doc_no": "SO-M502-HTTP",
+      "lot_no": "LOT-HTTP-1",
+      "product_id": "a5e00000-0000-4000-8000-0000000a0002",
+      "product_code": "M502-MAT-HTTP",
+      "product_name": "M5-02 接口探针产出品",
+      "workshop_dept_id": "a5e00000-0000-4000-8000-0000000a0001",
+      "workshop_dept_name": "M5-02 接口探针车间",
+      "plan_qty": "100.0000",
+      "completed_qty": "0.0000",
+      "wip_qty": "0.0000",
+      "completion_pct": "0.00",
+      "status": "OPEN",
+      "start_date": "2031-07-01",
+      "due_date": null,
+      "mat": "150.0000",
+      "labor": "30.0000",
+      "oh": "20.0000",
+      "total": "200.0000",
+      "line_count": 4,
+      "last_occur_date": "2031-07-20"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20
+}
+=== 3) GET 明细（该批次 · 同期间） ===
+http=200
+{
+  "batch": "CB-M502-HTTP-000001",
+  "totals": {
+    "mat": "150.0000",
+    "labor": "30.0000",
+    "oh": "20.0000",
+    "total": "200.0000"
+  },
+  "lines": [
+    [
+      "直接材料",
+      "100.0000",
+      "10.0000",
+      "HTTP-MAT-1"
+    ],
+    [
+      "直接材料",
+      "50.0000",
+      "5.0000",
+      "HTTP-MAT-2"
+    ],
+    [
+      "直接人工",
+      "30.0000",
+      null,
+      "HTTP-LAB-1"
+    ],
+    [
+      "制造费用",
+      "20.0000",
+      null,
+      "HTTP-OH-1"
+    ]
+  ]
+}
+server stopped
+=== 4) 清场并回查（应全 0） ===
+DELETE 4
+DELETE 1
+DELETE 1
+DELETE 0
+DELETE 1
+0
