@@ -37,8 +37,10 @@
 //!
 //! 1. 删本文件与 `mod.rs` 里的 `pub mod permission_alias;`；
 //! 2. 删 `auth::model::load_permissions_uncached` 末尾的 `expand(...)` 调用；
-//! 3. 删 [`LEGACY_ALIASES`] 的 **unit 用例**（`tests` 里会断言表与
-//!    `contract_handler::PERMISSIONS` 逐条对应，删一半会红 —— 这是故意的）。
+//! 3. 删 [`LEGACY_ALIASES`] 与 `contract_handler::LEGACY_PERMISSIONS` 的**守门单测**
+//!    （`app/src/kernel_axis_tests.rs` 的 `contract_aliases_match_handler_permissions`
+//!    断言「已切换码 ⊆ PERMISSIONS」+ 旧码列与 `LEGACY_PERMISSIONS` 逐条一致，
+//!    删一半会红 —— 这是故意的）。
 //!
 //! 判据：线上已无 `erp:contract:*` 的调用方（WAF / 访问日志 0 命中）且所有令牌都过了
 //! 最长有效期。
@@ -46,8 +48,17 @@
 /// 旧码 → 规范码对照表（`(legacy, canonical)`）。
 ///
 /// **一行一个已切换的码**，不允许前缀/通配式映射（那会让「谁的旧码」变成不可审计的推理）。
-/// 表与 [`crate::business::erp::contract::contract_handler::PERMISSIONS`] 由单测钉死：
-/// 任一侧改了而另一侧没跟 → `contract_aliases_match_handler_permissions` 红。
+///
+/// 两条守门判据（`app/src/kernel_axis_tests.rs` 的
+/// `contract_aliases_match_handler_permissions`，任一侧改了而另一侧没跟 → 红）：
+///
+/// 1. 旧码列与 `contract_handler::LEGACY_PERMISSIONS` 逐条一致；
+/// 2. 每一行的规范码都必须是 `contract_handler::PERMISSIONS` 里真实存在的码。
+///
+/// ⚠ **前缀统一之后新增、从来没有旧码的码不进本表**（例：`business:erp:contract:execution`，
+/// M4-19）。它们在用例里走 `ADDED_AFTER_PREFIX_UNIFICATION` 白名单：本表的语义只是
+/// 「已切换码」，塞进新增码会变成线上永不命中的假映射，兼容期收尾（整表删除）时也说不清
+/// 哪些能删。
 pub const LEGACY_ALIASES: [(&str, &str); 5] = [
     ("erp:contract:list", "business:erp:contract:list"),
     ("erp:contract:create", "business:erp:contract:create"),

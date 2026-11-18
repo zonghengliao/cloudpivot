@@ -94,6 +94,11 @@ pub const PERM_STATUS: &str = "business:erp:contract:status";
 /// `sys_menu` 行 + `V0458__erp_contract_execution.up.sql` 追加的第 6 条
 /// （`…:execution`，M4-19 执行量统计）就是这个数组。任一侧改动而另一侧没跟，
 /// `contract_permissions_match_menu` 用例会红。
+///
+/// ⚠ 加码时的另一半：`app/src/kernel_axis_tests.rs` 的
+/// `contract_aliases_match_handler_permissions` 会要求本数组里**多出 [`LEGACY_PERMISSIONS`]
+/// 的那几个码**逐条登记进 `ADDED_AFTER_PREFIX_UNIFICATION`（新增码）或补一条别名映射
+/// （真做过改名的码）。新增码不该有别名 —— 别为了让用例变绿往 `LEGACY_ALIASES` 塞假映射。
 pub const PERMISSIONS: [&str; 6] = [
     PERM_LIST,
     PERM_CREATE,

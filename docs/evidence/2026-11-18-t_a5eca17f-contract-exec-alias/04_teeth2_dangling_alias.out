@@ -1,0 +1,23 @@
+   Compiling cloudpivot-kernel v0.1.0 (/opt/cloudpivot/backend/crates/cloudpivot-kernel)
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test kernel_axis_tests::contract_aliases_match_handler_permissions ... FAILED
+
+failures:
+
+---- kernel_axis_tests::contract_aliases_match_handler_permissions stdout ----
+
+thread 'kernel_axis_tests::contract_aliases_match_handler_permissions' (3943585) panicked at app/src/kernel_axis_tests.rs:80:5:
+LEGACY_ALIASES 指向了 contract_handler::PERMISSIONS 里不存在的码：{"business:erp:contract:audit"}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    kernel_axis_tests::contract_aliases_match_handler_permissions
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

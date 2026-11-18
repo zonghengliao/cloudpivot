@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 4 tests
+test business::erp::contract::contract_handler::tests::contract_permission_constants_match_list ... ok
+test business::erp::contract::contract_handler::tests::contract_legacy_codes_alias_both_ways ... ok
+test business::erp::contract::contract_handler::tests::contract_permission_codes_are_well_formed ... ok
+test business::erp::contract::contract_handler::tests::contract_permissions_match_menu ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 6559 filtered out; finished in 0.00s
+

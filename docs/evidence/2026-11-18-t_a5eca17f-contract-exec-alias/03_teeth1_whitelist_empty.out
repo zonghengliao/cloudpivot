@@ -1,0 +1,24 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 26s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 1 test
+test kernel_axis_tests::contract_aliases_match_handler_permissions ... FAILED
+
+failures:
+
+---- kernel_axis_tests::contract_aliases_match_handler_permissions stdout ----
+
+thread 'kernel_axis_tests::contract_aliases_match_handler_permissions' (3942549) panicked at app/src/kernel_axis_tests.rs:90:5:
+assertion `left == right` failed: contract_handler::PERMISSIONS 里出现了别名表没有的码：要么它是「P2-4 之后新增、从来没有旧码」的码（登记进 ADDED_AFTER_PREFIX_UNIFICATION），要么你忘了在 LEGACY_ALIASES 补它的旧码映射
+  left: {"business:erp:contract:execution"}
+ right: {}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    kernel_axis_tests::contract_aliases_match_handler_permissions
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
