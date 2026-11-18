@@ -52,6 +52,7 @@
 | `bash scripts/check.sh --l0` 该项仍绿 | `06_check_l0.out` | `rc=0`，`✓ 自检通过（17/17 条）` + `✓ 任务链结构完整`，`==> 全部检查通过（L0）` |
 | 真库 `python3 scripts/lint/task_chain_valid.py` → `✓` | `07_live_check.out` | `rc=0`，`主链 110 张，未完成 110 张`，`✓ 任务链结构完整` |
 | `--selftest` 自身可跑 | `05_selftest.out` | `rc=0`，17/17 |
+| push 前 pre-push 钩子（L0+L1） | （`git push` 输出） | `✓ pre-push 门禁通过（L0+L1，耗时 98s）`；远端 `origin/main = 05f54dae` |
 
 ## 五、反证（`--selftest` 有牙）
 
