@@ -1,0 +1,6 @@
+test business::erp::report::tests::r1_real_previous_period_comparison ... ok
+test business::erp::report::tests::r1_tax_details_roll_up_into_tax_item ... ok
+test business::erp::report::tests::r1_tiny_diff_is_not_rounded_away ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 6550 filtered out; finished in 0.22s
+

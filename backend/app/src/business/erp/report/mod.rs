@@ -2355,8 +2355,98 @@ mod tests {
     }
 
     // ---------- 真库用例（ERP_DB_URL） ----------
+    //
+    // 夹具判据 `voucher_word = 'ERPR1'`（本模块独占）。清场由 `purge_fixtures()` 统一负责
+    // （顺序：先按凭证 id 删 `biz_status_log`、再删凭证、最后删本模块独占的 2019-12 / 2020-01 期间），
+    // `setup_fixture()` 每次开头调它，模块最后由 `zz_teardown_purges_fixtures` 再调一次并断言残留 0 ——
+    // 只靠开头那次清场的话，本模块最后一条用例（⑭ 造 0201）造的东西会一直留到下一轮
+    // （卡 `t_60c193ef`）。
 
     const FIXTURE_WORD: &str = "ERPR1";
+
+    /// 清场：删掉本模块造的全部夹具凭证（`voucher_word = 'ERPR1'`，本模块独占）、它们写过的
+    /// `VOUCHER` 状态日志，以及本模块独占的两个期间（`2019-12` / `2020-01`）。
+    ///
+    /// # 为什么先删状态日志、再删凭证行
+    ///
+    /// `biz_status_log` **没有外键**（审计留痕表刻意不跟单据级联，见 `V0159` 注释「日志必须比业务行
+    /// 活得久」），凭证行一删，它写过的 `entity_id` 就再也查不到了 ⇒ 日志变孤儿（判据
+    /// `entity_type = 'VOUCHER' AND entity_id NOT IN (SELECT id FROM biz_voucher)`），
+    /// 而全仓的孤儿扫描会一直把它们数进去。顺序反了会静默留孤儿（卡 `t_7938e24a` 的同类根因）。
+    ///
+    /// 返回删掉的**凭证行数**（状态日志条数打印出来，方便对照）。
+    async fn purge_fixtures() -> i64 {
+        let logs_sql = format!(
+            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' \
+              AND entity_id IN (SELECT id FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}')"
+        );
+        let logs = db()
+            .execute_with_params(logs_sql.as_str(), vec![])
+            .await
+            .unwrap_or_else(|error| panic!("清场失败（删夹具凭证的 VOUCHER 状态日志）：{error}"));
+        let vouchers_sql = format!("DELETE FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'");
+        let vouchers = db()
+            .execute_with_params(vouchers_sql.as_str(), vec![])
+            .await
+            .unwrap_or_else(|error| panic!("清场失败（删夹具凭证）：{error}"));
+        // 只删本用例自己的两个期间（按 period_code 收敛，不整库扫、不碰别的年度）：
+        //   2019-12 —— 「本期没有期间行」样本，必须保证 0 行（下面 fail-closed 断言）；
+        //   2020-01 —— 「本期有行、上期 2019-12 无行」样本，先删再插，状态/区间由夹具钉死。
+        db().execute_with_params(
+            "DELETE FROM biz_accounting_period WHERE period_code IN ('2019-12', '2020-01')",
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("清场失败（删夹具期间 2019-12 / 2020-01）：{error}"));
+        let (logs, vouchers) = (i64::try_from(logs).unwrap_or(0), i64::try_from(vouchers).unwrap_or(0));
+        if vouchers > 0 || logs > 0 {
+            println!("[R1] 清场：删夹具凭证 {vouchers} 张、其 VOUCHER 状态日志 {logs} 条");
+        }
+        vouchers
+    }
+
+    /// 本模块夹具凭证的条数（按 `voucher_word` —— 只用这个词定位，不按单号前缀猜：
+    /// 生产号段是 `PZ-YYYYMMDD-*`，按前缀删会误伤真数据）。
+    async fn fixture_vouchers() -> i64 {
+        let sql = format!("SELECT count(*) FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'");
+        db().scalar(sql.as_str())
+            .await
+            .unwrap_or_else(|error| panic!("统计夹具凭证失败：{error}"))
+    }
+
+    /// 本模块夹具凭证的 id（清场前抓下来，清场后靠它们数状态日志 —— 凭证一删就查不到 id 了）。
+    async fn fixture_voucher_ids() -> Vec<Uuid> {
+        let sql = format!("SELECT id FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}' ORDER BY voucher_no");
+        let rows = db()
+            .find_with_params(sql.as_str(), vec![])
+            .await
+            .unwrap_or_else(|error| panic!("读夹具凭证 id 失败：{error}"));
+        rows.iter()
+            .map(|row| {
+                row.get_typed("id")
+                    .unwrap_or_else(|error| panic!("夹具凭证 id：{error}"))
+            })
+            .collect()
+    }
+
+    /// 这些凭证 id 上的 `VOUCHER` 状态日志条数（清场后必须是 0）。
+    async fn status_logs_of(ids: &[Uuid]) -> i64 {
+        if ids.is_empty() {
+            return 0;
+        }
+        let list = ids
+            .iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT count(*) FROM biz_status_log \
+              WHERE entity_type = 'VOUCHER' AND entity_id IN ({list})"
+        );
+        db().scalar(sql.as_str())
+            .await
+            .unwrap_or_else(|error| panic!("统计夹具凭证状态日志失败：{error}"))
+    }
 
     /// 清夹具 + 建本模块要用的期间（**幂等**，前提由夹具自己保证）。
     ///
@@ -2370,12 +2460,10 @@ mod tests {
         if !ensure_db().await {
             return None;
         }
+        purge_fixtures().await;
         let statements = [
-            format!("DELETE FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'"),
-            // 只删本用例自己的两个期间（按 period_code 收敛，不整库扫、不碰别的年度）：
-            //   2019-12 —— 「本期没有期间行」样本，必须保证 0 行（下面 fail-closed 断言）；
-            //   2020-01 —— 「本期有行、上期 2019-12 无行」样本，先删再插，状态/区间由夹具钉死。
-            "DELETE FROM biz_accounting_period WHERE period_code IN ('2019-12', '2020-01')".to_string(),
+            // 2026-09 / 2026-10 / 2026-11 是「期间存在」的样本（与 `income_statement` / `cash_flow`
+            // 共用，故不在本模块收尾里删）；`ON CONFLICT DO NOTHING` 保证与别人的夹具幂等共存。
             "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
              start_date, end_date, status) VALUES (2026, 10, '2026-10', '2026-10-01', '2026-10-31', 'OPEN') \
              ON CONFLICT (period_code) DO NOTHING"
@@ -2602,9 +2690,7 @@ mod tests {
         let broken = check_of(&run("2026-10").await);
 
         // 先清理（含那张已经被弄坏的凭证），再做断言
-        db().execute_with_params("DELETE FROM biz_voucher WHERE voucher_word = 'ERPR1'", vec![])
-            .await
-            .expect("清理夹具凭证");
+        purge_fixtures().await;
 
         assert!(
             base_check.balanced && posted.balanced,
@@ -2683,10 +2769,9 @@ mod tests {
             report.check.hints
         );
         println!("[R1-⑬] 空月份 400；有账无期间 → DERIVED + 提示开账 ✓");
-        // 收尾：清掉这张"无期间行月份"的凭证，避免给后续用例/不变量套件留噪声
-        db().execute_with_params("DELETE FROM biz_voucher WHERE voucher_word = 'ERPR1'", vec![])
-            .await
-            .expect("清理夹具凭证");
+        // 收尾：清掉这张"无期间行月份"的凭证（连它的状态日志/夹具期间一起），
+        // 避免给后续用例/不变量套件留噪声
+        purge_fixtures().await;
     }
 
     /// ⑭ 真库：上期对比能取到（2026-09 建过期间 → 出对比；上期 2019-12 没行 → 不出）。
@@ -2815,5 +2900,87 @@ mod tests {
             accounts.len(),
             sheet.unmapped.len()
         );
+    }
+
+    /// 收尾清场（`zz_` 排本模块最后跑）：本模块夹具凭证 / 状态日志 / 独占期间必须一条不留。
+    ///
+    /// # 为什么 `setup_fixture()` 里清不够
+    ///
+    /// `setup_fixture()` 的清场只对**本模块的下一条用例**生效。libtest 按用例全名排序，
+    /// 本模块最后跑的是 `r1_real_previous_period_comparison`（⑭），它造的 `0201` 那张
+    /// POSTED 凭证（`summary='ERPR1 夹具'`、两条分录、期间 `2026-08`）就一直躺在库里，
+    /// 直到下一次有人跑本模块 —— 于是「全量跑完净增量 = 0」这类统计永远非 0
+    /// （卡 `t_60c193ef`，姊妹病灶 `t_255fb28e`）。
+    ///
+    /// # 为什么还要给凭证补一条状态日志
+    ///
+    /// 夹具是用裸 SQL 灌凭证的，**自己不写** `biz_status_log`。只断言「日志 0 条」等于断言一个
+    /// 空集合 ⇒ 假绿。所以这里显式补上「凭证落库时会写的那条日志」，让 [`purge_fixtures`] 的
+    /// 「先删日志、再删凭证」那条腿真的有牙：顺序反了 / 漏删日志，这条断言当场红。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixtures() {
+        let Some(_guard) = setup_fixture().await else {
+            return;
+        };
+        // 用 ⑭ 最后留下的那张同款夹具（0201 / 2026-08-20 / 1002→3001）当样本。
+        post_voucher("0201", "2026-08-20", "2026-08", "1002", "3001", 700).await;
+        assert_eq!(
+            fixture_vouchers().await,
+            1,
+            "清场前必须先把夹具造出来（否则「删了个寂寞」也会绿）"
+        );
+        let ids = fixture_voucher_ids().await;
+        assert_eq!(ids.len(), 1, "清场前的夹具凭证 id 必须抓到 1 个");
+
+        // 牙齿：补一条真实链路（`state_machine::transition`）会写的建单日志。
+        let logs_sql = format!(
+            "INSERT INTO biz_status_log \
+                (entity_type, entity_id, entity_no, from_status, to_status, operator_name, created_at) \
+             SELECT 'VOUCHER', v.id, v.voucher_no, NULL, v.status, 'ERPR1 夹具', NOW() \
+               FROM biz_voucher v WHERE v.voucher_word = '{FIXTURE_WORD}'"
+        );
+        db().execute_with_params(logs_sql.as_str(), vec![])
+            .await
+            .unwrap_or_else(|error| panic!("造夹具凭证的 VOUCHER 状态日志失败：{error}"));
+        assert_eq!(
+            status_logs_of(&ids).await,
+            1,
+            "清场前夹具凭证该带上一条状态日志（这是「先删日志」那条腿的牙齿）"
+        );
+
+        let deleted = purge_fixtures().await;
+        assert_eq!(deleted, 1, "清场必须删掉 1 张夹具凭证");
+        assert_eq!(
+            fixture_vouchers().await,
+            0,
+            "清场后按 voucher_word = '{FIXTURE_WORD}' 数必须 0 张（跑完全量库里不许常驻 ERPR1 凭证）"
+        );
+        assert_eq!(
+            status_logs_of(&ids).await,
+            0,
+            "清场后这 {} 个 id 上的 VOUCHER 状态日志必须 0 条（日志没有外键，必须先删）",
+            ids.len()
+        );
+        // 本模块**独占**的两个期间（`income_statement` / `cash_flow` 用 2000-12 与 2026-09/10，
+        // 与本文件共用，不在此断言也不在此删）：2019-12 是「无期间行」样本、2020-01 是
+        // 「本期有行、上期无行」样本，两者都由 `setup_fixture()` 每轮重建，收尾必须收干净。
+        let periods: i64 = db()
+            .scalar("SELECT count(*) FROM biz_accounting_period WHERE period_code IN ('2019-12', '2020-01')")
+            .await
+            .unwrap_or_else(|error| panic!("统计夹具期间残留失败：{error}"));
+        assert_eq!(
+            periods, 0,
+            "清场后 2019-12 / 2020-01 期间必须 0 行（跑完全量库里不许常驻 ERPR1 独占期间）"
+        );
+
+        // 兜历史孤儿：修前每一轮 `setup_fixture()` 删掉上一轮凭证后，那些凭证的状态日志就成了孤儿，
+        // 永远没有模块会回来收（`entity_id NOT IN (SELECT id FROM biz_voucher)`）。
+        let cleaned = crate::business::erp::fixture_hygiene::purge_orphans(&["VOUCHER"]).await;
+        let left = crate::business::erp::fixture_hygiene::orphans(&["VOUCHER"]).await;
+        assert_eq!(
+            left, 0,
+            "VOUCHER 孤儿状态日志必须收干（本轮清了 {cleaned} 条，还剩 {left} 条）"
+        );
+        println!("[R1-⑯] 收尾清场：ERPR1 凭证 0 张 / 其状态日志 0 条 / 独占期间 0 行 / 孤儿 0 条 ✓");
     }
 }

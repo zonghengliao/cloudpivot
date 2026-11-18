@@ -1,0 +1,25 @@
+test business::erp::shipment::shipment_receipt_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::stock_policy::policy_db_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::stock_policy::water_check_db_tests::zz_teardown_purges_fixtures ... ok
+test business::hr::leave_bridge_db_tests::db::zz_teardown_purges_fixtures ... ok
+test business::hr::leave_handler_db_tests::db::zz_teardown_purges_fixtures ... ok
+
+failures:
+
+---- business::erp::report::tests::zz_teardown_purges_fixtures stdout ----
+[R1] 清场：删夹具凭证 1 张、其 VOUCHER 状态日志 0 条
+[R1] 清场：删夹具凭证 1 张、其 VOUCHER 状态日志 0 条
+
+thread 'business::erp::report::tests::zz_teardown_purges_fixtures' (4053647) panicked at app/src/business/erp/report/mod.rs:2958:9:
+assertion `left == right` failed: 清场后这 1 个 id 上的 VOUCHER 状态日志必须 0 条（日志没有外键，必须先删）
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::report::tests::zz_teardown_purges_fixtures
+
+test result: FAILED. 49 passed; 1 failed; 0 ignored; 0 measured; 6517 filtered out; finished in 1.75s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

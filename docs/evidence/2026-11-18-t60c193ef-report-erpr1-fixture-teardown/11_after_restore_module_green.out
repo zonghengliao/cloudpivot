@@ -1,0 +1,4 @@
+test business::erp::report::tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 6549 filtered out; finished in 0.25s
+
