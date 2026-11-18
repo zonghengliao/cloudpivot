@@ -1,0 +1,259 @@
+闸② 判定面（v2）：扫描生产面 685 个文件 / 跳过测试面 209 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support}
+被跳过的测试面文件（209 个，含声明位置）：
+  business/attachment/rule_admin/tests.rs  ← /opt/cloudpivot/backend/app/src/business/attachment/rule_admin/mod.rs:52
+  business/attachment/tests.rs  ← /opt/cloudpivot/backend/app/src/business/attachment/mod.rs:81
+  business/erp/asset/asset_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/asset/mod.rs:17
+  business/erp/asset/asset_model_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/asset/asset_model.rs:1801
+  business/erp/aux_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:284
+  business/erp/budget/budget_dto_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/budget/budget_dto.rs:904
+  business/erp/budget/budget_guard_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/budget/budget_guard.rs:1712
+  business/erp/budget/budget_model_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/budget/budget_model.rs:1232
+  business/erp/cancel_cascade_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:265
+  business/erp/cashflow_chain_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:280
+  business/erp/contract/contract_approval_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/contract/mod.rs:11
+  business/erp/contract/contract_execution_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/contract/mod.rs:29
+  business/erp/contract/contract_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/contract/mod.rs:34
+  business/erp/cost/cost_alloc_rule_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:7
+  business/erp/cost/cost_calc_alloc_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:16
+  business/erp/cost/cost_calc_item_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:21
+  business/erp/cost/cost_calc_labor_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:26
+  business/erp/cost/cost_calc_material_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:31
+  business/erp/cost/cost_calc_overhead_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:36
+  business/erp/cost/cost_calc_period_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:41
+  business/erp/cost/cost_calc_reconcile_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:46
+  business/erp/cost/cost_labor_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:55
+  business/erp/cost/cost_method_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:64
+  business/erp/cost/cost_object_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:76
+  business/erp/cost/cost_overhead_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:86
+  business/erp/cost/cost_period_approval_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:93
+  business/erp/cost/cost_period_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:98
+  business/erp/cost/cost_reverse_run_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:126
+  business/erp/cost/cost_settle_finish_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:132
+  business/erp/cost/cost_settle_run_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:138
+  business/erp/cost/cost_settle_voucher_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:144
+  business/erp/cost/cost_uncollected_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:149
+  business/erp/credit_concurrency_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:310
+  business/erp/credit_release_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:305
+  business/erp/depreciation/depreciation_dept_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/depreciation/mod.rs:25
+  business/erp/depreciation/depreciation_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/depreciation/mod.rs:30
+  business/erp/doc_reader_impl_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:296
+  business/erp/doc_shape_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:156
+  business/erp/expense/expense_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/expense/mod.rs:24
+  business/erp/expense/expense_model_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/expense/expense_model.rs:1326
+  business/erp/fixture_hygiene.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:288
+  business/erp/flow_biz_type_contract_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:271
+  business/erp/fx_cycle_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:275
+  business/erp/inventory_aging/aging_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/mod.rs:78
+  business/erp/inventory_aging/aging_period_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/mod.rs:86
+  business/erp/inventory_aging/aging_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/mod.rs:70
+  business/erp/inventory_aging/report/report_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/report/mod.rs:56
+  business/erp/inventory_aging/slow_moving/slow_moving_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/slow_moving/mod.rs:48
+  business/erp/inventory_transit/transit_flow_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_transit/mod.rs:53
+  business/erp/inventory_transit/transit_query_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_transit/mod.rs:45
+  business/erp/inventory_transit/transit_reconcile_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/inventory_transit/mod.rs:49
+  business/erp/linkage/flow_instance_trigger_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/linkage.rs:60
+  business/erp/linkage/tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/linkage.rs:65
+  business/erp/linkage/tests_presets.rs  ← /opt/cloudpivot/backend/app/src/business/erp/linkage.rs:68
+  business/erp/linkage/tests_presets_coverage.rs  ← /opt/cloudpivot/backend/app/src/business/erp/linkage.rs:71
+  business/erp/linkage/tests_wiring.rs  ← /opt/cloudpivot/backend/app/src/business/erp/linkage.rs:74
+  business/erp/lot/lot_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/lot/mod.rs:19
+  business/erp/model_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/model.rs:80
+  business/erp/payable/payable_payment/tests/payable_linkage_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/payable/payable_payment.rs:3034
+  business/erp/period/period_items_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/period/period_items.rs:1202
+  business/erp/period/period_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/period/mod.rs:108
+  business/erp/period/period_remind_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/period/period_remind.rs:636
+  business/erp/period/period_test_support.rs  ← /opt/cloudpivot/backend/app/src/business/erp/period/mod.rs:115
+  business/erp/pflow3b_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:291
+  business/erp/purchase/framework_agreement_crud_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:126
+  business/erp/purchase/framework_agreement_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:113
+  business/erp/purchase/framework_agreement_execution_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:121
+  business/erp/purchase/framework_agreement_over_limit_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:130
+  business/erp/purchase/framework_agreement_ref_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:117
+  business/erp/purchase/framework_contract_e2e_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:138
+  business/erp/purchase/purchase_chain_e2e_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:134
+  business/erp/purchase/purchase_linkage_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:93
+  business/erp/purchase/purchase_plan_convert_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:154
+  business/erp/purchase/purchase_plan_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:146
+  business/erp/purchase/purchase_plan_execution_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:142
+  business/erp/purchase/purchase_plan_handler_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:150
+  business/erp/purchase/purchase_plan_state_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/purchase_plan_handler.rs:877
+  business/erp/purchase/supplier_access_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:91
+  business/erp/purchase/supplier_evaluation_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:109
+  business/erp/purchase/supplier_evaluation_grading_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:95
+  business/erp/purchase/supplier_evaluation_handler_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:105
+  business/erp/purchase/supplier_evaluation_suite_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:100
+  business/erp/receivable/aging_partial_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/receivable/mod.rs:109
+  business/erp/reminder_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/mod.rs:300
+  business/erp/replenish/replenish_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/replenish/mod.rs:44
+  business/erp/report/fx_report_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/report/mod.rs:1849
+  business/erp/sales/credit_control_e2e_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:77
+  business/erp/sales/quotation_convert_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/quotation_handler.rs:2433
+  business/erp/sales/quotation_state_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/quotation_handler.rs:2423
+  business/erp/sales/rebate_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:43
+  business/erp/sales/rebate_invoice_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:51
+  business/erp/sales/rebate_rule_matrix_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:55
+  business/erp/sales/rebate_settle_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:47
+  business/erp/sales/sales_chain_e2e_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:72
+  business/erp/sales/sales_forecast_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:59
+  business/erp/sales/sales_variance_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:63
+  business/erp/sales/sales_variance_summary_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:67
+  business/erp/shipment/shipment_page_fill_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/shipment/mod.rs:26
+  business/erp/shipment/shipment_receipt_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/shipment/mod.rs:30
+  business/erp/stock_policy/policy_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stock_policy/mod.rs:95
+  business/erp/stock_policy/safety_stock_boundary_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stock_policy/water_check.rs:917
+  business/erp/stock_policy/water_check_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stock_policy/mod.rs:99
+  business/erp/stockin/stockin_handler_tests_a4.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:146
+  business/erp/stockin/stockin_handler_tests_cancel.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:118
+  business/erp/stockin/stockin_handler_tests_d4_purchase.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:134
+  business/erp/stockin/stockin_handler_tests_d9_copy.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:142
+  business/erp/stockin/stockin_handler_tests_dc03.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:126
+  business/erp/stockin/stockin_handler_tests_fixtures.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:84
+  business/erp/stockin/stockin_handler_tests_helpers.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:97
+  business/erp/stockin/stockin_handler_tests_location.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:109
+  business/erp/stockin/stockin_handler_tests_location_dict.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:114
+  business/erp/stockin/stockin_handler_tests_p10_locked.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:122
+  business/erp/stockin/stockin_handler_tests_p16.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:130
+  business/erp/stockin/stockin_handler_tests_pflow3a.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:138
+  business/erp/stockin/stockin_handler_tests_posting.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:101
+  business/erp/stockin/stockin_handler_tests_update.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_handler.rs:105
+  business/erp/stockin/stockin_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockin/stockin_model.rs:128
+  business/erp/stockout/stockout_cost_object_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockout/stockout_model.rs:1506
+  business/erp/stockout/stockout_fifo_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockout/stockout_model.rs:1501
+  business/erp/stockout/stockout_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stockout/stockout_model.rs:1496
+  business/erp/stocktake/stocktake_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/stocktake/mod.rs:23
+  business/erp/transfer/transfer_handler_db_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:122
+  business/erp/transfer/transfer_handler_db_tests_books.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:110
+  business/erp/transfer/transfer_handler_db_tests_create.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:97
+  business/erp/transfer/transfer_handler_db_tests_fixtures.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:92
+  business/erp/transfer/transfer_handler_db_tests_query.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:114
+  business/erp/transfer/transfer_handler_db_tests_settle.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:106
+  business/erp/transfer/transfer_handler_db_tests_status.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:102
+  business/erp/transfer/transfer_handler_test_support.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/mod.rs:36
+  business/erp/transfer/transfer_handler_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_handler.rs:87
+  business/erp/transfer/transfer_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/transfer/transfer_model.rs:70
+  business/erp/voucher/voucher_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/voucher/mod.rs:142
+  business/erp/year/year_end_items_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/year/year_end.rs:2804
+  business/erp/year/year_end_linkage_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/year/mod.rs:23
+  business/erp/year/year_end_remind_tests.rs  ← /opt/cloudpivot/backend/app/src/business/erp/year/year_end_remind.rs:198
+  business/erp/year/year_end_test_support.rs  ← /opt/cloudpivot/backend/app/src/business/erp/year/mod.rs:26
+  business/flow/doc_reader_tests.rs  ← /opt/cloudpivot/backend/app/src/business/flow/mod.rs:71
+  business/flow/edge_admin_tests.rs  ← /opt/cloudpivot/backend/app/src/business/flow/mod.rs:75
+  business/flow/flow_model_tests.rs  ← /opt/cloudpivot/backend/app/src/business/flow/model.rs:51
+  business/flow/task_independence_tests.rs  ← /opt/cloudpivot/backend/app/src/business/flow/mod.rs:115
+  business/flow/terminate_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/flow/mod.rs:120
+  business/flow/test_support.rs  ← /opt/cloudpivot/backend/app/src/business/flow/mod.rs:122
+  business/hr/attendance_export_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:113
+  business/hr/attendance_import_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:118
+  business/hr/attendance_lock_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:130
+  business/hr/attendance_period_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:134
+  business/hr/attendance_record_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:144
+  business/hr/contract_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:154
+  business/hr/employee_dto_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:167
+  business/hr/employee_handler_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:173
+  business/hr/employee_model_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:182
+  business/hr/employee_no_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:188
+  business/hr/employee_reader_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:196
+  business/hr/employee_reader_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:202
+  business/hr/employee_seed_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:209
+  business/hr/employee_sensitive_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:215
+  business/hr/fixture_hygiene.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:220
+  business/hr/hr_e2e_contract_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:226
+  business/hr/hr_invariants_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:230
+  business/hr/leave_bridge_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:236
+  business/hr/leave_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:240
+  business/hr/leave_flow_seed_guard.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:247
+  business/hr/leave_handler_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:254
+  business/hr/no_erp_edge_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:263
+  business/hr/perm_matrix_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:268
+  business/hr/release_drill_contract_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:274
+  business/hr/salary_bridge_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:282
+  business/hr/salary_compute_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:289
+  business/hr/salary_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:293
+  business/hr/salary_export_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:301
+  business/hr/salary_item_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:309
+  business/hr/salary_item_seed_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:322
+  business/hr/salary_override_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:329
+  business/hr/salary_sheet_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:335
+  business/hr/self_service_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/hr/mod.rs:349
+  business/impexp/builtin/hr/db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/impexp/builtin/hr.rs:894
+  business/impexp/builtin/hr/import_post_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/impexp/builtin/hr.rs:899
+  business/impexp/builtin/master_data/db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/impexp/builtin/master_data/mod.rs:63
+  business/impexp/export_mask_tests.rs  ← /opt/cloudpivot/backend/app/src/business/impexp/mod.rs:66
+  business/masking/independence_tests.rs  ← /opt/cloudpivot/backend/app/src/business/masking/mod.rs:47
+  business/masking/tests.rs  ← /opt/cloudpivot/backend/app/src/business/masking/mod.rs:54
+  business/permission/tests.rs  ← /opt/cloudpivot/backend/app/src/business/permission/mod.rs:46
+  business/task/approval_port_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/mod.rs:126
+  business/task/task_attachment_snapshot_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:104
+  business/task/task_doc_link_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:97
+  business/task/task_handler_copy_db_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/handler.rs:127
+  business/task/task_handler_stats_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/handler.rs:119
+  business/task/task_handler_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/handler.rs:123
+  business/task/task_model_cascade_cancel_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:157
+  business/task/task_model_cascade_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:153
+  business/task/task_model_depth_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:113
+  business/task/task_model_display_file_name_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:109
+  business/task/task_model_repair_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:149
+  business/task/task_model_root_only_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:127
+  business/task/task_model_stats_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:145
+  business/task/task_model_statuses_filter_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:141
+  business/task/task_model_tests.rs  ← /opt/cloudpivot/backend/app/src/business/task/model.rs:89
+  business/taskflow/delete_cancel_tests.rs  ← /opt/cloudpivot/backend/app/src/business/taskflow/mod.rs:40
+  kernel_axis_tests.rs  ← /opt/cloudpivot/backend/app/src/lib.rs:44
+  system/auth/cache_tests.rs  ← /opt/cloudpivot/backend/app/src/system/auth/mod.rs:37
+  system/authz_tests.rs  ← /opt/cloudpivot/backend/app/src/system/mod.rs:40
+  system/dept/tests.rs  ← /opt/cloudpivot/backend/app/src/system/dept/mod.rs:28
+  system/menu/permission_audit_tests.rs  ← /opt/cloudpivot/backend/app/src/system/menu/mod.rs:20
+  system/menu/tests.rs  ← /opt/cloudpivot/backend/app/src/system/menu/mod.rs:16
+  system/role/tests.rs  ← /opt/cloudpivot/backend/app/src/system/role/mod.rs:31
+  system/session_tests.rs  ← /opt/cloudpivot/backend/app/src/system/mod.rs:44
+  system/tests_support.rs  ← /opt/cloudpivot/backend/app/src/system/mod.rs:36
+  system/user/tests.rs  ← /opt/cloudpivot/backend/app/src/system/user/mod.rs:34
+  test_seed.rs  ← /opt/cloudpivot/backend/app/src/lib.rs:50
+  FAIL：跳过清单断言：backend/app/src/business/erp/contract/contract_execution_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/contract/mod.rs:29）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/contract/contract_execution_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/cost/cost_method_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/cost/mod.rs:64）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/cost/cost_method_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/credit_concurrency_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/mod.rs:310）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/credit_concurrency_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/credit_release_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/mod.rs:305）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/credit_release_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/inventory_aging/aging_period_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/inventory_aging/mod.rs:86）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/inventory_aging/aging_period_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/framework_agreement_crud_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:126）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/framework_agreement_crud_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/framework_agreement_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:113）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/framework_agreement_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/framework_agreement_execution_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:121）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/framework_agreement_execution_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/framework_agreement_over_limit_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:130）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/framework_agreement_over_limit_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/framework_agreement_ref_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:117）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/framework_agreement_ref_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/framework_contract_e2e_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:138）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/framework_contract_e2e_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/purchase_chain_e2e_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:134）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/purchase_chain_e2e_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/purchase_plan_convert_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:154）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/purchase_plan_convert_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/purchase_plan_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:146）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/purchase_plan_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/purchase_plan_execution_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:142）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/purchase_plan_execution_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/purchase_plan_handler_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:150）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/purchase_plan_handler_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/purchase_plan_state_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/purchase_plan_handler.rs:877）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/purchase_plan_state_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/supplier_access_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:91）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/supplier_access_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/supplier_evaluation_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:109）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/supplier_evaluation_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/supplier_evaluation_grading_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:95）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/supplier_evaluation_grading_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/supplier_evaluation_handler_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:105）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/supplier_evaluation_handler_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/purchase/supplier_evaluation_suite_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/purchase/mod.rs:100）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/purchase/supplier_evaluation_suite_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/replenish/replenish_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/replenish/mod.rs:44）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/replenish/replenish_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/credit_control_e2e_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:77）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/credit_control_e2e_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/quotation_convert_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/quotation_handler.rs:2433）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/quotation_convert_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/quotation_state_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/quotation_handler.rs:2423）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/quotation_state_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/rebate_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:43）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/rebate_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/rebate_invoice_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:51）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/rebate_invoice_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/rebate_rule_matrix_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:55）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/rebate_rule_matrix_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/rebate_settle_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:47）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/rebate_settle_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/sales_chain_e2e_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:72）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/sales_chain_e2e_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/sales_forecast_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:59）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/sales_forecast_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/sales_variance_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:63）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/sales_variance_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/sales/sales_variance_summary_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/sales/mod.rs:67）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/sales/sales_variance_summary_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/stock_policy/policy_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/stock_policy/mod.rs:95）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/stock_policy/policy_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/stock_policy/safety_stock_boundary_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/stock_policy/water_check.rs:917）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/stock_policy/safety_stock_boundary_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/erp/stock_policy/water_check_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/erp/stock_policy/mod.rs:99）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/stock_policy/water_check_db_tests.rs",
+  FAIL：跳过清单断言：backend/app/src/business/hr/leave_flow_seed_guard.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/app/src/business/hr/mod.rs:247）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/hr/leave_flow_seed_guard.rs",
+闸② 判定面（v2）：扫描生产面 36 个文件 / 跳过测试面 2 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/crates/cloudpivot-kernel/src/{business/shared,shared,utils}
+被跳过的测试面文件（2 个，含声明位置）：
+  business/shared/doc_kind_entity_tests.rs  ← /opt/cloudpivot/backend/crates/cloudpivot-kernel/src/business/shared/mod.rs:57
+  business/shared/layering_tests.rs  ← /opt/cloudpivot/backend/crates/cloudpivot-kernel/src/business/shared/mod.rs:64
+  PASS：跳过清单与 SKIP_MANIFEST 逐条一致（2 条；多一个少一个都不放行）
+  PASS：0 处

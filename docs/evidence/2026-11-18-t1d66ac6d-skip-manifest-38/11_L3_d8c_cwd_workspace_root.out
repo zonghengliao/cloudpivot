@@ -1,0 +1,18 @@
+
+running 1 test
+test business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source ... FAILED
+
+failures:
+
+---- business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source stdout ----
+
+thread 'business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source' (3909923) panicked at app/src/business/permission/scope_model.rs:1296:9:
+找不到 src/ 下的 rs 文件（单测须以 crate 根为 CWD）
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6562 filtered out; finished in 0.00s
+

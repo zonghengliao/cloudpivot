@@ -1,0 +1,243 @@
+=== business/erp/contract/contract_execution_db_tests.rs   exists=True
+   business/erp/contract/mod.rs:29
+      
+      /// M4-19 合同执行量统计的真库用例（与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod contract_execution_db_tests;
+=== business/erp/cost/cost_method_db_tests.rs   exists=True
+   business/erp/cost/mod.rs:64
+      /// M5-01 的真库用例（`ERP_DB_URL` 开关）：默认口径 / 对象级覆盖 / 重叠拦截 / 生效期两端 /
+      /// 删改纪律 / 计算入口方法闸。
+      #[cfg(test)]
+      mod cost_method_db_tests;
+=== business/erp/credit_concurrency_tests.rs   exists=True
+   business/erp/mod.rs:310
+      /// M3-13 客户信用的**并发**真库单测（并发提交 / 并发审批 / 部分收款并发核销 + 竞态不变量）。
+      /// 只在 `cargo test` 时编译。
+      #[cfg(test)]
+      mod credit_concurrency_tests;
+=== business/erp/credit_release_tests.rs   exists=True
+   business/erp/mod.rs:305
+      /// M3-12「核销即释放」真库单测（收款核销 / 退款核销 → 额度释放 / 占回 + 回执 + 台账）。
+      /// 只在 `cargo test` 时编译。
+      #[cfg(test)]
+      mod credit_release_tests;
+=== business/erp/inventory_aging/aging_period_tests.rs   exists=True
+   business/erp/inventory_aging/mod.rs:86
+      /// （2026-11-16）上；本文件只问「基准日往前走，数字怎么变」—— 月末快照逐期演进、
+      /// 补录单据按业务日期归期、期初层按期间月初、以及同一层货第 91 天才转呆滞。
+      #[cfg(test)]
+      mod aging_period_tests;
+=== business/erp/purchase/framework_agreement_crud_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:126
+      /// 框架协议维护链路（建 / 改 / 删 / 提交 / 审批回调 / 下单后执行量涨）的真库用例
+      /// （M4-11b；同一个串行锁）。
+      #[cfg(test)]
+      mod framework_agreement_crud_db_tests;
+=== business/erp/purchase/framework_agreement_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:113
+      
+      /// 框架协议表结构的真库用例（M4-07；与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod framework_agreement_db_tests;
+=== business/erp/purchase/framework_agreement_execution_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:121
+      
+      /// 框架协议执行量统计的真库用例（M4-09；同一个串行锁）。
+      #[cfg(test)]
+      mod framework_agreement_execution_db_tests;
+=== business/erp/purchase/framework_agreement_over_limit_tests.rs   exists=True
+   business/erp/purchase/mod.rs:130
+      
+      /// 框架协议「超限反例」单测（M4-10；同一个串行锁）。
+      #[cfg(test)]
+      mod framework_agreement_over_limit_tests;
+=== business/erp/purchase/framework_agreement_ref_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:117
+      
+      /// 框架协议订单引用的真库用例（M4-08；同一个串行锁）。
+      #[cfg(test)]
+      mod framework_agreement_ref_db_tests;
+=== business/erp/purchase/framework_contract_e2e_tests.rs   exists=True
+   business/erp/purchase/mod.rs:138
+      
+      /// 框架协议 + 合同关联 的 E2E（M4-21：两条带定价约束的下单路线 + 超限，同一个串行锁）。
+      #[cfg(test)]
+      mod framework_contract_e2e_tests;
+=== business/erp/purchase/purchase_chain_e2e_tests.rs   exists=True
+   business/erp/purchase/mod.rs:134
+      
+      /// 采购计划 → 申请 → 订单 → 入库 的全链 E2E（M4-20；同一个串行锁）。
+      #[cfg(test)]
+      mod purchase_chain_e2e_tests;
+=== business/erp/purchase/purchase_plan_convert_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:154
+      
+      /// 采购计划 → 采购申请转换的真库用例（M4-03；同一个串行锁）。
+      #[cfg(test)]
+      mod purchase_plan_convert_db_tests;
+=== business/erp/purchase/purchase_plan_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:146
+      
+      /// 采购计划的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod purchase_plan_db_tests;
+=== business/erp/purchase/purchase_plan_execution_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:142
+      
+      /// 采购计划执行率跟踪的真库用例（M4-04；同一个串行锁）。
+      #[cfg(test)]
+      mod purchase_plan_execution_db_tests;
+=== business/erp/purchase/purchase_plan_handler_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:150
+      
+      /// 采购计划 CRUD + 审批的真库用例（M4-02；同一个串行锁）。
+      #[cfg(test)]
+      mod purchase_plan_handler_db_tests;
+=== business/erp/purchase/purchase_plan_state_tests.rs   exists=True
+   business/erp/purchase/purchase_plan_handler.rs:876
+      // 挂成 handler 的子模块（而不是 `purchase/mod.rs`）：`ensure_draft` / `status_drift` /
+      // `form_data` / `to_item_res` 这些私有件只有子模块够得着 —— 它们是最该被钉住的一层。
+      #[cfg(test)]
+      #[path = "purchase_plan_state_tests.rs"]
+   business/erp/purchase/purchase_plan_handler.rs:877
+      // `form_data` / `to_item_res` 这些私有件只有子模块够得着 —— 它们是最该被钉住的一层。
+      #[cfg(test)]
+      #[path = "purchase_plan_state_tests.rs"]
+      mod purchase_plan_state_tests;
+=== business/erp/purchase/supplier_access_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:91
+      
+      /// 供应商准入 / 黑名单的真库用例（M4-14；与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod supplier_access_db_tests;
+=== business/erp/purchase/supplier_evaluation_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:109
+      
+      /// 供应商评估表结构的真库用例（M4-12；与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod supplier_evaluation_db_tests;
+=== business/erp/purchase/supplier_evaluation_grading_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:95
+      
+      /// 供应商评估打分 + 评级的真库用例（M4-13；与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod supplier_evaluation_grading_db_tests;
+=== business/erp/purchase/supplier_evaluation_handler_db_tests.rs   exists=True
+   business/erp/purchase/mod.rs:105
+      /// 供应商评估页面接口的真库用例（M4-16：打分入口覆盖语义 / 台账分页筛选 / 排名排序；
+      /// 与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod supplier_evaluation_handler_db_tests;
+=== business/erp/purchase/supplier_evaluation_suite_tests.rs   exists=True
+   business/erp/purchase/mod.rs:100
+      /// 供应商评估「单测」收口（M4-15：评级边界穷举 / 并发同期间 / 跨期重打分 / 大方量
+      /// regrade；与其它 ERP 用例共用同一个串行锁）。
+      #[cfg(test)]
+      mod supplier_evaluation_suite_tests;
+=== business/erp/replenish/replenish_db_tests.rs   exists=True
+   business/erp/replenish/mod.rs:44
+      
+      /// 补货建议的真库用例（`ERP_DB_URL` 开关；串行跑）。
+      #[cfg(test)]
+      mod replenish_db_tests;
+=== business/erp/sales/credit_control_e2e_tests.rs   exists=True
+   business/erp/sales/mod.rs:77
+      /// 销售缺口 E2E：信用控制 / 超限场景（M3-25：占用 → 拦截 → 调额 → 核销释放 →
+      /// WARN/PASS → 审批点拦截 → 过审兜底，全部走真实入口）。
+      #[cfg(test)]
+      mod credit_control_e2e_tests;
+=== business/erp/sales/quotation_convert_tests.rs   exists=True
+   business/erp/sales/quotation_handler.rs:2432
+      // 与 M3-05 那份的分工写在文件头（那边钉状态机与审批闸，这里只钉转单这一条链路）。
+      
+      #[cfg(test)]
+      #[path = "quotation_convert_tests.rs"]
+   business/erp/sales/quotation_handler.rs:2433
+      
+      #[cfg(test)]
+      #[path = "quotation_convert_tests.rs"]
+      mod quotation_convert_tests;
+=== business/erp/sales/quotation_state_tests.rs   exists=True
+   business/erp/sales/quotation_handler.rs:2422
+      // `IssueGate`）。子模块可以看父模块的私有项，反过来不行。
+      
+      #[cfg(test)]
+      #[path = "quotation_state_tests.rs"]
+   business/erp/sales/quotation_handler.rs:2423
+      
+      #[cfg(test)]
+      #[path = "quotation_state_tests.rs"]
+      mod quotation_state_tests;
+=== business/erp/sales/rebate_db_tests.rs   exists=True
+   business/erp/sales/mod.rs:43
+      
+      /// 返利政策的真库用例（`ERP_DB_URL` 开关；与其它 ERP 用例共用串行锁）。
+      #[cfg(test)]
+      mod rebate_db_tests;
+=== business/erp/sales/rebate_invoice_db_tests.rs   exists=True
+   business/erp/sales/mod.rs:51
+      
+      /// 返利红字发票的真库用例（同上）。
+      #[cfg(test)]
+      mod rebate_invoice_db_tests;
+=== business/erp/sales/rebate_rule_matrix_tests.rs   exists=True
+   business/erp/sales/mod.rs:55
+      
+      /// 返利三种规则 × 边界的纯逻辑单测矩阵（M3-18：不连库，`cargo test --lib` 直接可跑）。
+      #[cfg(test)]
+      mod rebate_rule_matrix_tests;
+=== business/erp/sales/rebate_settle_db_tests.rs   exists=True
+   business/erp/sales/mod.rs:47
+      
+      /// 返利结算的真库用例（同上）。
+      #[cfg(test)]
+      mod rebate_settle_db_tests;
+=== business/erp/sales/sales_chain_e2e_tests.rs   exists=True
+   business/erp/sales/mod.rs:72
+      /// 销售缺口 E2E：报价单 → 销售订单 → 出库（M3-24：一张单从报价走到客户签收，
+      /// 上游夹具全部走真实入口，审批逐节点真派真批）。
+      #[cfg(test)]
+      mod sales_chain_e2e_tests;
+=== business/erp/sales/sales_forecast_db_tests.rs   exists=True
+   business/erp/sales/mod.rs:59
+      
+      /// 销售预测表结构（M3-20：预测数量 / 版本链 / 当前版本视图）的真库用例。
+      #[cfg(test)]
+      mod sales_forecast_db_tests;
+=== business/erp/sales/sales_variance_db_tests.rs   exists=True
+   business/erp/sales/mod.rs:63
+      
+      /// 预测 vs 实际（偏差分析，M3-21）的真库用例。
+      #[cfg(test)]
+      mod sales_variance_db_tests;
+=== business/erp/sales/sales_variance_summary_db_tests.rs   exists=True
+   business/erp/sales/mod.rs:67
+      
+      /// 销售预测偏差分析的**汇总口径**真库用例（M3-22：合计怎么加、档位怎么数、容差动哪一层）。
+      #[cfg(test)]
+      mod sales_variance_summary_db_tests;
+=== business/erp/stock_policy/policy_db_tests.rs   exists=True
+   business/erp/stock_policy/mod.rs:95
+      
+      /// 水位设置的真库用例（`ERP_DB_URL` 开关；串行跑）。
+      #[cfg(test)]
+      mod policy_db_tests;
+=== business/erp/stock_policy/safety_stock_boundary_tests.rs   exists=True
+   business/erp/stock_policy/water_check.rs:916
+      /// 挂成本模块的子模块是为了能调到私有实现（`push_item` 的明细上限）；
+      /// 文件本体在 `stock_policy/safety_stock_boundary_tests.rs`。
+      #[cfg(test)]
+      #[path = "safety_stock_boundary_tests.rs"]
+=== business/erp/stock_policy/water_check_db_tests.rs   exists=True
+   business/erp/stock_policy/mod.rs:99
+      
+      /// 水位检查的真库用例（`ERP_DB_URL` 开关；串行跑）。
+      #[cfg(test)]
+      mod water_check_db_tests;
+=== business/hr/leave_flow_seed_guard.rs   exists=True
+   business/hr/mod.rs:247
+      /// 占住 `flow_code` 编码必须借走种子定义，收尾靠这里原样写回并逐项对账（卡 `t_85e005d9`）。
+      /// 详见文件头注释。
+      #[cfg(test)]
+      pub(crate) mod leave_flow_seed_guard;

@@ -119,6 +119,31 @@ REQUIRED_PRODUCTION = (
 # （库龄分段报表的真库用例，`#[cfg(test)]` 挂载）。
 # M2-10（卡 t_bb0fe3c6）新增 1 条：`business/erp/inventory_aging/slow_moving/slow_moving_db_tests.rs`
 # （呆滞料标记的真库用例，`#[cfg(test)]` 挂载）。
+# 测试卫生补登记（2026-11-18，卡 `t_1d66ac6d`）：批次A/批次B 闸② 跑**全量档**
+# `bash scripts/check.sh` 时，被「跳过清单逐条断言」抓出 **38 条**测试面文件未登记。
+#
+# 成因：每张卡落地自己的测试面文件时没同步改本常量；而 `check.sh --fast`（只跑 L0+L1）不触发闸②，
+# 近几轮都只跑 `--fast`，于是漏登记逐轮累积 —— 红惯了就没人看，闸② 判据等于停摆。
+# 本卡**只补登记事实**，不改任何文件内容、不改判据代码（口径 v2 一个字节没动）。
+#
+# 逐条复核（38/38 均确认是纯 `#[cfg(test)]` 挂载；**没有**一条是
+# `#[cfg(any(test, feature = …))]` 那种「可能进生产」的形态，故全部按口径 v2 登记为测试面）：
+#   erp/purchase 17 条（M4-01~M4-21：框架协议 / 采购计划 / 供应商准入与评估 / 采购链 E2E）
+#   erp/sales    11 条（M3-05/18/24/25：报价状态机与转单 / 返利政策-结算-红票 / 销售链 E2E /
+#                        预测与偏差分析 / 信用控制超限 E2E）
+#   erp/stock_policy 3 条（水位设置 / 水位检查 / 安全库存边界）
+#   erp 顶层 2 条（credit_concurrency / credit_release：信用占用并发与释放）
+#   erp/{contract,cost,inventory_aging,replenish} 各 1 条（合同执行 / 成本方法 M5-01 /
+#                        库龄期间 / 补货建议）
+#   hr 1 条 —— `business/hr/leave_flow_seed_guard.rs`：**名字不带 `_tests` 但确实是测试面**。
+#     `business/hr/mod.rs:247` 是 `#[cfg(test)] pub(crate) mod leave_flow_seed_guard;`，模块本体是
+#     `hr_leave` 正式种子（V0393）的「借出 → 归还」守卫（夹具支撑：抓 jsonb / 删链 / 原样写回 /
+#     逐项对账），全仓只被 `leave_bridge_db_tests.rs` 与 `leave_handler_db_tests.rs` 引用 ——
+#     非测试构建里这个模块根本不存在，编不出生产代码。
+#     处理方式选「登记」而不是「改名成 `*_tests.rs`」：它是**夹具支撑模块**不是用例套件，
+#     改名会误导后来人以为那里面有 `#[test]` 用例。
+#
+# 维护提醒：新增/删除测试面文件时必须同步改本常量（多一条少一条都 FAIL，这是刻意的摩擦）。
 SKIP_MANIFEST = frozenset(
     """
 business/attachment/rule_admin/tests.rs
@@ -131,6 +156,7 @@ business/erp/budget/budget_guard_tests.rs
 business/erp/budget/budget_model_tests.rs
 business/erp/cancel_cascade_tests.rs
 business/erp/contract/contract_approval_tests.rs
+business/erp/contract/contract_execution_db_tests.rs
 business/erp/contract/contract_linkage_tests.rs
 business/erp/cost/cost_alloc_rule_db_tests.rs
 business/erp/cost/cost_calc_alloc_db_tests.rs
@@ -141,6 +167,7 @@ business/erp/cost/cost_calc_overhead_db_tests.rs
 business/erp/cost/cost_calc_period_db_tests.rs
 business/erp/cost/cost_calc_reconcile_db_tests.rs
 business/erp/cost/cost_labor_db_tests.rs
+business/erp/cost/cost_method_db_tests.rs
 business/erp/cost/cost_object_db_tests.rs
 business/erp/cost/cost_overhead_db_tests.rs
 business/erp/cost/cost_period_approval_db_tests.rs
@@ -150,6 +177,8 @@ business/erp/cost/cost_settle_finish_db_tests.rs
 business/erp/cost/cost_settle_run_db_tests.rs
 business/erp/cost/cost_settle_voucher_db_tests.rs
 business/erp/cost/cost_uncollected_db_tests.rs
+business/erp/credit_concurrency_tests.rs
+business/erp/credit_release_tests.rs
 business/erp/depreciation/depreciation_dept_tests.rs
 business/erp/depreciation/depreciation_linkage_tests.rs
 business/erp/doc_reader_impl_tests.rs
@@ -160,15 +189,49 @@ business/erp/fixture_hygiene.rs
 business/erp/cashflow_chain_tests.rs
 business/erp/fx_cycle_tests.rs
 business/erp/inventory_aging/aging_db_tests.rs
+business/erp/inventory_aging/aging_period_tests.rs
 business/erp/inventory_aging/aging_tests.rs
 business/erp/inventory_aging/report/report_db_tests.rs
 business/erp/inventory_aging/slow_moving/slow_moving_db_tests.rs
 business/erp/inventory_transit/transit_flow_tests.rs
 business/erp/inventory_transit/transit_query_tests.rs
 business/erp/inventory_transit/transit_reconcile_tests.rs
+business/erp/purchase/framework_agreement_crud_db_tests.rs
+business/erp/purchase/framework_agreement_db_tests.rs
+business/erp/purchase/framework_agreement_execution_db_tests.rs
+business/erp/purchase/framework_agreement_over_limit_tests.rs
+business/erp/purchase/framework_agreement_ref_db_tests.rs
+business/erp/purchase/framework_contract_e2e_tests.rs
+business/erp/purchase/purchase_chain_e2e_tests.rs
+business/erp/purchase/purchase_plan_convert_db_tests.rs
+business/erp/purchase/purchase_plan_db_tests.rs
+business/erp/purchase/purchase_plan_execution_db_tests.rs
+business/erp/purchase/purchase_plan_handler_db_tests.rs
+business/erp/purchase/purchase_plan_state_tests.rs
+business/erp/purchase/supplier_access_db_tests.rs
+business/erp/purchase/supplier_evaluation_db_tests.rs
+business/erp/purchase/supplier_evaluation_grading_db_tests.rs
+business/erp/purchase/supplier_evaluation_handler_db_tests.rs
+business/erp/purchase/supplier_evaluation_suite_tests.rs
 business/erp/receivable/aging_partial_tests.rs
+business/erp/replenish/replenish_db_tests.rs
 business/erp/report/fx_report_tests.rs
+business/erp/sales/credit_control_e2e_tests.rs
+business/erp/sales/quotation_convert_tests.rs
+business/erp/sales/quotation_state_tests.rs
+business/erp/sales/rebate_db_tests.rs
+business/erp/sales/rebate_invoice_db_tests.rs
+business/erp/sales/rebate_rule_matrix_tests.rs
+business/erp/sales/rebate_settle_db_tests.rs
+business/erp/sales/sales_chain_e2e_tests.rs
+business/erp/sales/sales_forecast_db_tests.rs
+business/erp/sales/sales_variance_db_tests.rs
+business/erp/sales/sales_variance_summary_db_tests.rs
 business/erp/shipment/shipment_receipt_tests.rs
+business/erp/stock_policy/policy_db_tests.rs
+business/erp/stock_policy/safety_stock_boundary_tests.rs
+business/erp/stock_policy/water_check_db_tests.rs
+business/hr/leave_flow_seed_guard.rs
 test_seed.rs
 business/erp/flow_biz_type_contract_tests.rs
 business/erp/lot/lot_db_tests.rs

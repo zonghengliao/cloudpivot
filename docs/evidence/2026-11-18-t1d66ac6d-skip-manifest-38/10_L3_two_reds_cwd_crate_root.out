@@ -1,0 +1,21 @@
+
+running 2 tests
+test business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source ... ok
+test kernel_axis_tests::contract_aliases_match_handler_permissions ... FAILED
+
+failures:
+
+---- kernel_axis_tests::contract_aliases_match_handler_permissions stdout ----
+
+thread 'kernel_axis_tests::contract_aliases_match_handler_permissions' (3909921) panicked at app/src/kernel_axis_tests.rs:49:5:
+assertion `left == right` failed: LEGACY_ALIASES 的规范码必须与 contract_handler::PERMISSIONS 完全相同
+  left: {"business:erp:contract:create", "business:erp:contract:delete", "business:erp:contract:list", "business:erp:contract:status", "business:erp:contract:update"}
+ right: {"business:erp:contract:create", "business:erp:contract:delete", "business:erp:contract:execution", "business:erp:contract:list", "business:erp:contract:status", "business:erp:contract:update"}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    kernel_axis_tests::contract_aliases_match_handler_permissions
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 6561 filtered out; finished in 0.55s
+
