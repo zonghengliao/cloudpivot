@@ -1,0 +1,14 @@
+
+---- business::erp::cost::cost_collect_sheet_db_tests::db::sheet_row_per_batch_with_three_elements_and_totals stdout ----
+
+thread 'business::erp::cost::cost_collect_sheet_db_tests::db::sheet_row_per_batch_with_three_elements_and_totals' (4081555) panicked at app/src/business/erp/cost/cost_collect_sheet_db_tests.rs:344:67:
+查归集表: ApiError { code: 10004, msg: "服务器内部错误", status: 500, internal_detail: Some("查询按批次归集表: invalid value: 按批次归集表 SQL 占位符与参数数量不一致（?=2，参数=1）：参数错位会静默绑错值，拒绝执行。SQL=SELECT count(*) AS total FROM (SELECT t.id AS object_id, t.object_no, t.object_type, t.source_doc_no, t.lot_no, t.product_id, m.material_code AS product_code, m.material_name AS product_name, t.workshop_dept_id, COALESCE(d.dept_name, t.workshop_dept_name) AS workshop_dept_name, t.plan_qty, t.completed_qty, t.wip_qty, t.completion_pct, t.status, t.start_date, t.due_date, round(COALESCE(a.mat_amount, 0), 4) AS mat_amount, round(COALESCE(a.labor_amount, 0), 4) AS labor_amount, round(COALESCE(a.oh_amount, 0), 4) AS oh_amount, COALESCE(a.line_count, 0) AS line_count, a.last_occur_date FROM biz_cost_object t LEFT JOIN biz_material m ON m.id = t.product_id LEFT JOIN sys_dept d ON d.id = t.workshop_dept_id AND d.deleted_at IS NULL LEFT JOIN ( SELECT c.cost_object_id, round(COALESCE(sum(c.amount) FILTER (WHERE c.element = 'MATERIAL'), 0), 4) AS mat_amount, round(COALESCE(sum(c.amount) FILTER (WHERE c.element = 'LABOR'), 0), 4) AS labor_amount, round(COALESCE(sum(c.amount) FILTER (WHERE c.element = 'OVERHEAD'), 0), 4) AS oh_amount, count(*) AS line_count, max(c.occur_date) AS last_occur_date FROM biz_cost_collect c WHERE c.deleted_at IS NULL AND c.cost_object_id IS NOT NULL AND c.period_code = ? GROUP BY c.cost_object_id ) a ON a.cost_object_id = t.id WHERE t.deleted_at IS NULL  AND 1 = 1 AND t.workshop_dept_id = ?::uuid) AS q"), data: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::cost::cost_collect_sheet_db_tests::db::sheet_row_per_batch_with_three_elements_and_totals
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6591 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`

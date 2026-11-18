@@ -48,6 +48,19 @@ mod cost_calc_reconcile_db_tests;
 pub mod cost_collect_dto;
 /// 成本归集明细（`biz_cost_collect`）的数据层：候选扫描 / 已归集行 / 幂等写入 / 软删。
 pub mod cost_collect_model;
+/// M5-02 的真库用例（`ERP_DB_URL` 开关）：一行一批 / 期间隔离 / 池行不进表 / 筛选 /
+/// 翻页合计恒定 / 排序 / 数据范围 / 明细与表行对得上 / 清场零残留。
+#[cfg(test)]
+mod cost_collect_sheet_db_tests;
+/// 按生产订单/批次归集表（M5-02 · 分批法 ①）的契约层：期间必填 / 状态与排序值域 /
+/// 出参（行 = 一个批次，列 = 料工费合计）。**复用** `cost-object:list` 权限码。
+pub mod cost_collect_sheet_dto;
+/// ① 归集表接口层（M5-02）：`GET /business/erp/cost-collect-sheet`（按期间分页 +
+/// 整表合计）+ `GET …/{object_id}`（逐笔归集明细）。无写接口：归集只能由单据产生。
+pub mod cost_collect_sheet_handler;
+/// ① 归集表数据层（M5-02）：按批次聚合本期料工费（派生表 + `FILTER`）、整表合计、
+/// 明细分笔。数据范围复用 `biz_cost_object` 锚点；参数顺序手工构造并逐次校验。
+pub mod cost_collect_sheet_model;
 /// calc 第 2 段「工归集」的纯逻辑（幂等键 / 行校验 / 增量计划 / 未归集清单），B2-7。
 pub mod cost_labor_collect_dto;
 /// B2-1 的真库用例（`ERP_DB_URL` 开关）：CRUD + 确认幂等 + 金额 CHECK 映射。只在 `cargo test` 时编译。

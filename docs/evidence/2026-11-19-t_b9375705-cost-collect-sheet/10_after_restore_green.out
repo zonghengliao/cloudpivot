@@ -1,0 +1,6 @@
+test business::erp::cost::cost_collect_sheet_model::tests::business_where_placeholders_match_params ... ok
+test business::erp::cost::cost_collect_sheet_model::tests::keyword_is_escaped ... ok
+test business::erp::cost::cost_collect_sheet_model::tests::list_sql_joins_names_in_one_pass ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 6567 filtered out; finished in 0.22s
+

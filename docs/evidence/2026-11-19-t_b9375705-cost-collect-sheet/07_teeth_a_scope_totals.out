@@ -1,0 +1,14 @@
+
+thread 'business::erp::cost::cost_collect_sheet_db_tests::db::sheet_scope_limits_rows_totals_and_detail' (4081168) panicked at app/src/business/erp/cost/cost_collect_sheet_db_tests.rs:587:9:
+assertion `left == right` failed: 合计也必须按范围裁剪（否则等于泄露别的车间金额）
+  left: "1000.0000"
+ right: "100.0000"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::cost::cost_collect_sheet_db_tests::db::sheet_scope_limits_rows_totals_and_detail
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6591 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
