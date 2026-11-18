@@ -1,0 +1,10 @@
+live（只读）: /root/.hermes/kanban/boards/dev/kanban.db
+副本目录  : /root/.hermes/profiles/backend-developer/cache/scratch/chainfix/repro_work
+  ✓ ① 干跑收敛：共 2 处调整（期望 2，旧代码 200）
+  ✓ ① 干跑不写库：task_links 仍 1285（开跑前 1285）
+  ✓ ① 每条卡只出现一次（实测 [1, 1]，旧代码同一张 198 次）
+  ✓ ② 真跑 rc=0（期望 0）
+  ✓ ③ 修后检查 rc=0、结构完整
+  ✓ ③ 主链张数不减少：110 → 112（期望 ≥ 112）
+  ✓ ④ --selftest rc=0
+  结论：全部符合卡面验收

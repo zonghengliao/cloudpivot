@@ -1,0 +1,16 @@
+######## c1 ########
+  已备份：/root/.hermes/profiles/backend-developer/cache/scratch/chainfix/r_c1.db.bak-chaingate-11182139
+    · t_branchx1 「【测试卫生·门禁】探针分叉子卡（副本库占位）」→ 插在 【测试卫生·门禁】`task_c 之后
+      理由：清债类卡，插在 running（【测试卫生·门禁】`task_c）之后（缺陷 2 → 0）
+  ✓ 已修 1 处，任务链现在结构完整（主链 111 张）
+-- 修后检查 --
+  ✓ 任务链结构完整（无分叉 / 游离 / 死路 / 环路）
+
+######## c2 ########
+  已备份：/root/.hermes/profiles/backend-developer/cache/scratch/chainfix/r_c2.db.bak-chaingate-11182139
+    · t_branchx1 「【测试卫生·门禁】探针分叉子卡（副本库占位）」→ 插在 【测试卫生·门禁】`task_c 之后
+      理由：清债类卡，插在 running（【测试卫生·门禁】`task_c）之后（缺陷 2 → 0）
+  ✓ 已修 1 处，任务链现在结构完整（主链 111 张）
+-- 修后检查 --
+  ✓ 任务链结构完整（无分叉 / 游离 / 死路 / 环路）
+

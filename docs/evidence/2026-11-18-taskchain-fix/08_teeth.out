@@ -1,0 +1,5 @@
+RED  rc=1 红9条 ← ① head() 退回旧优先序（唯一无父卡先于 running）
+RED  rc=1 红2条 ← ② choose_insert 允许静默钳到 0（order 为空不返回 None）
+RED  rc=1 红1条 ← ③ 去掉显式 BEGIN（RELEASE 最外层 SAVEPOINT 会顺带提交 → 干跑写库）
+RED  rc=1 红3条 ← ④ 去掉"缺陷重量必须严格下降"的断言
+restore sha256 match: True 22e81e8c851efef6

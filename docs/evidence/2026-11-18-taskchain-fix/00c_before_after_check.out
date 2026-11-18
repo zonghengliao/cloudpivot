@@ -1,0 +1,17 @@
+$ # 脚本取自 `git show HEAD:scripts/lint/task_chain_valid.py`（修改前）
+$ HERMES_KANBAN_DB=b_fix.db python3 /root/.hermes/profiles/backend-developer/cache/scratch/chainfix/task_chain_valid_BEFORE.py --verbose
+$ rc=1
+  主链 1 张，未完成 112 张（DB: b_fix.db）
+     0 ready    【测试卫生·门禁】探针游离清债卡2（副本库占位）
+
+  ✗ 任务链有 2 处问题：
+    [C3] t_pa5eca17f 「【测试卫生·门禁】探针游离清债卡2（副本库占位）」— 未完成卡没有父卡
+    [C4] t_pa5eca17f 「【测试卫生·门禁】探针游离清债卡2（副本库占位）」— 未完成卡没有子卡（跑完不解锁任何东西）
+         → 建议：无编号/非清债类，插到链尾（最后一个未完成卡之前）
+
+    修法：
+      python3 scripts/lint/task_chain_valid.py --fix --dry-run   # 先看计划
+      python3 scripts/lint/task_chain_valid.py --fix             # 真改（会备份）
+
+    规则：一个未完成的父卡只能有 1 个子卡；新卡要么插到同批次编号位置，
+    要么插到 running 之后（清债类），要么插到链尾。

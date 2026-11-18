@@ -122,7 +122,7 @@ plan_all() {
         plan L0 "库存三本账唯一写入口（判据自检 + 扫描）" "python3 scripts/verify/inventory_write_gate.py [--self-test]"
         plan L0 "脚本/钩子/CI 写死的源码路径必须存在" "python3 scripts/lint/path_refs_gate.py [--self-test] [--root .]"
         plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
-        plan L0 "任务链无分叉/游离/死路/环路（可 --fix 自动重排）" "python3 scripts/lint/task_chain_valid.py（无 kanban DB 则跳过）"
+        plan L0 "任务链无分叉/游离/死路/环路（可 --fix 自动重排；含 --selftest）" "python3 scripts/lint/task_chain_valid.py --selftest && python3 scripts/lint/task_chain_valid.py（无 kanban DB 则跳过检查模式）"
         plan L0 "参数分类必须在 config_category 字典里" "python3 scripts/lint/config_category_gate.py（无库连接则跳过）"
         plan L0 "/metrics 端点存活 + cloudpivot_ 指标非空" "bash scripts/verify/metrics_gate.sh ${METRICS_GATE:-auto}（auto：有部署证据才真跑；SKIP_METRICS_CHECK=1 跳过）"
         plan L0 "kanban assignee 必须是真实 profile" "python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）"
@@ -677,7 +677,15 @@ fi
 # 才被人工发现。这个检查能在提交阶段就拦住这类笔误。
 #
 # 145/144/CI 上没有 kanban DB → 脚本自己跳过，不会误伤。
-echo "==> 任务链完整性（scripts/lint/task_chain_valid.py）"
+echo "==> 任务链完整性（scripts/lint/task_chain_valid.py --selftest + 检查模式）"
+# 先跑脚本自身的判据自检（内存库，不碰真库）：--fix 的「收敛 / 干跑不写库 / 链头只认
+# running」三条判据 2026-11-18 曾经一起坏掉（干跑 200 轮不收敛、真跑把主链从 110 张
+# 打散成 1 张），而检查模式全绿 —— 只有真跑 --fix 的人踩。自检让它变成提交阶段就红。
+if ! python3 "$ROOT/scripts/lint/task_chain_valid.py" --selftest; then
+    echo "==> 门禁未通过：task_chain_valid.py 自身判据自检失败（--fix 收敛/不写库/链头判据）。" >&2
+    echo "    看 docs/evidence/2026-11-18-chainfix-probe/ 了解这三条判据为什么必须存在。" >&2
+    exit 1
+fi
 if ! python3 "$ROOT/scripts/lint/task_chain_valid.py"; then
     echo "==> 门禁未通过：任务链有分叉/游离/死路/环路（见上）。" >&2
     echo "    修法：python3 scripts/lint/task_chain_valid.py --fix --dry-run   # 先看计划" >&2

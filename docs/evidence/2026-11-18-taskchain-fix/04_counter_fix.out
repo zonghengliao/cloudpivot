@@ -1,0 +1,28 @@
+$ HERMES_KANBAN_DB=r_counter.db python3 /root/.hermes/profiles/backend-developer/cache/scratch/chainfix/counter_head.py --fix --verbose
+$ rc=1
+  主链 110 张，未完成 112 张（DB: r_counter.db）
+     0 running  【测试卫生·门禁】`task_chain_valid.py --fix` 在「2 张游离
+     1 todo     【测试卫生·ERP】第二轮 15 条红：演示账号 sys_user_role 绑定被整表
+     2 todo     【测试卫生·报表】fx_report_tests 跑完全量后常驻 6 张 M109 夹具
+     3 todo     M5-02【M5·成本】分批法：按生产订单/批次归集表
+     4 todo     M5-03【M5·成本】分批法：料工费归集到批次
+     5 todo     M5-04【M5·成本】分批法：完工批次结转
+     6 todo     M5-05【M5·成本】分批法：在制批次余额
+     7 todo     M5-06【M5·成本】分批法：单测
+    … 共 110 张
+    · t_pa5eca17f 「【测试卫生·门禁】探针游离清债卡2（副本库占位）」→ 插在 【测试卫生·门禁】`task_c 之后
+      理由：清债类卡，插在 running（【测试卫生·门禁】`task_c）之后（缺陷 4 → 2）
+
+  ✗ 任务链有 4 处问题：
+    [C3] t_pa5eca17f 「【测试卫生·门禁】探针游离清债卡2（副本库占位）」— 未完成卡没有父卡
+    [C3] t_pt7d2aa63 「【测试卫生·门禁】探针游离清债卡1（副本库占位）」— 未完成卡没有父卡
+    [C4] t_pa5eca17f 「【测试卫生·门禁】探针游离清债卡2（副本库占位）」— 未完成卡没有子卡（跑完不解锁任何东西）
+         → 建议：清债类卡，插在 running（【测试卫生·门禁】`task_c）之后
+    [C4] t_pt7d2aa63 「【测试卫生·门禁】探针游离清债卡1（副本库占位）」— 未完成卡没有子卡（跑完不解锁任何东西）
+         → 建议：清债类卡，插在 running（【测试卫生·门禁】`task_c）之后
+  已备份：/root/.hermes/profiles/backend-developer/cache/scratch/chainfix/r_counter.db.bak-chaingate-11182138
+
+  ⚠ 无法自动修复：t_pt7d2aa63 「【测试卫生·门禁】探针游离清债卡1（副本库占位）」
+    原因：链里没有可挂的邻位（order 为空），插入点算不出来
+    主链里没有可挂的邻位，请先 --verbose 看清主链，再人工落边。
+  ⚠ 修了 1 处，仍有 2 处未解决（主链 1 张），见上面的「无法自动修复」+ 人工落边语句
