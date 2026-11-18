@@ -442,6 +442,43 @@ fn material_ref_of(row: &Row) -> DbResult<MaterialRef> {
     })
 }
 
+/// 按**编码**批量取物料（M5-09 导入校验用：一次问库，不做逐行 N+1）。
+///
+/// # 返回值
+///
+/// `(编码, id, 物料引用)`，只含**存在且未软删**的那些；缺失的由调用方点名单行
+/// （导入时「物料不存在」是真实的录入错误，静默跳过会让一整版标准凭空消失）。
+///
+/// # 为什么按编码而不是按 id
+///
+/// Excel 里人写的是编码；按 id 查需要先做一轮「编码 → id」的翻译，那一轮本身就要
+/// 一次查库，等于把 N+1 挪了个地方。`biz_material.material_code` 上有唯一索引
+/// （`uk_biz_material_code`），一次 `IN` 就能拿全。
+pub async fn materials_by_codes(codes: &[String]) -> DbResult<Vec<(String, Uuid, MaterialRef)>> {
+    /// 单条 `IN` 的字面量上限（PG 参数上限是 65535，这里按编码长度留足余量）。
+    const IN_CHUNK: usize = 500;
+    let mut out = Vec::new();
+    for chunk in codes.chunks(IN_CHUNK) {
+        if chunk.is_empty() {
+            continue;
+        }
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT id, material_code, material_name, material_type, status \
+               FROM biz_material \
+              WHERE deleted_at IS NULL AND material_code IN ({placeholders})"
+        );
+        let rows = db()
+            .query_sql(sql, chunk.iter().map(|code| Value::Text(code.clone())).collect())
+            .await?;
+        for row in rows {
+            let reference = material_ref_of(&row)?;
+            out.push((reference.material_code.clone(), row.get_typed::<Uuid>("id")?, reference));
+        }
+    }
+    Ok(out)
+}
+
 /// 版本列表分页（SCOPE-EXEMPT，走 `scope::paginate_unscoped`）。
 pub async fn page(filter: &StandardFilter) -> DbResult<(Vec<StandardRow>, i64)> {
     let mut sql = format!("{} WHERE t.deleted_at IS NULL", select_sql());

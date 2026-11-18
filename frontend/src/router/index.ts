@@ -856,6 +856,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '批次成本', permission: 'business:erp:cost-object:list' },
       },
       {
+        // ==================== ERP 成本：标准成本（M5-09 / M5-08 后端 10 条接口的前端落点） ====================
+        // `sys_menu` 种子（V0464 …d301）path = `/business/erp/cost-standard`、component
+        // `business/erp/cost-standard/index`，auth_code `business:erp:cost-method:list`
+        // （**复用**读码：标准成本卡与成本方法是同一类全公司财务口径配置、同一批维护角色），
+        // 挂在「成本核算」目录（`/business/erp/cost`，V0390 建）sort 72。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/cost-standard',
+        name: 'BusinessErpCostStandard',
+        component: () => import('@/views/business/erp/cost-standard/index.vue'),
+        meta: { title: '标准成本', permission: 'business:erp:cost-method:list' },
+      },
+      {
         // ==================== HR：员工档案（ARCH-9 §6.1 #1 / HR-18） ====================
         // `sys_menu` 种子（V0387 `…e001`）path = `/business/hr/employee`、component
         // `business/hr/employee/index`、页面码 `business:hr:employee:page`、

@@ -45,9 +45,21 @@
 //! 与 `cost_method_handler` / `cost_batch_finish` 同款：axum handler 要 `AuthClaims` 才跑得起来，
 //! 单测调不到。把「校验 + 事务 + 落库」收进 `create_standard` / `update_standard` /
 //! `set_status` / `delete_standard` 之后，真库用例走**同一条代码路径**（只跳过认证）。
+//!
+//! # 批量导入（M5-09 补的两条）
+//!
+//! | # | 方法 | 路径 | 权限码 | 说明 |
+//! |---|---|---|---|---|
+//! | 9 | POST | `/business/erp/cost-standard/import` | `…:cost-method:create` | xlsx 批量导入（**全有或全无**） |
+//! | 10 | GET | `/business/erp/cost-standard/import-template` | `…:cost-method:list` | 9 列模板下载 |
+//!
+//! 编排（解析 / 校验 / 单事务写入）在 [`crate::business::erp::cost::cost_standard_import`]，
+//! 本文件只做 HTTP 入口。**没有新开权限码**：导入就是「批量新建」，语义上属 `create`；
+//! 模板下载是只读，属 `list`。
 
 use axum::Json;
-use axum::extract::{Path, Query};
+use axum::extract::{Multipart, Path, Query};
+use axum::response::{IntoResponse, Response};
 use nik::prelude::chrono::{FixedOffset, NaiveDate, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -58,8 +70,11 @@ use crate::business::erp::cost::cost_standard_dto::{
     StandardEffectiveRes, StandardItemRes, StandardPageQuery, StandardRes, StandardStatusReq, StandardStatusRes,
     StandardUpdateReq,
 };
+use crate::business::erp::cost::cost_standard_import::{self as import, StandardImportRes};
 use crate::business::erp::cost::cost_standard_model::{self as model, PeriodSheetFilter, StandardFilter, StandardRow};
 use crate::business::erp::model_base::normalize_page;
+use crate::business::impexp::handler::xlsx_response;
+use cloudpivot_kernel::shared::error_code;
 use cloudpivot_kernel::utils;
 
 // ==================== 权限码（复用 V0460 的四条，理由见模块头） ====================
@@ -510,7 +525,12 @@ pub async fn create_standard(
 }
 
 /// 新建事务体：锁物料 → 取现有版本 → 判重叠 → 取版本号 → 写卡头 + 明细。
-async fn create_in_tx(
+///
+/// `pub(crate)`：M5-09 的 xlsx 批量导入要在一个**自己的事务**里逐组复用这段逻辑
+/// （导入的「全有或全无」要求事务边界在导入侧，见 `cost_standard_import.rs` 模块头）。
+/// 复用而不是另写一份 SQL，是为了让「单条录入」与「导入」在重叠护栏 / 版本号 /
+/// 金额恒等上永远不会漂移。
+pub(crate) async fn create_in_tx(
     tx: &impl SqlExecutor,
     id: Uuid,
     spec: &dto::StandardSpec,
@@ -963,6 +983,75 @@ pub async fn cost_standard_delete_api(
     Ok(Res::ok(()))
 }
 
+/// 批量导入标准成本卡（M5-09）：multipart 字段 `file`（xlsx）。
+///
+/// **全有或全无**：任何一行有错 → 一条都不入库，返回
+/// `{success:0, failed:n, versions_created:0, rows:[…]}`；全部通过才落库。
+///
+/// 权限码复用 `cost-method:create`（导入 = 批量新建），不新开码 —— 新码在菜单里没有
+/// 承载行就会变死码（`permission_audit_tests::n14`）。
+#[nik::permission(
+    path = "/business/erp/cost-standard/import",
+    method = "POST",
+    permission = "business:erp:cost-method:create"
+)]
+#[nik::post("/business/erp/cost-standard/import")]
+pub async fn cost_standard_import_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    multipart: Multipart,
+) -> ResResult<StandardImportRes> {
+    let operator = utils::current_user_uuid(&claims);
+    let bytes = read_import_file(multipart).await?;
+    Ok(Res::ok(import::import_standards(&bytes, operator).await?))
+}
+
+/// 下载 9 列导入模板（权限码复用 `cost-method:list`：只读）。
+#[nik::permission(
+    path = "/business/erp/cost-standard/import-template",
+    method = "GET",
+    permission = "business:erp:cost-method:list"
+)]
+#[nik::get("/business/erp/cost-standard/import-template")]
+pub async fn cost_standard_import_template_api() -> Response {
+    match import::build_template() {
+        Ok(bytes) => xlsx_response(bytes, import::TEMPLATE_FILE_NAME),
+        Err(error) => error.into_response(),
+    }
+}
+
+/// 从导入表单里读 `file`（必填，xlsx）。
+///
+/// # 异常情况
+///
+/// - 400：表单解析失败 / 没有 `file` 字段；
+/// - 413：超过上传上限（`[upload].max_size_mb`）。
+async fn read_import_file(mut multipart: Multipart) -> std::result::Result<Vec<u8>, ApiError> {
+    let mut file: Option<Vec<u8>> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传表单解析失败"))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传文件内容读取失败"))?;
+        let max_bytes = (cfg().upload.max_size_mb as usize).saturating_mul(1024 * 1024);
+        if bytes.len() > max_bytes {
+            return Err(ApiError::new(
+                413,
+                error_code::STORAGE_SIZE_EXCEEDED,
+                format!("文件超过上传上限 {} MB，请拆分后再上传", cfg().upload.max_size_mb),
+            ));
+        }
+        file = Some(bytes.to_vec());
+    }
+    file.ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "缺少文件字段 file（xlsx）"))
+}
+
 // ==================== 单测（纯逻辑，不连库） ====================
 
 #[cfg(test)]
@@ -995,18 +1084,20 @@ mod tests {
         }
     }
 
-    /// 8 条路由由 4 个码承载：读 4 条（列表 / 生效 / 矩阵 / 详情）都挂 list，写 3 条 + 删 1 条。
+    /// 10 条路由由 4 个码承载：读 4 条（列表 / 生效 / 矩阵 / 详情）+ 模板下载都挂 list，
+    /// 建 1 条 + 导入 1 条挂 create，改 1 条 + 生效/失效 1 条挂 update，删 1 条挂 delete。
     #[test]
     fn routes_are_paired_with_permissions() {
         assert_eq!(PERM_LIST, "business:erp:cost-method:list");
         assert_eq!(PERM_CREATE, "business:erp:cost-method:create");
         assert_eq!(PERM_UPDATE, "business:erp:cost-method:update");
         assert_eq!(PERM_DELETE, "business:erp:cost-method:delete");
-        // 4 读 + 1 建 + 1 改 + 1 状态 + 1 删 = 8 条路由，4 个码
+        // M5-09 的两条导入路由**没有**引入第五个码（导入 = 批量新建 ⇒ create，模板 = 只读 ⇒ list）
+        assert_eq!(all_permissions().len(), 4);
         assert_eq!(
             COST_STANDARD_PERMISSIONS.len(),
             4,
-            "8 条路由由 4 个码承载（list 管 4 条读接口，update 管改 + 生效/失效）"
+            "10 条路由由 4 个码承载（list 管 5 条读接口，create 管建 + 导入，update 管改 + 状态，delete 管删）"
         );
     }
 

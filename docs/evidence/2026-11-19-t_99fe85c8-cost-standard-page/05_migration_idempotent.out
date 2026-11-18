@@ -1,0 +1,14 @@
+== up 连跑两遍 ==
+第1遍 ERROR 行数：0
+第1遍 菜单行数：1
+第2遍 ERROR 行数：0
+第2遍 菜单行数：1
+== down 连跑两遍 ==
+第1遍 ERROR 行数：0
+第1遍 菜单行数：0
+第2遍 ERROR 行数：0
+第2遍 菜单行数：0
+== 再 up ==
+psql:backend/app/migrations/business/V0464__cost_standard_menu.up.sql:220: NOTICE:  V0464 完成：标准成本页已挂到「成本核算」目录 sort 72（读码复用 cost-method:list，3 个角色已授）
+1
+3

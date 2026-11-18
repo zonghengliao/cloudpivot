@@ -1,0 +1,23 @@
+== 空库首启迁移（cp_m509_mig）==
+[2m2026-11-18T23:42:54.810444Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 396 个迁移
+
+== 迁移条数 / 最大版本 ==
+396
+
+== V0464 菜单行 ==
+20000000-0000-4000-8000-00000000d301|标准成本|2|/business/erp/cost-standard|business/erp/cost-standard/index|72|chart-line|标准成本|business:erp:cost-method:list|/business/erp/cost|t|1
+
+== 授权角色 ==
+FINANCE_DIRECTOR
+FINANCE_MANAGER
+SUPER_ADMIN
+
+== 同父 sort 分布（成本核算目录）==
+56|成本方法
+60|成本对象
+62|工时台账
+64|费用台账
+66|分摊规则
+68|成本核算
+70|批次成本
+72|标准成本

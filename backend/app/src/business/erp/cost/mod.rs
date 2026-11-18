@@ -220,6 +220,13 @@ pub mod cost_standard_dto;
 /// 标准成本卡 **接口层**（M5-08）：版本列表 / 详情 / 期间生效版本 / 期间矩阵 / 新建 / 修改 /
 /// 生效失效 / 软删（8 条路由，复用 `cost-method` 四个权限码：零新增死码）。
 pub mod cost_standard_handler;
+/// 标准成本卡 **xlsx 批量导入**（M5-09）：9 列模板（一组「物料编码 + 期间」= 一版）/
+/// 逐行纯校验 / 引用一次性批量查库 / **单事务**逐组写入（全有或全无）。
+pub mod cost_standard_import;
+/// M5-09 的真库用例（`ERP_DB_URL` 开关）：一组 = 一版 / 全有或全无 / 期间已占用 /
+/// 相邻两期 / 服务类拒绝 / 事务回滚。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_standard_import_db_tests;
 /// 标准成本卡 **取数层**（M5-08）：卡头 + 物料实时 join + 明细行数、标准 BOM、按物料/日期/期间
 /// 取版本、advisory lock、卡头与明细写入原语。
 pub mod cost_standard_model;
