@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.51s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 5 tests
+test business::erp::purchase::framework_contract_e2e_tests::agreement_chain_with_caps_and_release ... ok
+test business::erp::purchase::framework_contract_e2e_tests::agreement_order_posts_to_stock_and_payable ... ok
+test business::erp::purchase::framework_contract_e2e_tests::contract_linked_chain_with_amount_cap ... ok
+test business::erp::purchase::framework_contract_e2e_tests::route_exclusivity_and_unusable_references ... ok
+test business::erp::purchase::framework_contract_e2e_tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 6521 filtered out; finished in 2.80s
+

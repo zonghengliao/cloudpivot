@@ -1,0 +1,42 @@
+M4-21 门禁（2026-11-18 逐条实跑，rc 与输出原文见各节）
+
+== ① cargo fmt --check
+$ cd backend && cargo fmt -p cloudpivot -- --check
+（无输出；`grep -c '^Diff in'` = 0）
+
+== ② cargo clippy（lib + tests，零告警）
+$ cd backend && cargo clippy -p cloudpivot --lib --tests -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 01s
+rc=0
+
+== ③ 权限 / 菜单门禁
+$ cd backend && cargo test -p cloudpivot --lib system::menu::permission_audit_tests
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6518 filtered out; finished in 1.10s
+（含 N14/N18：页面显形码后端零引用；N16：每条路由都有权限闸或已登记豁免）
+
+== ④ 本卡真库用例（演练库，--test-threads=1）
+$ ERP_DB_URL=postgres://…/cp_m421_framework_contract_e2e_<pid> \
+    cargo test -p cloudpivot --lib business::erp::purchase::framework_contract_e2e_tests -- --test-threads=1
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 6521 filtered out; finished in 3.13s
+
+== ⑤ 回归（同一演练库，串行）
+business::erp::purchase            459 passed / 0 failed / SKIP=0
+business::erp::stockin             165 passed / 0 failed / SKIP=0
+business::erp::contract            109 passed / 0 failed / SKIP=0
+
+== ⑥ 演练脚本
+$ bash scripts/verify/m421_framework_contract_e2e_drill.sh
+== 汇总：PASS=38 FAIL=0 ==
+ALL PASS
+
+== ⑦ 有牙自检（坏连接串必须红）
+$ TEETH=1 bash scripts/verify/m421_framework_contract_e2e_drill.sh
+  ---- 坏连接串跑本卡用例：rc=101 / test result: FAILED. 0 passed; 5 failed; …
+  PASS 有牙：坏连接串下 5 条用例全部失败（拒绝静默 SKIP 假绿）
+== 汇总（有牙模式）：PASS=18 FAIL=0 ==
+
+== ⑧ 库清理
+演练库由脚本自建自删（trap）；迭代用库 cp_m421_iter_e2e 在本卡收尾时 dropdb。
+$ psql … -tAc "SELECT datname FROM pg_database WHERE datname LIKE 'cp_m421%'"
+（0 行）

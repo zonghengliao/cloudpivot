@@ -133,6 +133,10 @@ mod framework_agreement_over_limit_tests;
 #[cfg(test)]
 mod purchase_chain_e2e_tests;
 
+/// 框架协议 + 合同关联 的 E2E（M4-21：两条带定价约束的下单路线 + 超限，同一个串行锁）。
+#[cfg(test)]
+mod framework_contract_e2e_tests;
+
 /// 采购计划执行率跟踪的真库用例（M4-04；同一个串行锁）。
 #[cfg(test)]
 mod purchase_plan_execution_db_tests;

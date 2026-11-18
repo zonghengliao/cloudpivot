@@ -1,0 +1,53 @@
+== M4-21 采购缺口 E2E（框架协议 + 合同关联）演练（PG 172.18.10.145:5432 / 库 cp_m421_framework_contract_e2e_3855648）==
+== 0) 前置：模板库可克隆
+  [32mPASS[0m 模板库 cloudpivot_test 存在
+  [32mPASS[0m 从模板克隆演练库 cp_m421_framework_contract_e2e_3855648
+== 1) 补齐业务迁移 V0405…最新（幂等，逐条 ON_ERROR_STOP）
+  [32mPASS[0m 54 条业务迁移全部应用成功
+== 2) 前置：本链依赖的表 / 流程 / 角色 / 科目 / 状态机边
+  [32mPASS[0m 框架协议头表存在（V0450）（=biz_framework_agreement）
+  [32mPASS[0m 框架协议明细表存在（V0450）（=biz_framework_agreement_item）
+  [32mPASS[0m 合同表存在（V0180 段）（=biz_contract）
+  [32mPASS[0m 采购订单表存在（V0137/V0145）（=biz_purchase_order）
+  [32mPASS[0m 采购订单明细表存在（=biz_purchase_order_item）
+  [32mPASS[0m 收货入库表存在（V0145）（=biz_stock_in）
+  [32mPASS[0m 应付表存在（V0161）（=biz_payable）
+  [32mPASS[0m fw_agreement 已发布（V0456）（=1）
+  [32mPASS[0m po_approve 已发布（V0182）（=1）
+  [32mPASS[0m fw_agreement 两个审批节点（采购经理 / 财务经理）（=2）
+  [32mPASS[0m 协议流程两个岗位都在位（=2）
+  [32mPASS[0m 进项凭证三个默认科目齐全（1405 / 2202 / 2221.01）（=3）
+  [32mPASS[0m 采购链两张单据没有被关掉的状态机边（=0）
+== 3) 演练库清污：模板自带的 W1B-PO-0001 历史 PENDING 审批实例
+  ---- 清污影响行数：待办 [DELETE 3] / 节点 [DELETE 4] / 实例 [DELETE 1]
+  [32mPASS[0m W1B 历史残留已清（别的单号一行不碰）（=0）
+== 5) 真库用例（--test-threads=1）
+  [32mPASS[0m 本卡（协议链 / 收货过账 / 合同链 / 互斥闸 / 清场 5 条）：business::erp::purchase::framework_contract_e2e_tests 全绿（5 条）
+  [32mPASS[0m 本卡（协议链 / 收货过账 / 合同链 / 互斥闸 / 清场 5 条）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m421_3855648_business::erp::purchase::framework_contract_e2e_tests.out
+  [32mPASS[0m 采购域整组（计划 / 申请 / 订单 / 框架协议 / 合同 / 供应商未被本卡打破）：business::erp::purchase 全绿（459 条）
+  [32mPASS[0m 采购域整组（计划 / 申请 / 订单 / 框架协议 / 合同 / 供应商未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m421_3855648_business::erp::purchase.out
+  [32mPASS[0m 收货域整组（建单 / 过账 / 三本账 / 作废未被本卡打破）：business::erp::stockin 全绿（165 条）
+  [32mPASS[0m 收货域整组（建单 / 过账 / 三本账 / 作废未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m421_3855648_business::erp::stockin.out
+  [32mPASS[0m 合同域整组（执行量 / 审批 / 联动未被本卡打破）：business::erp::contract 全绿（109 条）
+  [32mPASS[0m 合同域整组（执行量 / 审批 / 联动未被本卡打破）：本组 SKIP=0（真库用例没被「无 ERP_DB_URL」打成假绿）
+  ---- 原始输出：/root/.hermes/profiles/backend-developer/cache/scratch/m421_3855648_business::erp::contract.out
+== 6) 夹具清场（M421- 一律 0 残留）
+  [32mPASS[0m biz_framework_agreement 无 M421 协议（=0）
+  [32mPASS[0m biz_framework_agreement_item 无孤儿明细（=0）
+  [32mPASS[0m biz_purchase_order 无 M421 订单（=0）
+  [32mPASS[0m biz_stock_in 无 M421 收货单（=0）
+  [32mPASS[0m biz_flow_instance 无 M421 在跑协议审批（=0）
+  [32mPASS[0m biz_voucher 无 M421 凭证（=0）
+  [32mPASS[0m biz_payable 无 M421 应付（=0）
+  [32mPASS[0m biz_contract 无 M421 合同（=0）
+  [32mPASS[0m biz_inventory 无 M421 库存（=0）
+  [32mPASS[0m biz_inventory_location 无 M421 库位账（=0）
+  [32mPASS[0m biz_inventory_txn 无 M421 流水（=0）
+  [32mPASS[0m biz_material 无 M421 物料（=0）
+  [32mPASS[0m sys_user 无 M421 夹具账号（=0）
+
+== 汇总：PASS=38 FAIL=0 ==
+ALL PASS
