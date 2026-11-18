@@ -1,0 +1,96 @@
+== 单元测试 erp-cost-method ==
+TAP version 13
+# Subtest: 方法词表与后端逐字一致，且一期只有分批法算得出来
+ok 1 - 方法词表与后端逐字一致，且一期只有分批法算得出来
+  ---
+  duration_ms: 1.827004
+  type: 'test'
+  ...
+# Subtest: 未知值原样返回、不吞（后端加了新方法时页面不会显示空白）
+ok 2 - 未知值原样返回、不吞（后端加了新方法时页面不会显示空白）
+  ---
+  duration_ms: 0.133333
+  type: 'test'
+  ...
+# Subtest: 方法下拉把未实现的挂后缀，用户选之前就知道算不出来
+ok 3 - 方法下拉把未实现的挂后缀，用户选之前就知道算不出来
+  ---
+  duration_ms: 0.160042
+  type: 'test'
+  ...
+# Subtest: 权限码与 V0460 的 4 行菜单逐字一致
+ok 4 - 权限码与 V0460 的 4 行菜单逐字一致
+  ---
+  duration_ms: 0.089583
+  type: 'test'
+  ...
+# Subtest: 生效期文案：空停止日显示「长期」而不是空串 / null
+ok 5 - 生效期文案：空停止日显示「长期」而不是空串 / null
+  ---
+  duration_ms: 0.123292
+  type: 'test'
+  ...
+# Subtest: 范围展示：全局显中文，对象级优先对象号，对象被删才回落 id
+ok 6 - 范围展示：全局显中文，对象级优先对象号，对象被删才回落 id
+  ---
+  duration_ms: 0.106333
+  type: 'test'
+  ...
+# Subtest: 口径锁定判据是「生效日 < 今天」（当天生效的当天还能改）
+ok 7 - 口径锁定判据是「生效日 < 今天」（当天生效的当天还能改）
+  ---
+  duration_ms: 0.164459
+  type: 'test'
+  ...
+# Subtest: 新建缺省：分批法 + 指定成本对象 + 今天生效 + 启用
+ok 8 - 新建缺省：分批法 + 指定成本对象 + 今天生效 + 启用
+  ---
+  duration_ms: 0.087333
+  type: 'test'
+  ...
+# Subtest: 校验：对象级必须选对象、全局不许带对象、停止日不能早于生效日
+ok 9 - 校验：对象级必须选对象、全局不许带对象、停止日不能早于生效日
+  ---
+  duration_ms: 0.513751
+  type: 'test'
+  ...
+# Subtest: 校验：合法区间（含同一天开始与结束）放行
+ok 10 - 校验：合法区间（含同一天开始与结束）放行
+  ---
+  duration_ms: 0.409959
+  type: 'test'
+  ...
+# Subtest: 重叠预检：同范围 + 启用 + 相交才命中；不同范围 / 停用 / 排除自己都不算
+ok 11 - 重叠预检：同范围 + 启用 + 相交才命中；不同范围 / 停用 / 排除自己都不算
+  ---
+  duration_ms: 0.242625
+  type: 'test'
+  ...
+# Subtest: 重叠预检：未填合法生效日时不猜（返回 null，交给后端最终判）
+ok 12 - 重叠预检：未填合法生效日时不猜（返回 null，交给后端最终判）
+  ---
+  duration_ms: 0.072917
+  type: 'test'
+  ...
+# Subtest: 新建 payload：全局清掉对象，空停止日 / 空备注传 null
+ok 13 - 新建 payload：全局清掉对象，空停止日 / 空备注传 null
+  ---
+  duration_ms: 0.082583
+  type: 'test'
+  ...
+# Subtest: 修改 payload：只带真改过的字段；清空停止日 / 备注用空串
+ok 14 - 修改 payload：只带真改过的字段；清空停止日 / 备注用空串
+  ---
+  duration_ms: 0.144834
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 160.973888
+rc=0

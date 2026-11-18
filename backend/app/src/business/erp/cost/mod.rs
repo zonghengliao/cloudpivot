@@ -58,6 +58,19 @@ pub mod cost_labor_dto;
 pub mod cost_labor_handler;
 pub mod cost_labor_import;
 pub mod cost_labor_model;
+/// M5-01 的真库用例（`ERP_DB_URL` 开关）：默认口径 / 对象级覆盖 / 重叠拦截 / 生效期两端 /
+/// 删改纪律 / 计算入口方法闸。
+#[cfg(test)]
+mod cost_method_db_tests;
+/// 成本方法配置（M5-01 · 品种法 / 分批法 / 标准成本）：值域 / 判定（对象级 > 全局级 > 默认）/
+/// 生效期重叠 / 五个业务码，纯逻辑与契约层。
+pub mod cost_method_dto;
+/// 成本方法配置接口层（M5-01）：分页 / 生效方法查询 / 增 / 改 / 删 + 成本计算入口的方法闸
+/// （`ensure_methods_runnable_in_tx`，未实现方法一律 409 + 66101，绝不静默按分批法算）。
+pub mod cost_method_handler;
+/// 成本方法配置数据层（M5-01 · `biz_cost_method_config`）：全量取数 / 分页 / 写入 /
+/// 本期拦截清单（与期间相交的非分批法配置）。
+pub mod cost_method_model;
 /// B1-8 的真库用例（`ERP_DB_URL` 开关）：5 个接口 + 关批 5 条前置。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_object_db_tests;

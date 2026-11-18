@@ -1,0 +1,26 @@
+== V0459 / V0460 的 up 幂等 + down 护栏（时间 2026-11-18T19:26:37+08:00） ==
+== ① V0460 down：删菜单（应成功，且 4 行归零） ==
+psql:/opt/cloudpivot/backend/app/migrations/business/V0460__cost_method_menu_and_perm.down.sql:41: NOTICE:  V0460 回滚完成：成本方法菜单（1 页面 + 3 按钮）与授权已删除
+0
+== ② V0460 up：重放（应重建 4 行，幂等） ==
+psql:/opt/cloudpivot/backend/app/migrations/business/V0460__cost_method_menu_and_perm.up.sql:242: NOTICE:  V0460 完成：成本方法（1 页面 + 3 按钮，4 个权限码）已挂到「成本核算」目录 sort 56
+4
+== ③ V0459 down 有数据时必须拒绝（造一条非种子配置） ==
+psql:/opt/cloudpivot/backend/app/migrations/business/V0459__cost_method_config.down.sql:29: ERROR:  V0459 拒绝回滚：表里还有 1 条存活配置（除默认种子外）。配置是期间口径的凭据，请先导出存档 / 软删，再回滚本迁移
+   表还在？ 1
+== ④ 清掉探针行 → V0459 down 应放行（只删表） ==
+   表还在？ 0
+== ⑤ V0459 up：恢复（应重建表 + 种子行 + 自检通过） ==
+psql:/opt/cloudpivot/backend/app/migrations/business/V0459__cost_method_config.up.sql:219: NOTICE:  V0459 完成：biz_cost_method_config 就绪（5 CHECK / 4 索引 / 默认 GLOBAL=JOB 种子 1 行）
+1
+== 完成 ==
+
+== up 重放两遍（幂等：0 ERROR / 0 行新增） ==
+-- 第 1 遍 --
+psql:/opt/cloudpivot/backend/app/migrations/business/V0459__cost_method_config.up.sql:219: NOTICE:  V0459 完成：biz_cost_method_config 就绪（5 CHECK / 4 索引 / 默认 GLOBAL=JOB 种子 1 行）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0460__cost_method_menu_and_perm.up.sql:242: NOTICE:  V0460 完成：成本方法（1 页面 + 3 按钮，4 个权限码）已挂到「成本核算」目录 sort 56
+-- 第 2 遍 --
+psql:/opt/cloudpivot/backend/app/migrations/business/V0459__cost_method_config.up.sql:219: NOTICE:  V0459 完成：biz_cost_method_config 就绪（5 CHECK / 4 索引 / 默认 GLOBAL=JOB 种子 1 行）
+psql:/opt/cloudpivot/backend/app/migrations/business/V0460__cost_method_menu_and_perm.up.sql:242: NOTICE:  V0460 完成：成本方法（1 页面 + 3 按钮，4 个权限码）已挂到「成本核算」目录 sort 56
+菜单行数（应 4）：4
+配置行数（应 1，只有种子）：1

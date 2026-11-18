@@ -1,0 +1,4 @@
+== cargo clippy --lib -- -D warnings ==
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 39.68s
+rc=0

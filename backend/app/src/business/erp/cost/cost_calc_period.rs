@@ -62,6 +62,7 @@ use crate::business::erp::cost::cost_calc_material;
 use crate::business::erp::cost::cost_calc_overhead;
 use crate::business::erp::cost::cost_calc_reconcile;
 use crate::business::erp::cost::cost_labor_dto;
+use crate::business::erp::cost::cost_method_handler;
 use crate::business::erp::cost::cost_period_dto::{self as period_dto, CostPeriodDetailRes, STATUS_DRAFT};
 use crate::business::erp::cost::cost_period_handler;
 use crate::business::erp::cost::cost_period_item_dto;
@@ -308,6 +309,12 @@ async fn run_in_tx(
 ) -> std::result::Result<(Uuid, CalcRunSummary), ApiError> {
     // ---------- ① 定批次 ----------
     let batch = ensure_batch(tx, period_code, operator).await?;
+
+    // ---------- ①' M5-01 方法闸：本期生效范围内不许有未实现的核算方法 ----------
+    // 一期只实现分批法（ARCH-9 D-3）。配置层可以选品种法 / 标准成本（二 / 三期排期数据），
+    // 但**绝不**按分批法算完却把结果当成标准成本 —— 那样出来的成本报表是错的且看不出来。
+    // 放在「清计算单」之前：被拦时库里一个字节都没动（连 purge 都不做）。
+    cost_method_handler::ensure_methods_runnable_in_tx(tx, period_code, start, end).await?;
 
     // ---------- ② 清本批次旧计算单（卡面要点 ②：重算前必 purge） ----------
     let purged_items = item_model::purge_calc_rows(tx, batch.id)

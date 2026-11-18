@@ -1,0 +1,44 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 37 tests
+test business::erp::cost::cost_method_db_tests::db::calc_guard_blocks_unimplemented_method ... ok
+test business::erp::cost::cost_method_db_tests::db::create_list_and_effective_for_object ... ok
+test business::erp::cost::cost_method_db_tests::db::delete_rules_protect_effective_history ... ok
+test business::erp::cost::cost_method_db_tests::db::effective_window_is_inclusive_on_both_ends ... ok
+test business::erp::cost::cost_method_db_tests::db::overlap_rejected_and_adjacent_window_accepted ... ok
+test business::erp::cost::cost_method_db_tests::db::page_filters_and_keyword ... ok
+test business::erp::cost::cost_method_db_tests::db::same_effective_day_is_blocked_by_the_unique_index ... ok
+test business::erp::cost::cost_method_db_tests::db::scope_validation_rejects_bad_targets ... ok
+test business::erp::cost::cost_method_db_tests::db::seed_row_is_the_phase_one_default ... ok
+test business::erp::cost::cost_method_db_tests::db::switch_method_needs_closing_the_previous_version ... ok
+test business::erp::cost::cost_method_db_tests::db::update_rules_protect_effective_history ... ok
+test business::erp::cost::cost_method_dto::tests::business_codes_are_stable ... ok
+test business::erp::cost::cost_method_dto::tests::create_spec_enforces_scope_pairing ... ok
+test business::erp::cost::cost_method_dto::tests::delete_in_use_explains_the_way_out ... ok
+test business::erp::cost::cost_method_dto::tests::disabled_rows_are_ignored ... ok
+test business::erp::cost::cost_method_dto::tests::effective_window_is_inclusive_on_both_ends ... ok
+test business::erp::cost::cost_method_dto::tests::empty_config_falls_back_to_job ... ok
+test business::erp::cost::cost_method_dto::tests::find_overlap_respects_scope_and_exclusion ... ok
+test business::erp::cost::cost_method_dto::tests::locked_effective_points_at_the_three_allowed_fields ... ok
+test business::erp::cost::cost_method_dto::tests::newest_effective_version_wins ... ok
+test business::erp::cost::cost_method_dto::tests::normalize_accepts_case_and_rejects_unknown ... ok
+test business::erp::cost::cost_method_dto::tests::object_level_beats_global ... ok
+test business::erp::cost::cost_method_dto::tests::only_job_is_implemented_in_phase_one ... ok
+test business::erp::cost::cost_method_dto::tests::overlap_detection_covers_open_ended_ranges ... ok
+test business::erp::cost::cost_method_dto::tests::range_text_is_human_readable ... ok
+test business::erp::cost::cost_method_dto::tests::unimplemented_error_names_subject_method_and_ways_out ... ok
+test business::erp::cost::cost_method_dto::tests::update_spec_treats_blank_as_clear ... ok
+test business::erp::cost::cost_method_dto::tests::value_domains_and_labels_are_stable ... ok
+test business::erp::cost::cost_method_handler::tests::filter_normalizes_and_rejects_unknown ... ok
+test business::erp::cost::cost_method_handler::tests::permission_codes_match_the_migration_seed ... ok
+test business::erp::cost::cost_method_handler::tests::routes_and_permissions_are_paired ... ok
+test business::erp::cost::cost_method_handler::tests::today_is_cst_not_utc ... ok
+test business::erp::cost::cost_method_model::tests::blocking_sql_shape ... ok
+test business::erp::cost::cost_method_model::tests::insert_and_update_bind_counts_match ... ok
+test business::erp::cost::cost_method_model::tests::nullable_columns_use_nullif ... ok
+test business::erp::cost::cost_method_model::tests::scope_display_prefers_object_no_then_id ... ok
+test business::erp::cost::cost_method_model::tests::select_sql_prefixes_every_column_and_joins_object ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 6526 filtered out; finished in 0.18s
+

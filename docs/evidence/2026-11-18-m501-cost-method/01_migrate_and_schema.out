@@ -1,0 +1,43 @@
+== 空库首启（cp_m501_dev 由 createdb 建的空库，跑一次后端实例让迁移引擎跑完） ==
+时间: 2026-11-18T19:23:45+08:00
+-- schema_migrations 最大版本 / 条数 --
+460 / 392
+-- 本卡两件迁移都在 --
+seed|workflow_permissions||7704a11964e432d24e5b47d7640896f079d432a4ce0b3893ecd89a83964ff15b|executed|1795000011|392|1|t|app/migrations/seed/S__workflow_permissions.sql
+seed|voucher_three_state_permissions||bc4644b284f7ccbfd6b5e4712b615571a3c5a6d5cb8a58064be328897d95d036|executed|1795000011|391|1|t|app/migrations/seed/S__voucher_three_state_permissions.sql
+seed|task_project_permissions||8955bbe9ef6c40b8075851491beef09f8833a332e77e152899385dff12462187|executed|1795000011|390|1|t|app/migrations/seed/S__task_project_permissions.sql
+seed|task_permissions||38197c464d127abb8602aafe87bf4c348f41aa4f192dd0edaff792dd501764d2|executed|1795000011|389|3|t|app/migrations/seed/S__task_permissions.sql
+-- 表结构（13 列） --
+id|uuid|NO
+method|character varying|NO
+scope_type|character varying|NO
+scope_id|uuid|YES
+effective_from|date|NO
+effective_to|date|YES
+status|smallint|NO
+remark|text|YES
+created_at|timestamp with time zone|NO
+updated_at|timestamp with time zone|NO
+create_by|uuid|YES
+update_by|uuid|YES
+deleted_at|timestamp with time zone|YES
+-- 种子行 --
+20000000-0000-4000-8000-00000000d001|JOB|GLOBAL|NULL|1970-01-01|长期|1
+-- 菜单 4 行（页面 + 3 按钮） --
+20000000-0000-4000-8000-00000000d101|2|成本方法|/business/erp/cost-method|56|business:erp:cost-method:list|成本核算
+20000000-0000-4000-8000-00000000d111|3|新增配置|-|10|business:erp:cost-method:create|成本方法
+20000000-0000-4000-8000-00000000d112|3|修改配置|-|20|business:erp:cost-method:update|成本方法
+20000000-0000-4000-8000-00000000d113|3|删除配置|-|30|business:erp:cost-method:delete|成本方法
+-- 角色授权 --
+FINANCE_DIRECTOR|1
+FINANCE_MANAGER|4
+SUPER_ADMIN|4
+
+== 更正：上面那段「本卡两件迁移都在」误取了 seed 行（schema_migrations.version 是文本、seed 行的 version 为空）。
+   以下是按 kind='versioned' 精确取 V0455–V0460 的结果（success=t 即真跑过） ==
+455|versioned|t|executed|app/migrations/business/V0455__supplier_access.up.sql
+456|versioned|t|executed|app/migrations/business/V0456__framework_agreement_crud.up.sql
+457|versioned|t|executed|app/migrations/business/V0457__supplier_evaluation_page.up.sql
+458|versioned|t|executed|app/migrations/business/V0458__erp_contract_execution.up.sql
+459|versioned|t|executed|app/migrations/business/V0459__cost_method_config.up.sql
+460|versioned|t|executed|app/migrations/business/V0460__cost_method_menu_and_perm.up.sql

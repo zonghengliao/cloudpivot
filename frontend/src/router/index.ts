@@ -820,6 +820,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '分摊规则', permission: 'business:erp:cost-alloc-rule:list' },
       },
       {
+        // ==================== ERP 成本：成本方法（M5-01 / ARCH-9 D-3·D-15·D-16） ====================
+        // `sys_menu` 种子（V0460 …d101）path = `/business/erp/cost-method`、component
+        // `business/erp/cost-method/index`，权限码 `business:erp:cost-method:list`，
+        // 挂在「成本核算」目录（`/business/erp/cost`，V0390 建）sort 56 —— **最先要定的事**。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/cost-method',
+        name: 'BusinessErpCostMethod',
+        component: () => import('@/views/business/erp/cost-method/index.vue'),
+        meta: { title: '成本方法', permission: 'business:erp:cost-method:list' },
+      },
+      {
         // ==================== ERP 成本：成本核算（COST-B3-11 / ARCH-9 §6.1 #5） ====================
         // `sys_menu` 种子（V0378 …c005）path = `/business/erp/cost-period`、component
         // `business/erp/cost-period/index`，权限码 `business:erp:cost-period:list`，
