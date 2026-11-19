@@ -290,3 +290,19 @@ pub mod cost_variance_voucher;
 /// 已结账期间拒绝且零残留 / 科目 1404·5401 是启用末级。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_variance_voucher_db_tests;
+/// M5-20 的真库用例（`ERP_DB_URL` 开关）：完工率 × 数量 / 跨月前期完工扣减 /
+/// 与真 calc 的计算单对拍一致 / 改完工率后漂移 / 算不出来的行 / 数据范围 404 不泄漏 /
+/// 无批次照出试算视图 / 合计与筛选 / 清场零残留。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_wip_equiv_db_tests;
+/// 在制品「约当产量表」的**契约层与纯逻辑**（M5-20）：本期完工派生（累计 − 前期已结算）、
+/// 材料约当（WQ 按 100%）/ 加工约当（WQ × 完工率）与 calc 第 6 段同一算式、三种行状态
+/// （有在制 / 全部完工 / 算不出来）、与本期计算单逐字段对拍的漂移判定、整表合计。
+/// 零 DB、零迁移、零新增权限码。
+pub mod cost_wip_equiv_dto;
+/// 约当产量表 **接口层**（M5-20）：`GET /business/erp/cost-wip-equiv`
+/// （期间必填 + 关键字 + 五档状态筛选 + 分页 + 整表合计）。复用 `cost-object:list`。
+pub mod cost_wip_equiv_handler;
+/// 约当产量表 **取数层**（M5-20）：一条 SQL 取回对象 + 前期已结算汇总 + 本期归集 +
+/// 本期计算单快照 + 产出品 / 车间名（无 N+1）。数据范围复用 `biz_cost_object` 锚点。
+pub mod cost_wip_equiv_model;

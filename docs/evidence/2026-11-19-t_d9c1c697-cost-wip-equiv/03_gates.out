@@ -1,0 +1,13 @@
+== cargo fmt --check ==
+fmt rc=0
+
+== cargo clippy --lib -- -D warnings ==
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+
+== bash scripts/check.sh --fast ==
+  ℹ 本机无部署证据（无 /etc/cloudpivot*/*.env、systemd 里无 cloudpivot 服务），且 http://127.0.0.1:8023/metrics 连不上 → 跳过
+    开发机没起服务属正常；要强制校验：METRICS_GATE=block bash scripts/check.sh --l0
+==> 页面零壳类声明（frontend/scripts/shell-variant-report.cjs --baseline）
+✓ 无新增页面壳类声明（存量 6 条待按批削减，已删 0 条可同步削 allowlist）
+  ✓ PASS：无新增页面壳类声明（存量按 §5 的 B1–B6 逐批削减）
+==> 全部检查通过（L0 L1）

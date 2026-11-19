@@ -1,0 +1,56 @@
+[PASS] 夹具就绪（三个成本对象 + 前期已结算批次 + 本期批次）
+[PASS] 参数重载 200（模块开关立即生效）  · code=0 msg=ok
+[PASS] ① 路由挂上了（200 + data）  · code=0 msg=ok
+[PASS] ② 缺期间 ⇒ 400 且说清 period_code  · code=10001 msg=period_code（yyyy-MM）不能为空：约当产量按期间算，例如 2026-11
+[PASS] ② 非法期间 2026-13 ⇒ 400  · code=10001 msg=期间编码必须是 yyyy-MM（收到「2026-13」）
+[PASS] ② 状态拼错 ⇒ 400  · code=10001 msg=state（筛选）只能是 all / wip / finished / blocked / drift，收到 wipp
+[PASS] ③ 期间 + 关键字 200  · code=0 msg=ok
+[PASS] ③ 命中本夹具 3 行  · total=3
+[PASS] ③ cost_ready=true（P2 有批次）
+[PASS] ③ 批次号回显  · {'id': '86459271-c0ba-4591-9310-0075ade92ae6', 'batch_no': 'CS-M520SM71922-P2', 'status': 'DRAFT'}
+[PASS] ③ A 本期完工 800.0000  · 800.0000
+[PASS] ③ A 在制折材料约当 200.0000  · 200.0000
+[PASS] ③ A 材料约当 1000.0000（800 + 200×100%）  · 1000.0000
+[PASS] ③ A 在制折加工约当 100.0000（200×50%）  · 100.0000
+[PASS] ③ A 加工约当 900.0000（800 + 100）  · 900.0000
+[PASS] ⑤ A 与计算单一致（calc.agrees）  · {'status': 'CALC', 'completed_qty': '800.0000', 'wip_qty': '200.0000', 'completion_pct': '50.00', 'equiv_material': '1000.0000', 'equiv_conversion': '900.0000', 'agrees': True, 'drift': [], 'note': '表值与本期计算单一致（同一个完工数量、在制数量、完工率算出的同一组约当）'}
+[PASS] ⑤ A 不需要重算
+[PASS] ③ A 状态 wip  · wip
+[PASS] ④ B 前期已结算完工 300.0000  · 300.0000
+[PASS] ④ B 本期完工 700.0000（累计 1000 − 前期 300）  · 700.0000
+[PASS] ④ B 材料约当 700.0000（在制 0）  · 700.0000
+[PASS] ④ B 状态 finished（全完工）  · finished
+[PASS] ⑥ C 状态 blocked  · blocked
+[PASS] ⑥ C 加工约当 null（不是 0）  · None
+[PASS] ⑥ C 问题码 WIP_PCT_MISSING  · [{'code': 'WIP_PCT_MISSING', 'message': '期末在制 200.0000 但完工率是 0%：加工约当（= 完工 + 在制 × 完工率）算不出来', 'fix': '在成本对象页填写期末在制的完工进度（0 < 完工率 ≤ 100）；不填的话跑期间计算会被 66067 拦下'}]
+[PASS] ⑥ C 带「怎么修」
+[PASS] ⑦ 合计 row_count=3  · 3
+[PASS] ⑦ 合计 wip/finished/blocked = 1/1/1  · {'wip_row_count': 1, 'finished_row_count': 1, 'blocked_row_count': 1}
+[PASS] ⑦ 完工合计 1600.0000（800+700+100，blocked 行的数量也是事实）  · 1600.0000
+[PASS] ⑦ 在制合计 400.0000（200+0+200，blocked 也计数量）  · 400.0000
+[PASS] ⑦ 材料约当合计 1700.0000（blocked 行整行不进）  · 1700.0000
+[PASS] ⑦ 加工约当合计 1600.0000  · 1600.0000
+[PASS] ⑦ 合计口径说人话  · 合计是整张表的（不受分页影响）；约当合计只累加能算的行 —— 当前有 1 行算不出来（它们的在制与完工仍计入数量合计）
+[PASS] ⑦ page_size=1 只回 1 行  · 1
+[PASS] ⑦ page_size=1 时合计仍是整表 3 行
+[PASS] ⑪ page_size 上限 200  · 200
+[PASS] ⑧ state=wip 命中 1  · 1
+[PASS] ⑧ state=finished 命中 1  · 1
+[PASS] ⑧ state=blocked 命中 1  · 1
+[PASS] ⑧ state=drift 命中 0（还没改数）  · 0
+[PASS] ⑧ 关键字收窄到 1 行  · 1
+[PASS] ⑨ 改完完工率 ⇒ recalc_required=true
+[PASS] ⑨ 漂移命中「完工率」  · [{'field': '完工率', 'table_value': '60.00', 'calc_value': '50.00'}, {'field': '加工约当', 'table_value': '920.0000', 'calc_value': '900.0000'}]
+[PASS] ⑨ 表值 60 / 计算单 50  · {'field': '完工率', 'table_value': '60.00', 'calc_value': '50.00'}
+[PASS] ⑨ 加工约当跟着变 920.0000  · 920.0000
+[PASS] ⑨ drift 档能筛出来  · 1
+[PASS] ⑩ 没批次仍 200（试算视图）  · code=None msg=
+[PASS] ⑩ cost_ready=false / batch=null
+[PASS] ⑩ 页脚说明「试算」  · 2032-03 还没有成本核算批次：本表是**试算视图**（按成本对象当前的完工数量 / 期末在制 / 完工率算），与计算单对拍一列显示为空。建批次并执行计算（
+[PASS] ⑩ 行还在（按对象现状算）  · 3
+[PASS] ⑩ calc 列 null
+[PASS] ⑬ 建无码用户（EMPLOYEE 角色）  · code=0 msg=ok
+[PASS] ⑬ 无成本读码 ⇒ 403（不是 200、不是 500）  · 403 code=403 msg=无权限访问，需要权限: business:erp:cost-object:list
+[PASS] ⑫ 清场零残留  · residual=0
+
+===== 54 PASS / 0 FAIL =====
