@@ -257,6 +257,11 @@ pub mod cost_standard_publish;
 /// 撤回同事务 / 状态闸 66111 / 自审 403 / 审批中不许改删。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_standard_publish_db_tests;
+/// M5-17 的**标准成本三差异单测**（含正负差异）：把 M5-12 价差 / M5-13 量差 /
+/// M5-14 效率差放进同一张标准成本卡，钉住标准量派生、正/负/零三态、§4.9.2 两条恒等式、
+/// 多物料正负混排、与 M5-11 报表要素差异对拍、落表列口径与 400 守卫。纯逻辑，零 DB。
+#[cfg(test)]
+mod cost_standard_variance_tests;
 /// 成本核算模块开关探针（ARCH-9 §7.4 灰度 · COST-B4-4）：`GET /business/erp/cost-switch`。
 pub mod cost_switch_handler;
 /// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。

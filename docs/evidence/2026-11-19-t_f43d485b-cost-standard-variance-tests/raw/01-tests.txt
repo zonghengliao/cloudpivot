@@ -1,0 +1,37 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 30s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 29 tests
+test business::erp::cost::cost_standard_variance_tests::all_three_entry_points_reject_negative_inputs_with_field_wording ... ok
+test business::erp::cost::cost_standard_variance_tests::compare_report_row_matches_a_favorable_variance_sum ... ok
+test business::erp::cost::cost_standard_variance_tests::compare_report_row_matches_the_material_and_labor_variances ... ok
+test business::erp::cost::cost_standard_variance_tests::compare_total_beyond_the_three_variances_is_the_overhead_variance ... ok
+test business::erp::cost::cost_standard_variance_tests::direction_mapping_always_satisfies_the_db_sign_check ... ok
+test business::erp::cost::cost_standard_variance_tests::drill_example_c_closes_both_two_factor_identities ... ok
+test business::erp::cost::cost_standard_variance_tests::drill_example_c_mixes_unfavorable_and_favorable_lines ... ok
+test business::erp::cost::cost_standard_variance_tests::drill_example_c_reproduces_the_three_variances ... ok
+test business::erp::cost::cost_standard_variance_tests::every_line_carries_what_biz_cost_variance_needs ... ok
+test business::erp::cost::cost_standard_variance_tests::identity_closes_when_only_one_factor_moves ... ok
+test business::erp::cost::cost_standard_variance_tests::labor_efficiency_is_independent_of_the_actual_rate ... ok
+test business::erp::cost::cost_standard_variance_tests::labor_efficiency_variance_covers_unfavorable_favorable_and_even ... ok
+test business::erp::cost::cost_standard_variance_tests::labor_identity_holds_across_a_sign_grid ... ok
+test business::erp::cost::cost_standard_variance_tests::material_identity_holds_across_a_sign_grid ... ok
+test business::erp::cost::cost_standard_variance_tests::material_price_variance_covers_unfavorable_favorable_and_even ... ok
+test business::erp::cost::cost_standard_variance_tests::material_qty_variance_covers_unfavorable_favorable_and_even ... ok
+test business::erp::cost::cost_standard_variance_tests::mixed_material_lines_keep_their_own_signs_when_summed ... ok
+test business::erp::cost::cost_standard_variance_tests::no_completion_makes_all_actual_usage_and_hours_unfavorable ... ok
+test business::erp::cost::cost_standard_variance_tests::realistic_month_with_mixed_signs_keeps_every_line_straight ... ok
+test business::erp::cost::cost_standard_variance_tests::six_decimal_inputs_never_leak_more_than_four_decimals ... ok
+test business::erp::cost::cost_standard_variance_tests::standard_card_derives_the_quantities_the_variances_consume ... ok
+test business::erp::cost::cost_standard_variance_tests::standard_card_unit_cost_times_completed_equals_the_variance_baseline ... ok
+test business::erp::cost::cost_standard_variance_tests::std_hours_are_rounded_to_the_column_scale_before_they_are_priced ... ok
+test business::erp::cost::cost_standard_variance_tests::swapping_actual_and_standard_flips_each_sign_exactly ... ok
+test business::erp::cost::cost_standard_variance_tests::the_identity_rejects_the_classic_wrong_formulas ... ok
+test business::erp::cost::cost_standard_variance_tests::the_three_entry_points_cover_exactly_the_three_types ... ok
+test business::erp::cost::cost_standard_variance_tests::zero_standard_price_collapses_the_qty_side_to_zero ... ok
+test business::erp::cost::cost_standard_variance_tests::zero_standard_usage_puts_the_whole_pivot_into_the_qty_side ... ok
+test business::erp::cost::cost_standard_variance_tests::zero_variance_lines_are_flagged_and_still_carry_a_writable_direction ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 6990 filtered out; finished in 0.01s
+
