@@ -1,0 +1,40 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 33 tests
+test business::erp::cost::cost_labor_eff_variance_dto::tests::amount_beyond_money_column_is_rejected ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::amount_is_rounded_to_four_decimals ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::db_enum_mirror_matches_v0374_check_constraints ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::delegates_to_the_qty_family_arithmetic ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::direction_always_satisfies_db_sign_check ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::drill_example_labor_efficiency_variance ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::efficiency_is_independent_of_the_actual_rate ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::entry_point_is_pinned_to_labor_eff ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::formula_matches_the_card_title ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::hours_beyond_column_scale_are_rejected ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::hours_text_trims_trailing_zeros_but_keeps_precision ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::identity_residual_is_zero_across_a_grid ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::ledger_rounds_half_up_while_money_rounds_to_even ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::negative_actual_hours_is_rejected_in_hours_wording ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::negative_std_hours_is_rejected ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::negative_std_rate_is_rejected ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::no_hours_difference_is_zero_with_writable_direction ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::pivot_is_the_same_number_as_the_wage_rate_line ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::rounding_diff_surfaces_when_the_two_legs_round_apart ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::shorter_hours_than_standard_is_favorable ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::std_hours_of_multiplies_unit_hours_by_completed_qty ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::std_hours_of_rejects_negative_inputs ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::std_hours_of_rejects_overflow_beyond_the_column ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::std_hours_of_rounds_half_away_from_zero_like_postgres ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::std_hours_of_zero_completions_is_zero_not_an_error ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::stored_std_hours_are_the_same_number_used_in_the_amount ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::two_factor_identity_closes_on_the_labor_drill ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::two_factor_identity_closes_with_six_decimal_rate ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::two_factor_rejects_bad_input_through_the_same_guards ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::two_factor_uses_one_set_of_inputs_for_both_lines ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::zero_actual_hours_is_favorable_and_means_missing_ledger ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::zero_std_hours_puts_all_actual_hours_into_the_variance ... ok
+test business::erp::cost::cost_labor_eff_variance_dto::tests::zero_std_rate_makes_the_efficiency_variance_vanish ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 6891 filtered out; finished in 0.01s
+

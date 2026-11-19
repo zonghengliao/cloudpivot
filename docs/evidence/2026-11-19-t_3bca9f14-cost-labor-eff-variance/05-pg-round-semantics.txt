@@ -1,0 +1,7 @@
+-- PG round(numeric,int) 语义核实（145 真库）
+-- 台账 ck_biz_cost_labor_amount: amount = round(hours*rate,4)；差异表金额走 money()=banker's
+    v    | pg_round_4dp | v2_pg  | v3_pg_6dp 
+---------+--------------+--------+-----------
+ 2.00005 |       2.0001 | 1.0001 |  0.000050
+(1 row)
+

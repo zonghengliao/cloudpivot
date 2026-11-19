@@ -123,6 +123,10 @@ pub mod cost_labor_collect_dto;
 mod cost_labor_db_tests;
 /// 工时台账（ARCH-9 §3.1 ④ / §5.2 #10–#14）：`biz_cost_labor` CRUD + 确认（幂等）。
 pub mod cost_labor_dto;
+/// 差异分解的 **契约层与纯逻辑**（M5-14）：人工效率差异 `(实际工时 − 标准工时) × 标准工资率`
+/// 的工时口径入口、标准工时唯一算法（单位标准工时 × 完工数，先 round 到 18,6 再算钱）、
+/// 人工两因素（率差 + 效差）同参配对与 §4.9.2 恒等式残差。算数复用 M5-13 / M5-12，零 DB、零路由。
+pub mod cost_labor_eff_variance_dto;
 pub mod cost_labor_handler;
 pub mod cost_labor_import;
 pub mod cost_labor_model;
