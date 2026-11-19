@@ -21,36 +21,80 @@
 
 import { onBeforeUnmount, onMounted, type Ref } from 'vue';
 
-const BLUE = '111,138,184'; // 雾蓝（主题 --app-brand-strong 同色系）
-const GOLD = '193,172,123'; // 流金（主题里的漂木棕点缀）
+const BLUE = '111,138,184'; // 兜底：与默认配色 --app-brand 同值
+const GOLD = '193,172,123'; // 兜底：与默认配色 --app-brand-accent 同值
 
 /**
- * 两套配色。
+ * 从 CSS 变量读颜色，转成 canvas 要的 `r,g,b` 串。
  *
- * 浅底（登录页 `--app-login-brand`：霜月白→雾蓝灰）上，深一点的蓝点才看得见；
- * 深底（内容区 `--app-gradient-brand`：#384c6d→#8ba0c7 的蓝渐变）上，
- * 同一个蓝点会糊进背景 —— 必须换成接近白的冷色，金点也要提亮。
+ * 为什么运行时读而不是硬编码：全站有 11 套配色（`style/palettes.ts`），
+ * 用户切方案时 `--app-brand` / `--app-brand-accent` 都会变，
+ * 登录页的晕染、散点、连线应该跟着一起换色，而不是永远雾蓝 + 流金。
  */
-const PALETTES = {
-  light: {
-    dot: BLUE,
-    dotGold: GOLD,
-    link: BLUE,
+function readRgb(varName: string, fallback: string): string {
+  if (typeof document === 'undefined') {
+    return fallback;
+  }
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  if (!raw) {
+    return fallback;
+  }
+  const hex = raw.replace('#', '');
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return [
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16),
+    ].join(',');
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    return [
+      parseInt(hex[0] + hex[0], 16),
+      parseInt(hex[1] + hex[1], 16),
+      parseInt(hex[2] + hex[2], 16),
+    ].join(',');
+  }
+  const m = raw.match(/rgba?\(([^)]+)\)/);
+  if (m) {
+    return m[1]
+      .split(',')
+      .slice(0, 3)
+      .map((s) => s.trim())
+      .join(',');
+  }
+  return fallback;
+}
+
+/**
+ * 两套配色 + 透明度。
+ *
+ * - light（登录页浅渐变底）：散点/连线都用**当前配色的主色**，散点里少量点缀强调色
+ * - dark（内容区深蓝渐变底）：主色压不住底（#6381B4 在 #6f8ab8 上糊），
+ *   散点改纯白，强调色仍取配色
+ *
+ * 透明度也随主题走：浅底 0.72 / 深底 0.92。
+ */
+function paletteOf(theme: 'light' | 'dark') {
+  if (theme === 'dark') {
+    return {
+      dot: '255,255,255',
+      dotGold: readRgb('--app-brand-accent', GOLD),
+      link: '255,255,255',
+      dotAlpha: 0.92,
+      linkAlpha: 0.55,
+    };
+  }
+  const brand = readRgb('--app-brand', BLUE);
+  return {
+    dot: brand,
+    dotGold: readRgb('--app-brand-accent', GOLD),
+    link: brand,
     dotAlpha: 0.72,
     linkAlpha: 0.34,
-  },
-  // 深底（内容区 #384c6d→#8ba0c7）：原来的近白点只有 0.72 不透明度，
-  // 压在蓝渐变中段基本看不见。改成纯白 / 高不透明，金色也加饱和。
-  dark: {
-    dot: '255,255,255',
-    dotGold: '255,204,102',
-    link: '255,255,255',
-    dotAlpha: 0.92,
-    linkAlpha: 0.55,
-  },
-} as const;
+  };
+}
 
-export type ConstellationTheme = keyof typeof PALETTES;
+export type ConstellationTheme = 'light' | 'dark';
 
 /** 一个漂移的点 */
 interface Particle {
@@ -83,9 +127,10 @@ export interface ConstellationOptions {
   /** 底色主题。浅底用 light（默认），深底用 dark（内容区品牌渐变） */
   theme?: ConstellationTheme;
   /**
-   * 鼠标位置是否画径向光晕。
-   * 默认 true（登录页保留）；内容区顶部卡关掉 —— 那圈光晕在深底上偏"糊"，
-   * 用户明确要求「鼠标移上去不要发光」，只留连线和点。
+   * 鼠标位置是否画径向光晕。**默认 false**（不发光）。
+   *
+   * 用户明确要求「鼠标移上去不要发光」，登录页和内容区顶部卡都关掉了；
+   * 保留这个开关只是为了以后有场景真需要时能显式打开。
    */
   glow?: boolean;
 }
@@ -100,13 +145,32 @@ export function useConstellationFx(
   hostRef: Ref<HTMLElement | null>,
   options: ConstellationOptions = {},
 ): ConstellationFx {
-  const pal = PALETTES[options.theme ?? 'light'];
-  const DOT = pal.dot;
-  const DOT_GOLD = pal.dotGold;
-  const LINK = pal.link;
-  const DOT_ALPHA = pal.dotAlpha;
-  const LINK_ALPHA = pal.linkAlpha;
-  const SHOW_GLOW = options.glow !== false;
+  const themeKey: ConstellationTheme = options.theme ?? 'light';
+  let pal = paletteOf(themeKey);
+  let DOT = pal.dot;
+  let DOT_GOLD = pal.dotGold;
+  let LINK = pal.link;
+  let DOT_ALPHA = pal.dotAlpha;
+  let LINK_ALPHA = pal.linkAlpha;
+  // 默认**不发光**：用户明确要求「鼠标移上去不要发光」，只留点与线
+  const SHOW_GLOW = options.glow === true;
+
+  /**
+   * 重新读一遍配色变量。
+   *
+   * 用户切配色（设置页 → 外观）只改 `<html>` 上的 CSS 变量，不会重建组件，
+   * 所以这里每秒（60 帧）重读一次 —— getComputedStyle 的开销可以忽略，
+   * 换来的是切完配色不用刷新页面，点线立刻跟着变色。
+   */
+  function refreshPalette() {
+    pal = paletteOf(themeKey);
+    DOT = pal.dot;
+    DOT_GOLD = pal.dotGold;
+    LINK = pal.link;
+    DOT_ALPHA = pal.dotAlpha;
+    LINK_ALPHA = pal.linkAlpha;
+  }
+  let colorTick = 0;
   let ctx: CanvasRenderingContext2D | null = null;
   let particles: Particle[] = [];
   let raf = 0;
@@ -156,6 +220,10 @@ export function useConstellationFx(
   function step() {
     if (!ctx) {
       return;
+    }
+    // 每 60 帧重读配色（切方案后不用刷新页面）
+    if (colorTick++ % 60 === 0) {
+      refreshPalette();
     }
     ctx.clearRect(0, 0, W, H);
 
@@ -207,12 +275,12 @@ export function useConstellationFx(
       }
     }
 
-    // 4. 鼠标 → 附近点（金线，更亮，让鼠标成为视觉焦点）
+    // 4. 鼠标 → 附近点（用主色，不再用金色 —— 用户要求鼠标辐射出去的线别用金色）
     if (mouse.active) {
       for (const p of particles) {
         const d = Math.hypot(p.x - mouse.x, p.y - mouse.y);
         if (d < MOUSE_LINK_DIST) {
-          ctx.strokeStyle = `rgba(${DOT_GOLD},${((1 - d / MOUSE_LINK_DIST) * 0.7).toFixed(3)})`;
+          ctx.strokeStyle = `rgba(${DOT},${((1 - d / MOUSE_LINK_DIST) * 0.7).toFixed(3)})`;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(mouse.x, mouse.y);

@@ -137,9 +137,14 @@
   --app-text-primary: var(--td-text-color-primary);
   --app-text-secondary: var(--td-text-color-secondary);
   --app-table-head-bg: #fafaf7;
-  // 登录页渐变（浅色）：金辉交融主底 + 雾散初光过渡 / 品牌区加一层流金微暖
+  // 登录页渐变（浅色）：雾散初光主底，末尾一缕强调色（跟随所选配色，不再写死流金）
   --app-login-bg: linear-gradient(135deg, #f2f2ee 0%, #eaeef0 52%, #f2f2ee 100%);
-  --app-login-brand: linear-gradient(155deg, #e8edf1 0%, #dce2e6 55%, #eae3db 100%);
+  --app-login-brand: linear-gradient(
+    155deg,
+    #e8edf1 0%,
+    #dce2e6 55%,
+    color-mix(in srgb, var(--app-brand-accent) 26%, #f3f0ea) 100%
+  );
   // 品牌渐变（深蓝 → 晨雾蓝 → hover 档），用于横幅、欢迎条幅等装饰场景
   --app-gradient-brand: linear-gradient(135deg, #384c6d 0%, #6f8ab8 55%, #8ba0c7 100%);
 }
@@ -237,6 +242,11 @@
   --app-text-secondary: var(--td-text-color-secondary);
   --app-table-head-bg: #232c34;
   --app-login-bg: linear-gradient(135deg, #171b20 0%, #1d232a 52%, #171b20 100%);
-  --app-login-brand: linear-gradient(155deg, #232c34 0%, #2a3540 55%, #2c2b26 100%);
+  --app-login-brand: linear-gradient(
+    155deg,
+    #232c34 0%,
+    #2a3540 55%,
+    color-mix(in srgb, var(--app-brand-accent) 20%, #2c2b26) 100%
+  );
   --app-gradient-brand: linear-gradient(135deg, #384c6d 0%, #6381b4 55%, #7d96c4 100%);
 }

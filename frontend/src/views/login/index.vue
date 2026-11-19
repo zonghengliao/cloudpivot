@@ -109,9 +109,10 @@ const router = useRouter();
 const userStore = useUserStore();
 
 // 左侧品牌区的星座连线特效：点与线跟随鼠标（不动鼠标时几乎静止）
+// glow: false —— 用户要求「鼠标移上去不要发光」，只保留点与线
 const brandEl = ref<HTMLElement | null>(null);
 const fxCanvas = ref<HTMLCanvasElement | null>(null);
-const fx = useConstellationFx(fxCanvas, brandEl);
+const fx = useConstellationFx(fxCanvas, brandEl, { glow: false });
 
 /** 登录表单数据 */
 const formData = reactive<LoginParams>({ username: '', password: '' });
@@ -214,14 +215,18 @@ async function handleSubmit(): Promise<void> {
   background: var(--app-login-brand);
 }
 
-// 柔光装饰：不抢内容，只负责让渐变不死板（漂木棕极轻光晕，全站唯一的大面积点缀）
+// 柔光装饰：不抢内容，只负责让渐变不死板（强调色随配色走，不再写死流金）
 .login__brand-glow {
   position: absolute;
   top: -120px;
   right: -140px;
   width: 320px;
   height: 320px;
-  background: radial-gradient(circle, rgb(193 172 123 / 26%) 0%, rgb(193 172 123 / 0%) 70%);
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--app-brand-accent) 30%, transparent) 0%,
+    transparent 70%
+  );
   pointer-events: none;
 }
 
