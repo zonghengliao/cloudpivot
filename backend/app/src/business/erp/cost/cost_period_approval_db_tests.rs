@@ -292,8 +292,10 @@ mod db {
     /// # 换成的判据（逐项对账，比「== 1」更严）
     ///
     /// 1. 待办集合 **==** 角色在职成员集合（少一个 = 引擎没展开；多一个 = 展开了不该有的人）；
-    /// 2. 成员里出现「既不是夹具账号、也不是 `demo_*` 演示账号」的人 ⇒ 报**夹具污染**
-    ///    （别的用例把该角色绑给临时账号却没清场），当场点名，不让它伪装成业务断言失败；
+    /// 2. 成员里出现「既不是常驻夹具、也不是演示种子账号」的人 ⇒ 报**夹具污染**（别的用例把该角色
+    ///    绑给临时账号却没清场），当场点名，不让它伪装成业务断言失败；判据只认
+    ///    `test_seed::is_fixture_account`（统一前缀 `fixture.` + `ensure_user` 派生 id + `demo_*`）。
+    ///    卡 `t_b205898b` 的「第二遍红 5 条」就是这里手写 `demo_*` 白名单导致的，别再抄回本文件；
     /// 3. 夹具账号必须在成员里（证明绑定生效），调用方再按需断言「制单人不在待办里」（内控）。
     ///
     /// 返回该实例上的 `PENDING` 待办（按 `assignee_id` 稳定排序），调用方按 `assignee` 挑自己那一票。
@@ -322,13 +324,17 @@ mod db {
 
         let strangers: Vec<&str> = members
             .iter()
-            .filter(|(id, name)| *id != fixture && !name.starts_with("demo_"))
+            // 「常驻夹具」判据只有一份（`test_seed::is_fixture_account`：`fixture.` 前缀 /
+            // `ensure_user` 派生 id / `demo_*` 演示种子）—— 别在本文件里再抄一份前缀名单。
+            .filter(|(id, name)| *id != fixture && !crate::test_seed::is_fixture_account(*id, name))
             .map(|(_, name)| name.as_str())
             .collect();
         assert!(
             strangers.is_empty(),
-            "夹具污染：{role_code} 上有夹具与演示种子之外的在职成员 {strangers:?} —— \
-             别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值"
+            "夹具污染：{role_code} 上有**常驻夹具与演示种子之外**的在职成员 {strangers:?} —— \
+             别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown（或用 \
+             `fixture_hygiene::release_fixture_role_bindings` 收尾）；若是本仓的常驻夹具，\
+             登录名要走 `test_seed::fixture_name`。别改本断言的期望值"
         );
         assert!(
             members.iter().any(|(id, _)| *id == fixture),

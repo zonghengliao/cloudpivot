@@ -1,0 +1,4 @@
+FM/FD members: FINANCE_MANAGER -> demo_finance (01a1f4e3-662a-742b-a900-bf7f4b4236cc), demo_finance_mgr (01a1f4e3-662b-7029-aaed-2bb9306cf890), fixture.m510.finance-manager (c37ec5f8-b28d-87c3-bad6-f28285ab43bb)
+--- 本卡夹具账号:
+fixture.m510.cost-maker | id=3c62573a-36a2-860b-b53d-bf03f8846346
+fixture.m510.finance-manager | id=c37ec5f8-b28d-87c3-bad6-f28285ab43bb

@@ -1,0 +1,1 @@
+FINANCE_MANAGER -> demo_finance,demo_finance_mgr

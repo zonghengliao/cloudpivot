@@ -21,7 +21,9 @@
 //! # 夹具纪律
 //!
 //! · 物料用 `test_seed::ensure_material_kind`（编码带进程内唯一后缀），跑完只删本卡的标准成本行；
-//! · 账号 `m510` 前缀 + 固定 UUID，角色借用共享种子 `FINANCE_MANAGER (…f0005)`；
+//! · 账号走 `test_seed::fixture_name`（⇒ `fixture.m510.*`）+ 登录名派生 id；角色借用共享种子
+//!   `FINANCE_MANAGER (…f0005)`，**绑定常驻**（审批节点的展开语义要求它在岗位上）；
+//!   跨模块的「夹具 / 污染」区分由 `test_seed::is_fixture_account` 的**单一判据**负责（卡 `t_b205898b`）；
 //! · 整模块串行（[`DB_LOCK`] = `fixture_hygiene::SEED_ROLE_LOCK`，与其它动角色绑定的用例同一把锁）；
 //! · 日期用「相对今天」，不写死。
 
@@ -42,11 +44,19 @@ mod db {
     use std::str::FromStr as _;
     use tokio::sync::OnceCell;
 
-    /// 夹具账号的用户名（`test_seed::ensure_user` 按它派生确定性 id；不手写 `sys_user` INSERT ——
-    /// 主数据手写 INSERT 有预算闸，见 `docs/architecture/P2-62-数据准备脚本化.md`）。
-    const USER_MAKER: &str = "m510.cost-maker";
-    /// 财务经理（审批人）的用户名。
-    const USER_FM: &str = "m510.finance-manager";
+    /// 夹具账号的**标签**（登录名 = `test_seed::fixture_name(tag)` ⇒ `fixture.m510.cost-maker`）。
+    ///
+    /// 为什么统一前缀（卡 `t_b205898b`）：`test_seed::ensure_user` 建的账号是**常驻**的
+    /// （幂等 + `OnceCell` 缓存 id，跨用例、跨轮次复用），别的模块的「夹具污染」守卫必须能
+    /// 认出「这是夹具、不是别人漏清场的临时账号」。过去各卡自造前缀（`m510.`），只有本文件
+    /// 知道它是夹具 ⇒ **第二遍**跑成本域套件时被 `cost_period_approval_db_tests::role_tasks`
+    /// 判成污染。现在落进 `test_seed::FIXTURE_USER_PREFIX` 这一份判据里。
+    ///
+    /// id 仍由 `test_seed::ensure_user` 按登录名派生（不手写 `sys_user` INSERT —— 主数据手写
+    /// INSERT 有预算闸，见 `docs/architecture/P2-62-数据准备脚本化.md`）。
+    const USER_MAKER_TAG: &str = "m510.cost-maker";
+    /// 财务经理（审批人）的标签。
+    const USER_FM_TAG: &str = "m510.finance-manager";
     /// 共享角色编码（`V0379` 种子的固定 role_code；审批节点按它解析成员）。
     const ROLE_FM_CODE: &str = "FINANCE_MANAGER";
 
@@ -57,16 +67,22 @@ mod db {
     async fn maker() -> Uuid {
         static ID: OnceCell<Uuid> = OnceCell::const_new();
         *ID.get_or_init(|| async {
-            crate::test_seed::ensure_user(USER_MAKER, "M510 标准成本制单人", None).await
+            let username = crate::test_seed::fixture_name(USER_MAKER_TAG);
+            crate::test_seed::ensure_user(&username, "M510 标准成本制单人", None).await
         })
         .await
     }
 
     /// 财务经理 id（首次调用建账号 + 绑 `FINANCE_MANAGER`）。
+    ///
+    /// 绑定**常驻不摘**（这里是「幂等夹具」：同一 id 被本模块多条用例复用）。摘掉会让
+    /// 同模块后续用例拿不到审批人；跨模块的可见性由 `test_seed::is_fixture_account`
+    /// 的单一判据保证（卡 `t_b205898b`），不靠 teardown 抢时序。
     async fn fm() -> Uuid {
         static ID: OnceCell<Uuid> = OnceCell::const_new();
         *ID.get_or_init(|| async {
-            let user = crate::test_seed::ensure_user(USER_FM, "M510 标准成本财务经理", None).await;
+            let username = crate::test_seed::fixture_name(USER_FM_TAG);
+            let user = crate::test_seed::ensure_user(&username, "M510 标准成本财务经理", None).await;
             crate::test_seed::bind_role(user, ROLE_FM_CODE).await;
             user
         })

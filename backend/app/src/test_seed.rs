@@ -90,6 +90,51 @@ pub use cloudpivot_kernel::shared::test_helpers::{
 };
 
 // ============================================================================
+// 〇、夹具账号的「身份判据」（哪些账号是**按设计常驻**的）
+// ============================================================================
+
+/// 夹具账号统一前缀：**新建的常驻夹具账号一律走 [`fixture_name`]**。
+///
+/// # 为什么需要它（卡 `t_b205898b`）
+///
+/// [`ensure_user`] 建的账号是**幂等、常驻**的（跨用例、跨轮次复用，`OnceCell` 缓存 id）。
+/// 它们在库里和「某个用例临时建了又忘了删」的账号长得一模一样，而守卫型断言必须能区分两者：
+/// `cost_period_approval_db_tests::role_tasks` 的「夹具污染」守卫过去只白名单 `demo_*`，
+/// 于是**第二遍**跑成本域套件时，把上一遍正常留下的 `m510.finance-manager`（常驻 `FINANCE_MANAGER`）
+/// 判成污染 ⇒ 5 条红。根因不是断言太严，而是「夹具身份」没有单一判据。
+///
+/// 约定：不要再各卡自造前缀（`m510.` / `m214.` / `hr12.` / `tst02b.` 这类前缀无法被任何
+/// 通用判据识别），一律 `fixture_name("<原卡号>.<用途>")` ⇒ `fixture.<原卡号>.<用途>`。
+pub const FIXTURE_USER_PREFIX: &str = "fixture.";
+
+/// 演示种子账号的登录名前缀（产品种子 `system::setup::model::DEMO_USERS` 的命名口径）。
+pub const DEMO_USER_PREFIX: &str = "demo_";
+
+/// 拼一个夹具用户名：`fixture.<tag>`。
+///
+/// `tag` 保留原卡号 / 模块名，便于 psql 里一眼看出是谁的夹具：
+/// `fixture_name("m510.cost-maker")` → `"fixture.m510.cost-maker"`。
+pub fn fixture_name(tag: &str) -> String {
+    format!("{FIXTURE_USER_PREFIX}{tag}")
+}
+
+/// 这个账号是不是**按设计常驻**的账号（演示种子 / 夹具），而**不是**别人漏清场的临时账号。
+///
+/// 三条判据（任一成立即算）：
+/// 1. 登录名带 [`DEMO_USER_PREFIX`]（产品演示种子，`make_full_suite_db.sh` 种进去的）；
+/// 2. 登录名带 [`FIXTURE_USER_PREFIX`]（本仓夹具约定，见 [`fixture_name`]）；
+/// 3. `id == fixture_uuid("user:<登录名>")` —— [`ensure_user`] 建的账号 id 由**登录名派生**
+///    （SHA-256 前 16 字节），所以「名字没按约定起」的历史夹具账号（`m510.*` / `tst02b.*`）也认得出来。
+///
+/// 判据边界（别放宽）：**不**等于「任何非 `demo_` 账号都是夹具」——那等于把守卫删了。
+/// 临时账号（手写 `INSERT`、`Uuid::now_v7()` id、名字无前缀）仍然会被点名为污染。
+pub fn is_fixture_account(id: Uuid, username: &str) -> bool {
+    username.starts_with(DEMO_USER_PREFIX)
+        || username.starts_with(FIXTURE_USER_PREFIX)
+        || id == fixture_uuid(&format!("user:{username}"))
+}
+
+// ============================================================================
 // 一、编号与编码（改前：41 个文件各自定义一遍 `uniq()`）
 // ============================================================================
 
@@ -574,6 +619,37 @@ pub async fn sweep_once(key: &'static str, statements: &[&str]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 夹具身份判据（[`is_fixture_account`]）：三条正样本 + 一条**反样本**。
+    ///
+    /// 反样本是这条用例的价值所在：卡 `t_b205898b` 的修法如果写宽了（例如「非 `demo_` 都算夹具」），
+    /// 守卫就再也点不出真正的污染 —— 必须留一条「临时账号不算夹具」的钉子。
+    #[test]
+    fn is_fixture_account_recognises_known_prefixes_and_rejects_strangers() {
+        // ① 统一前缀（新建夹具用它）
+        let named = fixture_name("m510.cost-maker");
+        assert_eq!(named, "fixture.m510.cost-maker");
+        assert!(is_fixture_account(Uuid::now_v7(), &named));
+
+        // ② 产品演示种子（`NIK_SEED_DEMO_USERS=true` 的 `demo_*`）
+        assert!(is_fixture_account(Uuid::now_v7(), "demo_finance_mgr"));
+
+        // ③ 历史前缀 + `ensure_user` 派生 id：名字没按约定起也认得出来（老库不受影响）
+        let legacy = "m510.finance-manager";
+        assert!(
+            is_fixture_account(fixture_uuid(&format!("user:{legacy}")), legacy),
+            "`ensure_user` 建的账号 id 由登录名派生，必须算夹具"
+        );
+
+        // 反样本：手写 INSERT 的临时账号（id 与登录名无派生关系、名字也没有约定前缀）⇒ **不算**夹具。
+        // ⚠ 这里不能用 `fixture_uuid("user:<同名>")` 造 id —— 那正好命中判据 ③，会把自己「派生」成夹具
+        // （第一版就是这么写的，用例正确地红了：红的是样本，不是判据）。用与登录名无关的字面 uuid。
+        let stranger_id = Uuid::parse_str("9f1d2c3b-4a5e-4f60-8b71-2c3d4e5f6071").expect("字面 uuid");
+        assert!(
+            !is_fixture_account(stranger_id, "temp_approver_leaked"),
+            "名字无前缀且 id 非派生的临时账号必须仍被判成污染，别把守卫放宽"
+        );
+    }
 
     /// 唯一后缀：两次调用必须不同（进程内计数器），且只含数字（能直接进编码列）。
     #[test]

@@ -1,0 +1,26 @@
+# 库侧复查（2026-11-20T01:54:20+08:00 / cloudpivot_test_b205898b）—— 连跑两遍成本域套件之后
+
+## 1. 本卡夹具账号（应为 2 行：fixture.m510.cost-maker / fixture.m510.finance-manager）
+fixture.m510.cost-maker | id=3c62573a-36a2-860b-b53d-bf03f8846346 | status=1 | deleted=-
+fixture.m510.finance-manager | id=c37ec5f8-b28d-87c3-bad6-f28285ab43bb | status=1 | deleted=-
+  行数=2
+
+## 2. 历史前缀（本卡改名前）账号：新库里应为 0（老库靠派生 id 兼容，不新增）
+  m510.* 行数=0
+
+## 3. FINANCE_MANAGER / FINANCE_DIRECTOR 在职成员（应只有演示种子 + 本卡常驻夹具）
+FINANCE_MANAGER -> demo_finance,demo_finance_mgr,fixture.m510.finance-manager
+
+## 4. cost_period_approval 模块自己的临时夹具（b3a3*）应被 zz_teardown 收干 → 0
+  b3a3* 账号=0
+  b3a3* 角色绑定=0
+
+## 5. COST_PERIOD 状态日志孤儿（entity_id 指向已不存在的批次）应为 0
+  cost_period 孤儿日志=0
+  cost_period 日志总数=0
+  biz_cost_period 行数=0
+
+## 6. 审批实例孤儿（COST_SETTLE 指向不存在的批次）应为 0
+  COST_SETTLE 实例=0
+  COST_STANDARD_PUBLISH 实例=0
+  biz_flow_task 残留 PENDING=0

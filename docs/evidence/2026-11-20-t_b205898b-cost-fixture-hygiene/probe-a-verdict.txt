@@ -1,0 +1,4 @@
+thread 'business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces' (339030) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:332:9:
+夹具污染：FINANCE_MANAGER 上有**常驻夹具与演示种子之外**的在职成员 ["temp_probe_stranger"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown（或用 `fixture_hygiene::release_fixture_role_bindings` 收尾）；若是本仓的常驻夹具，登录名要走 `test_seed::fixture_name`。别改本断言的期望值
+thread 'business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch' (339034) panicked at app/src/business/erp/cost/cost_period_approval_db_tests.rs:332:9:
+夹具污染：FINANCE_MANAGER 上有**常驻夹具与演示种子之外**的在职成员 ["temp_probe_stranger"] —— 别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown（或用 `fixture_hygiene::release_fixture_role_bindings` 收尾）；若是本仓的常驻夹具，登录名要走 `test_seed::fixture_name`。别改本断言的期望值
