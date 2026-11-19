@@ -241,6 +241,24 @@ pub const BIZ_COST_OBJECT: ResourceSpec = ResourceSpec {
     big: &[],
 };
 
+/// `biz_cost_object_operation`（在制品工序完工率，M5-21 接入）。
+///
+/// 白名单口径 = `PUT /cost-object/{id}/operations` 真正能改的 5 列（整表覆盖里
+/// 「这道工序是几号、叫什么、权重多少、报了多少、为什么」）。一张批的工序进度是
+/// 对象级完工率的**唯一依据**（`biz_cost_object.completion_pct` 由它加权汇总回写）：
+/// 「谁把焊接从 50% 改成 100%」必须能查，否则对象级那个数就成了没人负责的结果。
+///
+/// 刻意**不含**：
+/// - `cost_object_id`：行的归属，建行后不可改（换个批 = 删了重加，`resource_id` 已经定位到行）；
+/// - `created_at` / `updated_at` / `create_by` / `update_by` / `deleted_at`：
+///   每次写都变，进白名单等于把审计表变成访问日志（`sys_change_log` 自己已记操作人与时刻）。
+pub const BIZ_COST_OBJECT_OPERATION: ResourceSpec = ResourceSpec {
+    table: "biz_cost_object_operation",
+    module: "business",
+    fields: &["seq", "operation_name", "weight", "completion_pct", "remark"],
+    big: &[],
+};
+
 /// `biz_attendance_record`（考勤记录 / 台账，ARCH-9-2 · HR-20 接入）。
 ///
 /// 白名单口径 = `PUT /business/hr/attendance/record/{id}` 真正能改的 12 列
@@ -473,6 +491,8 @@ pub const REGISTRY: &[&ResourceSpec] = &[
     &BIZ_CONTRACT,
     // B2-14：成本对象「本期产量与在制」录入留痕（`PUT /cost-object/{id}/output`）
     &BIZ_COST_OBJECT,
+    // M5-21：在制品工序完工率整表录入留痕（`PUT /cost-object/{id}/operations`）
+    &BIZ_COST_OBJECT_OPERATION,
     // HR-20：考勤台账单行修正留痕（`PUT /business/hr/attendance/record/{id}`）
     &BIZ_ATTENDANCE_RECORD,
     // 批次 D · D3c：审批三张表（实例 / 待办 / 定义）
@@ -849,6 +869,25 @@ mod tests {
         }
         assert!(entry.big.is_empty(), "三个 numeric 列不是大字段");
         assert!(registered_tables().contains(&"biz_cost_object"));
+    }
+
+    /// M5-21：工序完工率行已登记（整表保存的每一行增 / 改 / 删都要留痕）。
+    ///
+    /// 未登记 ⇒ `record()` 以 62012 拒（HTTP 500）⇒ 整个保存事务回滚 ——
+    /// 那条断言把「登记」与「调用点」钉在同一个提交里。
+    #[test]
+    fn cost_object_operation_fields_are_registered() {
+        let entry =
+            spec("biz_cost_object_operation").expect("biz_cost_object_operation 未登记，工序保存的审计会 62012");
+        assert_eq!(entry.module, "business");
+        for column in ["seq", "operation_name", "weight", "completion_pct", "remark"] {
+            assert!(
+                entry.fields.contains(&column),
+                "白名单缺 {column}（审计会静默丢这次填写）"
+            );
+        }
+        assert!(entry.big.is_empty(), "五个短列都不是大字段");
+        assert!(registered_tables().contains(&"biz_cost_object_operation"));
     }
 
     /// 登记表的字段名必须是小写下划线（否则 GIN `changed_fields` 反查会漏）。

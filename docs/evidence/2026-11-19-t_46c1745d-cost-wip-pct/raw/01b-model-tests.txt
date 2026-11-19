@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 5 tests
+test business::erp::cost::cost_wip_pct_model::tests::object_sql_uses_the_registered_alias ... ok
+test business::erp::cost::cost_wip_pct_model::tests::operation_table_name_matches_migration ... ok
+test business::erp::cost::cost_wip_pct_model::tests::parse_decimal_reports_bad_literals ... ok
+test business::erp::cost::cost_wip_pct_model::tests::rows_sql_orders_by_seq_and_skips_deleted ... ok
+test business::erp::cost::cost_wip_pct_model::tests::scope_anchor_is_the_registered_cost_object_target ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 7102 filtered out; finished in 0.00s
+

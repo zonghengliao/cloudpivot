@@ -1,0 +1,16 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 9 tests
+test business::erp::cost::cost_wip_pct_db_tests::db::v1_weighted_rollup_writes_back_to_object ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::v2_replay_is_idempotent ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::v3_missing_seq_is_soft_deleted_and_pct_recomputed ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::v4_closed_and_settled_objects_are_rejected ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::v5_other_workshop_cannot_see_or_write ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::v6_wip_without_progress_and_bad_rows_are_rejected ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::v7_clearing_operations_keeps_object_pct ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::v8_out_of_band_object_pct_shows_drift ... ok
+test business::erp::cost::cost_wip_pct_db_tests::db::zz_teardown_leaves_zero_residue ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 7098 filtered out; finished in 0.44s
+

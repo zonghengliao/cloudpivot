@@ -1,0 +1,37 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 30 tests
+test business::erp::cost::cost_wip_pct_dto::tests::all_finished_is_exactly_one_hundred ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::blank_name_is_rejected ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::closed_and_cancelled_objects_are_locked_with_label ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::completion_pct_is_required_not_defaulted_to_zero ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::completion_pct_range_and_scale_are_enforced ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::contribution_and_share_add_up ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::defaults_weight_to_one_and_sorts_by_seq ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::duplicate_seq_is_rejected_with_the_offending_number ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::empty_payload_is_legal_and_means_clear ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::equal_weights_give_arithmetic_mean ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::name_over_64_chars_is_rejected ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::no_warnings_without_rows ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::notes_name_the_object_and_the_rollup ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::open_object_without_settled_periods_is_editable ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::permission_codes_match_the_cost_object_handler ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::remark_blank_becomes_none_and_long_remark_is_rejected ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::rollup_of_empty_is_none ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::rounding_is_half_away_from_zero_to_two_decimals ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::seq_out_of_range_is_rejected ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::settled_periods_lock_the_object_even_when_open ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::single_operation_is_its_own_pct_whatever_the_weight ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::text_of_drops_trailing_zeros_but_keeps_value ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::too_many_rows_is_rejected ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::warns_when_all_weights_are_equal ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::warns_when_no_wip_even_if_progress_is_filled ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::warns_when_object_level_was_edited_out_of_band ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::warns_when_wip_without_progress ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::weight_scale_and_ceiling_are_enforced ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::weights_shift_the_result_towards_the_heavy_operation ... ok
+test business::erp::cost::cost_wip_pct_dto::tests::zero_or_negative_weight_is_rejected ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 7077 filtered out; finished in 0.01s
+

@@ -306,3 +306,18 @@ pub mod cost_wip_equiv_handler;
 /// 约当产量表 **取数层**（M5-20）：一条 SQL 取回对象 + 前期已结算汇总 + 本期归集 +
 /// 本期计算单快照 + 产出品 / 车间名（无 N+1）。数据范围复用 `biz_cost_object` 锚点。
 pub mod cost_wip_equiv_model;
+/// M5-21 的真库用例（`ERP_DB_URL` 开关）：按工序录入 → 加权汇总回写对象级 /
+/// 幂等重放不写空审计 / 缺行软删 / 状态闸 409 / 数据范围 404 / 清场零残留。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_wip_pct_db_tests;
+/// 在制品「完工率录入（按工序）」的**契约层与纯逻辑**（M5-21）：整表覆盖语义、
+/// 值域（seq / 权重 / 完工率 / 备注）、加权平均（综合完工率 = Σ(权重 × 完工率) / Σ权重）、
+/// 状态闸（非 OPEN / 期间已结算）、只提示不拦的五类提醒。零 DB 依赖，可纯单测。
+pub mod cost_wip_pct_dto;
+/// 工序完工率录入 **接口层**（M5-21）：`GET`（读 + 汇总 + 状态闸）与
+/// `PUT`（整表保存 + 同事务回写对象级完工率 + 变更日志）。复用 `cost-object:list/update`。
+pub mod cost_wip_pct_handler;
+/// 工序完工率录入 **取数层**（M5-21）：对象抬头（数据范围探针 / `FOR UPDATE` 行锁）+
+/// 工序行读 / 增 / 改 / 软删 + 对象级完工率回写（CAS `status='OPEN'`）。
+pub mod cost_wip_pct_model;

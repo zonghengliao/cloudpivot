@@ -1,0 +1,58 @@
+== 建演练库（克隆 cp_m511_test，397 迁移）==
+createdb rc=0
+== 第 1 次 up ==
+DO
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+CREATE INDEX
+CREATE INDEX
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.up.sql:231: NOTICE:  V0470 自检通过：形态 5 条 CHECK + 外键 + 部分唯一索引；行为 5 条（完工率值域 / 权重 0 / 重复 seq / 软删不占键 / 空工序名）
+DO
+up1 rc=0
+== 第 2 次 up（幂等）==
+DO
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.up.sql:80: NOTICE:  relation "biz_cost_object_operation" already exists, skipping
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.up.sql:103: NOTICE:  relation "uk_biz_cost_object_operation_seq" already exists, skipping
+CREATE INDEX
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.up.sql:105: NOTICE:  relation "idx_biz_cost_object_operation_obj" already exists, skipping
+CREATE INDEX
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.up.sql:231: NOTICE:  V0470 自检通过：形态 5 条 CHECK + 外键 + 部分唯一索引；行为 5 条（完工率值域 / 权重 0 / 重复 seq / 软删不占键 / 空工序名）
+DO
+up2 rc=0
+== 造 1 行数据后跑 down（应拒绝）==
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.down.sql:40: ERROR:  V0470 down 拒绝回滚：biz_cost_object_operation 还有 1 行工序完工率（它们是对象级完工率的唯一依据）。先确认这些批次不再需要工序进度留档（或软删数据）后再执行回滚。
+CONTEXT:  PL/pgSQL function inline_code_block line 14 at RAISE
+down_with_data rc=3（期望非 0）
+== 清数据后 down（应成功）==
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.down.sql:40: NOTICE:  V0470 down 完成：biz_cost_object_operation 已删除
+DO
+down_clean rc=0
+== down 后再 up（可重放）==
+DO
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+CREATE INDEX
+CREATE INDEX
+psql:/opt/cloudpivot/backend/app/migrations/business/V0470__cost_wip_operation_pct.up.sql:231: NOTICE:  V0470 自检通过：形态 5 条 CHECK + 外键 + 部分唯一索引；行为 5 条（完工率值域 / 权重 0 / 重复 seq / 软删不占键 / 空工序名）
+DO
+up_again rc=0
