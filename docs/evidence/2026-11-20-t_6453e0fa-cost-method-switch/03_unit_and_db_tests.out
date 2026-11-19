@@ -1,0 +1,38 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 31 tests
+test business::erp::cost::cost_method_switch_db_tests::db::global_switch_closes_the_seed_version ... ok
+test business::erp::cost::cost_method_switch_db_tests::db::period_ledgers_aggregate_by_period ... ok
+test business::erp::cost::cost_method_switch_db_tests::db::second_switch_on_the_same_day_is_an_overlap ... ok
+test business::erp::cost::cost_method_switch_db_tests::db::switch_day_inside_an_existing_period_is_rejected ... ok
+test business::erp::cost::cost_method_switch_db_tests::db::switch_keeps_history_and_moves_future ... ok
+test business::erp::cost::cost_method_switch_db_tests::db::unimplemented_target_needs_explicit_confirm ... ok
+test business::erp::cost::cost_method_switch_dto::tests::closes_the_version_that_still_covers_the_day_before ... ok
+test business::erp::cost::cost_method_switch_dto::tests::disabled_versions_are_ignored ... ok
+test business::erp::cost::cost_method_switch_dto::tests::empty_timeline_only_inserts ... ok
+test business::erp::cost::cost_method_switch_dto::tests::future_periods_with_batches_are_reported ... ok
+test business::erp::cost::cost_method_switch_dto::tests::month_bounds_cover_leap_and_year_end ... ok
+test business::erp::cost::cost_method_switch_dto::tests::new_version_spec_matches_the_insert_op ... ok
+test business::erp::cost::cost_method_switch_dto::tests::next_month_start_handles_year_end ... ok
+test business::erp::cost::cost_method_switch_dto::tests::object_level_overrides_are_listed_and_untouched ... ok
+test business::erp::cost::cost_method_switch_dto::tests::object_scope_switch_does_not_touch_global ... ok
+test business::erp::cost::cost_method_switch_dto::tests::parse_target_defaults_and_validates_scope_pairing ... ok
+test business::erp::cost::cost_method_switch_dto::tests::plan_closes_old_version_and_keeps_history_unchanged ... ok
+test business::erp::cost::cost_method_switch_dto::tests::plan_res_carries_labels_and_the_untouched_flag ... ok
+test business::erp::cost::cost_method_switch_dto::tests::reversed_only_period_does_not_block_the_switch ... ok
+test business::erp::cost::cost_method_switch_dto::tests::second_switch_on_the_same_day_is_an_overlap ... ok
+test business::erp::cost::cost_method_switch_dto::tests::suggested_switch_day_is_the_later_of_the_two ... ok
+test business::erp::cost::cost_method_switch_dto::tests::switch_on_cannot_be_retroactive_or_in_current_period ... ok
+test business::erp::cost::cost_method_switch_dto::tests::switch_on_must_be_a_period_start ... ok
+test business::erp::cost::cost_method_switch_dto::tests::switch_on_period_with_batches_is_rejected ... ok
+test business::erp::cost::cost_method_switch_dto::tests::switching_to_an_implemented_method_is_ready ... ok
+test business::erp::cost::cost_method_switch_handler::tests::message_names_switch_day_scope_and_history ... ok
+test business::erp::cost::cost_method_switch_handler::tests::permissions_are_reused_from_m501 ... ok
+test business::erp::cost::cost_method_switch_handler::tests::plan_is_read_and_switch_is_write ... ok
+test business::erp::cost::cost_method_switch_handler::tests::today_is_cst ... ok
+test business::erp::cost::cost_method_switch_model::tests::ledger_sql_shape ... ok
+test business::erp::cost::cost_method_switch_model::tests::object_no_sql_is_a_single_in_query ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 7364 filtered out; finished in 0.24s
+

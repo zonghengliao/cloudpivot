@@ -65,7 +65,7 @@ pub const COST_METHOD_PERMISSIONS: [&str; 4] = [PERM_LIST, PERM_CREATE, PERM_UPD
 // ==================== 小件 ====================
 
 /// 今日（CST）—— 与 `invoice::today_cst` 同口径（业务日期一律按北京时间）。
-fn today_cst() -> NaiveDate {
+pub(crate) fn today_cst() -> NaiveDate {
     Utc::now()
         .with_timezone(&FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"))
         .date_naive()
@@ -108,7 +108,7 @@ async fn row_of(id: Uuid) -> std::result::Result<CostMethodRes, ApiError> {
 }
 
 /// `scope_id` 必须指向一个**未删除、未作废**的成本对象；返回对象号（报错文案用）。
-async fn ensure_object(scope_id: Uuid) -> std::result::Result<String, ApiError> {
+pub(crate) async fn ensure_object(scope_id: Uuid) -> std::result::Result<String, ApiError> {
     let object = model::object_of(scope_id)
         .await
         .map_err(|error| utils::db_error(error, "校验成本方法配置的成本对象"))?

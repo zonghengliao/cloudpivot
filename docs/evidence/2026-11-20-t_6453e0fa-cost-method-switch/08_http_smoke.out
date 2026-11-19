@@ -1,0 +1,26 @@
+  ✓ POST /api/system/auth/login → 200/0
+  ✓ 登录成功（种子口令或已改口令）
+  ✓ access_token 是真实 JWT（长度 > 100）
+  ✓ GET /api/business/erp/cost-method/switch-plan?to_method=VARIETY → 200/0
+  ✓ 建议切换日 = 下月 1 日
+  ✓ 预演两笔写（收口 + 新增）
+  ✓ 收口的是种子行
+  ✓ 存量期间进 history 且不重算
+  ✓ history_untouched = true
+  ✓ 品种法一期未实现 ⇒ engine_ready=false + 66101 告警
+  ✓ GET /api/business/erp/cost-method/switch-plan?to_method=VARIETY&switch_on=2026-12-15 → 409/66113
+  ✓ POST /api/business/erp/cost-method/switch → 409/66101
+  ✓ 被拒后种子行仍是长期有效（一行没写）
+  ✓ POST /api/business/erp/cost-method/switch → 200/0
+  ✓ 返回新版本 id
+  ✓ 返回收口动作 = 种子行
+  ✓ 结论里点名「不重算」
+  ✓ POST /api/business/erp/cost-method/switch → 409/66102
+  ✓ GET /api/business/erp/cost-method/effective?on=2026-10-31 → 200/0
+  ✓ 存量期间末日仍按分批法
+  ✓ GET /api/business/erp/cost-method/effective?on=2026-12-01 → 200/0
+  ✓ 切换日起按品种法
+  ✓ 成本期间行零改动（不重算）
+  ✓ 种子行停止日 = 切换日前一天
+
+== 通过 24 / 失败 0 ==

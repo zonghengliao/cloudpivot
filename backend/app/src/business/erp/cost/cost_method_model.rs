@@ -354,7 +354,17 @@ pub(crate) fn soft_delete_sql() -> String {
 
 /// 建配置（字段合法性已由 dto + handler 校验）。
 pub async fn insert(id: Uuid, spec: &CostMethodSpec, operator: Option<Uuid>) -> DbResult<u64> {
-    db().exec_sql(insert_sql(), insert_params(id, spec, operator)).await
+    insert_in(db(), id, spec, operator).await
+}
+
+/// 建配置（事务内版本：与「收口旧版本」放在同一个事务里，M5-31 方法切换用）。
+pub async fn insert_in(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    spec: &CostMethodSpec,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(insert_sql(), insert_params(id, spec, operator)).await
 }
 
 /// 建配置参数（与 [`insert_sql`] 的 `?` 顺序逐位对应）。
@@ -376,7 +386,17 @@ pub(crate) fn insert_params(id: Uuid, spec: &CostMethodSpec, operator: Option<Uu
 
 /// 改配置：返回受影响行数（`0` → 不存在 / 已删，由 handler 给 404）。
 pub async fn update(id: Uuid, spec: &CostMethodSpec, operator: Option<Uuid>) -> DbResult<u64> {
-    db().exec_sql(update_sql(), update_params(id, spec, operator)).await
+    update_in(db(), id, spec, operator).await
+}
+
+/// 改配置（事务内版本：M5-31 方法切换把「收口旧版」与「插入新版」放进同一个事务）。
+pub async fn update_in(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    spec: &CostMethodSpec,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(update_sql(), update_params(id, spec, operator)).await
 }
 
 /// 改配置参数（与 [`update_sql`] 的 `?` 顺序逐位对应）。

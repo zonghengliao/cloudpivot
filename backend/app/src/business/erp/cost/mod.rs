@@ -143,6 +143,17 @@ pub mod cost_method_handler;
 /// 成本方法配置数据层（M5-01 · `biz_cost_method_config`）：全量取数 / 分页 / 写入 /
 /// 本期拦截清单（与期间相交的非分批法配置）。
 pub mod cost_method_model;
+/// M5-31 的真库用例（`ERP_DB_URL` 开关）：切换后存量期间方法不变 / 结果表零改动 /
+/// 老期间照旧能算 / 新期间按新方法被拦 / 确认闸 / 重复切换。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_method_switch_db_tests;
+/// 成本方法切换的迁移策略（M5-31）：期间边界护栏（切换日必须是期间首日 / 不许追溯 /
+/// 该期间无批次）+ 切换前后每个期间的方法推演 + 两笔写（收口旧版 / 新增新版），纯逻辑。
+pub mod cost_method_switch_dto;
+/// 成本方法切换接口层（M5-31）：预演（只读）+ 执行（事务内两笔写，存量期间零改动）。
+pub mod cost_method_switch_handler;
+/// 成本方法切换取数层（M5-31）：期间口径台账（`biz_cost_period` 按期间聚合）+ 对象号批量补名。
+pub mod cost_method_switch_model;
 /// B1-8 的真库用例（`ERP_DB_URL` 开关）：5 个接口 + 关批 5 条前置。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_object_db_tests;
