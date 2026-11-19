@@ -889,6 +889,20 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '差异分析', permission: 'business:erp:cost-method:list' },
       },
       {
+        // ==================== ERP 成本：在制品（M5-25 · 完工率录入 + 在制余额） ====================
+        // `sys_menu` 种子（V0471）path = `/business/erp/cost-wip`、component
+        // `business/erp/cost-wip/index`，auth_code `business:erp:cost-object:list`
+        // （**复用**读码：两条接口的闸都是它；写动作走 `cost-object:update`，由按钮级
+        // `v-privilege` 判），挂在「成本核算」目录（`/business/erp/cost`，V0390 建）sort 76。
+        // 两个页签（完工率录入 / 在制余额）都在本页内，录入抽屉也是抽屉（无独立路由）。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/cost-wip',
+        name: 'BusinessErpCostWip',
+        component: () => import('@/views/business/erp/cost-wip/index.vue'),
+        meta: { title: '在制品', permission: 'business:erp:cost-object:list' },
+      },
+      {
         // ==================== HR：员工档案（ARCH-9 §6.1 #1 / HR-18） ====================
         // `sys_menu` 种子（V0387 `…e001`）path = `/business/hr/employee`、component
         // `business/hr/employee/index`、页面码 `business:hr:employee:page`、
