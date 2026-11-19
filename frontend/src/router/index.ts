@@ -210,7 +210,13 @@ const routes: RouteRecordRaw[] = [
         path: 'system/server-status',
         name: 'SystemServerStatus',
         component: () => import('@/views/system/server-status/index.vue'),
-        meta: { title: '服务器状态', permission: 'system:server-status:view' },
+        meta: {
+          title: '服务器状态',
+          permission: 'system:server-status:view',
+          // 页面自己渲染带数据的 PageHero（主机/系统/架构/运行状态/采集时间），
+          // 布局层不要重复插一张只有标题的
+          hidePageHero: true,
+        },
       },
       // ==================== 通用底座 · 批次 C（公告 / 帮助 / 变更日志） ====================
       // path 与 `sys_menu.path` 逐字一致，否则侧栏点了进 404：

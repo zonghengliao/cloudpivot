@@ -75,9 +75,9 @@
       </t-header>
 
       <t-content class="basic-layout__content">
-        <!-- 通用页面顶部卡：显示当前菜单名 + 星座连线特效。
-             首页（Dashboard）自己有问候卡（同样是 PageHero），这里跳过避免重复。 -->
-        <PageHero v-if="pageHeroTitle" :title="pageHeroTitle" />
+        <!-- 通用页面顶部卡：当前菜单图标 + 名称 + 星座连线特效。
+             首页与 meta.hidePageHero 的页面自行处理，这里跳过避免重复。 -->
+        <PageHero v-if="pageHeroTitle" :title="pageHeroTitle" :icon="pageHeroIcon" />
         <router-view v-slot="{ Component }">
           <transition name="page-fade" mode="out-in">
             <component :is="Component" />
@@ -119,6 +119,7 @@ import { useSettingStore } from '@/stores/setting';
 import { useNoticeStore } from '@/stores/notice';
 import { useBadgeStore } from '@/stores/badge';
 import { normalizeMenuPath, collectLeafPaths } from '@/utils/menu';
+import type { MenuNode } from '@/api/system/auth-api';
 
 /** 用户下拉菜单项 */
 const userActions: DropdownOption[] = [
@@ -184,15 +185,46 @@ const activeMenu = computed(() => {
  *
  * 取 `route.matched` 里最后一个带 title 的层级：嵌套路由的父级是目录名，
  * 末级才是用户真正在看的页面（如「采购管理 / 采购订单」要显示「采购订单」）。
+ *
+ * `meta.hidePageHero` 为 true 时也返回空串 —— 页面自己渲染一张带数据的
+ * PageHero（如服务器状态要显示主机/运行状态/采集时间），布局层不重复插。
  */
 const pageHeroTitle = computed<string>(() => {
-  if (route.name === 'Dashboard') {
+  if (route.name === 'Dashboard' || route.meta.hidePageHero) {
     return '';
   }
   const titles = route.matched
     .map((record) => record.meta.title)
     .filter((title): title is string => typeof title === 'string' && title.length > 0);
   return titles.length > 0 ? titles[titles.length - 1] : '';
+});
+
+/**
+ * 顶部卡左侧徽章图标：按当前路径在导航菜单树里找同路径节点的 icon。
+ *
+ * 找不到时给 `app`（TDesign 的通用应用图标）—— 总比空一块好，
+ * 而且一眼能看出"这个菜单没配图标"，方便补种子。
+ */
+const pageHeroIcon = computed<string>(() => {
+  if (!pageHeroTitle.value) {
+    return '';
+  }
+  const path = normalizeMenuPath(route.path);
+  const findIcon = (nodes: MenuNode[]): string => {
+    for (const node of nodes) {
+      if (node.icon && normalizeMenuPath(node.path) === path) {
+        return node.icon;
+      }
+      if (node.children?.length) {
+        const hit = findIcon(node.children);
+        if (hit) {
+          return hit;
+        }
+      }
+    }
+    return '';
+  };
+  return findIcon(userStore.navMenus) || 'app';
 });
 
 /** 面包屑：首页（可点击回首页）+ 当前匹配到的带标题路由（末级为纯文本） */

@@ -1,32 +1,17 @@
 <template>
   <div class="server-status">
-    <!-- ==================== 头部：标题 + 主机 + 总体状态 ==================== -->
-    <header class="ss-hero">
-      <div class="ss-hero__left">
-        <span class="ss-hero__badge"><t-icon name="server" /></span>
-        <div class="ss-hero__text">
-          <h1 class="ss-hero__title">服务器状态</h1>
-          <p class="ss-hero__sub">
-            <template v-if="status">
-              <span class="ss-hero__host">{{ status.host.hostname || '未知主机' }}</span>
-              <span class="ss-hero__sep">·</span>
-              <span>{{ status.host.os_name || '未知系统' }}</span>
-              <span class="ss-hero__sep">·</span>
-              <span>{{ status.host.arch }}</span>
-            </template>
-            <template v-else-if="loading">正在采集服务器指标…</template>
-            <template v-else>暂无数据</template>
-          </p>
-        </div>
-      </div>
-      <div class="ss-hero__right">
+    <!-- ==================== 页面顶部卡：标题 + 主机信息 + 运行状态 ====================
+         用通用 PageHero（与其它页面同一个组件），extra 插槽装本页特有的
+         状态徽章与采集时间；星座连线衬底 -->
+    <PageHero title="服务器状态" :subtitle="hostSub" icon="server">
+      <template #extra>
         <span class="ss-pill" :class="`ss-pill--${overall.state}`">
           <i class="ss-pill__dot" />
           {{ overall.label }}
         </span>
         <span v-if="collectedText" class="ss-hero__time">采集于 {{ collectedText }}</span>
-      </div>
-    </header>
+      </template>
+    </PageHero>
 
     <!-- 采集失败但手上还有旧数据：只提示不遮挡（旧数据带「已过期」标记） -->
     <t-alert
@@ -245,6 +230,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import { downloadDiagnosticBundle, fetchServerStatus, type ServerStatusRes } from '@/api/business/monitor-api';
 import EChart from '@/components/EChart.vue';
+import PageHero from '@/components/PageHero.vue';
 import { usePalette } from '@/composables/usePalette';
 import { saveBlob } from '@/utils/download';
 
@@ -877,6 +863,22 @@ const envBlocks = computed<Array<{ key: string; title: string; icon: string; ite
 // ==================== 提示文案 ====================
 
 const collectedText = computed(() => (status.value ? formatClock(status.value.collected_at) : ''));
+
+/**
+ * 顶部卡副标题：主机名 · 系统 · 架构。
+ *
+ * 采集前后给不同的占位文案 —— 首次进页面时不能是一条空白副标题，
+ * 否则看起来像"这页什么都没加载出来"。
+ */
+const hostSub = computed<string>(() => {
+  const s = status.value;
+  if (!s) {
+    return loading.value ? '正在采集服务器指标…' : '暂无数据';
+  }
+  return [s.host.hostname || '未知主机', s.host.os_name || '未知系统', s.host.arch]
+    .filter(Boolean)
+    .join(' · ');
+});
 const updatedText = computed(() => (status.value ? formatClock(status.value.collected_at) : ''));
 
 const blockingError = computed<{ icon: string; title: string; desc: string } | null>(() => {
