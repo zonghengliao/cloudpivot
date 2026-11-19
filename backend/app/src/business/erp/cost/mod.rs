@@ -384,3 +384,24 @@ pub mod cost_restore_structure_handler;
 /// 逐（对象, 期间, 物料, 批号）的材料投入 / 「谁产出了这个物料」的候选批次。
 /// 数据范围复用 `biz_cost_object` 锚点；逐层展开是 BFS，每层两条查询。
 pub mod cost_restore_structure_model;
+
+/// M5-27 的真库用例（`ERP_DB_URL` 开关）：三层链还原到外购料/人工/制造费用 /
+/// 全外购料无需还原 / 缺结构·同月平均·闭环·层数上限都记「还原不彻底」/
+/// 数据范围 / 整表合计与三档筛选 / 清场零残留。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_restore_rollup_db_tests;
+/// 成本还原「逐层还原到料工费」的**契约层与纯逻辑**（M5-27）：把 M5-26 的结构树
+/// 按「流入金额 × 结构比例」递归卷积（尾差进制造费用），得出还原后的料/工/费；
+/// 拆不动的部分记「还原不彻底」（不画假 0）。零 DB、零迁移、零新增权限码。
+pub mod cost_restore_rollup_dto;
+/// 还原表 **接口层**（M5-27）：`GET /business/erp/cost-restore-rollup`
+/// （期间必填 + 关键字 + 三档状态筛选 + 分页 + 整表合计 + max_depth）。
+/// 结构复用 M5-26 的 `expanded_rows_of`（不重查一遍库）。复用 `cost-object:list`。
+pub mod cost_restore_rollup_handler;
+/// 还原表 **取数层**（M5-27）：只补「本期人工 / 制造费用归集」一项，
+/// 行与逐层结构全部复用 M5-26（零 SQL 抄写）。
+pub mod cost_restore_rollup_model;
+/// M5-27 的纯逻辑单测（不连库）：一层 / 三层链卷积 / 守恒 / 逐层台账 / 缺结构·截断 /
+/// 尾差进费用 / 兄弟比例分配 / 三档状态与筛选 / 出参装配。
+#[cfg(test)]
+mod cost_restore_rollup_tests;

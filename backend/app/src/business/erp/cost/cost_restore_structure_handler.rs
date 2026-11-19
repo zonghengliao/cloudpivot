@@ -139,11 +139,113 @@ struct Pending {
     path: Vec<Uuid>,
 }
 
+/// 逐层展开的全量结果（**未分页**）：结构表与 M5-27 的还原卷积共用这一份。
+///
+/// M5-27（`cost-restore-rollup`）直接消费这里的 `rows`（每行带 `tree[]` 与 `elements`），
+/// 在内存里做卷积 —— 所以还原表**不需要再查一遍结构**，两张表的数字永远不会打架。
+#[derive(Debug)]
+pub struct Expanded {
+    /// 当期成本核算批次（没建 ⇒ `None`）。
+    pub batch: Option<dto::BatchView>,
+    /// 整表合计（已按状态筛过）。
+    pub totals: Totals,
+    /// 全部行（已按状态筛过，未分页）。
+    pub rows: Vec<Row>,
+    /// 节点数到了上限（后面的层没展开完）。
+    pub overflow: bool,
+}
+
 /// 结构表（一条只读报表：逐层展开 → 筛 → 分页 → 整表合计）。
 pub async fn structure_table_of(
     principal: &ScopedPrincipal,
     filter: &RestoreFilter,
 ) -> std::result::Result<RestoreRes, ApiError> {
+    let expanded = expanded_rows_of(principal, filter).await?;
+    let Expanded {
+        batch,
+        totals,
+        rows: kept,
+        overflow,
+    } = expanded;
+    let cost_ready = batch.is_some();
+
+    // ⑥ 分页（升序来自 SQL：`ORDER BY t.object_no`；页码越界给空页，不报错）
+    let total_rows = kept.len();
+    let offset = filter
+        .page
+        .saturating_sub(1)
+        .saturating_mul(filter.page_size)
+        .min(u64::try_from(total_rows).unwrap_or(u64::MAX));
+    let start = usize::try_from(offset).unwrap_or(total_rows);
+    let end = start
+        .saturating_add(usize::try_from(filter.page_size).unwrap_or(0))
+        .min(total_rows);
+    let list: Vec<Row> = kept.get(start..end).unwrap_or(&[]).to_vec();
+
+    // ⑦ 页脚说明
+    let mut note = String::new();
+    if !cost_ready {
+        note.push_str(&format!(
+            "{} 还没有成本核算批次：行头的「本期完工成本」会是空的，但结构照出 —— \
+             结构只依赖归集行与半成品的产出批次，不依赖本期算没算过。",
+            filter.period_code
+        ));
+    }
+    if totals.no_structure_row_count > 0 {
+        note.push_str(&format!(
+            "有 {} 行里的半成品取不到完工成本结构（未计算 / 已红冲 / 完工成本为 0）：\
+             这些节点的三要素给空值而不是 0，按行内 hint 处理后重算。",
+            totals.no_structure_row_count
+        ));
+    }
+    if totals.cycle_row_count > 0 {
+        note.push_str(&format!(
+            "有 {} 行出现结构闭环（自己消耗自己产出的半成品）：在闭环处截断，先核对领料单挂的成本对象。",
+            totals.cycle_row_count
+        ));
+    }
+    if totals.truncated_row_count > 0 {
+        note.push_str(&format!(
+            "有 {} 行到 {} 层还没钻到底：调大 max_depth（上限 {}）可继续下钻。",
+            totals.truncated_row_count,
+            filter.max_depth,
+            dto::MAX_DEPTH_LIMIT
+        ));
+    }
+    if overflow {
+        note.push_str(&format!(
+            "本次展开的节点数到了上限（{}）：后面的层没展开完，请用 keyword 收窄对象或调小 max_depth 分段看。",
+            dto::NODE_GUARD
+        ));
+    }
+    note.push_str(dto::FORMULA_LAYER);
+    note.push(' ');
+    note.push_str(dto::FORMULA_ELEMENT);
+
+    Ok(RestoreRes {
+        period_code: filter.period_code.clone(),
+        batch,
+        cost_ready,
+        state: filter.state.as_str().to_string(),
+        keyword: filter.keyword.clone(),
+        max_depth: filter.max_depth,
+        formula_layer: dto::FORMULA_LAYER.to_string(),
+        formula_element: dto::FORMULA_ELEMENT.to_string(),
+        totals: dto::totals_view(&totals),
+        list,
+        total: u64::try_from(total_rows).unwrap_or(0),
+        page: filter.page,
+        page_size: filter.page_size,
+        state_options: dto::state_options(),
+        note,
+    })
+}
+
+/// 逐层展开 → 筛 → 整表合计（**不分页**；M5-27 的卷积在 `rows` 上做）。
+pub async fn expanded_rows_of(
+    principal: &ScopedPrincipal,
+    filter: &RestoreFilter,
+) -> std::result::Result<Expanded, ApiError> {
     // ① 本期批次（只影响行头能不能看到本期计算单，不影响结构本身）
     let batches = batches_of(&filter.period_code)
         .await
@@ -362,79 +464,15 @@ pub async fn structure_table_of(
         kept.push(row);
     }
 
-    // ⑥ 分页（升序来自 SQL：`ORDER BY t.object_no`；页码越界给空页，不报错）
-    let total_rows = kept.len();
-    let offset = filter
-        .page
-        .saturating_sub(1)
-        .saturating_mul(filter.page_size)
-        .min(u64::try_from(total_rows).unwrap_or(u64::MAX));
-    let start = usize::try_from(offset).unwrap_or(total_rows);
-    let end = start
-        .saturating_add(usize::try_from(filter.page_size).unwrap_or(0))
-        .min(total_rows);
-    let list: Vec<Row> = kept.get(start..end).unwrap_or(&[]).to_vec();
-
-    // ⑦ 页脚说明
-    let mut note = String::new();
-    if batches.active.is_none() {
-        note.push_str(&format!(
-            "{} 还没有成本核算批次：行头的「本期完工成本」会是空的，但结构照出 —— \
-             结构只依赖归集行与半成品的产出批次，不依赖本期算没算过。",
-            filter.period_code
-        ));
-    }
-    if totals.no_structure_row_count > 0 {
-        note.push_str(&format!(
-            "有 {} 行里的半成品取不到完工成本结构（未计算 / 已红冲 / 完工成本为 0）：\
-             这些节点的三要素给空值而不是 0，按行内 hint 处理后重算。",
-            totals.no_structure_row_count
-        ));
-    }
-    if totals.cycle_row_count > 0 {
-        note.push_str(&format!(
-            "有 {} 行出现结构闭环（自己消耗自己产出的半成品）：在闭环处截断，先核对领料单挂的成本对象。",
-            totals.cycle_row_count
-        ));
-    }
-    if totals.truncated_row_count > 0 {
-        note.push_str(&format!(
-            "有 {} 行到 {} 层还没钻到底：调大 max_depth（上限 {}）可继续下钻。",
-            totals.truncated_row_count,
-            filter.max_depth,
-            dto::MAX_DEPTH_LIMIT
-        ));
-    }
-    if overflow {
-        note.push_str(&format!(
-            "本次展开的节点数到了上限（{}）：后面的层没展开完，请用 keyword 收窄对象或调小 max_depth 分段看。",
-            dto::NODE_GUARD
-        ));
-    }
-    note.push_str(dto::FORMULA_LAYER);
-    note.push(' ');
-    note.push_str(dto::FORMULA_ELEMENT);
-
-    Ok(RestoreRes {
-        period_code: filter.period_code.clone(),
+    Ok(Expanded {
         batch: batches.active.as_ref().map(|(_, batch)| dto::BatchView {
             id: batch.id.clone(),
             batch_no: batch.batch_no.clone(),
             status: batch.status.clone(),
         }),
-        cost_ready: batches.active.is_some(),
-        state: filter.state.as_str().to_string(),
-        keyword: filter.keyword.clone(),
-        max_depth: filter.max_depth,
-        formula_layer: dto::FORMULA_LAYER.to_string(),
-        formula_element: dto::FORMULA_ELEMENT.to_string(),
-        totals: dto::totals_view(&totals),
-        list,
-        total: u64::try_from(total_rows).unwrap_or(0),
-        page: filter.page,
-        page_size: filter.page_size,
-        state_options: dto::state_options(),
-        note,
+        totals,
+        rows: kept,
+        overflow,
     })
 }
 

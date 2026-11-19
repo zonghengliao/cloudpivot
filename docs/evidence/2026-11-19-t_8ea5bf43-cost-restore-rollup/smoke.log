@@ -1,0 +1,42 @@
+[PASS] ① 未带令牌 ⇒ 401（不是 200，也不是 500）  · status=401 code=401 msg=未授权访问，请先登录
+[PASS] 夹具就绪（成品 FG / FG2 + 半成品产出批 S / UNC + 八条归集）
+[PASS] ① 还原表 GET 200（路由真的挂上了）  · status=200 
+[PASS] ② 页面级字段齐（15 个键）  · 缺 []
+[PASS] ② period_code 原样回显 + cost_ready=true（本期有批次）  · 1700-06 / True
+[PASS] ② max_depth 缺省回显 6  · 6
+[PASS] ② formula_restore / formula_unresolved 非空（页脚口径直接用后端原文）
+[PASS] ② state_options 4 档（all / restored / partial / no_semi）  · ['all', 'restored', 'partial', 'no_semi']
+[PASS] ② 行出现（keyword 收窄到本夹具）  · 共 2 行
+[PASS] ③ 行字段齐（还原前/还原后/差额/台账/明细）  · 缺 []
+[PASS] ③ 还原前：材料 500 / 人工 100 / 制造费用 100 / 合计 700  · {'material': '500', 'labor': '100', 'overhead': '100', 'total': '700'}
+[PASS] ③ 材料里：半成品 400 / 外购料 100 / 占比 80.00%  · 400 / 100 / 80.00
+[PASS] ③ 还原后：外购料 300 / 人工 140 / 制造费用 260 / 合计 700  · {'material': '300', 'labor': '140', 'overhead': '260', 'total': '700'}
+[PASS] ③ 行状态 = restored（钻到底了）  · state=restored label=已还原
+[PASS] ③ 还原不彻底 = 0  · 0
+[PASS] ④ 台账两层（半成品 S 钻到外购料为止）  · [(1, '500'), (2, '200')]
+[PASS] ④ 第 1 层：流入 500 = 外购 100 + 人工 40 + 费 160 + 下拨 200 + 不彻底 0  · {'level': 1, 'node_count': 2, 'imputed': '500', 'purchased': '100', 'labor': '40', 'overhead': '160', 'carried_down': '200', 'unresolved': '0', 'note': '第 1 层 = 本期材料投入的去向：外购料确认、半成品按结构拆出工/费，其余继续往下'}
+[PASS] ④ 第 2 层：流入 200 全部确认成外购料  · {'level': 2, 'node_count': 1, 'imputed': '200', 'purchased': '200', 'labor': '0', 'overhead': '0', 'carried_down': '0', 'unresolved': '0', 'note': '第 2 层 = 上一层「材料部分」往下拨的 200（不是新增投入，不能与上层相加）'}
+[PASS] ④ 每层自洽（外购 + 人工 + 费 + 下拨 + 不彻底 = 流入）
+[PASS] ⑤ 半成品明细 1 条（只列自制半成品，不列外购料）  · 1
+[PASS] ⑤ S 被卷积 400 ⇒ 还原成 200 料 / 40 工 / 160 费，stopped=false  · 400 / {'material': '200', 'labor': '40', 'overhead': '160', 'total': '400'} / stopped=False
+[PASS] ⑤ 明细带结构来源与产出对象号  · batch / CB-M527RS241-S
+[PASS] ⑥ 差额：材料 -200 / 人工 +40 / 费 +160 / 合计 0（还原不动总额）  · {'material': '-200', 'labor': '40', 'overhead': '160', 'total': '0', 'note': '还原只是把材料里的半成品换成它自己的料/工/费，总额一分不动（total 恒为 0）；材料减少 = 人工与制造费用增加之和'}
+[PASS] ⑥ restored_labor / restored_overhead 与差额一致  · 40 / 160
+[PASS] ⑦ 缺结构的行出现  · ['CB-M527RS241-FG', 'CB-M527RS241-FG2']
+[PASS] ⑦ 状态 partial + 300 停在半成品形态（不当外购料）  · state=partial unresolved=300 after={'material': '0', 'labor': '0', 'overhead': '0', 'total': '0'}
+[PASS] ⑦ 仍守恒（还原后 0 + 不彻底 300 = 还原前 300）  · 0 + 300 vs 300
+[PASS] ⑦ 行内说清为什么没还原  · ['有半成品取不到完工成本结构（未计算 / 已红冲 / 没有下一层投入）：这部分金额停在半成品形态，记在「还原不彻底」里，不当外购料']
+[PASS] ⑧ 合计：两行 / 还原前 1000 / 还原后 700 / 不彻底 300 / check 0  · rows=2 before=1000 after=700 unresolved=300 check=0
+[PASS] ⑧ 分档：restored 1 行 / partial 1 行 / no_semi 0 行  · 1 / 1 / 0
+[PASS] ⑧ 最深层数 2  · 2
+[PASS] ⑨ 缺 period_code ⇒ 400  · status=400 code=10001 msg=period_code（yyyy-MM）不能为空：还原是某一期投料的快照，例如 2026-11
+[PASS] ⑨ 期间形状错 ⇒ 400  · status=400 code=10001 msg=期间编码必须是 yyyy-MM（收到「2026-13」）
+[PASS] ⑨ 状态拼错 ⇒ 400（不静默回落成 all）  · status=400 code=10001 msg=state 只支持 all / restored / partial / no_semi（收到 `done`）：拼错时静默回落到 all 会让人以为筛过了
+[PASS] ⑨ max_depth=0 ⇒ 回显默认 6（夹取不报错）  · 6
+[PASS] ⑨ max_depth=99 ⇒ 夹到上限 12  · 12
+[PASS] ⑩ page_size=1：当前页 1 行，但 total 与合计仍是整表 2 行  · total=2 totals.row_count=2
+[PASS] ⑩ state=partial 收窄到 1 行（FG2）  · ['CB-M527RS241-FG2']
+[PASS] ⑩ state=restored 收窄到 1 行（FG）  · ['CB-M527RS241-FG']
+[PASS] ⑪ 清场零残留  · 残留 0 行
+
+== PASS 40 / FAIL 0 ==
