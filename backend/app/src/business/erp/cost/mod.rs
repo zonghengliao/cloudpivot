@@ -405,3 +405,21 @@ pub mod cost_restore_rollup_model;
 /// 尾差进费用 / 兄弟比例分配 / 三档状态与筛选 / 出参装配。
 #[cfg(test)]
 mod cost_restore_rollup_tests;
+
+/// M5-28 的真库用例（`ERP_DB_URL` 开关）：两车间 + 三层链的报表分组 / 整表合计 =
+/// 分组之和 / 按对象对账明细表 / 数据范围不带出别车间 / 清场零残留。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_restore_report_db_tests;
+/// 成本还原「还原后报表：料工费占比」的**契约层与纯逻辑**（M5-28）：按车间 / 产品 /
+/// 成本对象 / 整表分组汇总（纯加法），占比分母 = 还原前合计（四项目占比合计 100%），
+/// 占比变化（pp）、主导要素、守恒自检。零 DB、零迁移、零新增权限码。
+pub mod cost_restore_report_dto;
+/// 报表 **接口层**（M5-28）：`GET /business/erp/cost-restore-report`
+/// （期间必填 + 关键字 + 四档维度 + 三档状态 + 分组分页 + 整表合计）。
+/// 行复用 M5-27 的 `rollup_rows_of`（不重查一遍库、不重算卷积）。复用 `cost-object:list`。
+pub mod cost_restore_report_handler;
+/// M5-28 的纯逻辑单测（不连库）：分组键与名字 / 占比分母口径 / 四项合计 100% /
+/// 占比变化 pp / 主导要素 / 排序 / 空表 / 出参装配 / 合计 = 分组之和。
+#[cfg(test)]
+mod cost_restore_report_tests;

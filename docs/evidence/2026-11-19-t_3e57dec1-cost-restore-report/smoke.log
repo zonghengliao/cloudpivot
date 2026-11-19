@@ -1,0 +1,60 @@
+[PASS] ① 未带令牌 ⇒ 401（不是 200，也不是 500）  · status=401 code=401 msg=未授权访问，请先登录
+[PASS] ② 路由挂上且 200（不是 404 / 不是 SPA HTML）  · status=200
+[PASS] ② 出参 22 个键齐全
+[PASS] ② 缺省维度 = dept、缺省一页 50、缺省层数 6  · dept/50/6
+[PASS] ② 维度选项 4 档  · [{'value': 'dept', 'label': '按车间'}, {'value': 'product', 'label': '按产品'}, {'value': 'object', 'label': '按对象'}, {'value': 'all', 'label': '整表'}]
+[PASS] ② 状态选项 4 档
+[PASS] ② 本期有批次（cost_ready）  · {'id': 'e9cd93ae-c505-44f0-ad8a-ccfa72d2422e', 'batch_no': 'CS-M528RP3344-P2', 'status': 'DRAFT'}
+[PASS] ② 口径文案齐（basis + 4 条公式）
+[PASS] ② 页脚写明占比分母  · 有 1 个成本对象还原不彻底：这些金额单列成「还原不彻底」一格（不算外购材料、也不摊到人工与制造费用），所以「材料 + 人工 + 费 + 不彻底」仍等于 100.00%；卡在第几层看明细表（cost-restore-rollup）的逐层台账
+[PASS] ③ 两个车间两组  · total=2
+[PASS] ③ 一车间组名 = 部门名  · 总部
+[PASS] ③ 一车间 1 个成本对象
+[PASS] ③ 还原前 500 / 100 / 100 = 700  · {'material': '500', 'labor': '100', 'overhead': '100', 'total': '700', 'material_share': '71.43', 'labor_share': '14.29', 'overhead_share': '14.29'}
+[PASS] ③ 还原后 300 / 140 / 260 = 700  · {'material': '300', 'labor': '140', 'overhead': '260', 'total': '700', 'unresolved': '0', 'denominator': '700', 'material_share': '42.86', 'labor_share': '20.00', 'overhead_share': '37.14', 'unresolved_share': '0.00'}
+[PASS] ③ 占比分母 = 还原前合计 700  · 700
+[PASS] ③ 占比 42.86 / 20.00 / 37.14，四项合计 100.00  · ['42.86', '20.00', '37.14', '0.00', '100.00']
+[PASS] ③ 还原前占比 71.43 / 14.29 / 14.29  · ['71.43', '14.29', '14.29']
+[PASS] ③ 占比变化 −28.57 / +5.71 / +22.85  · ['-28.57', '5.71', '22.85']
+[PASS] ③ 从材料里拆出的人工 40 / 制造费用 160
+[PASS] ③ 半成品 400 / 材料 500 ⇒ 80.00%
+[PASS] ③ 主导要素 = 材料（材料 300 最大）
+[PASS] ③ 一车间行状态：已还原 1 / 不彻底 0 / 无需还原 0
+[PASS] ③ 一车间守恒 check = 0  · 0
+[PASS] ③ 二车间组 = FG2（300 停在半成品形态）  · {'material': '0', 'labor': '0', 'overhead': '0', 'total': '0', 'unresolved': '300', 'denominator': '300', 'material_share': '0.00', 'labor_share': '0.00', 'overhead_share': '0.00', 'unresolved_share': '100.00'}
+[PASS] ③ 二车间不彻底占比 100.00（不当外购料）
+[PASS] ③ 二车间主导要素 none
+[PASS] ③ 二车间不彻底行数 1
+[PASS] ③ 二车间守恒 check = 0
+[PASS] ③ 分组按还原后合计降序（一车间 700 在前）
+[PASS] ④ 合计：还原前 800 / 100 / 100 = 1000  · {'material': '800', 'labor': '100', 'overhead': '100', 'total': '1000', 'material_share': '80.00', 'labor_share': '10.00', 'overhead_share': '10.00'}
+[PASS] ④ 合计：还原后 300 / 140 / 260 = 700  · {'material': '300', 'labor': '140', 'overhead': '260', 'total': '700', 'unresolved': '300', 'denominator': '1000', 'material_share': '30.00', 'labor_share': '14.00', 'overhead_share': '26.00', 'unresolved_share': '30.00'}
+[PASS] ④ 合计：不彻底 300、check 0
+[PASS] ④ 合计占比 30.00 / 14.00 / 26.00 / 30.00 = 100.00  · ['30.00', '14.00', '26.00', '30.00', '100.00']
+[PASS] ④ 合计行数 2（= 各组对象数之和）
+[PASS] ⑤ 按产品：1 组（FG 与 FG2 同一个产出品）  · total=1
+[PASS] ⑤ 产品组合并后 1000 = 700 + 300
+[PASS] ⑤ 产品组 key = 产出品 id
+[PASS] ⑤ 产品组两组对象
+[PASS] ⑤ 产品组合计 = 整表合计
+[PASS] ⑥ 按对象：2 组
+[PASS] ⑥ 明细表拿到 2 行  · status=200 rows=2
+[PASS] ⑥ 对象组逐字段 = 明细表同一行（8 个字段）
+[PASS] ⑥ 对象组带副标（产出品 · 批号）
+[PASS] ⑦ 整表：1 组，key = ALL
+[PASS] ⑦ 整表组 = totals（还原前 1000 / 还原后 700 / 不彻底 300）
+[PASS] ⑧ 缺期间 ⇒ 400  · status=400 code=10001 msg=period_code（yyyy-MM）不能为空：报表是某一期投料的快照，例如 2026-11
+[PASS] ⑧ 期间形状错 ⇒ 400  · status=400 code=10001 msg=期间编码必须是 yyyy-MM（收到「2026-13」）
+[PASS] ⑧ group_by 拼错 ⇒ 400  · status=400 code=10001 msg=group_by 只支持 dept / product / object / all（收到 `workshop`）：拼错时静默回落会让报表看起来「就是没数据」
+[PASS] ⑧ state 拼错 ⇒ 400  · status=400 code=10001 msg=state 只支持 all / restored / partial / no_semi（收到 `done`）：拼错时静默回落到 all 会让人以为筛过了
+[PASS] ⑧ max_depth 夹到 12 / page_size 夹到 500  · 12/500
+[PASS] ⑧ max_depth=0 ⇒ 6 / page_size=0 ⇒ 50
+[PASS] ⑨ page_size=1：当前页 1 组、分组总数 2
+[PASS] ⑨ page_size=1 时合计仍是整表（1000 / 2 个对象）
+[PASS] ⑨ state=partial 只留二车间（1 组、1000→300）  · total=1
+[PASS] ⑨ state=restored 只留一车间（还原后人工 140）
+[PASS] ⑨ 空结果不画假 0.00%（占比 None、合计 0）  · {'material': '0', 'labor': '0', 'overhead': '0', 'total': '0', 'unresolved': '0', 'denominator': '0', 'material_share': None, 'labor_share': None, 'overhead_share': None, 'unresolved_share': None}
+[PASS] ⑨ 空结果给可读说明（不是接口故障）  · 1601-06 没有可汇总的成本对象（该期间没有材料投入，或 keyword / state 把全部行筛掉了）：报表为空、合计为 0，不是接口故障。占比分母 = 还原前合计（= 还
+[PASS] ⑩ 清场零残留  · residue=0
+
+==== 58 PASS / 0 FAIL ====

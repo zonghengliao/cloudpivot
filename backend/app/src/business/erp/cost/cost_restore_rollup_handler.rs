@@ -186,11 +186,30 @@ fn state_of(row: &Row) -> RollupState {
     }
 }
 
-/// 还原表（一条只读报表：结构 → 递归卷积 → 筛 → 分页 → 整表合计）。
-pub async fn rollup_table_of(
+/// 还原表的**全部行**（已按状态筛过，未分页）+ 整表合计。
+///
+/// 抽出来的原因：M5-28（`cost-restore-report`）要按车间 / 产品 / 对象**重新分组汇总**，
+/// 而分页只在明细表上有意义。报表直接消费这里，不重查一遍库、也不抄一遍 SQL ——
+/// 两张表（明细 / 报表）的每个数字都出自同一次卷积。
+#[derive(Debug, Clone)]
+pub struct RollupRows {
+    /// 当期成本核算批次（没建 ⇒ `None`）。
+    pub batch: Option<dto::BatchView>,
+    /// 是否已建批次。
+    pub cost_ready: bool,
+    /// 全部行（已按状态筛过，未分页）。
+    pub rows: Vec<Row>,
+    /// 整表合计。
+    pub totals: Totals,
+    /// 节点数到了上限（后面的层没展开完）。
+    pub overflow: bool,
+}
+
+/// 还原的全部行（结构 → 递归卷积 → 筛 → 合计；**不分页**）。
+pub async fn rollup_rows_of(
     principal: &ScopedPrincipal,
     filter: &RollupFilter,
-) -> std::result::Result<RollupRes, ApiError> {
+) -> std::result::Result<RollupRows, ApiError> {
     // ① 结构（复用 M5-26：逐层展开 + 数据范围 + 关键字，全量不分页）
     let Expanded {
         batch,
@@ -223,6 +242,29 @@ pub async fn rollup_table_of(
         totals.add(&row);
         kept.push(row);
     }
+
+    let cost_ready = batch.is_some();
+    Ok(RollupRows {
+        batch,
+        cost_ready,
+        rows: kept,
+        totals,
+        overflow,
+    })
+}
+
+/// 还原表（一条只读报表：结构 → 递归卷积 → 筛 → 分页 → 整表合计）。
+pub async fn rollup_table_of(
+    principal: &ScopedPrincipal,
+    filter: &RollupFilter,
+) -> std::result::Result<RollupRes, ApiError> {
+    let RollupRows {
+        batch,
+        cost_ready,
+        rows: kept,
+        totals,
+        overflow,
+    } = rollup_rows_of(principal, filter).await?;
 
     // ④ 分页（页码越界给空页，不报错）
     let total_rows = kept.len();
@@ -264,7 +306,6 @@ pub async fn rollup_table_of(
     note.push(' ');
     note.push_str(dto::FORMULA_UNRESOLVED);
 
-    let cost_ready = batch.is_some();
     Ok(RollupRes {
         period_code: filter.period_code.clone(),
         batch,
