@@ -869,6 +869,20 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '标准成本', permission: 'business:erp:cost-method:list' },
       },
       {
+        // ==================== ERP 成本：差异分析（M5-19 / M5-11 差异报表的前端落点） ====================
+        // `sys_menu` 种子（V0466 …d401）path = `/business/erp/cost-variance`、component
+        // `business/erp/cost-variance/index`，auth_code `business:erp:cost-method:list`
+        // （**复用**读码：与 M5-11 报表的接口闸逐字一致），挂在「成本核算」目录
+        // （`/business/erp/cost`，V0390 建）sort 74 —— 排在「标准成本」之后：
+        // 标准是口径输入，先有那一版才谈得上差异。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/cost-variance',
+        name: 'BusinessErpCostVariance',
+        component: () => import('@/views/business/erp/cost-variance/index.vue'),
+        meta: { title: '差异分析', permission: 'business:erp:cost-method:list' },
+      },
+      {
         // ==================== HR：员工档案（ARCH-9 §6.1 #1 / HR-18） ====================
         // `sys_menu` 种子（V0387 `…e001`）path = `/business/hr/employee`、component
         // `business/hr/employee/index`、页面码 `business:hr:employee:page`、

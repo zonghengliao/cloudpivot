@@ -1,0 +1,13 @@
+### pnpm typecheck（src/**）
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+rc=0
+
+### pnpm typecheck:unit（tests/unit/**）
+
+> @cloudpivot/web@0.1.0 typecheck:unit /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js -p tsconfig.unit.json --noEmit
+
+rc=0

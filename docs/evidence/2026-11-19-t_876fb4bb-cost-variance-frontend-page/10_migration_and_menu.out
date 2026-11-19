@@ -1,0 +1,34 @@
+### 首启补迁移（cloudpivot_test 克隆 → 326 条已应用 → 本卡补到 V0466）
+388 条 versioned 迁移；最大 = V0466
+
+### V0466 应用记录
+466|cost_variance_menu|t|t
+
+### 菜单行（严格按 V0466 自检条件查，命中应为 1 行）
+差异分析 | /business/erp/cost-variance | type=2 | sort=74 | icon=chart-analytics | component=business/erp/cost-variance/index | code=business:erp:cost-method:list
+
+### 授权（派生：持有 cost-method:list 的角色 + 超管）+ 祖先闭包
+FINANCE_DIRECTOR → /business/erp/cost, /business/erp/cost-variance
+FINANCE_MANAGER → /business/erp/cost, /business/erp/cost-variance
+SUPER_ADMIN → /business/erp/cost, /business/erp/cost-variance
+
+### 幂等重放（把 up.sql 再跑一遍）
+psql:backend/app/migrations/business/V0466__cost_variance_menu.up.sql:103: NOTICE:  V0466：挂载点为「成本核算」目录 50e28e43-1ccf-4c6a-a644-53937fc76625（sort 74）
+psql:backend/app/migrations/business/V0466__cost_variance_menu.up.sql:286: NOTICE:  V0466 完成：差异分析页已挂到「成本核算」目录 sort 74（读码复用 cost-method:list，3 个角色已授，祖先闭包已补）
+页面行=1
+授权行=3
+
+### 菜单结构不变量（8 条）
+═══ 菜单结构不变量 ═══
+库: cp_m519_smoke
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            571  ✅ (400-580)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 133 条，全部命中
+结果: 全绿 ✅

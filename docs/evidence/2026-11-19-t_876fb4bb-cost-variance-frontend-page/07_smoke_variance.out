@@ -1,0 +1,51 @@
+夹具：E2E02-M1（可比）/ E2E02-M2（缺实际）/ E2E02-M3（缺标准）· 批次 CS-202611-9901
+物料 id：A=01a1bdda B=01a1bdda C=01a1bdda
+
+[PASS] ① 缺期间 ⇒ 400 + 10001（页面据此不发请求）  · 400 10001 period_code（yyyy-MM）不能为空：对比按期间取数，例如 2026-11
+[PASS] ① 非法期间 2026-13 ⇒ 400  · 400 period_code 的月份应在 01–12 之间（收到 13）
+[PASS] ② 无批次期间 ⇒ cost_ready=false + 无批次  · 200
+[PASS] ② note 指向成本核算计算入口  · 标准成本取「期间末生效 + 已发布 + 启用的那一版标准成本」（本期基准日 2026-10-31）；实际成本取当期成本核算批次的成本计算单（完工数量 × 三要素
+[PASS] ③ 当月全量 ⇒ 3 行（可比 / 缺实际 / 缺标准 各一）  · 200 total=3
+[PASS] ③ 批次信息回显  · {'id': 'adeb0a75-7dad-4a11-9f63-161f91b246d2', 'batch_no': 'CS-202611-9901', 'status': 'DRAFT'}
+[PASS] ③ 期间窗口 = 整月  · 2026-11-01 ~ 2026-11-30
+[PASS] ③ 取数口径含「期间末 + 已发布」  · 期间末生效 + 已发布 + 启用的那一版标准成本
+[PASS] ③④⑤ 三行都回来了  · A=True B=True C=True
+[PASS] ③ 可比行状态 = BOTH + 方向 = 不利  · BOTH UNFAVORABLE
+[PASS] ③ 标准应发生额 = 15600.0000  · 15600.0000
+[PASS] ③ 实际完工成本 = 16320.0000  · 16320.0000
+[PASS] ③ 差异额 = 720.0000（实际 − 标准）  · 720.0000 / 期望 720.0
+[PASS] ③ 差异率 = 0.046154（= 720/15600，比值不是百分数）  · 0.046154
+[PASS] ③ 单位差异 = 0.900000（20.4 − 19.5）  · 0.900000
+[PASS] ③ 尾差 = 0（账面完工成本与单位口径对平）  · 0.0000
+[PASS] ③ 三要素齐全（料 / 工 / 费，顺序固定）  · ['MATERIAL', 'LABOR', 'OVERHEAD']
+[PASS] ③ 材料差异 = 400（std 9600 / act 10000）  · {"element": "MATERIAL", "element_label": "材料", "std_unit": "12.000000", "act_unit": "12.500000", "unit_amount": "0.500000", "std_amount": "9600.0000", "act_amou
+[PASS] ③ 人工差异 = 320（std 4000 / act 4320）  · {"element": "LABOR", "element_label": "人工", "std_unit": "5.000000", "act_unit": "5.400000", "unit_amount": "0.400000", "std_amount": "4000.0000", "act_amount": 
+[PASS] ③ 制造费用差异 = 0（持平）  · {"element": "OVERHEAD", "element_label": "制造费用", "std_unit": "2.500000", "act_unit": "2.500000", "unit_amount": "0.000000", "std_amount": "2000.0000", "act_amou
+[PASS] ③ 要素相加 = 总差异（400 + 320 + 0 = 720）
+[PASS] ③ 标准一侧带版本 / 生效期（页面展开行要用）  · {"id": "136e1e3b-7cd2-4750-9b8b-c9055ce94c1c", "version_no": 1, "effective_from": "2026-11-01", "effective_to": "2026-11-30", "published_at": "2026-11-19T05:35:
+[PASS] ④ 缺标准行 = NO_STANDARD / 无标准无差异块  · NO_STANDARD
+[PASS] ④ 缺标准行仍带实际完工成本（300）  · 300.0000
+[PASS] ④ hint 指向「标准成本」页并说清怎么修  · E2E02-M3 E2E-02 演练物料三(无价)：本期有完工（实际 300.0000），但没有标准成本卡。去「标准成本」页按期间建一版并提交发布，才谈得上对比
+[PASS] ⑤ 缺实际行 = NO_ACTUAL / 有标准无实际  · NO_ACTUAL
+[PASS] ⑤ hint 指向成本核算（本期没有计算单）  · E2E02-M2 E2E-02 演练物料二：有标准（单位 19.500000），但 2026-11 没有成本计算单。先做成本核算（该期间的成本核算批次 → 计算），或本期确实没投产
+[PASS] ⑥ 合计计数：3 行 / 可比 1 / 缺标准 1 / 缺实际 1  · {"rows": 3, "comparable_rows": 1, "no_standard_rows": 1, "no_actual_rows": 1}
+[PASS] ⑥ 合计金额只算可比行：std 15600 / act 16320 / 差异 720  · 15600.0000 / 16320.0000 / 720.0000
+[PASS] ⑥ 缺标准行的实际金额单列（300，不混进差异）  · 300.0000
+[PASS] ⑥ 合计三要素与整表同源（3 行）  · ['MATERIAL', 'LABOR', 'OVERHEAD']
+[PASS] ⑥ note 写明符号约定与「不入账」  · 标准成本取「期间末生效 + 已发布 + 启用的那一版标准成本」（本期基准日 2026-11-30）；实际成本取当期成本核算批次的成本计算单（完工数量 × 三要素单位成本）。差异 = 实际 − 标准，正
+[PASS] ⑦ state=comparable ⇒ 只有可比且有差异的 1 行  · 200 total=1
+[PASS] ⑦ state=no_standard ⇒ 1 行（C）
+[PASS] ⑦ state=no_actual ⇒ 1 行（B）
+[PASS] ⑦ 非法 state ⇒ 400（不静默回落 all）  · 400 state 只能是 all / comparable / no_standard / no_actual（收到「variance」）：comparable = 只看可比且有差异的物料，no_standard = 只看本期有完工但没已发布标准的，no_actual = 只看有标准但本期没完工 / 没算的
+[PASS] ⑦ 关键字命中 1 行  · total=1
+[PASS] ⑦ 关键字无命中 ⇒ 0 行且合计全 0  · total=0 rows=0
+[PASS] ⑦ page_size=1 翻页：total 恒定 3、两页不同行  · E2E02-M1 → E2E02-M2
+[PASS] ⑦ 可比行排第一（报表用途 = 先看偏得最多的）  · E2E02-M1
+[PASS] ⑦ 合计不随分页变（按筛选后全集聚合）  · 720.0000 / 720.0000
+[PASS] ⑧ 只持 EMPLOYEE 的账号 ⇒ 403（菜单不给他，接口也拦）  · 403 403
+[PASS] ⑨ 清场后当月 0 行 / cost_ready=false  · total=0
+[PASS] ⑨ 零残留：biz_cost_period  · 0
+[PASS] ⑨ 零残留：biz_cost_standard  · 0
+[PASS] ⑨ 零残留：biz_cost_object  · 0
+
+===== 46 PASS / 0 FAIL =====
