@@ -180,6 +180,7 @@ async function handleSubmit(): Promise<void> {
 
 <style scoped lang="less">
 .login {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -187,11 +188,60 @@ async function handleSubmit(): Promise<void> {
   // 用 vh 而不是 100%：<router-view> 的包裹层不保证撑满，百分比会塌成内容高度
   min-height: 100vh;
   padding: 32px 24px;
-  // 霜月白主底 + 雾蓝灰轻过渡：低饱和莫兰迪，长时间看不刺眼（深色主题走 --app-login-bg）
+  overflow: hidden;
+  // 雾面纸主底（深色主题走 --app-login-bg）
   background: var(--app-login-bg);
+
+  // ① 两团配色光晕：左上走主色、右下走强调色，随配色切换整体换色。
+  //    透明度压得很低（12~14%），只负责让白底"有呼吸"，不抢卡片。
+  &::before {
+    position: absolute;
+    inset: -15%;
+    content: '';
+    pointer-events: none;
+    background:
+      radial-gradient(
+        circle at 14% 16%,
+        color-mix(in srgb, var(--app-brand) 14%, transparent) 0%,
+        transparent 44%
+      ),
+      radial-gradient(
+        circle at 86% 84%,
+        color-mix(in srgb, var(--app-brand-accent) 16%, transparent) 0%,
+        transparent 48%
+      );
+  }
+
+  // ② 大图标水印：右下角半出画，极淡（5%），只做肌理不做主体。
+  //    用品牌装饰图本身，和左侧品牌区呼应；遮罩从中心往外化开，避免出现硬边。
+  &::after {
+    position: absolute;
+    right: -9%;
+    bottom: -14%;
+    width: min(760px, 62vw);
+    aspect-ratio: 1;
+    content: '';
+    pointer-events: none;
+    background: url('/brand-brain.webp') center / contain no-repeat;
+    opacity: 0.055;
+    -webkit-mask-image: radial-gradient(circle at 48% 48%, #000 28%, transparent 70%);
+    mask-image: radial-gradient(circle at 48% 48%, #000 28%, transparent 70%);
+  }
+
+  // 深色主题：光晕在深底上会发灰，提高一点饱和度并压低水印
+  :root[theme-mode='dark'] &::before {
+    filter: saturate(1.25);
+    opacity: 0.85;
+  }
+
+  :root[theme-mode='dark'] &::after {
+    opacity: 0.035;
+  }
 }
 
 .login__panel {
+  position: relative;
+  z-index: 1; // 压在 .login 的装饰伪元素（光晕 / 水印）之上
   display: flex;
   width: 100%;
   max-width: 960px;

@@ -137,8 +137,10 @@
   --app-text-primary: var(--td-text-color-primary);
   --app-text-secondary: var(--td-text-color-secondary);
   --app-table-head-bg: #fafaf7;
-  // 登录页渐变（浅色）：雾散初光主底，末尾一缕强调色（跟随所选配色，不再写死流金）
-  --app-login-bg: linear-gradient(135deg, #f2f2ee 0%, #eaeef0 52%, #f2f2ee 100%);
+  // 登录页外层底色（浅色）：提亮 + 带轻微色相，不再是灰白一片。
+  // 主视觉交给 `.login::before`（配色光晕）和 `.login::after`（大图标水印），
+  // 这里只铺一层"雾面纸"质感，避免和光晕打架。
+  --app-login-bg: linear-gradient(160deg, #fafbfd 0%, #eef3f8 46%, #fbf9f5 100%);
   --app-login-brand: linear-gradient(
     155deg,
     #e8edf1 0%,
