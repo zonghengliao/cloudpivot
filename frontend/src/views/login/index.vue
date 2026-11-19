@@ -2,8 +2,20 @@
   <div class="login">
     <div class="login__panel">
       <!-- 左侧品牌区：柔和渐变底 + 一句话定位 -->
-      <section class="login__brand">
+      <section
+        ref="brandEl"
+        class="login__brand"
+        @mousemove="fx.onMouseMove"
+        @mouseleave="fx.onMouseLeave"
+        @touchmove="fx.onTouchMove"
+      >
         <div class="login__brand-glow" aria-hidden="true"></div>
+        <!-- 品牌装饰图（脑 + 电路手绘稿）：低透明度衬底，只做氛围不抢内容。
+             原图是横向米白网格稿，已做「背景渐变透明 + 边缘羽化」处理（public/brand-brain.webp） -->
+        <img class="login__brand-deco" src="/brand-brain.webp" alt="" aria-hidden="true" />
+        <!-- 星座连线特效层：点与线都跟随鼠标（见 use-constellation-fx.ts）。
+             pointer-events: none，不挡表单；prefers-reduced-motion 时不启动 -->
+        <canvas ref="fxCanvas" class="login__brand-fx" aria-hidden="true"></canvas>
 
         <div class="login__brand-inner">
           <!-- 主内容贴顶：品牌识别（logo + 名称）居上，页脚保持沉底 -->
@@ -15,8 +27,11 @@
               <p class="login__brand-name">云枢 CloudPivot</p>
             </div>
 
-            <h2 class="login__brand-title">AI Coding 的管理底座</h2>
-            <p class="login__brand-desc">极小化 Token 消耗 · 极大化 Attention 浓度<br>稳定生成高品质代码</p>
+            <h2 class="login__brand-title">「可验证、可定制」的业务中台</h2>
+            <p class="login__brand-desc">
+              以 ERP 业务域（采购 / 销售 / 库存 / 财务）为落地场景，<br>
+              把流程、权限、审计、验证四件事做成底座能力
+            </p>
           </div>
 
           <p class="login__brand-footer">Rust + nik · Vue 3 + TDesign</p>
@@ -87,10 +102,16 @@ import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
 import { clearLogoutBroadcast, resetActivity, takeIdleRedirect } from '@/utils/idle-activity';
 import { safeRedirect } from '@/utils/safe-redirect';
+import { useConstellationFx } from './use-constellation-fx';
 
 const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
+
+// 左侧品牌区的星座连线特效：点与线跟随鼠标（不动鼠标时几乎静止）
+const brandEl = ref<HTMLElement | null>(null);
+const fxCanvas = ref<HTMLCanvasElement | null>(null);
+const fx = useConstellationFx(fxCanvas, brandEl);
 
 /** 登录表单数据 */
 const formData = reactive<LoginParams>({ username: '', password: '' });
@@ -204,9 +225,37 @@ async function handleSubmit(): Promise<void> {
   pointer-events: none;
 }
 
+// 品牌装饰图（脑 + 电路手绘稿）：衬在渐变底上做氛围，不抢文字
+// 低透明度 + 径向羽化遮罩，让它从背景里「长出来」而不是贴上去
+.login__brand-deco {
+  position: absolute;
+  right: -76px;
+  bottom: -56px;
+  width: 430px;
+  max-width: 92%;
+  opacity: 0.17;
+  pointer-events: none;
+  user-select: none;
+  filter: saturate(0.55) contrast(1.06);
+  -webkit-mask-image: radial-gradient(ellipse at 42% 44%, #000 36%, transparent 76%);
+  mask-image: radial-gradient(ellipse at 42% 44%, #000 36%, transparent 76%);
+}
+
+// 星座连线特效层：z-index 1（在装饰图之上、文字之下），不接收鼠标事件
+// 尺寸交给 CSS 100%，像素密度由 composable 里的 DPR 处理
+.login__brand-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .login__brand-inner {
   position: relative;
-  z-index: 1;
+  // 3：压在 gl-flow（1）和装饰图（0）之上，保证文字永远可读
+  z-index: 3;
   display: flex;
   flex-direction: column;
   height: 100%;
