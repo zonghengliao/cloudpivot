@@ -1,0 +1,52 @@
+[PASS] erp.cost.enabled = true（开关读的是 sys_config，改完需重启进程才失效缓存）
+夹具：DEMO-M001 / DEMO-M002 / E2E02-M1 · 耗用 D7-M1
+登录 OK（e2e01_appr）
+
+=== ① 期间视图 GET /cost-standard/period-sheet ===
+[PASS] 期间必填：缺 period_code → 400 + 10001  · 400 code=10001
+[PASS] 新建卡默认是草稿（「提交发布」按钮的起点）  · 草稿
+[PASS] 新建卡金额：料 15 / 工 60 / 费 12 / 总 87（与库 CHECK 同口径）  · 87.000000
+[PASS] 草稿卡不出现在期间视图（矩阵只含已发布）  · rows=0
+[PASS] 提交发布 → PENDING  · 200 ok
+[PASS] 审批中也不出现在期间视图  · rows=0
+[PASS] 只覆盖 12-01~12-15 的版本：期末（12-31）没人覆盖 ⇒ 矩阵仍 0 行（口径 = 期末取数）  · rows=0
+[PASS] 期间内换版：该物料只出一行（期末那一版）  · rows=1
+[PASS] 换版行标 switch_in_period = true 且版本号 = v2  · switch=True v=2
+[PASS] 换版行金额取 v2 口径（工 70 / 总 97）  · 70.000000 / 97.000000
+[PASS] 两行（一物料一行）  · rows=2
+[PASS] 整期单版本 ⇒ switch_in_period = false  · False
+[PASS] 关键字收窄命中（按物料编码）  · rows=1
+[PASS] 关键字乱码 → 0 行  · rows=0
+[PASS] 分页生效（page_size=1 回 1 行，total=2）  · list=1 total=2
+
+=== ② 查生效版本 GET /cost-standard/effective ===
+[PASS] 期间 / 日期都不给 → 400 + 10001  · 400 code=10001
+[PASS] 按期间查 → 200 且按期末取数  · 200 on_date=2026-12-31
+[PASS] 命中期末那一版 v2（已发布）  · 2
+[PASS] 期间内换版：switch_in_period=true + other_versions=[v1]  · switch=True
+[PASS] 口径说明 note 非空（页面原样展示）  · 期间 2026-12 内换过标准成本：本期按**期末 2026-12-31** 生效的 v2 取数（差异分析按期末口径）
+[PASS] 详情带标准 BOM 明细（页面表格数据源）  · items=1
+[PASS] 按日期查（12-01）→ 命中 v1（期内换版前的口径）  · 200 v=1
+[PASS] 期间与日期互相矛盾（11-20 不在 2026-12 内）→ 400  · 400 code=10001 on_date（2026-11-20）不在 period_code（2026-12）所指的 2026-12-01 ~ 2026-12-31 之内：两个条件互相矛
+[PASS] 没有可取数版本 → 404 + 10002（页面据此补「是不是还没发布」）  · 404 code=10002
+[PASS] 404 报文带建卡引导（POST /business/erp/cost-standard）  · E2E02-M1（E2E-02 演练物料一） 在 2026-12-31 没有生效的标准成本版本。先建一版（POST /business/erp/cost-standard，可用 p
+      （对照物料 E2E02-M1：本脚本特意不建卡）
+
+=== ③ 发布轴（期间视图「提交发布 / 撤回」按钮的接口） ===
+[PASS] 草稿 → 提交发布 = PENDING  · 200 ok
+[PASS] 重复提交 → 409 + 66111  · 409 code=66111
+[PASS] 审批中改口径 → 409 + 66111  · 409 code=66111
+[PASS] 撤回 → 回到 DRAFT  · 200 ok
+[PASS] 再撤回 → 409 + 66111  · 409 code=66111
+[PASS] 撤回后草稿可继续改口径  · 200 ok
+
+=== ④ 清场 ===
+[PASS] 删除 01a1f220…（未来期间 → 允许）  · 200 ok
+[PASS] 删除 01a1f220…（未来期间 → 允许）  · 200 ok
+[PASS] 删除 01a1f220…（未来期间 → 允许）  · 200 ok
+[PASS] 删除 01a1f220…（未来期间 → 允许）  · 200 ok
+[PASS] 软删口径：still-alive 行 = 0（列表与取数都看不到）  · alive=0
+[PASS] 软删后期间视图清零（取数也看不到）  · rows=0
+[PASS] 库内零残留（含软删行）  · left=0
+
+===== 39 PASS / 0 FAIL =====

@@ -66,6 +66,15 @@ export const COST_STANDARD_DELETE_CODE = 66110;
  */
 export const COST_STANDARD_PUBLISH_GUARD_CODE = 66111;
 
+/**
+ * `10002`：通用「资源不存在」（`error_code::RESOURCE_NOT_FOUND`）。
+ *
+ * 「查生效版本」用它判「这一天确实没有可参与取数的版本」：后端 `effective` 的取数闸
+ * 只认 `publish_state = 'PUBLISHED'`，所以草稿 / 审批中的卡也走这个 404 —— 页面要能
+ * 补一句「是不是还没发布」，否则用户会以为「我明明建过」。
+ */
+export const COST_STANDARD_NOT_FOUND_CODE = 10002;
+
 // ==================== 状态 ====================
 
 /** 版本状态：1 = 生效（参与期间取数）/ 0 = 失效。 */

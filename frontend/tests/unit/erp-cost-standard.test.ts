@@ -28,10 +28,14 @@ import {
 } from '@/api/business/erp/cost-standard-kinds';
 import {
   AMOUNT_SCALE,
+  EFFECTIVE_NOT_PUBLISHED_HINT,
   HOURS_SCALE,
   REMARK_MAX,
+  SHEET_SCOPE_HINT,
   canDelete,
   currentPeriod,
+  effectiveLookup,
+  effectiveSummary,
   emptyForm,
   emptyItem,
   formFromDetail,
@@ -51,6 +55,9 @@ import {
   previewAmounts,
   publishGate,
   scaledText,
+  sheetStats,
+  sheetSummary,
+  switchNotice,
   toCreatePayload,
   toScaled,
   toUpdatePayload,
@@ -520,4 +527,135 @@ test('发布动作闸：草稿才能提交、审批中才能撤回、已发布�
   const unknown = publishGate({ publish_state: 'WHATEVER' });
   assert.equal(unknown.canSubmit, false);
   assert.equal(unknown.canWithdraw, false);
+});
+
+// ==================== ⑦ 期间视图（物料 × 期间矩阵，M5-18） ====================
+
+/** 期间视图一行（只造断言要用的字段） */
+function sheetRow(publishState: string, switchInPeriod = false) {
+  return { head: { publish_state: publishState }, switch_in_period: switchInPeriod };
+}
+
+test('期间视图统计：只数行数与期间内换版（矩阵本身只含已发布行，不搞「未发布」计数）', () => {
+  assert.deepEqual(
+    sheetStats([sheetRow('PUBLISHED'), sheetRow('PUBLISHED', true), sheetRow('PUBLISHED', true)]),
+    { total: 3, switchCount: 2 },
+  );
+  assert.deepEqual(sheetStats([]), { total: 0, switchCount: 0 });
+});
+
+test('期间视图话术：空屏说清「是没已发布版本」而不是「一张卡都没有」', () => {
+  const empty = sheetSummary(sheetStats([]));
+  assert.ok(empty.includes('已发布'), empty);
+  assert.ok(empty.includes('草稿'), '空屏要提示草稿 / 审批中不参与取数：' + empty);
+
+  const filled = sheetSummary(sheetStats([sheetRow('PUBLISHED'), sheetRow('PUBLISHED')]));
+  assert.ok(filled.includes('2 个物料'), filled);
+  assert.ok(filled.includes('按标准成本取数'), filled);
+  assert.equal(filled.includes('换过版'), false, '没换版时不该提换版：' + filled);
+
+  const switched = sheetSummary(sheetStats([sheetRow('PUBLISHED', true)]));
+  assert.ok(switched.includes('期间内换过版'), switched);
+  assert.ok(switched.includes('期末'), '换版要说明按哪一版算：' + switched);
+});
+
+test('期间视图口径说明：写清「为什么矩阵比版本维护少行」', () => {
+  assert.ok(SHEET_SCOPE_HINT.includes('已发布'), SHEET_SCOPE_HINT);
+  assert.ok(SHEET_SCOPE_HINT.includes('草稿'), SHEET_SCOPE_HINT);
+  assert.ok(SHEET_SCOPE_HINT.includes('版本维护'), SHEET_SCOPE_HINT);
+});
+
+test('期间内换版提示：没换版不显示；换版要列其它版本 + 并上后端 note', () => {
+  assert.equal(switchNotice({ switch_in_period: false }), null);
+
+  const plain = switchNotice({ switch_in_period: true, other_versions: [{ version_no: 1 }] });
+  assert.ok(plain !== null);
+  assert.ok(plain.includes('v1'), plain);
+  assert.ok(plain.includes('期末'), plain);
+  assert.equal(plain.includes('后端口径'), false, 'note 为空时不该拼一段空话：' + plain);
+
+  const withNote = switchNotice({
+    switch_in_period: true,
+    other_versions: [{ version_no: 1 }, { version_no: 2 }],
+    note: '本期内 2026-11-16 起**换过版**',
+  });
+  assert.ok(withNote !== null);
+  assert.ok(withNote.includes('v1、v2'), withNote);
+  assert.ok(
+    withNote.includes('后端口径：本期内 2026-11-16 起换过版'),
+    '后端 note 里的 markdown 强调记号要去掉（纯文本 alert 里会显成一堆星号）：' + withNote,
+  );
+  assert.equal(withNote.includes('**'), false, '不该把 ** 原样带上界面：' + withNote);
+
+  // 后端没给 other_versions（老报文）也要能显示
+  const noOthers = switchNotice({ switch_in_period: true });
+  assert.ok(noOthers !== null && noOthers.includes('期间内换过版'), String(noOthers));
+});
+
+// ==================== ⑧ 查生效版本（取数条件 / 摘要，M5-18） ====================
+
+test('生效版本查询：只发一个取数条件（期间 / 日期二选一，别让后端判「矛盾」400）', () => {
+  const byPeriod = effectiveLookup({
+    materialId: ' m-1 ',
+    mode: 'period',
+    period: '2026-11',
+    onDate: '乱七八糟', // 期间模式下这个必须被忽略
+  });
+  assert.equal(byPeriod.ok, true);
+  assert.deepEqual(byPeriod.ok ? byPeriod.query : null, { material_id: 'm-1', period_code: '2026-11' });
+
+  const byDate = effectiveLookup({
+    materialId: 'm-1',
+    mode: 'on_date',
+    period: '2026-11', // 日期模式下这个必须被忽略
+    onDate: '2026-11-15',
+  });
+  assert.equal(byDate.ok, true);
+  assert.deepEqual(byDate.ok ? byDate.query : null, { material_id: 'm-1', on_date: '2026-11-15' });
+});
+
+test('生效版本查询：缺物料 / 期间形状错 / 日期不存在 都先拦住并说清要补什么', () => {
+  const noMaterial = effectiveLookup({ materialId: '  ', mode: 'period', period: '2026-11', onDate: '' });
+  assert.equal(noMaterial.ok, false);
+  assert.ok(!noMaterial.ok && noMaterial.message.includes('物料'), String(noMaterial));
+
+  const badPeriod = effectiveLookup({ materialId: 'm-1', mode: 'period', period: '2026-13', onDate: '' });
+  assert.equal(badPeriod.ok, false);
+  assert.ok(!badPeriod.ok && badPeriod.message.includes('yyyy-MM'), String(badPeriod));
+
+  // 2026-02-30 形状对但不是真日期
+  const badDate = effectiveLookup({ materialId: 'm-1', mode: 'on_date', period: '', onDate: '2026-02-30' });
+  assert.equal(badDate.ok, false);
+  assert.ok(!badDate.ok && badDate.message.includes('yyyy-MM-dd'), String(badDate));
+
+  const emptyDate = effectiveLookup({ materialId: 'm-1', mode: 'on_date', period: '', onDate: '' });
+  assert.equal(emptyDate.ok, false);
+});
+
+test('生效版本摘要：说清按哪天取数、第几版、能不能参与取数', () => {
+  const byPeriod = effectiveSummary({
+    on_date: '2026-11-30',
+    period_code: '2026-11',
+    version: { head: { version_no: 2, publish_state: 'PUBLISHED' } },
+  });
+  assert.ok(byPeriod.includes('2026-11'), byPeriod);
+  assert.ok(byPeriod.includes('期末 2026-11-30'), byPeriod);
+  assert.ok(byPeriod.includes('v2'), byPeriod);
+  assert.ok(byPeriod.includes('参与差异分析取数'), byPeriod);
+  assert.equal(byPeriod.includes('取不到'), false, byPeriod);
+
+  const byDate = effectiveSummary({
+    on_date: '2026-11-15',
+    period_code: null,
+    version: { head: { version_no: 3, publish_state: 'draft' } },
+  });
+  assert.ok(byDate.includes('2026-11-15'), byDate);
+  assert.ok(byDate.includes('v3'), byDate);
+  assert.ok(byDate.includes('未发布'), byDate);
+  assert.ok(byDate.includes('取不到'), byDate);
+});
+
+test('查不到生效版本的补充引导：点明「没发布」这条最容易被误会的原因', () => {
+  assert.ok(EFFECTIVE_NOT_PUBLISHED_HINT.includes('还没发布'), EFFECTIVE_NOT_PUBLISHED_HINT);
+  assert.ok(EFFECTIVE_NOT_PUBLISHED_HINT.includes('版本维护'), EFFECTIVE_NOT_PUBLISHED_HINT);
 });

@@ -21,171 +21,317 @@
 -->
 <template>
   <div class="cost-standard-page">
-    <ListPage
-      ref="listRef"
-      class="tool-row--dense"
-      title="标准成本"
-      testid="cs"
-      table-testid="cs-table"
-      meta-testid="cs-meta"
-      btn-prefix="cs-btn"
-      :columns="columns"
-      :filters="filters"
-      :filter-state="filter"
-      :fetcher="fetcher"
-      :query-builder="queryBuilder"
-      :page-size="PAGE_SIZE"
-      @loaded="onLoaded"
-    >
-      <template #filter-period_code>
-        <t-date-picker
-          v-model="filter.period_code"
-          class="tool-row__period"
-          mode="month"
-          value-type="YYYY-MM"
-          format="YYYY-MM"
-          placeholder="会计期间"
-          clearable
-          data-testid="cs-filter-period"
-          @change="handleSearch"
-        />
-      </template>
-
-      <template #toolbar>
-        <t-button
-          v-privilege="[PERM.create]"
-          theme="primary"
-          data-testid="cs-btn-create"
-          @click="openCreate"
+    <t-tabs v-model="view" data-testid="cs-tabs" :destroy-on-hide="false">
+      <t-tab-panel value="list" label="版本维护">
+        <ListPage
+          ref="listRef"
+          class="tool-row--dense"
+          title="标准成本"
+          testid="cs"
+          table-testid="cs-table"
+          meta-testid="cs-meta"
+          btn-prefix="cs-btn"
+          :columns="columns"
+          :filters="filters"
+          :filter-state="filter"
+          :fetcher="fetcher"
+          :query-builder="queryBuilder"
+          :page-size="PAGE_SIZE"
+          @loaded="onLoaded"
         >
-          <template #icon><t-icon name="add" /></template>
-          新增版本
-        </t-button>
-        <t-button
-          v-privilege="[PERM.create]"
-          variant="outline"
-          data-testid="cs-btn-import"
-          @click="openImport"
-        >
-          <template #icon><t-icon name="upload" /></template>
-          批量导入
-        </t-button>
-        <t-button variant="text" data-testid="cs-btn-template" @click="handleDownloadTemplate">
-          <template #icon><t-icon name="download" /></template>
-          下载模板
-        </t-button>
-      </template>
+          <template #filter-period_code>
+            <t-date-picker
+              v-model="filter.period_code"
+              class="tool-row__period"
+              mode="month"
+              value-type="YYYY-MM"
+              format="YYYY-MM"
+              placeholder="会计期间"
+              clearable
+              data-testid="cs-filter-period"
+              @change="handleSearch"
+            />
+          </template>
 
-      <template #head-extra>
-        <span class="cs-tip">
-          一版 = 「某物料从哪天到哪天按这套标准算」；同一物料的启用版本生效期不许重叠。
-          已生效过的版本只能改停止日 / 状态 / 备注（历史口径是差异分析的凭据）
-        </span>
-      </template>
+          <template #toolbar>
+            <t-button
+              v-privilege="[PERM.create]"
+              theme="primary"
+              data-testid="cs-btn-create"
+              @click="openCreate"
+            >
+              <template #icon><t-icon name="add" /></template>
+              新增版本
+            </t-button>
+            <t-button
+              v-privilege="[PERM.create]"
+              variant="outline"
+              data-testid="cs-btn-import"
+              @click="openImport"
+            >
+              <template #icon><t-icon name="upload" /></template>
+              批量导入
+            </t-button>
+            <t-button variant="text" data-testid="cs-btn-template" @click="handleDownloadTemplate">
+              <template #icon><t-icon name="download" /></template>
+              下载模板
+            </t-button>
+          </template>
 
-      <template #material="{ row }">
-        <div class="name-cell">
-          <span class="name-cell__main">{{ materialLabel(row) }}</span>
-          <span class="name-cell__sub">
-            {{ materialTypeLabel(row.material_type) }}
-            <template v-if="row.material_spec"> · {{ row.material_spec }}</template>
-          </span>
-        </div>
-      </template>
+          <template #head-extra>
+            <span class="cs-tip">
+              一版 = 「某物料从哪天到哪天按这套标准算」；同一物料的启用版本生效期不许重叠。
+              已生效过的版本只能改停止日 / 状态 / 备注（历史口径是差异分析的凭据）
+            </span>
+          </template>
 
-      <template #version="{ row }">
-        <div class="name-cell">
-          <span class="name-cell__main">v{{ row.version_no }}</span>
-          <span class="name-cell__sub">{{ row.items_count }} 行 BOM</span>
-        </div>
-      </template>
+          <template #material="{ row }">
+            <div class="name-cell">
+              <span class="name-cell__main">{{ materialLabel(row) }}</span>
+              <span class="name-cell__sub">
+                {{ materialTypeLabel(row.material_type) }}
+                <template v-if="row.material_spec"> · {{ row.material_spec }}</template>
+              </span>
+            </div>
+          </template>
 
-      <template #window="{ row }">{{ windowText(row.effective_from, row.effective_to) }}</template>
+          <template #version="{ row }">
+            <div class="name-cell">
+              <span class="name-cell__main">v{{ row.version_no }}</span>
+              <span class="name-cell__sub">{{ row.items_count }} 行 BOM</span>
+            </div>
+          </template>
 
-      <template #status="{ row }">
-        <t-tag size="small" variant="light" :theme="statusTheme(row.status)">
-          {{ row.status_label || statusLabel(row.status) }}
-        </t-tag>
-      </template>
+          <template #window="{ row }">{{ windowText(row.effective_from, row.effective_to) }}</template>
 
-      <template #publish="{ row }">
-        <t-tag size="small" variant="light" :theme="publishStateTheme(row.publish_state)">
-          {{ row.publish_state_label || publishStateLabel(row.publish_state) }}
-        </t-tag>
-      </template>
+          <template #status="{ row }">
+            <t-tag size="small" variant="light" :theme="statusTheme(row.status)">
+              {{ row.status_label || statusLabel(row.status) }}
+            </t-tag>
+          </template>
 
-      <template #std_material_cost="{ row }">
-        <span class="num">{{ amountsOf(row).material }}</span>
-      </template>
-      <template #std_labor_cost="{ row }">
-        <span class="num">{{ amountsOf(row).labor }}</span>
-      </template>
-      <template #std_overhead_cost="{ row }">
-        <span class="num">{{ amountsOf(row).overhead }}</span>
-      </template>
-      <template #std_total_cost="{ row }">
-        <span class="num num--strong">{{ amountsOf(row).total }}</span>
-      </template>
+          <template #publish="{ row }">
+            <t-tag size="small" variant="light" :theme="publishStateTheme(row.publish_state)">
+              {{ row.publish_state_label || publishStateLabel(row.publish_state) }}
+            </t-tag>
+          </template>
 
-      <template #standard="{ row }">
-        <div class="name-cell">
-          <span class="name-cell__main num">{{ trimZero(row.std_labor_hours) }} h</span>
-          <span class="name-cell__sub num">@ {{ trimZero(row.std_labor_rate) }} /h</span>
-        </div>
-      </template>
+          <template #std_material_cost="{ row }">
+            <span class="num">{{ amountsOf(row).material }}</span>
+          </template>
+          <template #std_labor_cost="{ row }">
+            <span class="num">{{ amountsOf(row).labor }}</span>
+          </template>
+          <template #std_overhead_cost="{ row }">
+            <span class="num">{{ amountsOf(row).overhead }}</span>
+          </template>
+          <template #std_total_cost="{ row }">
+            <span class="num num--strong">{{ amountsOf(row).total }}</span>
+          </template>
 
-      <template #remark="{ row }">{{ row.remark || '—' }}</template>
+          <template #standard="{ row }">
+            <div class="name-cell">
+              <span class="name-cell__main num">{{ trimZero(row.std_labor_hours) }} h</span>
+              <span class="name-cell__sub num">@ {{ trimZero(row.std_labor_rate) }} /h</span>
+            </div>
+          </template>
 
-      <template #op="{ row }">
-        <div class="op-cell">
-          <t-link
-            v-privilege="[PERM.update]"
-            theme="primary"
-            :disabled="!publishGate(row).canSubmit"
-            :title="publishGate(row).submitHint"
-            data-testid="cs-btn-publish"
-            @click.stop="submitPublish(row)"
+          <template #remark="{ row }">{{ row.remark || '—' }}</template>
+
+          <template #op="{ row }">
+            <div class="op-cell">
+              <t-link
+                v-privilege="[PERM.update]"
+                theme="primary"
+                :disabled="!publishGate(row).canSubmit"
+                :title="publishGate(row).submitHint"
+                data-testid="cs-btn-publish"
+                @click.stop="submitPublish(row)"
+              >
+                提交发布
+              </t-link>
+              <t-link
+                v-privilege="[PERM.update]"
+                theme="warning"
+                :disabled="!publishGate(row).canWithdraw"
+                :title="publishGate(row).withdrawHint"
+                data-testid="cs-btn-withdraw"
+                @click.stop="withdrawPublish(row)"
+              >
+                撤回
+              </t-link>
+              <t-link
+                v-privilege="[PERM.update]"
+                theme="primary"
+                data-testid="cs-btn-edit"
+                @click.stop="openEdit(row)"
+              >
+                编辑
+              </t-link>
+              <t-link
+                v-privilege="[PERM.update]"
+                theme="primary"
+                data-testid="cs-btn-status"
+                @click.stop="openStatus(row)"
+              >
+                {{ row.status === 1 ? '失效' : '生效' }}
+              </t-link>
+              <t-link
+                v-privilege="[PERM.delete]"
+                theme="danger"
+                :disabled="!canDelete(row, today)"
+                data-testid="cs-btn-delete"
+                @click.stop="removeRow(row)"
+              >
+                删除
+              </t-link>
+            </div>
+          </template>
+        </ListPage>
+      </t-tab-panel>
+
+      <t-tab-panel value="sheet" label="期间视图">
+        <t-card :bordered="false" class="cs-sheet__card">
+          <div class="cs-sheet__tool">
+            <t-date-picker
+              v-model="sheet.period"
+              class="tool-row__period"
+              mode="month"
+              value-type="YYYY-MM"
+              format="YYYY-MM"
+              placeholder="会计期间（必填）"
+              data-testid="cs-sheet-period"
+              @change="loadSheet(1)"
+            />
+            <t-input
+              v-model="sheet.keyword"
+              class="cs-sheet__keyword"
+              placeholder="物料编码 / 名称"
+              clearable
+              data-testid="cs-sheet-keyword"
+              @enter="loadSheet(1)"
+            />
+            <t-button theme="primary" data-testid="cs-sheet-search" @click="loadSheet(1)">查询</t-button>
+            <t-button variant="outline" data-testid="cs-sheet-effective" @click="openEffective()">
+              <template #icon><t-icon name="search" /></template>
+              查生效版本
+            </t-button>
+            <span class="cs-sheet__meta" data-testid="cs-sheet-meta">{{ sheetSummaryText }}</span>
+          </div>
+
+          <p class="form-note" data-testid="cs-sheet-scope">{{ SHEET_SCOPE_HINT }}</p>
+
+          <t-alert
+            v-if="sheet.error"
+            theme="error"
+            class="form-alert"
+            :message="sheet.error"
+            data-testid="cs-sheet-error"
           >
-            提交发布
-          </t-link>
-          <t-link
-            v-privilege="[PERM.update]"
-            theme="warning"
-            :disabled="!publishGate(row).canWithdraw"
-            :title="publishGate(row).withdrawHint"
-            data-testid="cs-btn-withdraw"
-            @click.stop="withdrawPublish(row)"
+            <template #operation>
+              <t-button size="small" variant="outline" @click="loadSheet(sheet.page)">重试</t-button>
+            </template>
+          </t-alert>
+
+          <t-table
+            row-key="key"
+            :data="sheetRows"
+            :columns="sheetColumns"
+            :loading="sheet.loading"
+            hover
+            data-testid="cs-sheet-table"
           >
-            撤回
-          </t-link>
-          <t-link
-            v-privilege="[PERM.update]"
-            theme="primary"
-            data-testid="cs-btn-edit"
-            @click.stop="openEdit(row)"
-          >
-            编辑
-          </t-link>
-          <t-link
-            v-privilege="[PERM.update]"
-            theme="primary"
-            data-testid="cs-btn-status"
-            @click.stop="openStatus(row)"
-          >
-            {{ row.status === 1 ? '失效' : '生效' }}
-          </t-link>
-          <t-link
-            v-privilege="[PERM.delete]"
-            theme="danger"
-            :disabled="!canDelete(row, today)"
-            data-testid="cs-btn-delete"
-            @click.stop="removeRow(row)"
-          >
-            删除
-          </t-link>
-        </div>
-      </template>
-    </ListPage>
+            <template #material="{ row }">
+              <div class="name-cell">
+                <span class="name-cell__main">{{ materialLabel(row.head) }}</span>
+                <span class="name-cell__sub">
+                  {{ materialTypeLabel(row.head.material_type) }}
+                  <template v-if="row.head.material_spec"> · {{ row.head.material_spec }}</template>
+                </span>
+              </div>
+            </template>
+            <template #version="{ row }">
+              <div class="name-cell">
+                <span class="name-cell__main">v{{ row.head.version_no }}</span>
+                <span class="name-cell__sub">{{ row.head.items_count }} 行 BOM</span>
+              </div>
+            </template>
+            <template #window="{ row }">
+              {{ windowText(row.head.effective_from, row.head.effective_to) }}
+            </template>
+            <template #std_material_cost="{ row }">
+              <span class="num">{{ amountsOf(row.head).material }}</span>
+            </template>
+            <template #std_labor_cost="{ row }">
+              <span class="num">{{ amountsOf(row.head).labor }}</span>
+            </template>
+            <template #std_overhead_cost="{ row }">
+              <span class="num">{{ amountsOf(row.head).overhead }}</span>
+            </template>
+            <template #std_total_cost="{ row }">
+              <span class="num num--strong">{{ amountsOf(row.head).total }}</span>
+            </template>
+            <template #switch="{ row }">
+              <t-tag v-if="row.switch_in_period" size="small" variant="light" theme="warning">期间内换版</t-tag>
+              <span v-else class="name-cell__sub">—</span>
+            </template>
+            <template #op="{ row }">
+              <div class="op-cell">
+                <t-link
+                  v-privilege="[PERM.update]"
+                  theme="primary"
+                  :disabled="!publishGate(row.head).canSubmit"
+                  :title="publishGate(row.head).submitHint"
+                  data-testid="cs-sheet-publish"
+                  @click.stop="submitPublish(row.head)"
+                >
+                  提交发布
+                </t-link>
+                <t-link
+                  v-privilege="[PERM.update]"
+                  theme="warning"
+                  :disabled="!publishGate(row.head).canWithdraw"
+                  :title="publishGate(row.head).withdrawHint"
+                  data-testid="cs-sheet-withdraw"
+                  @click.stop="withdrawPublish(row.head)"
+                >
+                  撤回
+                </t-link>
+                <t-link
+                  v-privilege="[PERM.update]"
+                  theme="primary"
+                  data-testid="cs-sheet-edit"
+                  @click.stop="openSheetEdit(row.head)"
+                >
+                  编辑
+                </t-link>
+                <t-link theme="primary" data-testid="cs-sheet-effective-row" @click.stop="openEffective(row.head)">
+                  生效版本
+                </t-link>
+              </div>
+            </template>
+            <template #empty>
+              <div class="cs-sheet__empty" data-testid="cs-sheet-empty">
+                <t-icon name="chart-pie" class="cs-sheet__empty-icon" />
+                <p class="cs-sheet__empty-title">这一期还没有标准成本版本</p>
+                <p class="cs-sheet__empty-desc">切到「版本维护」新增一版或批量导入</p>
+              </div>
+            </template>
+          </t-table>
+
+          <div class="cs-sheet__pager">
+            <t-pagination
+              v-model="sheet.page"
+              :total="sheet.total"
+              :page-size="sheet.pageSize"
+              :page-size-options="[10, 20, 50]"
+              data-testid="cs-sheet-pager"
+              @change="handleSheetPage"
+            />
+          </div>
+        </t-card>
+      </t-tab-panel>
+    </t-tabs>
 
     <!-- ==================== 新建 / 编辑：卡头 + 标准 BOM ==================== -->
     <t-dialog
@@ -525,16 +671,147 @@
         </t-table>
       </template>
     </t-dialog>
+
+    <!-- ==================== 查生效版本：某物料某期间（某天）按哪一版算 ==================== -->
+    <t-dialog
+      v-model:visible="effectiveDialog.visible"
+      header="查生效版本"
+      width="860px"
+      :footer="false"
+      data-testid="cs-effective-dialog"
+    >
+      <div class="cs-sheet__tool">
+        <t-select
+          v-model="effectiveDialog.materialId"
+          class="cs-effective__material"
+          :options="productOptions"
+          :loading="optionsLoading"
+          filterable
+          clearable
+          placeholder="选物料"
+          data-testid="cs-effective-material"
+        />
+        <t-radio-group v-model="effectiveDialog.mode" data-testid="cs-effective-mode">
+          <t-radio value="period">按期间</t-radio>
+          <t-radio value="on_date">按日期</t-radio>
+        </t-radio-group>
+        <t-date-picker
+          v-if="effectiveDialog.mode === 'period'"
+          v-model="effectiveDialog.period"
+          mode="month"
+          value-type="YYYY-MM"
+          format="YYYY-MM"
+          placeholder="yyyy-MM"
+          data-testid="cs-effective-period"
+          @change="runEffectiveLookup"
+        />
+        <t-date-picker
+          v-else
+          v-model="effectiveDialog.onDate"
+          value-type="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+          placeholder="yyyy-MM-dd"
+          data-testid="cs-effective-date"
+          @change="runEffectiveLookup"
+        />
+        <t-button
+          theme="primary"
+          :loading="effectiveDialog.loading"
+          data-testid="cs-effective-search"
+          @click="runEffectiveLookup"
+        >
+          查询
+        </t-button>
+      </div>
+
+      <p class="form-note">
+        问的是「这个物料在指定期间（或指定某天）按哪一版标准算」—— 差异分析取的就是这一版。
+        期间按期末那天取数；只有已发布的版本才参与取数。
+      </p>
+
+      <t-alert
+        v-if="effectiveDialog.error"
+        theme="error"
+        class="form-alert"
+        :message="effectiveDialog.error"
+        data-testid="cs-effective-error"
+      />
+
+      <template v-if="effectiveDialog.result">
+        <p class="cs-effective__summary" data-testid="cs-effective-summary">{{ effectiveSummaryText }}</p>
+
+        <t-alert
+          v-if="switchText"
+          theme="warning"
+          class="form-alert"
+          :message="switchText"
+          data-testid="cs-effective-switch"
+        />
+
+        <div class="cs-amounts" data-testid="cs-effective-amounts">
+          <span class="cs-amounts__title">
+            v{{ effectiveDialog.result.version.head.version_no }}
+            · {{ windowText(effectiveDialog.result.version.head.effective_from, effectiveDialog.result.version.head.effective_to) }}
+          </span>
+          <t-tag size="small" variant="light" :theme="publishStateTheme(effectiveDialog.result.version.head.publish_state)">
+            {{ effectiveDialog.result.version.head.publish_state_label
+              || publishStateLabel(effectiveDialog.result.version.head.publish_state) }}
+          </t-tag>
+          <span>材料 <span class="num">{{ amountsOf(effectiveDialog.result.version.head).material }}</span></span>
+          <span>人工 <span class="num">{{ amountsOf(effectiveDialog.result.version.head).labor }}</span></span>
+          <span>制造费用 <span class="num">{{ amountsOf(effectiveDialog.result.version.head).overhead }}</span></span>
+          <span class="cs-amounts__total">总 <span class="num">{{ amountsOf(effectiveDialog.result.version.head).total }}</span></span>
+          <span class="cs-amounts__hint">
+            工时 {{ trimZero(effectiveDialog.result.version.head.std_labor_hours) }} h
+            @ {{ trimZero(effectiveDialog.result.version.head.std_labor_rate) }} /h
+          </span>
+        </div>
+
+        <div class="cs-sub__title cs-effective__subtitle">标准 BOM</div>
+        <t-table
+          row-key="id"
+          size="small"
+          :data="effectiveDialog.result.version.items"
+          :columns="readItemColumns"
+          data-testid="cs-effective-items"
+        >
+          <template #component="{ row }">
+            {{ row.component_material_code || '—' }} {{ row.component_material_name || '' }}
+          </template>
+          <template #empty>
+            <span class="form-note">这一版没有标准 BOM（只按工时 / 费率 / 制造费用算）</span>
+          </template>
+        </t-table>
+
+        <template v-if="effectiveDialog.result.other_versions.length > 0">
+          <div class="cs-sub__title cs-effective__subtitle">这一期内也在生效的其它版本</div>
+          <t-table
+            row-key="id"
+            size="small"
+            :data="effectiveDialog.result.other_versions"
+            :columns="otherVersionColumns"
+            data-testid="cs-effective-others"
+          >
+            <template #version="{ row }">v{{ row.version_no }}</template>
+            <template #window="{ row }">{{ windowText(row.effective_from, row.effective_to) }}</template>
+            <template #publish="{ row }">
+              {{ row.publish_state_label || publishStateLabel(row.publish_state) }}
+            </template>
+          </t-table>
+        </template>
+      </template>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
 import {
   COST_STANDARD_DELETE_CODE,
   COST_STANDARD_LOCKED_CODE,
+  COST_STANDARD_NOT_FOUND_CODE,
   COST_STANDARD_OVERLAP_CODE,
   COST_STANDARD_PERMISSIONS,
   COST_STANDARD_PUBLISH_GUARD_CODE,
@@ -545,6 +822,8 @@ import {
   createStandard,
   deleteStandard,
   downloadStandardTemplate,
+  fetchEffectiveStandard,
+  fetchPeriodSheet,
   fetchStandardDetail,
   fetchStandardPage,
   importStandards,
@@ -557,6 +836,8 @@ import {
   submitStandardPublish,
   updateStandard,
   withdrawStandardPublish,
+  type PeriodSheetRes,
+  type StandardEffectiveRes,
   type StandardImportResult,
   type StandardRow,
 } from '@/api/business/erp/cost-standard';
@@ -567,13 +848,18 @@ import { todayString } from '@/views/business/erp/shared/money';
 import { errorCodeOf, errorText } from '@/views/business/erp/shared/error-text';
 import {
   ACTIVE_CONSEQUENCE,
+  EFFECTIVE_NOT_PUBLISHED_HINT,
   IMPORT_GUIDE,
   INACTIVE_CONSEQUENCE,
   ITEM_MAX,
   LOCKED_HINT,
   REMARK_MAX,
+  SHEET_SCOPE_HINT,
   amountsOf,
   canDelete,
+  currentPeriod,
+  effectiveLookup,
+  effectiveSummary,
   emptyForm,
   emptyItem,
   formFromDetail,
@@ -581,6 +867,7 @@ import {
   importSummaryText,
   importSummaryTheme,
   isLockedEffective,
+  isPeriodText,
   isUnchanged,
   isValid,
   materialLabel,
@@ -588,6 +875,9 @@ import {
   periodWindow,
   previewAmounts,
   publishGate,
+  sheetStats,
+  sheetSummary,
+  switchNotice,
   toCreatePayload,
   toScaled,
   toUpdatePayload,
@@ -700,6 +990,10 @@ function onLoaded(payload?: { rows?: StandardRow[] }): void {
 
 async function reload(): Promise<void> {
   await listRef.value?.reload();
+  // 期间视图已经加载过就一起刷：两屏说的是同一批版本，不一致会让人以为「刚保存的没生效」
+  if (sheet.loaded) {
+    await loadSheet(sheet.page);
+  }
 }
 
 function handleSearch(): void {
@@ -1145,6 +1439,210 @@ async function handleDownloadTemplate(): Promise<void> {
   }
 }
 
+// ==================== 期间视图（物料 × 期间矩阵） ====================
+
+/**
+ * 两屏：**版本维护**（一版一行，增删改发）与 **期间视图**（一个物料一行，这一期按哪一版算）。
+ *
+ * 为什么要有第二屏：差异分析真正问的是「某物料某期间按哪一版标准算」，而版本列表是按
+ * 「版」排的 —— 一物料的三个版本会散在三行里，人得自己比生效期。期间视图直接把答案摊平，
+ * 并标出「期间内换版」与「未发布（不参与取数）」两种需要动手的情况。
+ */
+const view = ref<'list' | 'sheet'>('list');
+
+/** 矩阵一行的形状（`t-table` 的 row-key 落在 `head.id` 上） */
+interface SheetRow {
+  key: string;
+  head: StandardRow;
+  switch_in_period: boolean;
+}
+
+const sheet = reactive<{
+  period: string;
+  keyword: string;
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+  rows: PeriodSheetRes[];
+  total: number;
+  page: number;
+  pageSize: number;
+}>({
+  period: currentPeriod(),
+  keyword: '',
+  loading: false,
+  loaded: false,
+  error: '',
+  rows: [],
+  total: 0,
+  page: 1,
+  pageSize: PAGE_SIZE,
+});
+
+const sheetRows = computed<SheetRow[]>(() =>
+  sheet.rows.map((row) => ({
+    key: row.head.id,
+    head: row.head,
+    switch_in_period: row.switch_in_period,
+  })),
+);
+
+/** 一句话说清「这一屏有多少真的参与取数」（未发布的版本差异分析吃不到） */
+const sheetSummaryText = computed(() => sheetSummary(sheetStats(sheet.rows)));
+
+const sheetColumns: PrimaryTableCol[] = [
+  { colKey: 'material', title: '物料', width: 180, ellipsis: true },
+  { colKey: 'version', title: '版本', width: 90 },
+  { colKey: 'window', title: '生效期', width: 170 },
+  { colKey: 'std_material_cost', title: '标准材料', width: 110 },
+  { colKey: 'std_labor_cost', title: '标准人工', width: 110 },
+  { colKey: 'std_overhead_cost', title: '制造费用', width: 110 },
+  { colKey: 'std_total_cost', title: '标准总成本', width: 120 },
+  { colKey: 'switch', title: '换版', width: 100 },
+  // 操作列**不 fixed**：整表宽度已经贴着容器，固定列会把「换版」压在它下面
+  // （实测 1600 视口下列头「换版」整列被遮住，只有横向滚动才看得到）
+  { colKey: 'op', title: '操作', width: 240 },
+];
+
+/**
+ * 载一页期间视图。
+ *
+ * 期间必填（后端缺了会给 400）：这里先拦住并说清「为什么必填」，别让用户点一下才被告知。
+ */
+async function loadSheet(page = sheet.page): Promise<void> {
+  const period = sheet.period.trim();
+  if (!isPeriodText(period)) {
+    sheet.error = '先选会计期间（yyyy-MM）：期间视图问的是「这一期每个物料按哪一版算」';
+    sheet.rows = [];
+    sheet.total = 0;
+    return;
+  }
+  sheet.loading = true;
+  sheet.error = '';
+  sheet.page = page;
+  try {
+    const data = await fetchPeriodSheet({
+      period_code: period,
+      keyword: sheet.keyword.trim(),
+      page,
+      page_size: sheet.pageSize,
+    });
+    sheet.rows = data.list ?? [];
+    sheet.total = data.total ?? 0;
+    sheet.loaded = true;
+  } catch (error) {
+    sheet.error = errorText(error, '加载期间视图失败');
+    sheet.rows = [];
+    sheet.total = 0;
+  } finally {
+    sheet.loading = false;
+  }
+}
+
+function handleSheetPage(): void {
+  void loadSheet();
+}
+
+/** 期间视图里点「编辑」：走同一张表单（已生效版本照样锁口径） */
+async function openSheetEdit(row: StandardRow): Promise<void> {
+  await openEdit(row);
+}
+
+// 首次切到期间视图才取数（避免进页面就多发一次请求）
+watch(view, (value) => {
+  if (value === 'sheet' && !sheet.loaded && !sheet.loading) {
+    void loadSheet(1);
+  }
+});
+
+// ==================== 查生效版本（某物料某期间 / 某天按哪一版算） ====================
+
+const effectiveDialog = reactive<{
+  visible: boolean;
+  materialId: string;
+  mode: 'period' | 'on_date';
+  period: string;
+  onDate: string;
+  loading: boolean;
+  error: string;
+  result: StandardEffectiveRes | null;
+}>({
+  visible: false,
+  materialId: '',
+  mode: 'period',
+  period: currentPeriod(),
+  onDate: todayText(),
+  loading: false,
+  error: '',
+  result: null,
+});
+
+const effectiveSummaryText = computed(() =>
+  effectiveDialog.result ? effectiveSummary(effectiveDialog.result) : '',
+);
+
+/** 期间内换版的提示（没换版 = null，页面不显示那条 alert） */
+const switchText = computed(() => (effectiveDialog.result ? switchNotice(effectiveDialog.result) : null));
+
+/** 只读明细列（与编辑态同一批字段，不许改） */
+const readItemColumns: PrimaryTableCol[] = [
+  { colKey: 'component', title: '耗用物料', width: 280 },
+  { colKey: 'std_qty', title: '标准用量', width: 130 },
+  { colKey: 'std_price', title: '标准单价', width: 130 },
+  { colKey: 'std_amount', title: '金额', width: 140 },
+];
+
+const otherVersionColumns: PrimaryTableCol[] = [
+  { colKey: 'version', title: '版本', width: 90 },
+  { colKey: 'window', title: '生效期', width: 220 },
+  { colKey: 'publish', title: '发布', width: 120 },
+];
+
+/**
+ * 打开「查生效版本」。
+ *
+ * 从矩阵行进来时带好物料 + 当前期间并直接查一次（人点「生效版本」就是想看结果，
+ * 不该再让他重复选一遍物料）；从工具栏进来则留空等他自己选。
+ */
+function openEffective(row?: StandardRow): void {
+  effectiveDialog.visible = true;
+  effectiveDialog.error = '';
+  effectiveDialog.result = null;
+  if (row) {
+    effectiveDialog.materialId = row.material_id;
+    effectiveDialog.mode = 'period';
+    effectiveDialog.period = sheet.period.trim() || currentPeriod();
+    void runEffectiveLookup();
+  }
+}
+
+async function runEffectiveLookup(): Promise<void> {
+  const lookup = effectiveLookup({
+    materialId: effectiveDialog.materialId,
+    mode: effectiveDialog.mode,
+    period: effectiveDialog.period,
+    onDate: effectiveDialog.onDate,
+  });
+  if (!lookup.ok) {
+    effectiveDialog.error = lookup.message;
+    effectiveDialog.result = null;
+    return;
+  }
+  effectiveDialog.loading = true;
+  effectiveDialog.error = '';
+  try {
+    effectiveDialog.result = await fetchEffectiveStandard(lookup.query);
+  } catch (error) {
+    // 404 的报文后端已经写清「这一期没有生效版本 + 怎么建」，原样给人看；
+    // 但「建过却是草稿」也会走 404，所以补一句「是不是还没发布」
+    const suffix = errorCodeOf(error) === COST_STANDARD_NOT_FOUND_CODE ? `\n${EFFECTIVE_NOT_PUBLISHED_HINT}` : '';
+    effectiveDialog.result = null;
+    effectiveDialog.error = `${errorText(error, '查不到这一天的生效版本')}${suffix}`;
+  } finally {
+    effectiveDialog.loading = false;
+  }
+}
+
 onMounted(async () => {
   await loadProducts();
 });
@@ -1293,5 +1791,74 @@ onMounted(async () => {
 
 .mono {
   font-family: var(--td-font-family-mono, monospace);
+}
+
+/* ---------- 期间视图（物料 × 期间矩阵） ---------- */
+
+.cs-sheet__card {
+  padding: 4px 2px;
+}
+
+.cs-sheet__tool {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.cs-sheet__keyword {
+  width: 200px;
+}
+
+.cs-sheet__meta {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cs-sheet__pager {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 0 0;
+}
+
+.cs-sheet__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+  color: var(--td-text-color-placeholder);
+}
+
+.cs-sheet__empty-icon {
+  font-size: 28px;
+}
+
+.cs-sheet__empty-title {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 14px;
+}
+
+.cs-sheet__empty-desc {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* ---------- 查生效版本 ---------- */
+
+.cs-effective__material {
+  width: 260px;
+}
+
+.cs-effective__summary {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.cs-effective__subtitle {
+  margin: 12px 0 6px;
 }
 </style>

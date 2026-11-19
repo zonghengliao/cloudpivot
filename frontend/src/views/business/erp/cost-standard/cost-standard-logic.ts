@@ -735,3 +735,151 @@ export const IMPORT_GUIDE = [
   '导入只**新建**版本：同物料该期间已有启用版本会报错（先失效旧版或在维护页改）。',
   '任何一行有错 ⇒ 整批一条都不入库，错误按「Excel 行号 + 列名 + 原因」返回。',
 ] as const;
+
+// ==================== 期间视图（物料 × 期间矩阵） ====================
+
+/**
+ * 期间视图一屏的统计（纯逻辑，不碰 DOM）。
+ *
+ * **矩阵只含「参与取数」的行**：后端 `period_sheet` 的 WHERE 是
+ * `status = 1 AND publish_state = 'PUBLISHED' AND 覆盖期末` —— 草稿 / 审批中的卡
+ * 在矩阵里**根本不出现**。所以这里不该出现「未发布 N 个」这种计数（永远为 0，
+ * 会让人以为页面在撒谎）；要提醒「有卡没发布」靠 {@link SHEET_SCOPE_HINT} 与
+ * 「版本维护」的发布状态筛选。
+ */
+export interface SheetStats {
+  /** 本期参与取数的物料数（= 矩阵行数） */
+  total: number;
+  /** 期间内换过版的物料数（整期按期末那一版算，见 {@link switchNotice}） */
+  switchCount: number;
+}
+
+/** 期间视图统计（只数换版：矩阵口径已由后端定死，见 {@link SheetStats}）。 */
+export function sheetStats(rows: ReadonlyArray<{ switch_in_period: boolean }>): SheetStats {
+  let switchCount = 0;
+  for (const row of rows) {
+    if (row.switch_in_period) {
+      switchCount += 1;
+    }
+  }
+  return { total: rows.length, switchCount };
+}
+
+/** 期间视图底部话术（一句话说清「这一屏有多少物料真的在按标准成本算」）。 */
+export function sheetSummary(stats: SheetStats): string {
+  if (stats.total === 0) {
+    return '本期没有任何「已发布」的标准成本版本（草稿 / 审批中不参与取数）';
+  }
+  const parts = [`本期 ${stats.total} 个物料按标准成本取数`];
+  if (stats.switchCount > 0) {
+    parts.push(`${stats.switchCount} 个物料期间内换过版（整期按期末那一版取数）`);
+  }
+  return parts.join('；');
+}
+
+/**
+ * 期间视图的口径说明（矩阵为什么比「版本维护」少行）。
+ *
+ * 必须写在明面上：人刚在维护页看到 5 张卡，切过来只有 3 行，第一反应是「丢数据」。
+ * 真相是另外 2 张还没发布（草稿 / 审批中），差异分析也吃不到它们。
+ */
+export const SHEET_SCOPE_HINT =
+  '只列「已发布 + 启用 + 覆盖期末」的版本；草稿 / 审批中的卡不参与取数，去「版本维护」按发布状态筛能看到它们';
+
+/**
+ * 「期间内换过版」提示（`null` = 没换版，页面不显示这条）。
+ *
+ * 口径与后端 `switch_in_period` 一致：**整期按期末那一版算**（分段取数属后续策略卡）。
+ * 后端的 `note` 是同一件事的服务端口径说明，有就并进来说，免得两处文案各说各的。
+ */
+export function switchNotice(res: {
+  switch_in_period: boolean;
+  note?: string | null;
+  other_versions?: ReadonlyArray<{ version_no: number }>;
+}): string | null {
+  if (!res.switch_in_period) {
+    return null;
+  }
+  const others = (res.other_versions ?? []).map((version) => `v${version.version_no}`);
+  const who = others.length > 0 ? `（${others.join('、')} 也在这一期内生效过）` : '';
+  const base = `期间内换过版${who}：差异分析按期末这一版算整期；按天分段要另做成本方法切换策略。`;
+  // 后端 note 是给人看的 markdown（`**期末 2026-11-30**`），但这里是纯文本 alert ——
+  // 不去掉 `**` 会在界面上留一堆星号（口径本身照旧原文展示，只去强调记号）
+  const note = (res.note ?? '').replace(/\*\*/g, '').trim();
+  return note ? `${base}\n后端口径：${note}` : base;
+}
+
+// ==================== 生效版本查询（某物料某期间按哪一版算） ====================
+
+/** 生效版本查询的界面输入。 */
+export interface EffectiveLookupInput {
+  /** 物料 id（空 = 还没选） */
+  materialId: string;
+  /** 期间 / 指定日期二选一（后端两者同时给会判「矛盾」400） */
+  mode: 'period' | 'on_date';
+  /** `yyyy-MM`（`mode = 'period'` 时用） */
+  period: string;
+  /** `yyyy-MM-dd`（`mode = 'on_date'` 时用） */
+  onDate: string;
+}
+
+/** 生效版本查询的取数条件（或一句「先补什么」）。 */
+export type EffectiveLookupResult =
+  | { ok: true; query: { material_id: string; period_code: string } | { material_id: string; on_date: string } }
+  | { ok: false; message: string };
+
+/**
+ * 把界面输入翻成后端 query（`GET /cost-standard/effective`）。
+ *
+ * **只发一个取数条件**：同时发 `period_code` 与 `on_date` 会被后端判 400（两套口径矛盾），
+ * 都不发同样 400。所以「先选物料、再按当前模式只取那个字段」这件事必须在一处判完，
+ * 别在模板里两处各写一遍。
+ */
+export function effectiveLookup(input: EffectiveLookupInput): EffectiveLookupResult {
+  const material = input.materialId.trim();
+  if (!material) {
+    return { ok: false, message: '先选物料：生效版本问的是「这个物料在某期间按哪一版算」' };
+  }
+  if (input.mode === 'on_date') {
+    const onDate = input.onDate.trim();
+    if (!isDateText(onDate)) {
+      return { ok: false, message: '按指定日期查要填 yyyy-MM-dd（真实日期，例 2026-11-15）' };
+    }
+    return { ok: true, query: { material_id: material, on_date: onDate } };
+  }
+  const period = input.period.trim();
+  if (!isPeriodText(period)) {
+    return { ok: false, message: '按期间查要填 yyyy-MM（例 2026-11）' };
+  }
+  return { ok: true, query: { material_id: material, period_code: period } };
+}
+
+/**
+ * 生效版本查询命中后的「一句话摘要」（明细在对话框里另有表格）。
+ *
+ * 说清三件事：按哪一天取数（期间 = 期末）、取到第几版、这一版能不能参与取数。
+ *
+ * 注意：「未发布」那一支**目前是防御性的** —— 后端 `effective` 的取数闸只返回
+ * `publish_state = 'PUBLISHED'`，草稿 / 审批中直接 404（页面用
+ * {@link EFFECTIVE_NOT_PUBLISHED_HINT} 补话）。保留这一支是因为报文里确实带
+ * `publish_state`：闸哪天放开，这句话就是对的。
+ */
+export function effectiveSummary(res: {
+  on_date: string;
+  period_code: string | null;
+  version: { head: { version_no: number; publish_state: string } };
+}): string {
+  const when = res.period_code ? `${res.period_code}（按期末 ${res.on_date} 取数）` : res.on_date;
+  const published = normalizePublishState(res.version.head.publish_state) === 'PUBLISHED';
+  const usable = published ? '已发布，参与差异分析取数' : '未发布，差异分析取不到这一版';
+  return `${when} 命中第 v${res.version.head.version_no} 版：${usable}`;
+}
+
+/**
+ * 「查生效版本」查不到时的补充引导。
+ *
+ * 必须补这句：`effective` 只返回已发布版本，所以「我明明建过卡」与「查不到」会同时成立
+ * （卡是草稿 / 审批中）。只说「没有生效版本」会把人推去重建一张卡 —— 那会撞 66108 重叠。
+ */
+export const EFFECTIVE_NOT_PUBLISHED_HINT =
+  '如果这一期已经建了版本却查不到：那是它还没发布 —— 草稿 / 审批中的版本不参与取数。回「版本维护」提交发布，审批通过后再查。';
