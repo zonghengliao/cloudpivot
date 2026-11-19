@@ -179,6 +179,7 @@ business/erp/cost/cost_settle_voucher_db_tests.rs
 business/erp/cost/cost_uncollected_db_tests.rs
 business/erp/cost/cost_wip_pct_db_tests.rs
 business/erp/cost/cost_wip_alloc_db_tests.rs
+business/erp/cost/cost_wip_balance_db_tests.rs
 business/erp/credit_concurrency_tests.rs
 business/erp/credit_release_tests.rs
 business/erp/depreciation/depreciation_dept_tests.rs
