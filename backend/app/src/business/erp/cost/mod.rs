@@ -261,3 +261,6 @@ pub mod cost_uncollected_dto;
 pub mod cost_uncollected_handler;
 /// 「未归集清单」取数层（领料未挂对象 / 工时行数 / 池余额 / 批次），B2-12。
 pub mod cost_uncollected_model;
+/// 差异分解的 **契约层与纯逻辑**（M5-12）：材料价差 `(实际价 − 标准价) × 实际量` 的算数、
+/// 取整口径（按项 4 位）、分水岭（量差 M5-13 从同一处出发）与输入域护栏。零 DB、零路由。
+pub mod cost_variance_dto;

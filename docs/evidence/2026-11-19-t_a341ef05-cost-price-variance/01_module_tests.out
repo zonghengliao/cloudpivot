@@ -1,0 +1,30 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 07s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 21 tests
+test business::erp::cost::cost_variance_dto::tests::amount_beyond_money_column_is_rejected ... ok
+test business::erp::cost::cost_variance_dto::tests::amount_is_rounded_to_four_decimals ... ok
+test business::erp::cost::cost_variance_dto::tests::db_enum_mirror_matches_v0374_check_constraints ... ok
+test business::erp::cost::cost_variance_dto::tests::direction_always_satisfies_db_sign_check ... ok
+test business::erp::cost::cost_variance_dto::tests::drill_example_c_material_price_variance ... ok
+test business::erp::cost::cost_variance_dto::tests::equal_prices_give_zero_variance ... ok
+test business::erp::cost::cost_variance_dto::tests::labels_cover_the_rate_family ... ok
+test business::erp::cost::cost_variance_dto::tests::labor_rate_variance_reuses_the_same_arithmetic ... ok
+test business::erp::cost::cost_variance_dto::tests::negative_actual_price_is_rejected ... ok
+test business::erp::cost::cost_variance_dto::tests::negative_std_price_is_rejected ... ok
+test business::erp::cost::cost_variance_dto::tests::negative_usage_is_rejected ... ok
+test business::erp::cost::cost_variance_dto::tests::non_rate_variance_type_is_rejected ... ok
+test business::erp::cost::cost_variance_dto::tests::result_type_is_pinned_to_mat_price_for_the_card_entry_point ... ok
+test business::erp::cost::cost_variance_dto::tests::rounding_diff_is_zero_in_the_drill_example ... ok
+test business::erp::cost::cost_variance_dto::tests::rounding_diff_surfaces_when_the_two_legs_round_apart ... ok
+test business::erp::cost::cost_variance_dto::tests::two_factor_identity_closes_on_the_shared_pivot ... ok
+test business::erp::cost::cost_variance_dto::tests::unknown_element_is_rejected ... ok
+test business::erp::cost::cost_variance_dto::tests::unknown_variance_type_is_rejected ... ok
+test business::erp::cost::cost_variance_dto::tests::whole_actual_amount_is_favorable_when_price_drops_to_zero ... ok
+test business::erp::cost::cost_variance_dto::tests::zero_std_price_makes_the_whole_actual_amount_a_variance ... ok
+test business::erp::cost::cost_variance_dto::tests::zero_usage_gives_zero_variance_but_still_a_writable_direction ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 6843 filtered out; finished in 0.01s
+
+RC=0
