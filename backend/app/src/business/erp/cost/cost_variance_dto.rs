@@ -56,7 +56,8 @@ pub const RATE_VARIANCE_TYPES: [&str; 2] = [VARIANCE_MAT_PRICE, VARIANCE_LABOR_R
 /// 金额列 `NUMERIC(18,4)` 的上限（14 位整数 + 4 位小数）。
 ///
 /// 只用于把「库层会报 500」的输入前移成 400 人话；真实成本离这个数有七八个数量级。
-fn max_money() -> Decimal {
+/// 量差（M5-13）与后续差异卡共用这一条边界，别各自写一份。
+pub(crate) fn max_money() -> Decimal {
     Decimal::from_i128_with_scale(999_999_999_999_999_999, 4)
 }
 
@@ -111,13 +112,7 @@ impl VarianceLine {
 
     /// 展示文案：不利 / 有利 / 持平（0 差异不显示成「不利」，见模块头口径表）。
     pub fn direction_label(&self) -> &'static str {
-        if self.amount.is_zero() {
-            "持平"
-        } else if self.amount > Decimal::ZERO {
-            "不利"
-        } else {
-            "有利"
-        }
+        direction_label_of(self.amount)
     }
 
     /// 差异额是否为 0（写库方可用它跳过「零差异行」，别往差异表灌噪声）。
@@ -144,6 +139,20 @@ pub fn db_direction_of(amount: Decimal) -> &'static str {
         DIRECTION_FAVORABLE
     } else {
         DIRECTION_UNFAVORABLE
+    }
+}
+
+/// 差异方向 → 展示文案（不利 / 有利 / 持平）。
+///
+/// 与 [`db_direction_of`]（写库用，只有两值）**分开**：0 差异给人看是「持平」，
+/// 但库里必须落 `UNFAVORABLE`。量差（M5-13）与后续差异卡共用这一份文案逻辑。
+pub fn direction_label_of(amount: Decimal) -> &'static str {
+    if amount.is_zero() {
+        "持平"
+    } else if amount > Decimal::ZERO {
+        "不利"
+    } else {
+        "有利"
     }
 }
 

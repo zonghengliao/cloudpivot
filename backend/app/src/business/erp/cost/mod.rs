@@ -178,6 +178,9 @@ pub mod cost_period_model;
 pub mod cost_period_sheet;
 /// 成本计算单导出的分摊取数（`biz_cost_alloc_result` 按期间聚合），B4-1。
 pub mod cost_period_sheet_model;
+/// 差异分解的 **契约层与纯逻辑**（M5-13）：材料量差 `(实际量 − 标准量) × 标准价` 的算数、
+/// 与 M5-12 共用的分水岭（`std_amount_at_actual_qty`，两因素恒等式的闭合点）、要素与类型配对护栏。零 DB、零路由。
+pub mod cost_qty_variance_dto;
 /// B2-3 费率取数（ARCH-9 §4.5.4）：`biz_cost_rate` 三级优先级 + 缺费率报错（无 HTTP 入口，供工时台账复用）。
 pub mod cost_rate_dto;
 pub mod cost_rate_handler;

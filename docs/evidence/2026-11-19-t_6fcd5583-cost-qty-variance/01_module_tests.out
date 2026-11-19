@@ -1,0 +1,36 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 58s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 27 tests
+test business::erp::cost::cost_qty_variance_dto::tests::amount_beyond_money_column_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::amount_is_rounded_to_four_decimals ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::db_enum_mirror_matches_v0374_check_constraints ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::direction_always_satisfies_db_sign_check ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::drill_example_c_material_qty_variance ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::entry_point_is_pinned_to_mat_qty ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::formula_matches_the_card_title ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::identity_holds_with_six_decimal_standard_price ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::labels_cover_the_qty_family ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::labor_efficiency_variance_reuses_the_same_arithmetic ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::less_usage_than_standard_is_favorable ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::mismatched_element_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::negative_actual_qty_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::negative_std_price_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::negative_std_qty_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::no_usage_difference_gives_zero_variance_but_still_a_writable_direction ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::overhead_variance_type_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::price_side_variance_type_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::rounding_diff_is_zero_in_the_drill_example ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::rounding_diff_surfaces_when_the_two_legs_round_apart ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::shared_pivot_is_literally_the_same_number ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::two_factor_identity_closes_on_the_shared_pivot ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::unknown_element_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::unknown_variance_type_is_rejected ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::zero_std_price_makes_the_qty_variance_vanish ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::zero_std_qty_puts_the_whole_actual_usage_into_the_variance ... ok
+test business::erp::cost::cost_qty_variance_dto::tests::zero_usage_on_both_sides_is_zero ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 6864 filtered out; finished in 0.01s
+
+RC=0
