@@ -1,13 +1,14 @@
 <template>
   <div class="wb">
-    <!-- ① 问候语条：登录后首屏的视觉锚点，副标题顺带报一句「今天有多少活」 -->
-    <section class="wb__banner">
-      <div class="wb__banner-text">
-        <h2 class="wb__greeting">{{ greeting }}，{{ userStore.displayName || '同事' }}</h2>
-        <p class="wb__subtitle">{{ subtitle }}</p>
-      </div>
-      <t-icon class="wb__banner-icon" name="dashboard" />
-    </section>
+    <!-- ① 问候语条：登录后首屏的视觉锚点，副标题顺带报一句「今天有多少活」。
+         用通用 PageHero（与其它页面同一个组件），自带星座连线特效。 -->
+    <PageHero
+      class="wb__banner"
+      :title="`${greeting}，${userStore.displayName || '同事'}`"
+      :subtitle="subtitle"
+      icon="dashboard"
+      :height="120"
+    />
 
     <!--
       ⬇⬇ HOME-6「我的指标」四张统计卡（问候语下方、两栏主体之上）⬇⬇
@@ -334,6 +335,7 @@ import { useRouter } from 'vue-router';
 import dayjs from 'dayjs';
 import { MessagePlugin } from 'tdesign-vue-next';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import PageHero from '@/components/PageHero.vue';
 import ApprovalTodoCard from './ApprovalTodoCard.vue';
 import MyMetricsRow from './MyMetricsRow.vue';
 import {
@@ -866,41 +868,10 @@ onMounted(() => {
 
 .wb {
   // ---------- ① 问候语条 ----------
-  &__banner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 24px 28px;
-    color: var(--app-on-gradient, #1a2230);
-    border-radius: 12px;
-    background: var(--app-gradient-brand);
-    box-shadow: 0 6px 20px rgb(111 138 184 / 24%);
-  }
+  // 已改为通用组件 PageHero（自带品牌渐变 + 星座连线特效），
+  // 旧的 &__banner / &__greeting / &__subtitle / &__banner-icon 整套样式随之删除 —— 
+  // 留着会覆盖组件内部样式，且两份渐变定义迟早漂移。
 
-  &__greeting {
-    margin: 0 0 6px;
-    font-size: 20px;
-    font-weight: 600;
-    // 白字在深色品牌段上，加一点深色微阴影提升边缘清晰度
-    text-shadow: 0 1px 3px rgb(0 0 0 / 26%);
-  }
-
-  &__subtitle {
-    margin: 0;
-    font-size: 13px;
-    // 渐变终点是浅色，副标题用同色文字（略透明以区分层级，主色端仍 ≥4.5）
-    color: var(--app-on-gradient, #ffffff);
-    opacity: 0.94;
-    // 白字在深色段已足够清晰，给一点深色微阴影防止后段浅色区发虚
-    text-shadow: 0 1px 2px rgb(0 0 0 / 22%);
-  }
-
-  &__banner-icon {
-    font-size: 72px;
-    // 图标在横幅右侧（浅色段），必须用深色油墨才可见
-    color: var(--app-on-gradient-soft, #1a2230);
-    opacity: 0.16;
-  }
 
   // t-row 用 gutter 负边距（-8px）抵消列 padding，两栏基准宽度需按内容盒计算，
   // 否则 360px + 自适应列会超出容器而换行。这里给 body 显式 nowrap + 负边距归零。

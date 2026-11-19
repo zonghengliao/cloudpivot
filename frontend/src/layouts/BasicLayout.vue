@@ -75,6 +75,9 @@
       </t-header>
 
       <t-content class="basic-layout__content">
+        <!-- 通用页面顶部卡：显示当前菜单名 + 星座连线特效。
+             首页（Dashboard）自己有问候卡（同样是 PageHero），这里跳过避免重复。 -->
+        <PageHero v-if="pageHeroTitle" :title="pageHeroTitle" />
         <router-view v-slot="{ Component }">
           <transition name="page-fade" mode="out-in">
             <component :is="Component" />
@@ -100,6 +103,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import PageHero from '@/components/PageHero.vue';
 import { DialogPlugin, type DropdownOption } from 'tdesign-vue-next';
 import SideMenuItem from '@/layouts/components/SideMenuItem.vue';
 import PaletteSwitch from '@/layouts/components/PaletteSwitch.vue';
@@ -170,6 +174,25 @@ const leafPaths = computed(() => collectLeafPaths(userStore.navMenus));
 const activeMenu = computed(() => {
   const path = normalizeMenuPath(route.path);
   return leafPaths.value.has(path) ? path : '';
+});
+
+/**
+ * 内容区顶部卡要显示的标题（当前菜单名）。
+ *
+ * 首页（Dashboard）返回空串 —— 首页自己有一张问候卡（同样是 PageHero），
+ * 布局层再加一张就重复了。
+ *
+ * 取 `route.matched` 里最后一个带 title 的层级：嵌套路由的父级是目录名，
+ * 末级才是用户真正在看的页面（如「采购管理 / 采购订单」要显示「采购订单」）。
+ */
+const pageHeroTitle = computed<string>(() => {
+  if (route.name === 'Dashboard') {
+    return '';
+  }
+  const titles = route.matched
+    .map((record) => record.meta.title)
+    .filter((title): title is string => typeof title === 'string' && title.length > 0);
+  return titles.length > 0 ? titles[titles.length - 1] : '';
 });
 
 /** 面包屑：首页（可点击回首页）+ 当前匹配到的带标题路由（末级为纯文本） */

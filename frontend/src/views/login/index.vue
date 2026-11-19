@@ -102,7 +102,7 @@ import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
 import { clearLogoutBroadcast, resetActivity, takeIdleRedirect } from '@/utils/idle-activity';
 import { safeRedirect } from '@/utils/safe-redirect';
-import { useConstellationFx } from './use-constellation-fx';
+import { useConstellationFx } from '@/composables/use-constellation-fx';
 
 const route = useRoute();
 const router = useRouter();
