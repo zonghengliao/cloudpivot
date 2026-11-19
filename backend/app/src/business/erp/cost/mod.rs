@@ -361,3 +361,26 @@ pub mod cost_wip_pct_handler;
 /// 工序完工率录入 **取数层**（M5-21）：对象抬头（数据范围探针 / `FOR UPDATE` 行锁）+
 /// 工序行读 / 增 / 改 / 软删 + 对象级完工率回写（CAS `status='OPEN'`）。
 pub mod cost_wip_pct_model;
+
+/// M5-26 的真库用例（`ERP_DB_URL` 开关）：三层结构逐层金额 / 批号命中与同月平均 /
+/// 缺结构不当外购料 / 全外购料 / 闭环截断 / 层数上限（含不误报）/ 数据范围 /
+/// 整表合计与筛选 / 红冲批次不作结构来源 / 清场零残留。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_restore_structure_db_tests;
+/// 成本还原「半成品成本结构表」的**契约层与纯逻辑**（M5-26）：逐层结构
+/// （外购材料 / 自制半成品 → 所产批次的完工成本结构 → 下一层）、三要素比例拆分
+/// （尾差进制造费用）、批号命中 / 同月平均两种来源、五档行状态、逐层汇总。
+/// 零 DB、零迁移、零新增权限码。
+pub mod cost_restore_structure_dto;
+/// M5-26 的纯逻辑单测（不连库）：完工成本结构拆分 / 比例拆分（尾差进费用）/
+/// 批号命中与同月平均两种来源 / 五档状态取档 / 逐层汇总 / 文本标度。
+#[cfg(test)]
+mod cost_restore_structure_dto_tests;
+/// 结构表 **接口层**（M5-26）：`GET /business/erp/cost-restore-structure`
+/// （期间必填 + 关键字 + 四档状态筛选 + 分页 + 整表合计 + max_depth 下钻层数）。
+/// 复用 `cost-object:list`。
+pub mod cost_restore_structure_handler;
+/// 结构表 **取数层**（M5-26）：根行（本期有材料投入的成本对象）/
+/// 逐（对象, 期间, 物料, 批号）的材料投入 / 「谁产出了这个物料」的候选批次。
+/// 数据范围复用 `biz_cost_object` 锚点；逐层展开是 BFS，每层两条查询。
+pub mod cost_restore_structure_model;

@@ -1,0 +1,73 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 54 tests
+test business::erp::cost::cost_restore_structure_db_tests::db::v1_three_level_structure_is_layered ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v2_lot_miss_falls_back_to_period_average ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v3_semi_without_calculation_is_no_structure ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v4_purchased_only_row_is_flat ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v5_cycle_is_cut_and_terminates ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v6_depth_limit_cuts_only_when_needed ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v7_other_workshop_sees_nothing ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v8_totals_are_whole_table_and_filters_narrow ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::v9_reversed_producer_period_has_no_structure ... ok
+test business::erp::cost::cost_restore_structure_db_tests::db::zz_teardown_leaves_zero_residue ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::dto_permission_set_is_the_shared_read_code ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::element_view_totals_the_three_parts ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::layer_views_aggregate_pure_levels ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::layer_views_of_empty_tree_is_empty ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::material_only_leaf_puts_everything_into_material ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::producer_batch_hit_wins_over_period_average ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::producer_batch_miss_falls_back_to_the_latest_period_average ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::producer_empty_list_is_none ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::producer_prefers_settled_when_lot_matches_twice_in_one_period ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::producer_without_any_structure_is_none ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::producer_without_lot_uses_period_average_of_that_period_only ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::row_state_labels_are_short ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::row_state_precedence_is_cycle_first ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::scale_split_keeps_the_node_amount_exactly ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::scale_split_of_zero_structure_is_none ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::scale_split_puts_the_tail_into_overhead ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::share_pct_is_two_digits_and_none_for_zero_base ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::state_filter_parses_and_matches ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::structure_never_returns_negative_elements ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::structure_of_negative_finished_cost_is_none ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::structure_of_zero_output_is_none_not_zero ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::structure_puts_the_rounding_tail_into_overhead ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::structure_splits_finished_cost_by_unit_costs ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::texts_keep_the_column_scale ... ok
+test business::erp::cost::cost_restore_structure_dto_tests::totals_add_up_rows_and_keep_null_finished_out ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::defaults_are_all_and_depth_six ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::page_size_and_depth_are_capped ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::period_is_required ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::period_shape_is_validated ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::permission_reuses_cost_object_list ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::siblings_of_other_rows_never_leak_in ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::signals_are_collected_from_deep_levels ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::state_typo_is_rejected ... ok
+test business::erp::cost::cost_restore_structure_handler::tests::tree_assembles_children_and_shares ... ok
+test business::erp::cost::cost_restore_structure_model::tests::bind_rejects_misaligned_parameters ... ok
+test business::erp::cost::cost_restore_structure_model::tests::input_sql_takes_object_and_period_arrays ... ok
+test business::erp::cost::cost_restore_structure_model::tests::keyword_adds_five_parameters ... ok
+test business::erp::cost::cost_restore_structure_model::tests::keyword_pattern_escapes_wildcards ... ok
+test business::erp::cost::cost_restore_structure_model::tests::period_of_splits_year_and_month ... ok
+test business::erp::cost::cost_restore_structure_model::tests::periods_param_is_comma_payload ... ok
+test business::erp::cost::cost_restore_structure_model::tests::producer_sql_excludes_reversed_and_future_periods ... ok
+test business::erp::cost::cost_restore_structure_model::tests::root_sql_keeps_the_scope_alias ... ok
+test business::erp::cost::cost_restore_structure_model::tests::root_sql_only_keeps_objects_with_material_input ... ok
+test business::erp::cost::cost_restore_structure_model::tests::root_sql_takes_two_parameters_without_keyword ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 7231 filtered out; finished in 0.33s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+

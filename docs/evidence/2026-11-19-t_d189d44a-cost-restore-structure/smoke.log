@@ -1,0 +1,34 @@
+[PASS] ① 未带令牌 ⇒ 401（不是 200，也不是 500）  · status=401 code=401 msg=未授权访问，请先登录
+[PASS] 夹具就绪（成品 A + 半成品产出批 S + 三条归集）
+[PASS] ① 结构表 GET 200（路由真的挂上了）  · status=200 
+[PASS] ② 页面级字段齐（15 个键）  · 缺 []
+[PASS] ② period_code 原样回显 + cost_ready=true（本期有批次）  · 2033-05 / True
+[PASS] ② max_depth 缺省回显 6  · 6
+[PASS] ② formula_layer / formula_element 非空（页脚口径直接用后端原文）
+[PASS] ② state_options 5 档（all / semi / no_semi / blocked / 全部同义档）  · ['all', 'semi', 'no_semi', 'blocked']
+[PASS] ② 行出现（keyword 收窄到本夹具）  · 共 1 行
+[PASS] ③ 行字段齐（页面 12 列 + 展开树 + 逐层汇总）  · 缺 []
+[PASS] ③ 行头金额：材料 1500 / 半成品 1000 / 外购 500  · 1500 / 1000 / 500
+[PASS] ③ 半成品占比 = 1000/1500 = 66.6667%  · 66.67
+[PASS] ③ 行状态 = semi（有自制半成品且结构取到）  · state=semi label=逐层可还原
+[PASS] ④ 一级节点 2 个（S 1000 在前、RAW 500 在后：按金额降序）  · [('M526RS97793-SEMI', '1000'), ('M526RS97793-RAW', '500')]
+[PASS] ④ 节点字段齐（18 个键）  · 缺 []
+[PASS] ④ S 节点 is_semi=true 且 source=batch（批号命中）  · is_semi=True source=batch
+[PASS] ④ S 节点三要素 600 / 250 / 150（合计 = 金额 1000）  · {"material": "600", "labor": "250", "overhead": "150", "total": "1000"}
+[PASS] ④ producer 指到 OBJ-B（object_no / lot_no / 完工成本 10000 / 单位 100）  · CB-M526RS97793-S / LOT-M526RS97793-S / 10000 / 100.000000
+[PASS] ④ S 占比 66.6667%  · 66.67
+[PASS] ④ S 没有下一层（产出批本身没领料）⇒ children=[] 且未截断
+[PASS] ④ RAW 节点 is_semi=false、无 source、全额进材料（500/0/0）  · {"material": "500", "labor": "0", "overhead": "0", "total": "500"}
+[PASS] ⑤ layers 恰 1 层（第 1 层就没有更深的了）  · [1]
+[PASS] ⑤ 第 1 层：2 个节点 / 1 个半成品 / 金额 1500 / 三要素 1100+250+150  · 2/1/1500 {"material": "1100", "labor": "250", "overhead": "150", "total": "1500"}
+[PASS] ⑥ totals 字段齐（页面 10 张汇总卡读它）  · 缺 []
+[PASS] ⑥ 合计：1 行 / 1 行 semi / 材料 1500 / 半成品 1000 / 外购 500 / 节点 2  · 1/1/1500/1000/500/2
+[PASS] ⑧ page_size=1 时 total 仍是整表 1 行、totals 仍是整表金额  · status=200 total=1 totals.row_count=1
+[PASS] ⑦ 400 · 缺期间  · status=400 msg={"code": 10001, "msg": "period_code（yyyy-MM）不能为空：结构是某一期投料的快照，例如 2026-11"}
+[PASS] ⑦ 400 · 期间形状  · status=400 msg={"code": 10001, "msg": "期间编码必须是 yyyy-MM（收到「2033-13」）"}
+[PASS] ⑦ 400 · 状态拼错  · status=400 msg={"code": 10001, "msg": "state 只支持 all / semi / no_semi / blocked（收到 `bogus`）：拼错时静默回落到 all 会让人以为筛过了"}
+[PASS] ⑦ max_depth=0 ⇒ 回显默认 6（夹取不报错）  · status=200 max_depth=6
+[PASS] ⑦ max_depth=99 ⇒ 夹到上限 12  · status=200 max_depth=12
+[PASS] ⑨ 清场零残留（成本对象 / 计算单 / 批次 / 物料）  · object=0 item=0 period=0
+
+===== 32 PASS / 0 FAIL =====
