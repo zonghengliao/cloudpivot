@@ -1,0 +1,6 @@
+### cargo fmt --check
+rc=0 (无差异)
+
+### cargo clippy -p cloudpivot -p cloudpivot-doc -p cloudpivot-kernel --lib --tests -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+clippy rc=0

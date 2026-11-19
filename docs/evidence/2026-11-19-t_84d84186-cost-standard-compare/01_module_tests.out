@@ -1,0 +1,51 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 26s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 43 tests
+test business::erp::cost::cost_standard_compare_db_tests::db::comparable_row_matches_arithmetic_and_totals ... ok
+test business::erp::cost::cost_standard_compare_db_tests::db::element_split_is_reported_per_element ... ok
+test business::erp::cost::cost_standard_compare_db_tests::db::filters_paging_and_keyword_narrow_the_set ... ok
+test business::erp::cost::cost_standard_compare_db_tests::db::missing_sides_are_classified_with_actionable_hints ... ok
+test business::erp::cost::cost_standard_compare_db_tests::db::period_without_batch_lists_standard_side_only ... ok
+test business::erp::cost::cost_standard_compare_db_tests::db::unpublished_zero_status_and_switch_versions ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::both_sides_compare_units_and_amounts ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::elements_split_adds_up_to_the_total ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::empty_totals_have_no_rate ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::even_variance_is_neither_favorable_nor_unfavorable ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::favorable_variance_is_negative ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::hint_for_comparable_row_flags_version_switch_and_rounding ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::hint_for_missing_actual_points_at_cost_calc_or_wip ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::hint_for_missing_standard_distinguishes_unpublished_from_absent ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::labels_cover_the_documented_value_domains ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::missing_actual_side_is_all_zero_and_not_comparable ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::missing_standard_side_keeps_actual_amount_but_stays_incomparable ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::numbers_are_rendered_with_fixed_scale ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::rounding_diff_is_book_minus_element_sum ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::row_view_exposes_both_sides_and_null_variance_when_incomparable ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::state_needs_both_sides_and_finished_quantity ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::totals_only_fold_comparable_rows_into_variance ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::totals_rate_is_total_over_total_not_average_of_rates ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::zero_quantity_never_divides_by_zero ... ok
+test business::erp::cost::cost_standard_compare_dto::tests::zero_standard_base_has_no_rate ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::note_states_sign_convention_and_no_posting ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::page_size_is_capped_and_blank_keyword_dropped ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::period_is_required_and_validated ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::period_window_is_first_to_last_day_and_paged_defaults_apply ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::permission_reuses_cost_method_list ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::standard_basis_mentions_period_end_and_publish ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::state_filter_accepts_four_values_and_rejects_others ... ok
+test business::erp::cost::cost_standard_compare_handler::tests::state_filter_round_trips_its_literal ... ok
+test business::erp::cost::cost_standard_compare_model::tests::base_sql_keeps_the_publish_gate_and_period_end_basis ... ok
+test business::erp::cost::cost_standard_compare_model::tests::base_sql_without_batch_uses_false_and_keeps_placeholder_count ... ok
+test business::erp::cost::cost_standard_compare_model::tests::comparable_predicate_matches_dto_state_rule ... ok
+test business::erp::cost::cost_standard_compare_model::tests::every_filter_branch_carries_exactly_one_filter_marker ... ok
+test business::erp::cost::cost_standard_compare_model::tests::keyword_is_escaped_and_absent_when_blank ... ok
+test business::erp::cost::cost_standard_compare_model::tests::order_presets_put_comparable_rows_first ... ok
+test business::erp::cost::cost_standard_compare_model::tests::params_follow_textual_placeholder_order ... ok
+test business::erp::cost::cost_standard_compare_model::tests::sql_never_smuggles_order_by_or_limit ... ok
+test business::erp::cost::cost_standard_compare_model::tests::state_filters_only_use_structural_predicates ... ok
+test business::erp::cost::cost_standard_compare_model::tests::totals_sql_aggregates_the_same_filtered_set ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 6800 filtered out; finished in 0.18s
+

@@ -210,6 +210,19 @@ pub mod cost_settle_voucher;
 /// B3-5 的真库用例（`ERP_DB_URL` 开关）：三张凭证的借贷平衡 / 科目 / 金额与计算单一致 / 四道闸。
 #[cfg(test)]
 mod cost_settle_voucher_db_tests;
+/// M5-11 的真库用例（`ERP_DB_URL` 开关）：可比行逐项核数 / 缺标准 / 缺实际 / 换版提示 /
+/// 未发布不参与 / 四档筛选 / 合计与逐行对拍 / 无批次时只出标准侧 / 清场零残留。
+#[cfg(test)]
+mod cost_standard_compare_db_tests;
+/// 标准成本 × 实际成本 **逐物料对比** 契约层（M5-11）：三态判定 / 差异额与差异率 / 单位与总额双口径 /
+/// 尾差对平 / 三要素拆分 / 整表合计 / 两处「缺一侧」的具体动作。纯逻辑，零 DB。
+pub mod cost_standard_compare_dto;
+/// 标准成本 × 实际成本 **对比接口层**（M5-11）：`GET /business/erp/report/cost-variance`
+/// （期间必填 + 物料关键字 + 四档状态筛选 + 分页 + 整表合计）。复用 `cost-method:list`，零新增码。
+pub mod cost_standard_compare_handler;
+/// 标准成本 × 实际成本 **对比取数层**（M5-11）：`act` / `std` / `draft` 三个 CTE 按物料 FULL OUTER JOIN，
+/// 分页走 `scope::paginate_unscoped`，合计走同模板聚合（与 Rust 逐行算数对拍）。
+pub mod cost_standard_compare_model;
 /// M5-08 的真库用例（`ERP_DB_URL` 开关）：建版算数 / 生效期重叠 / 期间取数 / 换版提示 /
 /// 已生效锁改删 / 生效失效 / 库层区间护栏。只在 `cargo test` 时编译。
 #[cfg(test)]
