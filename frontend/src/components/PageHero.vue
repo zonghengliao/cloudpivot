@@ -69,8 +69,10 @@ withDefaults(
 
 const hostEl = ref<HTMLElement | null>(null);
 const fxCanvas = ref<HTMLCanvasElement | null>(null);
-// 深色主题：内容区是 --app-gradient-brand 的蓝渐变底，点要提亮才看得见
-const fx = useConstellationFx(fxCanvas, hostEl, { theme: 'dark' });
+// 深色主题 + 关掉鼠标光晕：
+//   · 深色：纯白点 / 亮金，压在蓝渐变上才看得清（原来的近白只有 .72 不透明度，糊了）
+//   · 无光晕：用户要求「鼠标移上去不要发光」，只留连线
+const fx = useConstellationFx(fxCanvas, hostEl, { theme: 'dark', glow: false });
 </script>
 
 <style scoped lang="less">

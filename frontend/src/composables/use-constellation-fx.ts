@@ -24,6 +24,34 @@ import { onBeforeUnmount, onMounted, type Ref } from 'vue';
 const BLUE = '111,138,184'; // 雾蓝（主题 --app-brand-strong 同色系）
 const GOLD = '193,172,123'; // 流金（主题里的漂木棕点缀）
 
+/**
+ * 两套配色。
+ *
+ * 浅底（登录页 `--app-login-brand`：霜月白→雾蓝灰）上，深一点的蓝点才看得见；
+ * 深底（内容区 `--app-gradient-brand`：#384c6d→#8ba0c7 的蓝渐变）上，
+ * 同一个蓝点会糊进背景 —— 必须换成接近白的冷色，金点也要提亮。
+ */
+const PALETTES = {
+  light: {
+    dot: BLUE,
+    dotGold: GOLD,
+    link: BLUE,
+    dotAlpha: 0.72,
+    linkAlpha: 0.34,
+  },
+  // 深底（内容区 #384c6d→#8ba0c7）：原来的近白点只有 0.72 不透明度，
+  // 压在蓝渐变中段基本看不见。改成纯白 / 高不透明，金色也加饱和。
+  dark: {
+    dot: '255,255,255',
+    dotGold: '255,204,102',
+    link: '255,255,255',
+    dotAlpha: 0.92,
+    linkAlpha: 0.55,
+  },
+} as const;
+
+export type ConstellationTheme = keyof typeof PALETTES;
+
 /** 一个漂移的点 */
 interface Particle {
   x: number;
@@ -51,14 +79,34 @@ export interface ConstellationFx {
   onTouchMove: (e: TouchEvent) => void;
 }
 
+export interface ConstellationOptions {
+  /** 底色主题。浅底用 light（默认），深底用 dark（内容区品牌渐变） */
+  theme?: ConstellationTheme;
+  /**
+   * 鼠标位置是否画径向光晕。
+   * 默认 true（登录页保留）；内容区顶部卡关掉 —— 那圈光晕在深底上偏"糊"，
+   * 用户明确要求「鼠标移上去不要发光」，只留连线和点。
+   */
+  glow?: boolean;
+}
+
 /**
  * @param canvasRef canvas 元素
- * @param hostRef   承载 canvas 的品牌区（用来算鼠标相对坐标）
+ * @param hostRef   承载 canvas 的容器（用来算鼠标相对坐标）
+ * @param options   主题等可选项
  */
 export function useConstellationFx(
   canvasRef: Ref<HTMLCanvasElement | null>,
   hostRef: Ref<HTMLElement | null>,
+  options: ConstellationOptions = {},
 ): ConstellationFx {
+  const pal = PALETTES[options.theme ?? 'light'];
+  const DOT = pal.dot;
+  const DOT_GOLD = pal.dotGold;
+  const LINK = pal.link;
+  const DOT_ALPHA = pal.dotAlpha;
+  const LINK_ALPHA = pal.linkAlpha;
+  const SHOW_GLOW = options.glow !== false;
   let ctx: CanvasRenderingContext2D | null = null;
   let particles: Particle[] = [];
   let raf = 0;
@@ -149,7 +197,7 @@ export function useConstellationFx(
         const b = particles[j];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         if (d < LINK_DIST) {
-          ctx.strokeStyle = `rgba(${BLUE},${((1 - d / LINK_DIST) * 0.34).toFixed(3)})`;
+          ctx.strokeStyle = `rgba(${LINK},${((1 - d / LINK_DIST) * LINK_ALPHA).toFixed(3)})`;
           ctx.lineWidth = 0.8;
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
@@ -164,7 +212,7 @@ export function useConstellationFx(
       for (const p of particles) {
         const d = Math.hypot(p.x - mouse.x, p.y - mouse.y);
         if (d < MOUSE_LINK_DIST) {
-          ctx.strokeStyle = `rgba(${GOLD},${((1 - d / MOUSE_LINK_DIST) * 0.7).toFixed(3)})`;
+          ctx.strokeStyle = `rgba(${DOT_GOLD},${((1 - d / MOUSE_LINK_DIST) * 0.7).toFixed(3)})`;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(mouse.x, mouse.y);
@@ -173,19 +221,21 @@ export function useConstellationFx(
         }
       }
 
-      // 鼠标光晕
-      const glow = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 46);
-      glow.addColorStop(0, `rgba(${GOLD},.5)`);
-      glow.addColorStop(1, `rgba(${GOLD},0)`);
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(mouse.x, mouse.y, 46, 0, Math.PI * 2);
-      ctx.fill();
+      // 鼠标光晕：内容区顶部卡关掉（用户要求「不要发光」），只保留连线
+      if (SHOW_GLOW) {
+        const glow = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 46);
+        glow.addColorStop(0, `rgba(${DOT_GOLD},.5)`);
+        glow.addColorStop(1, `rgba(${DOT_GOLD},0)`);
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 46, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // 5. 画点
     for (const p of particles) {
-      ctx.fillStyle = p.gold ? `rgba(${GOLD},.85)` : `rgba(${BLUE},.72)`;
+      ctx.fillStyle = p.gold ? `rgba(${DOT_GOLD},${DOT_ALPHA})` : `rgba(${DOT},${DOT_ALPHA})`;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
