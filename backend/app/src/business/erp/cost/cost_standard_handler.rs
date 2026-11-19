@@ -113,7 +113,11 @@ fn to_res(row: &StandardRow) -> StandardRes {
         effective_from: dto::date_text(row.effective_from),
         effective_to: row.effective_to.map(dto::date_text),
         status: row.status,
-        status_label: dto::status_label(row.status).to_string(),
+        status_label: dto::headline_status_label(row.status, &row.publish_state),
+        publish_state: row.publish_state.clone(),
+        publish_state_label: dto::publish_state_label(&row.publish_state).to_string(),
+        publish_instance_id: row.publish_instance_id.map(|id| id.to_string()),
+        published_at: row.published_at.map(|at| at.to_rfc3339()),
         std_material_cost: dto::amount_text(row.std_material_cost),
         std_labor_cost: dto::amount_text(row.std_labor_cost),
         std_overhead_cost: dto::amount_text(row.std_overhead_cost),
@@ -147,6 +151,24 @@ async fn load(id: Uuid) -> std::result::Result<StandardRow, ApiError> {
         .await
         .map_err(|error| utils::db_error(error, "查询标准成本版本"))?
         .ok_or_else(|| dto::not_found(id))
+}
+
+/// 发布审批中（`PENDING`）的卡**不许改口径 / 删除 / 手工置生效**（M5-10 · 66111）。
+///
+/// 判据是「当前发布状态」而不是「有没有实例」：审批中但实例丢了（回调失败 / 人为清数据）
+/// 同样必须拦住 —— 那时候更需要人去审批中心处理，而不是静默改掉被审的那一版。
+fn ensure_not_in_approval(row: &StandardRow, action: &str) -> std::result::Result<(), ApiError> {
+    if !row.publish_state.eq_ignore_ascii_case(dto::PUBLISH_PENDING) {
+        return Ok(());
+    }
+    Err(dto::publish_guard_error(format!(
+        "标准成本卡 {} v{} 正在发布审批中，不能{action}：\n\
+         · 要改这一版，请先「撤回」发布申请（发起人）或让审批人「驳回」；\n\
+         · 要放弃这一版，也请先撤回再删除；\n\
+         · 审批中改口径会让审批人批的版本与库里生效的版本不一致（审批失真）。",
+        row.material_label(),
+        row.version_no
+    )))
 }
 
 /// 组装详情（卡头 + 标准 BOM）。
@@ -329,9 +351,22 @@ pub fn filter_of(query: &StandardPageQuery) -> std::result::Result<StandardFilte
         Some(raw) => Some(cost_labor_dto::parse_date(&raw, "on_date")?),
     };
     let (page, page_size) = normalize_page(query.page.unwrap_or(1), query.page_size.unwrap_or(0));
+    let publish_state = match cost_labor_dto::clean_optional(query.publish_state.clone()) {
+        None => None,
+        Some(raw) => {
+            let upper = raw.to_ascii_uppercase();
+            if !dto::is_publish_state(&upper) {
+                return Err(dto::bad_request(format!(
+                    "publish_state 只认 DRAFT（草稿）/ PENDING（审批中）/ PUBLISHED（已发布），收到「{raw}」"
+                )));
+            }
+            Some(upper)
+        }
+    };
     Ok(StandardFilter {
         material_id,
         status,
+        publish_state,
         period,
         on_date,
         keyword: cost_labor_dto::clean_optional(query.keyword.clone()),
@@ -582,6 +617,8 @@ pub async fn update_standard(
 ) -> std::result::Result<StandardDetailRes, ApiError> {
     let id = parse_id(id_raw)?;
     let current = load(id).await?;
+    // 审批中（PENDING）不许改口径：审批人批的必须是库里这一版，否则审批失真（66111）
+    ensure_not_in_approval(&current, "修改")?;
     let current_items = model::items_of(db(), id)
         .await
         .map_err(|error| utils::db_error(error, "查询标准 BOM"))?;
@@ -717,6 +754,18 @@ pub async fn set_status(
         .ok_or_else(|| dto::bad_request("status 不能为空：1 = 生效，0 = 失效"))?;
     let target = dto::normalize_status(Some(target))?;
     let current = load(id).await?;
+    // 未发布的卡不许手工置生效 —— 这道闸必须在「已经是目标状态」的幂等早退**之前**：
+    // 草稿卡的 `status` 可能是 1（建卡默认启用，占住生效窗口等审批），若先走幂等分支，
+    // 用户点「生效」会得到一句「已经是生效状态」的假成功，实际它还没发布（审核后生效被绕过）。
+    if target == dto::STATUS_ACTIVE && !current.publish_state.eq_ignore_ascii_case(dto::PUBLISH_PUBLISHED) {
+        return Err(dto::publish_guard_error(format!(
+            "标准成本卡 {} v{} 还没发布（当前「{}」），不能直接置生效：\n\
+             请走发布审批（POST /business/erp/cost-standard/{{id}}/publish，财务经理审批通过后自动置生效）。",
+            current.material_label(),
+            current.version_no,
+            dto::publish_state_label(&current.publish_state)
+        )));
+    }
     let reason = cost_labor_dto::clean_optional(req.reason.clone());
     if let Some(reason) = reason.as_deref()
         && reason.chars().count() > dto::REMARK_MAX
@@ -744,6 +793,16 @@ pub async fn set_status(
     let today = today_cst();
     let mut warnings: Vec<String> = Vec::new();
     if target == dto::STATUS_ACTIVE {
+        // 「审核后生效」的守门：未发布的卡不许手工置生效（否则发布审批就是一堆纸）
+        if !current.publish_state.eq_ignore_ascii_case(dto::PUBLISH_PUBLISHED) {
+            return Err(dto::publish_guard_error(format!(
+                "标准成本卡 {} v{} 还没发布（当前「{}」），不能直接置生效：\n\
+                 请走发布审批（POST /business/erp/cost-standard/{{id}}/publish，财务经理审批通过后自动置生效）。",
+                current.material_label(),
+                current.version_no,
+                dto::publish_state_label(&current.publish_state)
+            )));
+        }
         let rows = model::versions_of(db(), current.material_id)
             .await
             .map_err(|error| utils::db_error(error, "查询同物料已有标准成本版本"))?;
@@ -847,6 +906,7 @@ fn append_status_note(
 pub async fn delete_standard(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = parse_id(id_raw)?;
     let current = load(id).await?;
+    ensure_not_in_approval(&current, "删除")?;
     let today = today_cst();
     if current.effective_from < today {
         return Err(dto::delete_in_use(
@@ -1109,6 +1169,7 @@ mod tests {
         let query = StandardPageQuery {
             material_id: None,
             status: Some(0),
+            publish_state: None,
             period_code: Some(" 2026-11 ".to_string()),
             on_date: Some("2026-11-30".to_string()),
             keyword: Some("  FG-001  ".to_string()),

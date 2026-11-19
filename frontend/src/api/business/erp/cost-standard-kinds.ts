@@ -58,6 +58,13 @@ export const COST_STANDARD_OVERLAP_CODE = 66108;
 export const COST_STANDARD_LOCKED_CODE = 66109;
 /** `66110`：已生效过的版本不许删（要停用请走「失效」）。 */
 export const COST_STANDARD_DELETE_CODE = 66110;
+/**
+ * `66111`：发布状态不接受该动作（M5-10）。
+ *
+ * 三种情形共用这个码：非草稿提交发布 / 审批中改口径·删·置生效 / 未发布手工置生效。
+ * 报文本就是人话且带出路，前端**原样展示**后端报文，不自己编替代文案。
+ */
+export const COST_STANDARD_PUBLISH_GUARD_CODE = 66111;
 
 // ==================== 状态 ====================
 
@@ -82,6 +89,55 @@ export function statusTheme(status: number | null | undefined): 'success' | 'def
   return status === STANDARD_STATUS_ACTIVE ? 'success' : 'default';
 }
 
+// ==================== 发布轴（M5-10「审核后生效」） ====================
+
+/**
+ * 发布状态三值（与后端 `publish_state` / `ck_biz_cost_std_publish` 逐字一致）。
+ *
+ * 与 `status` 是**两条正交的轴**：
+ * - `status`（1/0）= 参与期间取数；
+ * - `publish_state` = 发布审批走到哪一步。
+ * 取数要求两者同时满足（`status = 1 && publish_state = 'PUBLISHED'`），
+ * 所以「新建的卡」在差异分析里**还看不到**，必须先走发布审批。
+ */
+export const PUBLISH_STATE_DRAFT = 'DRAFT';
+/** 审批中（已提交，等审批人处理；此期间不许改口径 / 删 / 手工置生效）。 */
+export const PUBLISH_STATE_PENDING = 'PENDING';
+/** 已发布（审批通过；只有它 + status=1 才参与取数）。 */
+export const PUBLISH_STATE_PUBLISHED = 'PUBLISHED';
+/** 发布状态下拉（**值里不要放 `''`**：TDesign 把空串当未选）。 */
+export const PUBLISH_STATE_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
+  { label: '草稿', value: PUBLISH_STATE_DRAFT },
+  { label: '审批中', value: PUBLISH_STATE_PENDING },
+  { label: '已发布', value: PUBLISH_STATE_PUBLISHED },
+];
+
+/** 发布状态 → 中文（与后端 `publish_state_label` 逐字一致）。 */
+export function publishStateLabel(state: string | null | undefined): string {
+  switch ((state ?? '').trim().toUpperCase()) {
+    case PUBLISH_STATE_DRAFT:
+      return '草稿';
+    case PUBLISH_STATE_PENDING:
+      return '审批中';
+    case PUBLISH_STATE_PUBLISHED:
+      return '已发布';
+    default:
+      return '未知';
+  }
+}
+
+/** 发布状态 → TDesign 主题（已发布绿 / 审批中蓝 / 草稿灰）。 */
+export function publishStateTheme(state: string | null | undefined): 'success' | 'primary' | 'default' {
+  switch ((state ?? '').trim().toUpperCase()) {
+    case PUBLISH_STATE_PUBLISHED:
+      return 'success';
+    case PUBLISH_STATE_PENDING:
+      return 'primary';
+    default:
+      return 'default';
+  }
+}
+
 // ==================== 出参 ====================
 
 /** 一版标准成本（列表行 / 详情卡头共用）。 */
@@ -102,6 +158,14 @@ export interface StandardRow {
   effective_to: string | null;
   status: number;
   status_label: string;
+  /** 发布状态 `DRAFT` / `PENDING` / `PUBLISHED`（M5-10） */
+  publish_state: string;
+  /** 发布状态文本（草稿 / 审批中 / 已发布） */
+  publish_state_label: string;
+  /** 在跑 / 最近一次的发布审批实例 id（审批中必有；已发布保留作审计） */
+  publish_instance_id: string | null;
+  /** 最近一次发布时刻（ISO） */
+  published_at: string | null;
   /** 单位标准材料成本（料 = Σ明细金额） */
   std_material_cost: string;
   /** 单位标准人工成本 */
@@ -240,6 +304,8 @@ export interface StandardStatusPayload {
 export interface StandardPageQuery {
   material_id?: string;
   status?: number | null;
+  /** 发布状态 `DRAFT` / `PENDING` / `PUBLISHED`（M5-10；不传 = 全部） */
+  publish_state?: string;
   /** `yyyy-MM`：版本生效区间与该期间有交集即命中 */
   period_code?: string;
   /** `yyyy-MM-dd`：版本覆盖该日即命中 */

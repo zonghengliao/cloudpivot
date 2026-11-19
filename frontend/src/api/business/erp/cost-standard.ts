@@ -102,9 +102,33 @@ export function setStandardStatus(id: string, payload: StandardStatusPayload): P
   return post<StandardStatusRes>(`${BASE}/cost-standard/${id}/status`, payload);
 }
 
-/** 软删一版（`DELETE …/cost-standard/{id}`，权限 `cost-method:delete`；已生效过 409/66110） */
+/**
+ * 软删一版（`DELETE …/cost-standard/{id}`，权限 `cost-method:delete`；已生效过 409/66110）
+ */
 export function deleteStandard(id: string): Promise<null> {
   return del<null>(`${BASE}/cost-standard/${id}`);
+}
+
+/**
+ * 提交发布审批（`POST …/cost-standard/{id}/publish`，权限 `cost-method:update`）。
+ *
+ * 「审核后生效」：新建 / 导入的卡都是**草稿**，必须提交到这里、由财务经理审批通过后
+ * 才 `publish_state = PUBLISHED`，那时才参与差异分析取数。
+ * 后端拒的情形一律 409 + `66111`（不是草稿 / 已有在跑审批 / 没有已发布流程 66033）。
+ */
+export function submitStandardPublish(id: string): Promise<StandardDetailRes> {
+  return post<StandardDetailRes>(`${BASE}/cost-standard/${id}/publish`);
+}
+
+/**
+ * 撤回发布审批（`POST …/cost-standard/${id}/publish-withdraw`，权限 `cost-method:update`）。
+ *
+ * 只有**发起人本人**能撤（`engine::withdraw` 自带校验）；撤回后卡回草稿，可以改口径再提。
+ * 若审批其实已经结束（回调失败导致卡停在「审批中」），后端会按实例真实结论**自愈**回写，
+ * 所以界面永远有下一步可点，不需要找人改库。
+ */
+export function withdrawStandardPublish(id: string): Promise<StandardDetailRes> {
+  return post<StandardDetailRes>(`${BASE}/cost-standard/${id}/publish-withdraw`);
 }
 
 /**

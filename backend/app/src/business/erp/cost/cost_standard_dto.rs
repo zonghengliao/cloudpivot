@@ -82,6 +82,51 @@ pub const FIRST_LINE_NO: i32 = 1;
 /// 舍入策略：与 PG `numeric` 的 `round()` 同口径（半数远离零）。
 pub const ROUNDING: RoundingStrategy = RoundingStrategy::MidpointAwayFromZero;
 
+// ==================== 发布轴（M5-10 · 审核后生效） ====================
+
+/// 草稿：还没提交审批（新建 / 被驳回 / 撤回后的状态）。**不参与取数**。
+pub const PUBLISH_DRAFT: &str = "DRAFT";
+/// 审批中：已提交，等审批人处理。**不参与取数**，且不许改口径。
+pub const PUBLISH_PENDING: &str = "PENDING";
+/// 已发布：审批通过。只有它（且 `status = 1`）才参与期间取数。
+pub const PUBLISH_PUBLISHED: &str = "PUBLISHED";
+
+/// 发布状态三值域（与 `ck_biz_cost_std_publish` 逐字一致）。
+pub const PUBLISH_STATES: [&str; 3] = [PUBLISH_DRAFT, PUBLISH_PENDING, PUBLISH_PUBLISHED];
+
+/// 发布状态是否合法（纯函数，列表筛选与 DTO 归一都用它）。
+///
+/// **大小写 / 前后空白都归一**：值域是写死的大写三值，前端漏 trim / 传小写时不该变成 400
+/// （这类报文只会让人以为「字段名写错了」）。
+pub fn is_publish_state(raw: &str) -> bool {
+    let upper = raw.trim().to_ascii_uppercase();
+    PUBLISH_STATES.contains(&upper.as_str())
+}
+
+/// 发布状态 → 中文（界面徽标 / 报文用）。
+pub fn publish_state_label(state: &str) -> &'static str {
+    match state.trim().to_ascii_uppercase().as_str() {
+        PUBLISH_DRAFT => "草稿",
+        PUBLISH_PENDING => "审批中",
+        PUBLISH_PUBLISHED => "已发布",
+        _ => "未知",
+    }
+}
+
+/// 列表里给人看的**状态文案**：发布轴没走完时不说「生效」。
+///
+/// `status`（1/0）与 `publish_state` 是两条正交的轴（见 V0465 头注释）。草稿卡的
+/// `status` 可能已经是 1（占住生效窗口等审批），但它在差异分析里**还没生效** ——
+/// 列表只打「生效」会让人以为已经在算，所以这里按发布轴优先出文案。
+/// **判据仍然只认两条轴的原值**，本函数纯粹是展示层。
+pub fn headline_status_label(status: i16, publish_state: &str) -> String {
+    match publish_state.trim().to_ascii_uppercase().as_str() {
+        PUBLISH_PENDING => format!("{}（未生效）", publish_state_label(PUBLISH_PENDING)),
+        PUBLISH_DRAFT => format!("{}（未生效）", publish_state_label(PUBLISH_DRAFT)),
+        _ => status_label(status).to_string(),
+    }
+}
+
 // ==================== 错误码 ====================
 
 /// `66108`：同物料启用版本生效期重叠。
@@ -90,6 +135,16 @@ pub const CODE_OVERLAP: i32 = error_code::ERP_COST_STANDARD_OVERLAP;
 pub const CODE_LOCKED: i32 = error_code::ERP_COST_STANDARD_LOCKED_EFFECTIVE;
 /// `66110`：删除已生效过的版本。
 pub const CODE_DELETE_IN_USE: i32 = error_code::ERP_COST_STANDARD_DELETE_IN_USE;
+/// `66111`：发布状态不接受该动作（非草稿不能提交 / 审批中不能改 / 未发布不能置生效）。
+pub const CODE_PUBLISH_GUARD: i32 = error_code::ERP_COST_STANDARD_PUBLISH_GUARD;
+
+/// 409 + `66111`：发布状态闸（提交 / 撤回 / 改 / 删 / 置生效都走它）。
+///
+/// 报文由调用方写清「当前是什么状态、出路是什么」—— 这类错误必须是**可操作**的
+/// （约定 11 的判据：用户不许靠改库恢复）。
+pub fn publish_guard_error(message: impl Into<String>) -> ApiError {
+    ApiError::new(409, CODE_PUBLISH_GUARD, message.into())
+}
 
 // ==================== 期间 ====================
 
@@ -492,6 +547,8 @@ pub struct StandardPageQuery {
     pub material_id: Option<String>,
     /// 状态（1 / 0）。
     pub status: Option<i16>,
+    /// 发布状态（DRAFT / PENDING / PUBLISHED，可不传）。M5-10。
+    pub publish_state: Option<String>,
     /// 期间 `yyyy-MM`：版本生效区间与该期间有交集即命中。
     pub period_code: Option<String>,
     /// 某一天 `yyyy-MM-dd`：版本生效区间覆盖该日即命中。
@@ -845,6 +902,14 @@ pub struct StandardRes {
     pub status: i16,
     /// 状态文本。
     pub status_label: String,
+    /// 发布状态（DRAFT / PENDING / PUBLISHED，M5-10）。
+    pub publish_state: String,
+    /// 发布状态文本（草稿 / 审批中 / 已发布）。
+    pub publish_state_label: String,
+    /// 在跑 / 最近一次的发布审批实例 id（PENDING 必有；PUBLISHED 作审计）。
+    pub publish_instance_id: Option<String>,
+    /// 最近一次发布时刻。
+    pub published_at: Option<String>,
     /// 单位标准材料成本。
     pub std_material_cost: String,
     /// 单位标准人工成本。

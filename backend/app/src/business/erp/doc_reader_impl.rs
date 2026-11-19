@@ -123,7 +123,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::asset::{asset_bridge, asset_dto};
 use crate::business::erp::budget::{budget_bridge, budget_dto};
 use crate::business::erp::contract::{contract_bridge, contract_model};
-use crate::business::erp::cost::{cost_period_bridge, cost_period_dto};
+use crate::business::erp::cost::{cost_period_bridge, cost_period_dto, cost_standard_dto, cost_standard_publish};
 use crate::business::erp::expense::{expense_bridge, expense_dto};
 use crate::business::erp::payable::{payable_bridge, payable_payment, payable_query};
 use crate::business::erp::purchase::{
@@ -246,13 +246,18 @@ pub enum ErpDoc {
     /// 提交审批：通过即 `APPROVED`（协议生效、可被下单引用），驳回 / 撤回打回 `DRAFT`。
     /// 受内控约束（制单人不可自审自己签的协议）。
     FrameworkAgreement,
+    /// 标准成本卡发布审批（`COST_STANDARD_PUBLISH`，成本核算 M5-10 / V0465）。
+    ///
+    /// 「审核后生效」：通过 → `publish_state = PUBLISHED` + `status = 1`（参与差异分析取数）；
+    /// 驳回 / 撤回 → `DRAFT`（清空实例指针，可改后重提）。受内控约束（制单人不可自审自己建的卡）。
+    CostStandardPublish,
 }
 
 impl ErpDoc {
-    /// 全部实现（= 注册表里应当出现的 21 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
+    /// 全部实现（= 注册表里应当出现的 22 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
     ///
-    /// 20 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
-    pub const ALL: [ErpDoc; 21] = [
+    /// 21 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
+    pub const ALL: [ErpDoc; 22] = [
         ErpDoc::PurchaseOrder,
         ErpDoc::StockInPost,
         ErpDoc::StockInCancel,
@@ -274,6 +279,7 @@ impl ErpDoc {
         ErpDoc::PurchasePlan,
         ErpDoc::SupplierAccess,
         ErpDoc::FrameworkAgreement,
+        ErpDoc::CostStandardPublish,
     ];
 
     /// 审批业务类型（注册表键）。
@@ -300,6 +306,7 @@ impl ErpDoc {
             ErpDoc::PurchasePlan => FlowBizType::PpApprove,
             ErpDoc::SupplierAccess => FlowBizType::SupplierAccess,
             ErpDoc::FrameworkAgreement => FlowBizType::FrameworkAgreement,
+            ErpDoc::CostStandardPublish => FlowBizType::CostStandardPublish,
         }
     }
 
@@ -327,6 +334,7 @@ impl ErpDoc {
             ErpDoc::PurchasePlan => "采购计划",
             ErpDoc::SupplierAccess => "供应商准入申请",
             ErpDoc::FrameworkAgreement => "框架协议",
+            ErpDoc::CostStandardPublish => "标准成本卡",
         }
     }
 
@@ -478,6 +486,16 @@ impl ErpDoc {
                 creator: "create_by",
                 label: |status| framework_agreement_model::status_label(status).to_string(),
             },
+            // 标准成本卡**没有单号列**（V0374 的卡头只有物料 + 版本号）：`doc_no` 用列表达式
+            // 拼一个可读标识 `STD-v<版本号>`；`status` 列取**发布轴**（流程侧要判的是
+            // 「这张卡还在等审批吗」，`status` 的 1/0 是取数轴，判不了审批 —— 见 V0465 头注释）。
+            ErpDoc::CostStandardPublish => DocSpec {
+                table: "biz_cost_standard",
+                doc_no: "('STD-v' || version_no::text)",
+                status: "publish_state",
+                creator: "create_by",
+                label: |state| cost_standard_dto::publish_state_label(state).to_string(),
+            },
         }
     }
 
@@ -551,6 +569,9 @@ impl ErpDoc {
             ErpDoc::FrameworkAgreement => {
                 let _ = framework_agreement_flow::on_fwa_settled(instance_id, instance_status).await;
             }
+            ErpDoc::CostStandardPublish => {
+                let _ = cost_standard_publish::on_publish_decided(instance_id, instance_status).await;
+            }
         }
     }
 
@@ -582,6 +603,7 @@ impl ErpDoc {
             ErpDoc::PurchasePlan => purchase_plan_bridge::guard_self_approval(task_id, operator).await,
             ErpDoc::SupplierAccess => supplier_access_flow::guard_self_approval(task_id, operator).await,
             ErpDoc::FrameworkAgreement => framework_agreement_flow::guard_self_approval(task_id, operator).await,
+            ErpDoc::CostStandardPublish => cost_standard_publish::guard_self_approval(task_id, operator).await,
         }
     }
 
@@ -612,7 +634,8 @@ impl ErpDoc {
             | ErpDoc::QuotationApprove
             | ErpDoc::PurchasePlan
             | ErpDoc::SupplierAccess
-            | ErpDoc::FrameworkAgreement => Ok(()),
+            | ErpDoc::FrameworkAgreement
+            | ErpDoc::CostStandardPublish => Ok(()),
         }
     }
 
@@ -645,6 +668,7 @@ impl ErpDoc {
             ErpDoc::PurchasePlan => purchase_plan_bridge::internal_control_creator(biz_id).await,
             ErpDoc::SupplierAccess => supplier_access_flow::internal_control_creator(biz_id).await,
             ErpDoc::FrameworkAgreement => framework_agreement_flow::internal_control_creator(biz_id).await,
+            ErpDoc::CostStandardPublish => cost_standard_publish::internal_control_creator(biz_id).await,
         }
     }
 }

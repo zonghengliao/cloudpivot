@@ -768,6 +768,17 @@ pub enum FlowBizType {
     /// 对象轴：**`None`** —— 协议没有 [`DocKind`] 成员（它不挂附件 / 提醒），
     /// 与 `PP_APPROVE` / `SUPPLIER_ACCESS` 同口径如实返回 `None`，不硬塞一个对象进来。
     FrameworkAgreement,
+    /// 标准成本卡发布审批（`cost_standard_publish_approve`，成本核算 M5-10 / V0465）。
+    ///
+    /// 「审核后生效」：卡头 `publish_state` 走 `DRAFT → PENDING → PUBLISHED`，
+    /// 通过才允许参与差异分析取数（`status = 1 AND publish_state = 'PUBLISHED'`）。
+    /// 驳回 / 撤回打回 `DRAFT`（清空审批痕迹、可改后重提）。
+    ///
+    /// 对象轴：**`None`** —— 标准成本卡没有 [`DocKind`] 成员（它不挂附件、不进
+    /// `biz_status_log.entity_type` 的对象轴），与 `PP_APPROVE` 同口径如实返回 `None`。
+    ///
+    /// 顺序：追加在末尾（前端 `FLOW_BIZ_TYPES` 是保序逐字比对）。
+    CostStandardPublish,
 }
 
 impl FlowBizType {
@@ -777,7 +788,7 @@ impl FlowBizType {
     /// （`hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`），
     /// 每套都有一个独立 `biz_type`；§8.1 的「+3」是卡面笔误（漏数了 `HR_EMPLOYEE_RESIGN`）。
     /// 少一个值 = 第 4 套流程落不了 `biz_flow_def.biz_type`，所以按 §3.2 ⑨ 的 4 个落。
-    pub const ALL: [FlowBizType; 28] = [
+    pub const ALL: [FlowBizType; 29] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -813,6 +824,8 @@ impl FlowBizType {
         FlowBizType::SupplierAccess,
         // 采购链 M4-11b：框架协议审批（追加在末尾，前端镜像保序）
         FlowBizType::FrameworkAgreement,
+        // 成本链 M5-10：标准成本卡发布审批（追加在末尾，前端镜像保序）
+        FlowBizType::CostStandardPublish,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -864,6 +877,7 @@ impl FlowBizType {
             FlowBizType::PpApprove => "PP_APPROVE",
             FlowBizType::SupplierAccess => "SUPPLIER_ACCESS",
             FlowBizType::FrameworkAgreement => "FWA_APPROVE",
+            FlowBizType::CostStandardPublish => "COST_STANDARD_PUBLISH",
         }
     }
 
@@ -905,6 +919,8 @@ impl FlowBizType {
             FlowBizType::SupplierAccess => "supplier_access",
             // 采购链 M4-11b：与 V0456 种下的 `flow_code` 逐字一致
             FlowBizType::FrameworkAgreement => "fw_agreement",
+            // 成本链 M5-10：与 V0465 种下的 `flow_code` 逐字一致（`ck_biz_flow_def_code` 只认小写）
+            FlowBizType::CostStandardPublish => "cost_standard_publish_approve",
         }
     }
 
@@ -941,6 +957,7 @@ impl FlowBizType {
             FlowBizType::PpApprove => "采购计划审批",
             FlowBizType::SupplierAccess => "供应商准入审批",
             FlowBizType::FrameworkAgreement => "框架协议审批",
+            FlowBizType::CostStandardPublish => "标准成本发布审批",
         }
     }
 
@@ -993,6 +1010,9 @@ impl FlowBizType {
             // 采购链 M4-11b：框架协议**没有**对象轴成员（不挂附件 / 提醒），
             // 与 `PP_APPROVE` 同口径如实返回 `None`。
             FlowBizType::FrameworkAgreement => return None,
+            // 成本链 M5-10：标准成本卡不在对象轴（不挂附件 / 提醒，也不写
+            // `biz_status_log.entity_type`），与 `PP_APPROVE` 同口径如实返回 `None`。
+            FlowBizType::CostStandardPublish => return None,
             FlowBizType::PrApprove => return None,
             FlowBizType::TaskAccept | FlowBizType::Other => return None,
         })
@@ -1742,7 +1762,7 @@ const DOC_KIND_VALUES: [&str; 37] = [
     "QUOTATION",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 28] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 29] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1777,6 +1797,8 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 28] = [
     "SUPPLIER_ACCESS",
     // 采购链 M4-11b：框架协议审批（V0456 种）
     "FWA_APPROVE",
+    // 成本链 M5-10：标准成本卡发布审批（V0465 种）
+    "COST_STANDARD_PUBLISH",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 23] = [

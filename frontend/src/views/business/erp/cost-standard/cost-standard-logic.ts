@@ -641,6 +641,57 @@ export function canDelete(row: Pick<StandardRow, 'effective_from'>, today: strin
   return !isLockedEffective(row, today);
 }
 
+// ==================== 发布轴（M5-10「审核后生效」） ====================
+
+/**
+ * 发布动作闸（纯逻辑，与后端 `publish_guard` 同判据）。
+ *
+ * | 当前发布状态 | 提交发布 | 撤回 | 说明 |
+ * |---|:--:|:--:|---|
+ * | `DRAFT` | ✅ | ❌ | 草稿：还没提交 / 被驳回 / 撤回后的状态 |
+ * | `PENDING` | ❌ | ✅ | 审批中：只能等，或发起人撤回 |
+ * | `PUBLISHED` | ❌ | ❌ | 已发布：要换口径请新增一版 |
+ *
+ * **只判发布状态，不判 `status`**：`status` 是「参与期间取数」那条轴，
+ * 草稿卡的 `status` 也可能是 1（占住生效窗口等审批），不能拿它当「已发布」。
+ */
+export interface PublishGate {
+  /** 能不能提交发布审批 */
+  canSubmit: boolean;
+  /** 能不能撤回发布审批 */
+  canWithdraw: boolean;
+  /** 当前发布状态（归一成大写；未知值原样返回） */
+  state: string;
+  /** 提交按钮的 tooltip（不能点时说明原因与出路） */
+  submitHint: string;
+  /** 撤回按钮的 tooltip */
+  withdrawHint: string;
+}
+
+/** 发布状态归一（大小写 / 空白都容忍；与后端 `is_publish_state` 同口径）。 */
+export function normalizePublishState(state: string | null | undefined): string {
+  return (state ?? '').trim().toUpperCase();
+}
+
+/** 计算一行的发布动作闸。 */
+export function publishGate(row: Pick<StandardRow, 'publish_state'>): PublishGate {
+  const state = normalizePublishState(row.publish_state);
+  const canSubmit = state === 'DRAFT';
+  const canWithdraw = state === 'PENDING';
+  let submitHint = '提交发布审批（财务经理审批通过后这一版才参与差异分析取数）';
+  if (state === 'PENDING') {
+    submitHint = '已经在审批中：等审批结束，或先「撤回」再改';
+  } else if (state === 'PUBLISHED') {
+    submitHint = '已发布：要换口径请新增一版（历史版本是差异分析的依据，不许回头改）';
+  } else if (!canSubmit) {
+    submitHint = `发布状态「${state || '未知'}」不接受提交`;
+  }
+  const withdrawHint = canWithdraw
+    ? '撤回发布申请（只有发起人本人能撤；撤回后回草稿，可改完重提）'
+    : '只有「审批中」才能撤回';
+  return { canSubmit, canWithdraw, state, submitHint, withdrawHint };
+}
+
 /** 「失效」这件事的后果说明（后端会在 `warnings` 里再补一遍）。 */
 export const INACTIVE_CONSEQUENCE =
   '失效后这一版不再参与期间取数：该期间若没有别的启用版本，差异分析会「取不到标准」而跳过';

@@ -92,7 +92,7 @@ function rustFlowBizTypes(): string[] {
   return [...body.matchAll(/FlowBizType::\w+ => "([A-Z_]+)"/g)].map((match) => match[1] ?? '');
 }
 
-test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，28 个）', () => {
+test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，29 个）', () => {
   const rust = rustFlowBizTypes();
   // 13 → 15：FIN-1 加 BUDGET_APPROVE、FIN-2 加 ASSET_DISPOSAL（镜像已同步，只有本断言漏改）
   // 15 → 16：SO-14 加 RECEIPT_REFUND（同上，镜像早已同步，本断言漏改 → E2E-10 演练发现）
@@ -104,7 +104,8 @@ test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、�
   // 26 → 27：M4-14 之前的 SUPPLIER_ACCESS 计数错位（镜像 27 项时本断言已写 27）
   // 27 → 28：M4-14 加 SUPPLIER_ACCESS（供应商准入 / 黑名单审批流接线，V0455；镜像已同步为 28 项，
   //          本断言的数字当时没跟上 → 单测红，随前端卡 t_9248e8d3 一并修掉）
-  assert.equal(rust.length, 28, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
+  // 28 → 29：M5-10 加 COST_STANDARD_PUBLISH（标准成本发布审批，V0465；镜像已同步）
+  assert.equal(rust.length, 29, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
   assert.deepEqual([...FLOW_BIZ_TYPES], rust);
 });
 

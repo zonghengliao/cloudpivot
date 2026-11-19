@@ -230,6 +230,13 @@ mod cost_standard_import_db_tests;
 /// 标准成本卡 **取数层**（M5-08）：卡头 + 物料实时 join + 明细行数、标准 BOM、按物料/日期/期间
 /// 取版本、advisory lock、卡头与明细写入原语。
 pub mod cost_standard_model;
+/// 标准成本卡 **发布审批**（M5-10「审核后生效」）：`DRAFT → PENDING → PUBLISHED` 状态机 +
+/// `cost_standard_publish_approve` 流程接线（提交 / 撤回 2 条路由，复用 `cost-method:update`）+ 自审闸 + 内控排除。
+pub mod cost_standard_publish;
+/// M5-10 的真库用例（`ERP_DB_URL` 开关）：提交建实例 / 通过即发布并参与取数 / 驳回回草稿 /
+/// 撤回同事务 / 状态闸 66111 / 自审 403 / 审批中不许改删。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_standard_publish_db_tests;
 /// 成本核算模块开关探针（ARCH-9 §7.4 灰度 · COST-B4-4）：`GET /business/erp/cost-switch`。
 pub mod cost_switch_handler;
 /// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。

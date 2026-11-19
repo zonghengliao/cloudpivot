@@ -19,7 +19,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { StandardDetailRes, StandardImportResult, StandardRow } from '@/api/business/erp/cost-standard-kinds';
-import { statusLabel, statusTheme } from '@/api/business/erp/cost-standard-kinds';
+import {
+  PUBLISH_STATE_OPTIONS,
+  publishStateLabel,
+  publishStateTheme,
+  statusLabel,
+  statusTheme,
+} from '@/api/business/erp/cost-standard-kinds';
 import {
   AMOUNT_SCALE,
   HOURS_SCALE,
@@ -40,8 +46,10 @@ import {
   materialLabel,
   materialTypeLabel,
   mulRound,
+  normalizePublishState,
   periodWindow,
   previewAmounts,
+  publishGate,
   scaledText,
   toCreatePayload,
   toScaled,
@@ -68,6 +76,10 @@ function head(overrides: Partial<StandardRow> = {}): StandardRow {
     effective_to: '2026-11-30',
     status: 1,
     status_label: '生效',
+    publish_state: 'PUBLISHED',
+    publish_state_label: '已发布',
+    publish_instance_id: null,
+    published_at: '2026-11-01T00:00:00+08:00',
     std_material_cost: '17.166666',
     std_labor_cost: '77.777778',
     std_overhead_cost: '12.345678',
@@ -463,4 +475,49 @@ test('导入结果话术：成功时说清「行数 → 版本数」', () => {
   assert.ok(text.includes('3 版'), text);
   assert.equal(importSummaryTheme(result), 'success');
   assert.equal(importIssueRows(result).length, 0);
+});
+
+// ==================== 发布轴（M5-10「审核后生效」） ====================
+
+test('发布状态词表：三值 + 中文 + 主题（与后端逐字一致）', () => {
+  assert.deepEqual(
+    PUBLISH_STATE_OPTIONS.map((option) => option.value),
+    ['DRAFT', 'PENDING', 'PUBLISHED'],
+    '三值域与 ck_biz_cost_std_publish 一致',
+  );
+  assert.equal(publishStateLabel('DRAFT'), '草稿');
+  assert.equal(publishStateLabel(' pending '), '审批中', '空白 / 小写要容忍');
+  assert.equal(publishStateLabel('PUBLISHED'), '已发布');
+  assert.equal(publishStateLabel('SOMETHING'), '未知');
+  assert.equal(publishStateTheme('PUBLISHED'), 'success');
+  assert.equal(publishStateTheme('PENDING'), 'primary');
+  assert.equal(publishStateTheme('DRAFT'), 'default');
+  assert.equal(normalizePublishState(null), '', 'null 归一成空串');
+  assert.equal(normalizePublishState(' draft '), 'DRAFT');
+});
+
+test('发布动作闸：草稿才能提交、审批中才能撤回、已发布两者都不行', () => {
+  const draft = publishGate({ publish_state: 'DRAFT' });
+  assert.equal(draft.canSubmit, true);
+  assert.equal(draft.canWithdraw, false);
+  assert.ok(draft.submitHint.includes('参与差异分析取数'), draft.submitHint);
+
+  const pending = publishGate({ publish_state: 'pending' });
+  assert.equal(pending.canSubmit, false);
+  assert.equal(pending.canWithdraw, true);
+  assert.ok(pending.submitHint.includes('撤回'), '审批中要给出路：' + pending.submitHint);
+
+  const published = publishGate({ publish_state: 'PUBLISHED' });
+  assert.equal(published.canSubmit, false);
+  assert.equal(published.canWithdraw, false);
+  assert.ok(published.submitHint.includes('新增一版'), published.submitHint);
+  assert.ok(published.withdrawHint.includes('审批中'), published.withdrawHint);
+
+  // ⚠️ 只看发布状态，**不看 status**：草稿卡的 status 也可能是 1（占住生效窗口等审批）
+  const draftButActive = publishGate({ publish_state: 'DRAFT' });
+  assert.equal(draftButActive.canSubmit, true, 'status=1 的草稿仍然可以提交发布');
+  // 未知值一律不放行（宁可不给点，也不发一个必被 409 的请求）
+  const unknown = publishGate({ publish_state: 'WHATEVER' });
+  assert.equal(unknown.canSubmit, false);
+  assert.equal(unknown.canWithdraw, false);
 });

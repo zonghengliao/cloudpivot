@@ -1945,6 +1945,25 @@ pub const ERP_COST_STANDARD_LOCKED_EFFECTIVE: i32 = 66109;
 /// 失效不占生效窗口，可以立刻启用新版覆盖同一期间）。
 pub const ERP_COST_STANDARD_DELETE_IN_USE: i32 = 66110;
 
+/// 标准成本卡 · **发布状态不接受该动作**（HTTP 409，M5-10 · `66111`）。
+///
+/// 「审核后生效」是三条动作闸的合并码（三者都是「当前发布状态不对」，出路各不相同，
+/// 报文里逐条点名）：
+///
+/// 1. **提交发布**：只有 `DRAFT` 能提交（`PENDING` 已在审批中 / `PUBLISHED` 已发布，
+///    要改口径请新建一版）；
+/// 2. **改口径 / 删除 / 置生效**：`PENDING` 期间一律不许改、不许删、不许手工置生效 ——
+///    否则审批人批的是一版、库里生效的是另一版（审批失真比死单更坏）；
+/// 3. **手工置生效**（`POST …/{id}/status` 的 `status=1`）：未发布的卡必须先走发布审批，
+///    这条闸是「审核后生效」不被绕过的唯一保证（`status` 是 1/0 的取数轴，
+///    但它不能成为跳过审批的后门）。
+///
+/// 为什么开新码而不复用 [`ERP_COST_STANDARD_LOCKED_EFFECTIVE`]（`66109`）：
+/// `66109` 的语义是「这一版**已经生效过**，历史口径不许改写」（按生效日判），
+/// 本码是「这一版**审批没走完**」（按发布状态判）—— 前者的出路是「失效 + 新建一版」，
+/// 后者的出路是「等审批 / 撤回后改 / 先提交审批」，前端给的引导完全不同。
+pub const ERP_COST_STANDARD_PUBLISH_GUARD: i32 = 66111;
+
 /// 科目「是否外币核算」标记非法（HTTP 400，M1-03 · V0408 · `66080`）。
 ///
 /// 只有**末级科目**才能标记外币核算（`ck_biz_account_fc_leaf`）。给非末级科目打标记的
@@ -2592,6 +2611,9 @@ mod tests {
             (ERP_COST_STANDARD_OVERLAP, 66108),
             (ERP_COST_STANDARD_LOCKED_EFFECTIVE, 66109),
             (ERP_COST_STANDARD_DELETE_IN_USE, 66110),
+            // 标准成本发布状态闸（66111；M5-10 —— 非草稿提交 / 审批中改口径 /
+            // 未发布置生效，三条都是「当前发布状态不接受这个动作」，出路各不相同）
+            (ERP_COST_STANDARD_PUBLISH_GUARD, 66111),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

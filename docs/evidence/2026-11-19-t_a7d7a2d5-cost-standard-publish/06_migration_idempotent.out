@@ -1,0 +1,33 @@
+== 迁移幂等演练（库 cp_m510_pub，先清掉测试残留的发布实例与草稿卡）==
+DELETE 0
+DELETE 0
+DELETE 0
+DELETE 0
+DELETE 0
+-- down 第 1 次
+rc=0
+-- down 第 2 次
+psql:backend/app/migrations/business/V0465__cost_standard_publish.down.sql:65: NOTICE:  constraint "ck_biz_cost_std_publish_inst" of relation "biz_cost_standard" does not exist, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.down.sql:66: NOTICE:  constraint "ck_biz_cost_std_publish" of relation "biz_cost_standard" does not exist, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.down.sql:67: NOTICE:  index "idx_biz_cost_std_publish_state" does not exist, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.down.sql:72: NOTICE:  column "published_by" of relation "biz_cost_standard" does not exist, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.down.sql:72: NOTICE:  column "published_at" of relation "biz_cost_standard" does not exist, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.down.sql:72: NOTICE:  column "publish_instance_id" of relation "biz_cost_standard" does not exist, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.down.sql:72: NOTICE:  column "publish_state" of relation "biz_cost_standard" does not exist, skipping
+rc=0
+publish* 列=0
+流程定义=0
+-- up 第 1 次
+rc=0
+-- up 第 2 次
+psql:backend/app/migrations/business/V0465__cost_standard_publish.up.sql:111: NOTICE:  column "publish_state" of relation "biz_cost_standard" already exists, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.up.sql:111: NOTICE:  column "publish_instance_id" of relation "biz_cost_standard" already exists, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.up.sql:111: NOTICE:  column "published_at" of relation "biz_cost_standard" already exists, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.up.sql:111: NOTICE:  column "published_by" of relation "biz_cost_standard" already exists, skipping
+psql:backend/app/migrations/business/V0465__cost_standard_publish.up.sql:144: NOTICE:  relation "idx_biz_cost_std_publish_state" already exists, skipping
+rc=0
+defs=1
+versions=1
+nodes=3
+edges=2
+publish* 列=4

@@ -108,6 +108,12 @@
         </t-tag>
       </template>
 
+      <template #publish="{ row }">
+        <t-tag size="small" variant="light" :theme="publishStateTheme(row.publish_state)">
+          {{ row.publish_state_label || publishStateLabel(row.publish_state) }}
+        </t-tag>
+      </template>
+
       <template #std_material_cost="{ row }">
         <span class="num">{{ amountsOf(row).material }}</span>
       </template>
@@ -132,6 +138,26 @@
 
       <template #op="{ row }">
         <div class="op-cell">
+          <t-link
+            v-privilege="[PERM.update]"
+            theme="primary"
+            :disabled="!publishGate(row).canSubmit"
+            :title="publishGate(row).submitHint"
+            data-testid="cs-btn-publish"
+            @click.stop="submitPublish(row)"
+          >
+            提交发布
+          </t-link>
+          <t-link
+            v-privilege="[PERM.update]"
+            theme="warning"
+            :disabled="!publishGate(row).canWithdraw"
+            :title="publishGate(row).withdrawHint"
+            data-testid="cs-btn-withdraw"
+            @click.stop="withdrawPublish(row)"
+          >
+            撤回
+          </t-link>
           <t-link
             v-privilege="[PERM.update]"
             theme="primary"
@@ -511,8 +537,10 @@ import {
   COST_STANDARD_LOCKED_CODE,
   COST_STANDARD_OVERLAP_CODE,
   COST_STANDARD_PERMISSIONS,
+  COST_STANDARD_PUBLISH_GUARD_CODE,
   OPTION_LIMIT,
   PAGE_SIZE,
+  PUBLISH_STATE_OPTIONS,
   STANDARD_STATUS_OPTIONS,
   createStandard,
   deleteStandard,
@@ -520,11 +548,15 @@ import {
   fetchStandardDetail,
   fetchStandardPage,
   importStandards,
+  publishStateLabel,
+  publishStateTheme,
   saveBlob,
   setStandardStatus,
   statusLabel,
   statusTheme,
+  submitStandardPublish,
   updateStandard,
+  withdrawStandardPublish,
   type StandardImportResult,
   type StandardRow,
 } from '@/api/business/erp/cost-standard';
@@ -555,6 +587,7 @@ import {
   materialTypeLabel,
   periodWindow,
   previewAmounts,
+  publishGate,
   toCreatePayload,
   toScaled,
   toUpdatePayload,
@@ -581,10 +614,12 @@ const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 const filter = reactive<{
   period_code: string;
   status: number | '';
+  publish_state: string;
   keyword: string;
 }>({
   period_code: '',
   status: '',
+  publish_state: '',
   keyword: '',
 });
 
@@ -592,14 +627,15 @@ const columns: ColumnDef[] = [
   { colKey: 'material', title: '物料', width: 220, ellipsis: true },
   { colKey: 'version', title: '版本', width: 100 },
   { colKey: 'window', title: '生效期', width: 200 },
-  { colKey: 'status', title: '状态', width: 80 },
+  { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'publish', title: '发布', width: 90 },
   { colKey: 'std_material_cost', title: '标准材料', width: 120 },
   { colKey: 'std_labor_cost', title: '标准人工', width: 120 },
   { colKey: 'std_overhead_cost', title: '制造费用', width: 120 },
   { colKey: 'std_total_cost', title: '标准总成本', width: 130 },
   { colKey: 'standard', title: '工时 / 工资率', width: 120 },
   { colKey: 'remark', title: '备注', width: 200, ellipsis: true },
-  { colKey: 'op', title: '操作', width: 170, fixed: 'right', exportable: false },
+  { colKey: 'op', title: '操作', width: 300, fixed: 'right', exportable: false },
 ];
 
 const filters = computed<FilterDef[]>(() => [
@@ -621,6 +657,15 @@ const filters = computed<FilterDef[]>(() => [
     testid: 'cs-filter-status',
   },
   {
+    key: 'publish_state',
+    type: 'select',
+    options: PUBLISH_STATE_OPTIONS.map((option) => ({ label: option.label, value: option.value })),
+    searchOnChange: true,
+    placeholder: '全部发布状态',
+    width: 130,
+    testid: 'cs-filter-publish',
+  },
+  {
     key: 'keyword',
     type: 'keyword',
     placeholder: '物料编码 / 名称 / 备注',
@@ -633,12 +678,13 @@ const fetcher: ListFetcher<StandardRow> = (query) =>
   fetchStandardPage(query as Parameters<typeof fetchStandardPage>[0]);
 
 const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
-  const value = state as { period_code: string; status: number | ''; keyword: string };
+  const value = state as { period_code: string; status: number | ''; publish_state: string; keyword: string };
   return {
     page,
     page_size: pageSize,
     period_code: value.period_code,
     status: value.status === '' ? undefined : value.status,
+    publish_state: value.publish_state || undefined,
     keyword: value.keyword.trim(),
   };
 };
@@ -883,7 +929,68 @@ function explainWriteError(error: unknown, fallback: string): string {
   if (code === COST_STANDARD_DELETE_CODE) {
     return errorText(error, '这一版已生效过，不能删除（请改成「失效」）');
   }
+  if (code === COST_STANDARD_PUBLISH_GUARD_CODE) {
+    // 66111 的报文后端已经写清「当前是什么状态 + 出路是什么」，原样给人看
+    return errorText(error, '发布状态不接受这个动作（请刷新后按报文里的出路处理）');
+  }
   return errorText(error, fallback);
+}
+
+// ==================== 发布审批（M5-10「审核后生效」） ====================
+
+/**
+ * 提交发布审批。
+ *
+ * 界面**只负责发起**：通过与否在审批中心（财务经理）。按钮的可用性由
+ * [`publishGate`] 统一判（与后端 `publish_guard` 同判据），不在模板里散着写。
+ */
+function submitPublish(row: StandardRow): void {
+  const gate = publishGate(row);
+  if (!gate.canSubmit) {
+    MessagePlugin.warning(gate.submitHint);
+    return;
+  }
+  const dialogInstance = DialogPlugin.confirm({
+    header: '提交发布审批',
+    theme: 'info',
+    body: `确认把 ${materialLabel(row)} 的 v${row.version_no}（${windowText(row.effective_from, row.effective_to)}）提交发布审批？审批通过后这一版才参与差异分析取数；审批期间不能改口径。`,
+    confirmBtn: { content: '提交', theme: 'primary' },
+    onConfirm: async () => {
+      dialogInstance.hide();
+      try {
+        await submitStandardPublish(row.id);
+        MessagePlugin.success('已提交发布审批');
+        await reload();
+      } catch (error) {
+        MessagePlugin.error(explainWriteError(error, '提交发布失败'));
+      }
+    },
+  });
+}
+
+/** 撤回发布审批（只有发起人本人能撤；后端带「实例已终态」自愈分支）。 */
+function withdrawPublish(row: StandardRow): void {
+  const gate = publishGate(row);
+  if (!gate.canWithdraw) {
+    MessagePlugin.warning(gate.withdrawHint);
+    return;
+  }
+  const dialogInstance = DialogPlugin.confirm({
+    header: '撤回发布申请',
+    theme: 'warning',
+    body: `确认撤回 ${materialLabel(row)} 的 v${row.version_no} 的发布申请？撤回后这一版回到草稿，可以改口径后重新提交。`,
+    confirmBtn: { content: '撤回', theme: 'warning' },
+    onConfirm: async () => {
+      dialogInstance.hide();
+      try {
+        await withdrawStandardPublish(row.id);
+        MessagePlugin.success('已撤回，卡回到草稿');
+        await reload();
+      } catch (error) {
+        MessagePlugin.error(explainWriteError(error, '撤回失败'));
+      }
+    },
+  });
 }
 
 // ==================== 生效 / 失效 ====================
@@ -896,6 +1003,13 @@ const statusDialog = reactive<{
 }>({ visible: false, row: null, reason: '', saving: false });
 
 function openStatus(row: StandardRow): void {
+  // M5-10：未发布的卡不许手工置生效（后端 66111 也会拦，这里提前拦住并说清出路）
+  if (row.status !== 1 && publishGate(row).state !== 'PUBLISHED') {
+    MessagePlugin.warning(
+      `这一版还没发布（当前「${row.publish_state_label || publishStateLabel(row.publish_state)}」）：\n请先「提交发布」，财务经理审批通过后自动生效。`,
+    );
+    return;
+  }
   statusDialog.row = row;
   statusDialog.reason = '';
   statusDialog.visible = true;

@@ -57,7 +57,8 @@ pub const ORDER: &str = "ORDER BY (t.status = 1) DESC, t.effective_from DESC, m.
 /// 卡头列（与 [`StandardRow`] 字段一一对应；物料派生列与明细行数在 `select_sql` 里另加）。
 const COLUMNS: &str = "id, material_id, version_no, effective_from, effective_to, \
                        std_material_cost, std_labor_cost, std_overhead_cost, std_total_cost, \
-                       std_labor_hours, std_labor_rate, status, remark, created_at, updated_at";
+                       std_labor_hours, std_labor_rate, status, publish_state, \
+                       publish_instance_id, published_at, remark, created_at, updated_at";
 
 /// 明细列（与 [`ItemRow`] 字段一一对应）。
 const ITEM_COLUMNS: &str = "i.id, i.line_no, i.component_material_id, i.std_qty, i.std_price, i.std_amount";
@@ -91,6 +92,12 @@ pub struct StandardRow {
     pub std_labor_rate: Decimal,
     /// 状态（1 / 0）。
     pub status: i16,
+    /// 发布状态（`DRAFT` / `PENDING` / `PUBLISHED`，M5-10 的发布轴）。
+    pub publish_state: String,
+    /// 发布审批实例（`PENDING` 必填；`PUBLISHED` 保留作审计）。
+    pub publish_instance_id: Option<Uuid>,
+    /// 最近一次发布时刻。
+    pub published_at: Option<DateTime<Utc>>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -125,6 +132,9 @@ impl StandardRow {
             std_labor_hours: row.get_typed("std_labor_hours")?,
             std_labor_rate: row.get_typed("std_labor_rate")?,
             status: row.get_typed("status")?,
+            publish_state: row.get_typed("publish_state")?,
+            publish_instance_id: row.get_typed("publish_instance_id")?,
+            published_at: row.get_typed("published_at")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
@@ -255,6 +265,8 @@ pub struct StandardFilter {
     pub material_id: Option<Uuid>,
     /// 状态。
     pub status: Option<i16>,
+    /// 发布状态（`DRAFT` / `PENDING` / `PUBLISHED`；不传 = 全部）。M5-10。
+    pub publish_state: Option<String>,
     /// 期间区间（版本生效区间与它有交集即命中）。
     pub period: Option<(NaiveDate, NaiveDate)>,
     /// 某一天（版本覆盖该日即命中）。
@@ -336,6 +348,7 @@ pub async fn find_covering_in(
 ) -> DbResult<Option<StandardRow>> {
     let sql = format!(
         "{} WHERE t.material_id = ?::uuid AND t.deleted_at IS NULL AND t.status = 1 \
+           AND t.publish_state = 'PUBLISHED' \
            AND t.effective_from <= ?::text::date \
            AND (t.effective_to IS NULL OR t.effective_to >= ?::text::date) \
          ORDER BY t.effective_from DESC LIMIT 1",
@@ -363,7 +376,8 @@ pub async fn other_versions_in_window(
     exclude: Uuid,
 ) -> DbResult<Vec<StandardRow>> {
     let sql = format!(
-        "{} WHERE t.material_id = ?::uuid AND t.deleted_at IS NULL AND t.status = 1 AND t.id <> ?::uuid \
+        "{} WHERE t.material_id = ?::uuid AND t.deleted_at IS NULL AND t.status = 1 \
+           AND t.publish_state = 'PUBLISHED' AND t.id <> ?::uuid \
            AND t.effective_from <= ?::text::date \
            AND (t.effective_to IS NULL OR t.effective_to >= ?::text::date) \
          ORDER BY t.effective_from ASC, t.id ASC",
@@ -491,6 +505,10 @@ pub async fn page(filter: &StandardFilter) -> DbResult<(Vec<StandardRow>, i64)> 
         sql.push_str(" AND t.status = ?");
         params.push(Value::I16(status));
     }
+    if let Some(publish_state) = filter.publish_state.as_deref() {
+        sql.push_str(" AND t.publish_state = ?");
+        params.push(Value::Text(publish_state.to_string()));
+    }
     if let Some((start, end)) = filter.period {
         sql.push_str(
             " AND t.effective_from <= ?::text::date \
@@ -546,12 +564,14 @@ pub(crate) fn period_sheet_sql(has_keyword: bool) -> String {
         "{head}, \
                 CASE WHEN EXISTS (SELECT 1 FROM {TABLE_HEAD} x \
                                    WHERE x.deleted_at IS NULL AND x.status = 1 \
+                                     AND x.publish_state = 'PUBLISHED' \
                                      AND x.material_id = t.material_id AND x.id <> t.id \
                                      AND x.effective_from <= ?::text::date \
                                      AND (x.effective_to IS NULL OR x.effective_to >= ?::text::date)) \
                      THEN TRUE ELSE FALSE END AS switch_in_period \
            FROM {TABLE_HEAD} t {tail} \
           WHERE t.deleted_at IS NULL AND t.status = 1 \
+            AND t.publish_state = 'PUBLISHED' \
             AND t.effective_from <= ?::text::date \
             AND (t.effective_to IS NULL OR t.effective_to >= ?::text::date)"
     );
@@ -632,16 +652,20 @@ pub fn next_version_no(rows: &[StandardRow]) -> i32 {
 }
 
 /// 建卡头 SQL。
+///
+/// `publish_state` 写死 `'DRAFT'`（M5-10）：**新卡一律是草稿**，要参与期间取数必须走
+/// 发布审批。写死而不加占位符，是为了让「任何插入路径（单条录入 / xlsx 批量导入）都
+/// 造不出已发布的卡」成为 SQL 层面的事实 —— 参数化的话，漏传一次就绕过了审批。
 pub(crate) fn insert_head_sql() -> String {
     format!(
         "INSERT INTO {TABLE_HEAD} \
              (id, material_id, version_no, effective_from, effective_to, \
               std_material_cost, std_labor_cost, std_overhead_cost, std_total_cost, \
-              std_labor_hours, std_labor_rate, status, remark, \
+              std_labor_hours, std_labor_rate, status, publish_state, remark, \
               created_at, updated_at, create_by, update_by) \
          VALUES (?::uuid, ?::uuid, ?, ?::text::date, NULLIF(?::text,'')::text::date, \
                  ?::text::numeric, ?::text::numeric, ?::text::numeric, ?::text::numeric, \
-                 ?::text::numeric, ?::text::numeric, ?, NULLIF(?::text,''), \
+                 ?::text::numeric, ?::text::numeric, ?, 'DRAFT', NULLIF(?::text,''), \
                  now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
     )
 }
@@ -816,6 +840,83 @@ pub async fn set_status(
     .await
 }
 
+// ==================== 发布轴（M5-10）====================
+
+/// 提交发布：`DRAFT → PENDING` 并挂审批实例。返回受影响行数（`0` = 状态已被别人改走）。
+///
+/// CAS 条件写进 `WHERE publish_state = 'DRAFT'`：并发两下「提交」只有一次能成，
+/// 第二次拿到 0 行由调用方转 409（不留两张审批单）。
+pub async fn mark_publish_submitted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    instance_id: Uuid,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE_HEAD} SET publish_state = 'PENDING', publish_instance_id = ?::uuid, \
+                 updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
+           WHERE id = ?::uuid AND deleted_at IS NULL AND publish_state = 'DRAFT'"
+        ),
+        vec![
+            Value::from(&instance_id),
+            Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 审批通过：`PENDING → PUBLISHED` + **置 `status = 1`**（发布即参与期间取数）。
+///
+/// 实例 id **保留**作审计（详情页能点进那张审批单）；`published_at / published_by` 落审批人。
+pub async fn mark_published(ex: &impl SqlExecutor, id: Uuid, approver: Option<Uuid>) -> DbResult<u64> {
+    let approver = Value::Text(approver.map(|id| id.to_string()).unwrap_or_default());
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE_HEAD} SET publish_state = 'PUBLISHED', status = 1, \
+                 published_at = now(), published_by = NULLIF(?::text,'')::uuid, \
+                 updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
+           WHERE id = ?::uuid AND deleted_at IS NULL AND publish_state = 'PENDING'"
+        ),
+        vec![approver.clone(), approver, Value::from(&id)],
+    )
+    .await
+}
+
+/// 驳回 / 撤回 / 终止：`PENDING → DRAFT`，**清空审批实例指针**（可改后重提），意见进备注。
+///
+/// 清指针的理由与 `cost_period_bridge` 逐字相同：单上留着 `REJECTED` 的旧实例会让详情页
+/// 显示「审批中 FLW-xxx」与「草稿」自相矛盾；审批痕迹留在审批中心（实例与待办一条不删）。
+pub async fn mark_publish_back_to_draft(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    note: Option<&str>,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    let append = match note.map(str::trim).filter(|text| !text.is_empty()) {
+        None => String::new(),
+        Some(text) => format!(
+            "\n{}",
+            text // 由桥侧拼好前缀（`审批驳回：` / `审批撤回：`），这里只负责换行追加
+        ),
+    };
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE_HEAD} SET publish_state = 'DRAFT', publish_instance_id = NULL, \
+                 remark = NULLIF(COALESCE(remark, '') || ?::text, ''), \
+                 updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
+           WHERE id = ?::uuid AND deleted_at IS NULL AND publish_state = 'PENDING'"
+        ),
+        vec![
+            Value::Text(append),
+            Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
 /// 软删。返回受影响行数（`0` → 不存在 / 已删）。
 pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     ex.exec_sql(
@@ -949,6 +1050,9 @@ mod tests {
                 std_labor_hours: Decimal::ZERO,
                 std_labor_rate: Decimal::ZERO,
                 status,
+                publish_state: dto::PUBLISH_PUBLISHED.to_string(),
+                publish_instance_id: None,
+                published_at: None,
                 remark: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
@@ -1002,6 +1106,9 @@ mod tests {
             std_labor_hours: Decimal::ZERO,
             std_labor_rate: Decimal::ZERO,
             status: dto::STATUS_ACTIVE,
+            publish_state: dto::PUBLISH_PUBLISHED.to_string(),
+            publish_instance_id: None,
+            published_at: None,
             remark: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),

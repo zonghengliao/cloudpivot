@@ -42,6 +42,9 @@ mod db {
         StandardUpdateReq,
     };
     use crate::business::erp::cost::cost_standard_handler as handler;
+    use crate::business::erp::cost::cost_standard_model as model;
+    use crate::business::erp::cost::cost_standard_publish as publish;
+    use crate::business::flow::engine;
     use nik::prelude::chrono::{Duration, FixedOffset, NaiveDate, Utc};
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr as _;
@@ -104,6 +107,11 @@ mod db {
     }
 
     /// 清场：删本卡的标准成本行（明细随卡头 CASCADE）；物料等共享基线不删。
+    ///
+    /// M5-10 起卡会被提交进发布审批：卡删了但审批实例还留着就是**孤儿实例**
+    /// （`biz_flow_instance.biz_id` 指向不存在的卡），会挡住 V0465 的 down 演练、
+    /// 也会让「整库无孤儿」类断言误伤别人。所以按 FK 顺序把**指向已不存在卡**的
+    /// 发布实例一并收掉（只碰 `COST_STANDARD_PUBLISH` 这一种业务类型）。
     async fn cleanup(materials: &[Uuid]) {
         for material_id in materials {
             if let Err(err) = exec(
@@ -113,6 +121,24 @@ mod db {
             .await
             {
                 println!("清场失败（不影响断言）：{err}");
+            }
+        }
+        for sql in [
+            "DELETE FROM biz_flow_cc WHERE instance_id IN (SELECT id FROM biz_flow_instance \
+              WHERE biz_type = 'COST_STANDARD_PUBLISH' AND biz_id NOT IN (SELECT id FROM biz_cost_standard))"
+                .to_string(),
+            "DELETE FROM biz_flow_task WHERE instance_id IN (SELECT id FROM biz_flow_instance \
+              WHERE biz_type = 'COST_STANDARD_PUBLISH' AND biz_id NOT IN (SELECT id FROM biz_cost_standard))"
+                .to_string(),
+            "DELETE FROM biz_flow_instance_node WHERE instance_id IN (SELECT id FROM biz_flow_instance \
+              WHERE biz_type = 'COST_STANDARD_PUBLISH' AND biz_id NOT IN (SELECT id FROM biz_cost_standard))"
+                .to_string(),
+            "DELETE FROM biz_flow_instance WHERE biz_type = 'COST_STANDARD_PUBLISH' \
+              AND biz_id NOT IN (SELECT id FROM biz_cost_standard)"
+                .to_string(),
+        ] {
+            if let Err(err) = exec(sql, vec![]).await {
+                println!("清孤儿发布实例失败（不影响断言）：{err}");
             }
         }
     }
@@ -162,6 +188,46 @@ mod db {
             .collect()
     }
 
+    /// 走**真实发布审批**把一版卡发出去（M5-10 起「新建 = 草稿」，取数前必须先发布）。
+    ///
+    /// 口径与生产一致：提交 → 逐一以「待办的 assignee」身份同意 → 审批事务提交后跑本桥回调。
+    /// 单测进程里 `doc_reader` 注册表是空的（只在 bootstrap 填），所以这里直接调桥。
+    async fn publish_now(id_text: &str) {
+        let id = Uuid::parse_str(id_text).expect("卡 id");
+        // 发起人必须是**真实存在的账号**（`biz_flow_instance.initiator_id` 有外键）：
+        // 借 bootstrap 种下的 `admin`，不新造账号（少一份夹具要清场）。
+        let operator: Uuid = db()
+            .scalar_with_params::<Uuid>(
+                "SELECT id FROM sys_user WHERE username = 'admin' AND deleted_at IS NULL LIMIT 1",
+                vec![],
+            )
+            .await
+            .expect("查 admin 账号");
+        publish::submit_publish(Some(operator), id_text)
+            .await
+            .expect("提交发布应成功");
+        let instance = model::find_by_id(id)
+            .await
+            .expect("查卡头")
+            .expect("卡头应存在")
+            .publish_instance_id
+            .expect("提交后必须挂实例");
+        for (task_id, assignee) in crate::business::flow::test_support::pending_tasks(instance).await {
+            let out = db()
+                .transaction(|tx| async move { engine::approve(&tx, task_id, assignee, Some("M5-08 用例发布")).await })
+                .await
+                .expect("审批同意失败");
+            assert!(out.rejected.is_none(), "审批被引擎拒绝：{:?}", out.rejected);
+            publish::on_publish_decided(out.instance_id, &out.instance_status).await;
+        }
+        let row = model::find_by_id(id).await.expect("查卡头").expect("卡头应存在");
+        assert_eq!(
+            row.publish_state,
+            dto::PUBLISH_PUBLISHED,
+            "发布审批走完必须是 PUBLISHED（否则后面的取数断言会以 404 的形式误导人）"
+        );
+    }
+
     // ==================== 用例 ====================
 
     /// 1. 建版：三要素按口径算、版本号从 1 起、明细带物料编码/名称、物料信息实时 join。
@@ -189,8 +255,15 @@ mod db {
         .expect("建标准成本版本");
 
         assert_eq!(created.head.version_no, 1, "第一版版本号 = 1");
-        assert_eq!(created.head.status, dto::STATUS_ACTIVE, "默认生效");
-        assert_eq!(created.head.status_label, "生效");
+        assert_eq!(
+            created.head.status,
+            dto::STATUS_ACTIVE,
+            "默认启用（占住生效窗口等审批）"
+        );
+        // M5-10「审核后生效」：新建的是**草稿**，取数前必须走发布审批，所以文案不是「生效」
+        assert_eq!(created.head.publish_state, dto::PUBLISH_DRAFT, "新建即草稿");
+        assert_eq!(created.head.status_label, "草稿（未生效）");
+        assert_eq!(created.head.publish_state_label, "草稿");
         assert_eq!(
             created.head.std_material_cost, "17.166666",
             "3 × 5.5 = 16.5，再加 2 × 0.333333"
@@ -288,6 +361,7 @@ mod db {
         )
         .await
         .expect("建版");
+        publish_now(&created.head.id).await;
 
         // 按日：区间内含两端
         for on in [day(-5), today(), day(25)] {
@@ -367,6 +441,8 @@ mod db {
         let second = handler::create_standard(None, create_req(product, mid + Duration::days(1), Some(end), vec![]))
             .await
             .expect("后半期版本");
+        publish_now(&first.head.id).await;
+        publish_now(&second.head.id).await;
 
         let hit = handler::effective_of(StandardEffectiveQuery {
             material_id: Some(product.to_string()),
@@ -396,15 +472,20 @@ mod db {
         let (start, end) = dto::period_window(&period).expect("期间");
         let mid = start + Duration::days(9);
 
-        handler::create_standard(None, create_req(steady, start, Some(end), vec![]))
+        let steady_card = handler::create_standard(None, create_req(steady, start, Some(end), vec![]))
             .await
             .expect("整期一版");
-        handler::create_standard(None, create_req(switching, start, Some(mid), vec![]))
+        let first_switch = handler::create_standard(None, create_req(switching, start, Some(mid), vec![]))
             .await
             .expect("换版前半");
-        handler::create_standard(None, create_req(switching, mid + Duration::days(1), Some(end), vec![]))
-            .await
-            .expect("换版后半");
+        let second_switch =
+            handler::create_standard(None, create_req(switching, mid + Duration::days(1), Some(end), vec![]))
+                .await
+                .expect("换版后半");
+        // M5-10：矩阵只出**已发布**的版本，所以三张卡都得走发布审批
+        publish_now(&steady_card.head.id).await;
+        publish_now(&first_switch.head.id).await;
+        publish_now(&second_switch.head.id).await;
 
         let sheet = handler::period_sheet(crate::business::erp::cost::cost_standard_dto::PeriodSheetQuery {
             period_code: Some(period.clone()),
@@ -613,6 +694,8 @@ mod db {
         let old = handler::create_standard(None, create_req(product, day(-5), Some(day(25)), vec![]))
             .await
             .expect("旧版");
+        // M5-10：`status` 的启用/失效只对**已发布**的版本开放（未发布要先走发布审批）
+        publish_now(&old.head.id).await;
 
         // 有效窗口内直接建新版 ⇒ 409
         let err = handler::create_standard(None, create_req(product, day(10), Some(day(40)), vec![]))
@@ -660,6 +743,7 @@ mod db {
         assert_eq!(new_one.head.version_no, 2);
         assert_eq!(new_one.head.effective_from, day(-5).to_string(), "同生效日重建");
         assert!(new_one.head.status == dto::STATUS_ACTIVE);
+        publish_now(&new_one.head.id).await;
 
         // 再启用旧版 ⇒ 与新版重叠 ⇒ 409
         let err = handler::set_status(
