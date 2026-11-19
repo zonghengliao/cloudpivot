@@ -903,6 +903,21 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '在制品', permission: 'business:erp:cost-object:list' },
       },
       {
+        // ==================== ERP 成本：成本还原（M5-30 · 还原明细 + 还原后报表） ====================
+        // `sys_menu` 种子（V0472 …d601）path = `/business/erp/cost-restore`、component
+        // `business/erp/cost-restore/index`，auth_code `business:erp:cost-object:list`
+        // （**复用**读码：M5-27 还原表与 M5-28 报表的接口闸都是它，本页零写动作），
+        // 挂在「成本核算」目录（`/business/erp/cost`，V0390 建）sort 78 ——
+        // 排在「在制品」之后：在制品看期末存量的结账视角，成本还原看这笔钱最后变成了什么料工费。
+        // 两个页签（还原明细 / 还原后报表）都在本页内，没有独立路由。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/cost-restore',
+        name: 'BusinessErpCostRestore',
+        component: () => import('@/views/business/erp/cost-restore/index.vue'),
+        meta: { title: '成本还原', permission: 'business:erp:cost-object:list' },
+      },
+      {
         // ==================== HR：员工档案（ARCH-9 §6.1 #1 / HR-18） ====================
         // `sys_menu` 种子（V0387 `…e001`）path = `/business/hr/employee`、component
         // `business/hr/employee/index`、页面码 `business:hr:employee:page`、

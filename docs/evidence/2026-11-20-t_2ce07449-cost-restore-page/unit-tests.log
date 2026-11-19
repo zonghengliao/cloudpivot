@@ -1,0 +1,220 @@
+TAP version 13
+# Subtest: buildRollupQuery：期间必填，非法一律返回 null（页面不发请求）
+ok 1 - buildRollupQuery：期间必填，非法一律返回 null（页面不发请求）
+  ---
+  duration_ms: 1.122734
+  type: 'test'
+  ...
+# Subtest: buildRollupQuery：合法期间 + 缺省值 + 空白关键字整键缺席
+ok 2 - buildRollupQuery：合法期间 + 缺省值 + 空白关键字整键缺席
+  ---
+  duration_ms: 0.16467
+  type: 'test'
+  ...
+# Subtest: buildRollupQuery：关键字 trim 后照发；页码 / 页大小非法回落到 1 / PAGE_SIZE
+ok 3 - buildRollupQuery：关键字 trim 后照发；页码 / 页大小非法回落到 1 / PAGE_SIZE
+  ---
+  duration_ms: 0.083377
+  type: 'test'
+  ...
+# Subtest: depthValue：0 / 负数 / 非数字 ⇒ 默认 6；超上限夹到 12；字符串数字照收
+ok 4 - depthValue：0 / 负数 / 非数字 ⇒ 默认 6；超上限夹到 12；字符串数字照收
+  ---
+  duration_ms: 0.08196
+  type: 'test'
+  ...
+# Subtest: buildReportQuery：维度透传 / 未知维度回落 dept / 期间非法返回 null
+ok 5 - buildReportQuery：维度透传 / 未知维度回落 dept / 期间非法返回 null
+  ---
+  duration_ms: 0.199338
+  type: 'test'
+  ...
+# Subtest: defaultRestoreFilter：本月 + 全部状态 + 6 层 + 按车间
+ok 6 - defaultRestoreFilter：本月 + 全部状态 + 6 层 + 按车间
+  ---
+  duration_ms: 0.068918
+  type: 'test'
+  ...
+# Subtest: 下拉项从词表派生（两处各写一份必然漂移）
+ok 7 - 下拉项从词表派生（两处各写一份必然漂移）
+  ---
+  duration_ms: 0.826644
+  type: 'test'
+  ...
+# Subtest: moneyText：千分位 + 2 位；null / 空串 ⇒ 0.00（金额列专用）
+ok 8 - moneyText：千分位 + 2 位；null / 空串 ⇒ 0.00（金额列专用）
+  ---
+  duration_ms: 0.187546
+  type: 'test'
+  ...
+# Subtest: pctText：不乘 100，null ⇒ 破折号（分母为 0 不是 0%）
+ok 9 - pctText：不乘 100，null ⇒ 破折号（分母为 0 不是 0%）
+  ---
+  duration_ms: 0.3693
+  type: 'test'
+  ...
+# Subtest: signedPctText：带符号百分点（材料通常负 / 工费通常正）
+ok 10 - signedPctText：带符号百分点（材料通常负 / 工费通常正）
+  ---
+  duration_ms: 0.336716
+  type: 'test'
+  ...
+# Subtest: signedAmount：差额补符号，0 就是 0（合计差额恒为 0）
+ok 11 - signedAmount：差额补符号，0 就是 0（合计差额恒为 0）
+  ---
+  duration_ms: 0.198588
+  type: 'test'
+  ...
+# Subtest: shareSumTone：100.01 是正常值；容差 ±0.02 用整数分判
+ok 12 - shareSumTone：100.01 是正常值；容差 ±0.02 用整数分判
+  ---
+  duration_ms: 0.091002
+  type: 'test'
+  ...
+# Subtest: shareSumText：把实际值与容差写出来，不只说「正常」
+ok 13 - shareSumText：把实际值与容差写出来，不只说「正常」
+  ---
+  duration_ms: 0.12642
+  type: 'test'
+  ...
+# Subtest: checkTone / checkText：守恒差额为 0 才算平（整数分，无浮点假报警）
+ok 14 - checkTone / checkText：守恒差额为 0 才算平（整数分，无浮点假报警）
+  ---
+  duration_ms: 0.098044
+  type: 'test'
+  ...
+# Subtest: stateTheme / stateLabelOf：已还原绿、不彻底红、无需还原灰；后端 label 优先
+ok 15 - stateTheme / stateLabelOf：已还原绿、不彻底红、无需还原灰；后端 label 优先
+  ---
+  duration_ms: 0.084669
+  type: 'test'
+  ...
+# Subtest: productText / objectTypeLabel：主数据缺名不留白
+ok 16 - productText / objectTypeLabel：主数据缺名不留白
+  ---
+  duration_ms: 0.08921
+  type: 'test'
+  ...
+# Subtest: unresolvedTone：只有 partial 标红
+ok 17 - unresolvedTone：只有 partial 标红
+  ---
+  duration_ms: 0.063959
+  type: 'test'
+  ...
+# Subtest: summaryCards：8 张、值逐字取自后端 totals（前端不累加）
+ok 18 - summaryCards：8 张、值逐字取自后端 totals（前端不累加）
+  ---
+  duration_ms: 0.304507
+  type: 'test'
+  ...
+# Subtest: summaryCards：不彻底 0 行时该卡转绿并说明「没有钱停在半成品形态」
+ok 19 - summaryCards：不彻底 0 行时该卡转绿并说明「没有钱停在半成品形态」
+  ---
+  duration_ms: 0.101877
+  type: 'test'
+  ...
+# Subtest: elementLines：固定五行（料 / 工 / 费 / 合计 / 不彻底），差额来自后端 delta
+ok 20 - elementLines：固定五行（料 / 工 / 费 / 合计 / 不彻底），差额来自后端 delta
+  ---
+  duration_ms: 0.19613
+  type: 'test'
+  ...
+# Subtest: flowLines：每层守恒自检为 0；破坏一项就标红
+ok 21 - flowLines：每层守恒自检为 0；破坏一项就标红
+  ---
+  duration_ms: 0.150962
+  type: 'test'
+  ...
+# Subtest: flowLines：多层各算各的（各层不相加，层号与节点数照搬）
+ok 22 - flowLines：多层各算各的（各层不相加，层号与节点数照搬）
+  ---
+  duration_ms: 0.096419
+  type: 'test'
+  ...
+# Subtest: semiLines：物料编码 + 名称、批号缺失画破折号、停层话术两态
+ok 23 - semiLines：物料编码 + 名称、批号缺失画破折号、停层话术两态
+  ---
+  duration_ms: 0.205629
+  type: 'test'
+  ...
+# Subtest: rowFacts：item 为 null 说「本期还没算过」，不画 0
+ok 24 - rowFacts：item 为 null 说「本期还没算过」，不画 0
+  ---
+  duration_ms: 0.186005
+  type: 'test'
+  ...
+# Subtest: hintsOf：issues 带「怎么修」；partial 且无原因给兜底；干净行返回空
+ok 25 - hintsOf：issues 带「怎么修」；partial 且无原因给兜底；干净行返回空
+  ---
+  duration_ms: 0.16667
+  type: 'test'
+  ...
+# Subtest: reportCards：8 张，占比取还原后、变化取 pp、两个自检各自判色
+ok 26 - reportCards：8 张，占比取还原后、变化取 pp、两个自检各自判色
+  ---
+  duration_ms: 0.221255
+  type: 'test'
+  ...
+# Subtest: reportCards：占比例外（105）判红
+ok 27 - reportCards：占比例外（105）判红
+  ---
+  duration_ms: 0.098835
+  type: 'test'
+  ...
+# Subtest: groupLines：一页分组逐行映射（含 tooltip 用的原文）
+ok 28 - groupLines：一页分组逐行映射（含 tooltip 用的原文）
+  ---
+  duration_ms: 0.168879
+  type: 'test'
+  ...
+# Subtest: groupLines：按对象维度带副标（产出品 · 批号）
+ok 29 - groupLines：按对象维度带副标（产出品 · 批号）
+  ---
+  duration_ms: 0.259089
+  type: 'test'
+  ...
+# Subtest: scopeHintOf：没有成本核算批次时说明「还原照做」；有批次则为空
+ok 30 - scopeHintOf：没有成本核算批次时说明「还原照做」；有批次则为空
+  ---
+  duration_ms: 0.160337
+  type: 'test'
+  ...
+# Subtest: emptyTextOf：没选期间 / 没取到 / 状态筛掉三种空态说三种话
+ok 31 - emptyTextOf：没选期间 / 没取到 / 状态筛掉三种空态说三种话
+  ---
+  duration_ms: 0.170296
+  type: 'test'
+  ...
+# Subtest: reportEmptyText：没期间 / 没取到 / 没数据三种空态
+ok 32 - reportEmptyText：没期间 / 没取到 / 没数据三种空态
+  ---
+  duration_ms: 0.115377
+  type: 'test'
+  ...
+# Subtest: noteText：去掉 markdown 记号但不动口径原文
+ok 33 - noteText：去掉 markdown 记号但不动口径原文
+  ---
+  duration_ms: 0.221339
+  type: 'test'
+  ...
+# Subtest: rollupBasis / reportBasis：口径三段合并、去记号、去空段
+ok 34 - rollupBasis / reportBasis：口径三段合并、去记号、去空段
+  ---
+  duration_ms: 0.144379
+  type: 'test'
+  ...
+# Subtest: PARTIAL_HINT：讲清「既不算外购料也不丢」与守恒等式
+ok 35 - PARTIAL_HINT：讲清「既不算外购料也不丢」与守恒等式
+  ---
+  duration_ms: 0.140961
+  type: 'test'
+  ...
+1..35
+# tests 35
+# suites 0
+# pass 35
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 144.789955

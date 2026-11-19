@@ -1,0 +1,35 @@
+=== ① 首次应用（克隆库 cp_m530_menu）===
+psql:backend/app/migrations/business/V0472__cost_restore_menu.up.sql:104: NOTICE:  V0472：挂载点为「成本核算」目录 50e28e43-1ccf-4c6a-a644-53937fc76625（sort 78）
+INSERT 0 0
+INSERT 0 0
+INSERT 0 0
+INSERT 0 0
+psql:backend/app/migrations/business/V0472__cost_restore_menu.up.sql:280: NOTICE:  V0472 完成：成本还原页已挂到「成本核算」目录 sort 78（读码复用 cost-object:list，3 个角色已授，祖先闭包已补）
+=== ② 重放（幂等：应 0 行插入）===
+INSERT 0 0
+INSERT 0 0
+INSERT 0 0
+INSERT 0 0
+=== ③ 回滚 ===
+DELETE 3
+DELETE 1
+DELETE 3
+after-down rows=0
+=== ④ 再次应用 ===
+INSERT 0 1
+INSERT 0 3
+INSERT 0 0
+INSERT 0 3
+=== ⑤ 菜单不变量 ===
+库: cp_m530_menu
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            502  ✅ (400-580)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 119 条，全部命中
+结果: 全绿 ✅
