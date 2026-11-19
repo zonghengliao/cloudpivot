@@ -423,3 +423,11 @@ pub mod cost_restore_report_handler;
 /// 占比变化 pp / 主导要素 / 排序 / 空表 / 出参装配 / 合计 = 分组之和。
 #[cfg(test)]
 mod cost_restore_report_tests;
+
+/// M5-29 的**全链路单测**（含真库部分，`ERP_DB_URL` 开关）：一个四层链夹具同时喂
+/// M5-26 结构表 / M5-27 还原表 / M5-28 报表，钉住「三张表在同一个对象、同一个 `max_depth`
+/// 下说同一组数」以及**三级还原**（`max_depth` 1–4 逐档：截断只把材料挡在上一层，
+/// 已拆出的工 / 费一分不动；结构表「结构到底不报截断」与还原表「仍差一层」的口径差）。
+/// 纯逻辑部分（不连库）用合成结构树验同一批算式。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_restore_method_tests;
