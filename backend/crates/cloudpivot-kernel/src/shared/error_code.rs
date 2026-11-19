@@ -1964,6 +1964,18 @@ pub const ERP_COST_STANDARD_DELETE_IN_USE: i32 = 66110;
 /// 后者的出路是「等审批 / 撤回后改 / 先提交审批」，前端给的引导完全不同。
 pub const ERP_COST_STANDARD_PUBLISH_GUARD: i32 = 66111;
 
+/// 成本核算 · **该期间的差异凭证已生成**（HTTP 409，M5-16 · `66112`）。
+///
+/// 差异凭证是「一个会计期间一张」：同期间再发一张 = 同一笔差异记两遍账
+/// （`biz_voucher.source_type='COST_VARIANCE'` + `source_id=会计期间 id`）。
+/// 幂等闸的判据与结算凭证同款：只算**未红冲**的蓝字（`is_red = 0 AND reversed_by IS NULL`），
+/// 红冲之后可以重新生成。
+///
+/// 不复用 [`ERP_COST_FINISH_ALREADY_SETTLED`]（`66074`）：那条锁的是**结算批次**
+/// （红冲入口是「红冲批次」），本码锁的是**期间**（红冲入口是「红冲差异凭证」）；
+/// 前端要跳的页面 / 要给的按钮不一样，混用会把用户送到错误的红冲入口。
+pub const ERP_COST_VARIANCE_VOUCHER_DUPLICATE: i32 = 66112;
+
 /// 科目「是否外币核算」标记非法（HTTP 400，M1-03 · V0408 · `66080`）。
 ///
 /// 只有**末级科目**才能标记外币核算（`ck_biz_account_fc_leaf`）。给非末级科目打标记的

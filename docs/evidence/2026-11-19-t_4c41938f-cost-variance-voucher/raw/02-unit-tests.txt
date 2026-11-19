@@ -1,0 +1,28 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 21 tests
+test business::erp::cost::cost_variance_voucher::tests::attributed_amount_is_not_double_posted ... ok
+test business::erp::cost::cost_variance_voucher::tests::empty_period_yields_empty_draft ... ok
+test business::erp::cost::cost_variance_voucher::tests::large_amounts_stay_at_four_decimals ... ok
+test business::erp::cost::cost_variance_voucher::tests::mixed_period_balances_both_legs ... ok
+test business::erp::cost::cost_variance_voucher::tests::favorable_line_debits_the_variance_account ... ok
+test business::erp::cost::cost_variance_voucher::tests::not_closing_pool_is_rejected ... ok
+test business::erp::cost::cost_variance_voucher::tests::period_mismatch_is_rejected_before_any_db_work ... ok
+test business::erp::cost::cost_variance_voucher::tests::order_is_stable_across_pool_order ... ok
+test business::erp::cost::cost_variance_voucher::tests::entry_line_numbers_are_sequential ... ok
+test business::erp::cost::cost_variance_voucher::tests::policy_override_moves_only_the_touched_element ... ok
+test business::erp::cost::cost_variance_voucher::tests::period_residual_is_rejected ... ok
+test business::erp::cost::cost_variance_voucher::tests::six_types_map_into_the_default_policy ... ok
+test business::erp::cost::cost_variance_voucher::tests::rounding_adjustment_rides_on_the_line ... ok
+test business::erp::cost::cost_variance_voucher::tests::summary_names_object_type_and_period ... ok
+test business::erp::cost::cost_variance_voucher::tests::unfavorable_line_credits_the_variance_account ... ok
+test business::erp::cost::cost_variance_voucher::tests::unresolved_variance_account_is_rejected ... ok
+test business::erp::cost::cost_variance_voucher::tests::voucher_date_outside_period_is_rejected ... ok
+test business::erp::cost::cost_variance_voucher::tests::unknown_variance_type_is_rejected ... ok
+test business::erp::cost::cost_variance_voucher::tests::zero_basis_lines_are_skipped ... ok
+test business::erp::cost::cost_variance_voucher::tests::zero_pool_yields_empty_draft ... ok
+test business::erp::cost::cost_variance_voucher::tests::variance_codes_are_deduped_and_sorted ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 6969 filtered out; finished in 0.00s
+

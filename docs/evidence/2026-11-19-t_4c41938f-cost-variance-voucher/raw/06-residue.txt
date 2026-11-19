@@ -1,0 +1,4 @@
+# 差异凭证真跑后残留检查（clone 自 cp_m511_test）
+COST_VARIANCE 凭证行数=0
+27xx-11 会计期间行数=0
+DROPPED

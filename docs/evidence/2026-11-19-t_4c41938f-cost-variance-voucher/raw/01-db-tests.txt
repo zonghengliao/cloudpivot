@@ -1,0 +1,18 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 29s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 5 tests
+test business::erp::cost::cost_variance_voucher_db_tests::db::closed_period_is_rejected_without_writing ... [M5-16 ④] 真库期间闸：已结账期间拒绝落差异凭证，零残留 ✓
+ok
+test business::erp::cost::cost_variance_voucher_db_tests::db::empty_draft_posts_nothing ... [M5-16 ③] 真库空草案：0 张凭证（不造空单）✓
+ok
+test business::erp::cost::cost_variance_voucher_db_tests::db::posts_one_balanced_voucher_for_a_period ... [M5-16 ①] 真库差异凭证：1 张 / 5 行 / Σ借=Σ贷=1500 ✓
+ok
+test business::erp::cost::cost_variance_voucher_db_tests::db::second_post_is_rejected_without_writing ... [M5-16 ②] 真库幂等闸：409 + 66112，凭证仍是 1 张 ✓
+ok
+test business::erp::cost::cost_variance_voucher_db_tests::db::variance_accounts_exist_and_are_leaf ... [M5-16 ⑤] 科目前置：1404 / 5401 存在且为启用的末级科目 ✓
+ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 6985 filtered out; finished in 0.11s
+
