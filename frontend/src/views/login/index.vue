@@ -1,5 +1,9 @@
 <template>
-  <div class="login">
+  <div ref="loginEl" class="login">
+    <!-- 背景网格：方格 40 / 六边形中（R=26），一波一波地"呼吸"。
+         与品牌区的星座 canvas 是两层独立的：这一层铺满整页、在卡片下面。 -->
+    <canvas ref="bgCanvas" class="login__bg" aria-hidden="true"></canvas>
+
     <div class="login__panel">
       <!-- 左侧品牌区：柔和渐变底 + 一句话定位 -->
       <section
@@ -90,6 +94,26 @@
         <p class="login__signup">还没有账号？<b>联系管理员开通</b></p>
       </section>
     </div>
+
+    <!-- 底部形状切换：方格 40 / 六边形中。选择写入 localStorage，下次进来还是这个 -->
+    <div class="login__bg-switch" role="group" aria-label="背景形状">
+      <button
+        type="button"
+        class="login__bg-btn"
+        :class="{ 'login__bg-btn--on': bgShape === 'square' }"
+        @click="switchBg('square')"
+      >
+        方格
+      </button>
+      <button
+        type="button"
+        class="login__bg-btn"
+        :class="{ 'login__bg-btn--on': bgShape === 'hex' }"
+        @click="switchBg('hex')"
+      >
+        六边形
+      </button>
+    </div>
   </div>
 </template>
 
@@ -103,6 +127,7 @@ import { useUserStore } from '@/stores/user';
 import { clearLogoutBroadcast, resetActivity, takeIdleRedirect } from '@/utils/idle-activity';
 import { safeRedirect } from '@/utils/safe-redirect';
 import { useConstellationFx } from '@/composables/use-constellation-fx';
+import { useLoginBgFx, type LoginBgShape } from '@/composables/use-login-bg-fx';
 
 const route = useRoute();
 const router = useRouter();
@@ -113,6 +138,34 @@ const userStore = useUserStore();
 const brandEl = ref<HTMLElement | null>(null);
 const fxCanvas = ref<HTMLCanvasElement | null>(null);
 const fx = useConstellationFx(fxCanvas, brandEl, { glow: false });
+
+// ---------- 背景网格（方格 40 / 六边形中）----------
+const loginEl = ref<HTMLElement | null>(null);
+const bgCanvas = ref<HTMLCanvasElement | null>(null);
+
+/** 形状偏好：存 localStorage，下次进来沿用 */
+const BG_SHAPE_KEY = 'cloudpivot-login-bg-shape';
+
+function readSavedShape(): LoginBgShape {
+  try {
+    const v = localStorage.getItem(BG_SHAPE_KEY);
+    return v === 'square' || v === 'hex' ? v : 'hex';
+  } catch {
+    // 隐私模式 / 配额满：回默认
+    return 'hex';
+  }
+}
+
+const { shape: bgShape, setShape: setBgShape } = useLoginBgFx(bgCanvas, loginEl, readSavedShape());
+
+function switchBg(s: LoginBgShape) {
+  setBgShape(s);
+  try {
+    localStorage.setItem(BG_SHAPE_KEY, s);
+  } catch {
+    // 存不了就只在本会话生效
+  }
+}
 
 /** 登录表单数据 */
 const formData = reactive<LoginParams>({ username: '', password: '' });
@@ -192,44 +245,33 @@ async function handleSubmit(): Promise<void> {
   // 雾面纸主底（深色主题走 --app-login-bg）
   background: var(--app-login-bg);
 
-  // ① 背景装饰层：网格（科技感底纹）+ 两团光晕，全部跟配色走（用第 4 色 border）
-  //    网格用 56px 正交线，mask 从中心向外化开避免出现硬边；
-  //    整体 14s 呼吸一次（opacity .58 → .95），静止时也在"活"，但不动鼠标不会分散注意。
+  // ① 背景光晕：网格已交给 canvas（.login__bg），这里只留两团柔光
   &::before {
     position: absolute;
     inset: -15%;
     content: '';
     pointer-events: none;
     background:
-      // 竖向网格线
-      linear-gradient(
-          to right,
-          color-mix(in srgb, var(--td-component-border) 20%, transparent) 1px,
-          transparent 1px
-        )
-        0 0 / 56px 56px,
-      // 横向网格线
-      linear-gradient(
-          to bottom,
-          color-mix(in srgb, var(--td-component-border) 20%, transparent) 1px,
-          transparent 1px
-        )
-        0 0 / 56px 56px,
-      // 左上主色光晕
       radial-gradient(
         circle at 14% 16%,
         color-mix(in srgb, var(--app-brand) 13%, transparent) 0%,
         transparent 44%
       ),
-      // 右下第 4 色光晕
       radial-gradient(
         circle at 86% 84%,
         color-mix(in srgb, var(--td-component-border) 16%, transparent) 0%,
         transparent 48%
       );
-    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 22%, transparent 76%);
-    mask-image: radial-gradient(ellipse at 50% 50%, #000 22%, transparent 76%);
-    animation: login-bg-breath 14s ease-in-out infinite;
+  }
+
+  // 背景网格画布：铺满整页、在卡片下面（卡片 z-index 更高）
+  &__bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
 
   // ② 大图标水印：右下角半出画，极淡（5%），只做肌理不做主体。
@@ -277,6 +319,47 @@ async function handleSubmit(): Promise<void> {
   .login::before {
     animation: none;
     opacity: 0.75;
+  }
+}
+
+// 底部形状切换：贴在登录页底边，卡片之外
+.login__bg-switch {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  transform: translateX(-50%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 58%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 2px 12px rgb(111 138 184 / 12%);
+}
+
+.login__bg-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 12.5px;
+  line-height: 1.2;
+  color: var(--td-text-color-secondary, #5b6b78);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
+
+  &:hover {
+    color: var(--td-text-color-primary, #33414d);
+  }
+
+  &--on {
+    background: var(--td-brand-color-7, #56729f);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgb(86 114 159 / 30%);
   }
 }
 
