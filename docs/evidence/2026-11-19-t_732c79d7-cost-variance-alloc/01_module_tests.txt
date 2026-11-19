@@ -1,0 +1,48 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 49s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 40 tests
+test business::erp::cost::cost_variance_alloc_dto::tests::all_zero_basis_is_409_not_a_silent_zero_allocation ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::allocates_material_price_variance_by_actual_qty ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::already_attributed_part_is_not_allocated_twice ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::amount_beyond_the_numeric_range_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::amount_scale_above_four_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::attributed_can_carry_the_opposite_sign ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::basis_labels_and_requirements_cover_the_whole_value_range ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::canonical_element_agrees_with_the_qty_module ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::conservation_assert_fires_on_a_broken_outcome ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::default_basis_maps_all_six_types ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::delegates_to_the_overhead_largest_remainder_arithmetic ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::duplicate_objects_are_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::element_must_match_the_variance_type ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::favorable_pool_keeps_the_sign_and_still_closes ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::fully_attributed_pool_allocates_nothing_and_is_not_an_error ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::labor_pool_with_material_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::largest_remainder_closes_the_pool_exactly ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::material_pool_without_material_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::negative_basis_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::no_objects_with_money_is_409_with_a_fix_hint ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::normalize_basis_prefers_the_rule_and_marks_its_source ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::normalize_basis_rejects_typos_instead_of_silently_defaulting ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::period_allocates_several_pools_and_closes ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::period_code_format_is_validated ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::period_rejects_a_pool_from_another_period ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::period_rejects_duplicate_pool_keys ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::period_with_no_pools_is_a_legal_empty_result ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::rounding_lands_on_one_line_even_with_many_objects ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::rule_basis_overrides_the_type_default ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::rule_by_default_has_no_basis_and_a_traceable_code ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::rule_code_is_required ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::share_rate_must_not_be_used_as_money ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::six_types_each_allocate_end_to_end ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::summary_line_names_the_rule_pool_and_totals ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::unknown_object_status_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::unknown_rule_basis_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::unknown_variance_type_is_rejected ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::variance_labels_agree_with_the_formula_modules ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::zero_basis_object_stays_in_the_result ... ok
+test business::erp::cost::cost_variance_alloc_dto::tests::zero_pool_without_objects_is_fine ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 6924 filtered out; finished in 0.03s
+

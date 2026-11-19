@@ -268,6 +268,11 @@ pub mod cost_uncollected_dto;
 pub mod cost_uncollected_handler;
 /// 「未归集清单」取数层（领料未挂对象 / 工时行数 / 池余额 / 批次），B2-12。
 pub mod cost_uncollected_model;
+/// 差异分解的 **契约层与纯逻辑**（M5-15）：差异池（六类差异 × 期间 × 物料）按规则基数
+/// 摊到成本对象，最大余数法单行收尾差，`Σ分摊 = 待分摊额` 与
+/// `已归属 + 已摊 = 差异合计` 双恒等式硬断言；含负数池（有利差异）的符号处理与
+/// 期间级批量守恒。算数复用 B2-10 的 `cost_alloc_rule_dto::allocate`，零 DB、零路由。
+pub mod cost_variance_alloc_dto;
 /// 差异分解的 **契约层与纯逻辑**（M5-12）：材料价差 `(实际价 − 标准价) × 实际量` 的算数、
 /// 取整口径（按项 4 位）、分水岭（量差 M5-13 从同一处出发）与输入域护栏。零 DB、零路由。
 pub mod cost_variance_dto;

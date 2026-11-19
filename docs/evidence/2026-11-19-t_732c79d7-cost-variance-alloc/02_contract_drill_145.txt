@@ -1,0 +1,46 @@
+BEGIN
+INSERT 0 6
+ variance_type | element  |  amount   |  direction  
+---------------+----------+-----------+-------------
+ LABOR_EFF     | LABOR    |  500.0000 | UNFAVORABLE
+ LABOR_RATE    | LABOR    | -180.0000 | FAVORABLE
+ MAT_PRICE     | MATERIAL |  600.0000 | UNFAVORABLE
+ MAT_QTY       | MATERIAL | 3840.0000 | UNFAVORABLE
+ OH_SPEND      | OVERHEAD | 1200.0000 | UNFAVORABLE
+ OH_VOLUME     | OVERHEAD | -400.0000 | FAVORABLE
+(6 rows)
+
+psql:/opt/cloudpivot/docs/evidence/2026-11-19-t_732c79d7-cost-variance-alloc/contract_drill.sql:55: NOTICE:  [OK] ck_biz_cost_var_sign 拒绝「负金额 + UNFAVORABLE」
+psql:/opt/cloudpivot/docs/evidence/2026-11-19-t_732c79d7-cost-variance-alloc/contract_drill.sql:55: NOTICE:  [OK] ck_biz_cost_var_sign 拒绝「正金额 + FAVORABLE」
+psql:/opt/cloudpivot/docs/evidence/2026-11-19-t_732c79d7-cost-variance-alloc/contract_drill.sql:55: NOTICE:  [INFO] 0 金额 + FAVORABLE 库层是否接受 = t（CHECK 是 >=0 / <=0，两者都合法）
+psql:/opt/cloudpivot/docs/evidence/2026-11-19-t_732c79d7-cost-variance-alloc/contract_drill.sql:55: NOTICE:  [OK] 0 金额 + UNFAVORABLE 被接受（零基数对象的分摊行照此落库）
+DO
+INSERT 0 1
+ amount_after_insert |                  note                   
+---------------------+-----------------------------------------
+              0.0001 | 0.0001 = PG round(0.00005,4) 半数远离零
+(1 row)
+
+INSERT 0 4
+ pool_equals_alloc_sum | alloc_sum 
+-----------------------+-----------
+ t                     | 1000.0000
+(1 row)
+
+ pool_is_attributed_plus_allocatable 
+-------------------------------------
+ t
+(1 row)
+
+ pg_trunc4 | pg_round4 | largest_remainder_sum 
+-----------+-----------+-----------------------
+  333.3333 |  333.3333 |             1000.0000
+(1 row)
+
+INSERT 0 4
+ neg_pool_equals_alloc_sum 
+---------------------------
+ t
+(1 row)
+
+ROLLBACK
