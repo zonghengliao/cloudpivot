@@ -949,5 +949,5 @@ test business::erp::cost::cost_uncollected_model::tests::pool_sql_placeholder_co
 test business::erp::cost::cost_uncollected_model::tests::rule_overlap_window_covers_effective_range ... ok
 test business::erp::cost::cost_uncollected_model::tests::stock_out_scope_is_the_mirror_of_material_collection ... ok
 
-test result: ok. 946 passed; 0 failed; 0 ignored; 0 measured; 5897 filtered out; finished in 10.73s
+test result: ok. 946 passed; 0 failed; 0 ignored; 0 measured; 5897 filtered out; finished in 11.62s
 

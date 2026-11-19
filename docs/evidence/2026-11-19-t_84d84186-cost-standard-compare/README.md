@@ -53,10 +53,10 @@ GET /api/business/erp/report/cost-variance
 
 | 证据文件 | 内容 | 结果 |
 |---|---|---|
-| `01_module_tests.out` | `cargo test --lib cost_standard_compare`（真库 `cp_m511_cmp`） | **43 passed / 0 failed**（37 纯 + 6 真库） |
+| `01_module_tests.out` | `cargo test --lib cost_standard_compare`（真库 `cp_m511_test`） | **43 passed / 0 failed**（37 纯 + 6 真库） |
 | `02_cost_domain.out` | `cargo test --lib business::erp::cost:: -- --test-threads=1` | **946 passed / 0 failed** |
 | `03_permission_audit.out` | `system::menu::permission_audit_tests` | **8 passed**（路由全带闸、零新增死码） |
-| `04_menu_invariants.out` | `scripts/verify/menu_invariants.sh cp_m511_cmp` | **8 项全绿**（菜单 570，本卡未种菜单） |
+| `04_menu_invariants.out` | `scripts/verify/menu_invariants.sh cp_m511_test` | **8 项全绿**（菜单 570，本卡未种菜单） |
 | `05_static_checks.out` | `cargo fmt --check` / `cargo clippy -p cloudpivot -p cloudpivot-doc -p cloudpivot-kernel --lib --tests -D warnings` | rc=0 / rc=0 |
 | 前端 | 无改动（本卡纯后端；标准成本页 = M5-18，差异分析页 = M5-19） | N/A |
 

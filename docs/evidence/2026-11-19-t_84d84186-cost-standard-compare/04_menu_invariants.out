@@ -1,5 +1,5 @@
 ═══ 菜单结构不变量 ═══
-库: cp_m511_cmp
+库: cp_m511_test
 ① 孤儿 parent:           0  ✅
 ② /system/ 归属:         0  ✅
 ③ /business/ 归属:       0  ✅

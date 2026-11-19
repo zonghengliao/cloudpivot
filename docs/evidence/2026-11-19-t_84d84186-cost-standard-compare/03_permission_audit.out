@@ -1,4 +1,4 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
      Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
 
 running 8 tests
@@ -11,5 +11,5 @@ test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have
 test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... ok
 test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6835 filtered out; finished in 1.16s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6835 filtered out; finished in 0.94s
 
