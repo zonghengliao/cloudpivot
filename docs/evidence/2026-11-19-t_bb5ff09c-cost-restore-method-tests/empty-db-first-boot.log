@@ -1,0 +1,5 @@
+[2m2026-11-19T16:07:08.132936Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 400 个迁移
+[2m2026-11-19T16:07:08.485639Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-19T16:07:08.876250Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 3451ms
+库统计: tables=203 migrations=400（information_schema / schema_migrations 直查）
+启动后 GET /health = 200
