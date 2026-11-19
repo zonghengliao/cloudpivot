@@ -1,0 +1,2 @@
+== cargo fmt --check（本卡 4 个新文件 + mod.rs）
+FMT_OK rc=0

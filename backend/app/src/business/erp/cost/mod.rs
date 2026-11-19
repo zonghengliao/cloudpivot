@@ -290,6 +290,23 @@ pub mod cost_variance_voucher;
 /// 已结账期间拒绝且零残留 / 科目 1404·5401 是启用末级。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_variance_voucher_db_tests;
+/// M5-22 的真库用例（`ERP_DB_URL` 开关）：料工费三要素逐项分配 / 期初还原到要素 /
+/// 全部完工与全部在制两个端点 / 与真 calc 的计算单逐字段对拍 / 改数后漂移 /
+/// 算不出来的行给空值 / 数据范围 404 不泄漏 / 合计整表 / 清场零残留。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_wip_alloc_db_tests;
+/// 在制品「料工费在完工与在制之间分配」的**契约层与纯逻辑**（M5-22）：成本池（期初还原 +
+/// 本期投入）/ 分配率（材料用材料约当、工费用加工约当）/ 完工与在制的拆分（差额倒挤，
+/// 三要素合计守恒）/ 与计算单逐字段对拍 / 整表合计。分母直接复用 M5-20 的 `equiv_of`。
+/// 零 DB、零迁移、零新增权限码。
+pub mod cost_wip_alloc_dto;
+/// 分配表 **接口层**（M5-22）：`GET /business/erp/cost-wip-alloc`
+/// （期间必填 + 关键字 + 五档状态筛选 + 分页 + 整表合计）。复用 `cost-object:list`。
+pub mod cost_wip_alloc_handler;
+/// 分配表 **取数层**（M5-22）：一条 SQL 取回对象 + 最近一期已结算计算单（期初还原）+
+/// 前期已结算汇总 + 本期三要素归集 + 本期计算单快照（无 N+1）。
+/// 数据范围复用 `biz_cost_object` 锚点。
+pub mod cost_wip_alloc_model;
 /// M5-20 的真库用例（`ERP_DB_URL` 开关）：完工率 × 数量 / 跨月前期完工扣减 /
 /// 与真 calc 的计算单对拍一致 / 改完工率后漂移 / 算不出来的行 / 数据范围 404 不泄漏 /
 /// 无批次照出试算视图 / 合计与筛选 / 清场零残留。只在 `cargo test` 时编译。

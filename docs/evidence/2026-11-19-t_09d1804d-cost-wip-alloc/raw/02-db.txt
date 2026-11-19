@@ -1,0 +1,31 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 27s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-9904012588b27c77)
+
+running 10 tests
+test business::erp::cost::cost_wip_alloc_db_tests::db::v1_splits_three_elements_by_equivalence ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v2_prior_settled_rows_become_beginning_elements ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v3_agrees_with_the_real_calc_item ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v4_changing_a_collect_amount_flags_drift ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v5_all_finished_puts_the_whole_pool_into_finished ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v6_wip_without_pct_is_blocked_not_zero ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v7_no_batch_still_shows_the_trial_table ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v8_other_workshop_sees_nothing ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::v9_totals_are_the_whole_table_and_filters_narrow ... ok
+test business::erp::cost::cost_wip_alloc_db_tests::db::zz_teardown_leaves_zero_residue ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 7150 filtered out; finished in 0.24s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_doc-10a40529c8efa4ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot_kernel-189aa0f35f699c21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 0.00s
+
+EXIT=0
