@@ -192,24 +192,44 @@ async function handleSubmit(): Promise<void> {
   // 雾面纸主底（深色主题走 --app-login-bg）
   background: var(--app-login-bg);
 
-  // ① 两团配色光晕：左上走主色、右下走强调色，随配色切换整体换色。
-  //    透明度压得很低（12~14%），只负责让白底"有呼吸"，不抢卡片。
+  // ① 背景装饰层：网格（科技感底纹）+ 两团光晕，全部跟配色走（用第 4 色 border）
+  //    网格用 56px 正交线，mask 从中心向外化开避免出现硬边；
+  //    整体 14s 呼吸一次（opacity .58 → .95），静止时也在"活"，但不动鼠标不会分散注意。
   &::before {
     position: absolute;
     inset: -15%;
     content: '';
     pointer-events: none;
     background:
+      // 竖向网格线
+      linear-gradient(
+          to right,
+          color-mix(in srgb, var(--td-component-border) 20%, transparent) 1px,
+          transparent 1px
+        )
+        0 0 / 56px 56px,
+      // 横向网格线
+      linear-gradient(
+          to bottom,
+          color-mix(in srgb, var(--td-component-border) 20%, transparent) 1px,
+          transparent 1px
+        )
+        0 0 / 56px 56px,
+      // 左上主色光晕
       radial-gradient(
         circle at 14% 16%,
-        color-mix(in srgb, var(--app-brand) 14%, transparent) 0%,
+        color-mix(in srgb, var(--app-brand) 13%, transparent) 0%,
         transparent 44%
       ),
+      // 右下第 4 色光晕
       radial-gradient(
         circle at 86% 84%,
-        color-mix(in srgb, var(--app-brand-accent) 16%, transparent) 0%,
+        color-mix(in srgb, var(--td-component-border) 16%, transparent) 0%,
         transparent 48%
       );
+    -webkit-mask-image: radial-gradient(ellipse at 50% 50%, #000 22%, transparent 76%);
+    mask-image: radial-gradient(ellipse at 50% 50%, #000 22%, transparent 76%);
+    animation: login-bg-breath 14s ease-in-out infinite;
   }
 
   // ② 大图标水印：右下角半出画，极淡（5%），只做肌理不做主体。
@@ -239,6 +259,27 @@ async function handleSubmit(): Promise<void> {
   }
 }
 
+// 背景网格 + 光晕的整体呼吸：14s 一轮，幅度很小（.58 → .95），
+// 只让背景"活着"，不会让人盯着看。
+@keyframes login-bg-breath {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+
+  50% {
+    opacity: 0.95;
+  }
+}
+
+// 动效偏好：用户要求减少动画 → 网格保持一个静态的中间亮度
+@media (prefers-reduced-motion: reduce) {
+  .login::before {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
 .login__panel {
   position: relative;
   z-index: 1; // 压在 .login 的装饰伪元素（光晕 / 水印）之上
@@ -265,7 +306,7 @@ async function handleSubmit(): Promise<void> {
   background: var(--app-login-brand);
 }
 
-// 柔光装饰：不抢内容，只负责让渐变不死板（强调色随配色走，不再写死流金）
+// 柔光装饰：不抢内容，只负责让渐变不死板（用配色的第 4 色 border/渐染色，不用 accent）
 .login__brand-glow {
   position: absolute;
   top: -120px;
@@ -274,7 +315,7 @@ async function handleSubmit(): Promise<void> {
   height: 320px;
   background: radial-gradient(
     circle,
-    color-mix(in srgb, var(--app-brand-accent) 30%, transparent) 0%,
+    color-mix(in srgb, var(--td-component-border) 34%, transparent) 0%,
     transparent 70%
   );
   pointer-events: none;
