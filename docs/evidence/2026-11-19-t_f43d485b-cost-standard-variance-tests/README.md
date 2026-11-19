@@ -62,6 +62,7 @@ M5-14 效率差三个生产入口放进**同一张标准成本卡**里跑，钉�
 | `raw/03-cost-domain.txt` | `cargo test -p cloudpivot --lib business::erp::cost:: -- --test-threads=1` | **1122 passed / 0 failed**（M5-16 时 1093：+29 本卡，**零回归**） |
 | `raw/04-permission-audit.txt` | `cargo test -p cloudpivot --lib system::menu::permission_audit_tests` | **8 passed**（无新增路由/权限码） |
 | `raw/05-fmt.txt` | `cargo fmt -p cloudpivot -- --check` | **rc=0**（空输出即无 diff；只动本卡两个文件） |
+| `raw/06-pre-push.txt` | `bash scripts/check.sh --fast`（L0+L1，push 前门禁） | **rc=0 / 全部检查通过**（pre-push 钩子复跑 103s 亦通过） |
 | 前端 | — | **N/A**（纯后端，无前端改动；标准成本页 = M5-18，差异分析页 = M5-19） |
 | 数据库 | — | **N/A**（零迁移；用例不连库，见下「为什么不做真库用例」） |
 
